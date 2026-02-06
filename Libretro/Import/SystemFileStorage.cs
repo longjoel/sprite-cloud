@@ -1,10 +1,14 @@
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace games_vault.Libretro.Import;
 
-public sealed class SystemFileStorage(IWebHostEnvironment env)
+public sealed class SystemFileStorage(IWebHostEnvironment env, IOptions<LibraryStorageOptions> options)
 {
-    private string RootPath => Path.GetFullPath(Path.Combine(env.ContentRootPath, "App_Data", "library", "system"));
+    private readonly LibraryStorageOptions _options = options.Value ?? new LibraryStorageOptions();
+
+    private string LibraryRootPath => ResolveRootPath(_options.RootPath);
+    private string SystemRootPath => Path.GetFullPath(Path.Combine(LibraryRootPath, "system"));
 
     public string GetAbsoluteSystemPath(string relativePath)
     {
@@ -24,8 +28,8 @@ public sealed class SystemFileStorage(IWebHostEnvironment env)
             throw new InvalidOperationException("Invalid relative path.");
         }
 
-        var abs = Path.GetFullPath(Path.Combine(RootPath, relativePath));
-        var root = Path.GetFullPath(RootPath);
+        var abs = Path.GetFullPath(Path.Combine(SystemRootPath, relativePath));
+        var root = EnsureTrailingSeparator(Path.GetFullPath(SystemRootPath));
         if (!abs.StartsWith(root, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("Invalid relative path.");
@@ -41,12 +45,27 @@ public sealed class SystemFileStorage(IWebHostEnvironment env)
             throw new ArgumentException("Storage path is required.", nameof(storagePath));
         }
 
-        var abs = Path.GetFullPath(Path.Combine(env.ContentRootPath, storagePath));
-        var root = Path.GetFullPath(Path.Combine(env.ContentRootPath, "App_Data"));
+        // Back-compat: older paths are stored relative to content root under App_Data.
+        var normalized = storagePath.Replace('\\', '/').TrimStart('/');
+        if (normalized.StartsWith("App_Data/", StringComparison.OrdinalIgnoreCase))
+        {
+            var absLegacy = Path.GetFullPath(Path.Combine(env.ContentRootPath, normalized.Replace('/', Path.DirectorySeparatorChar)));
+            var legacyRoot = EnsureTrailingSeparator(Path.GetFullPath(Path.Combine(env.ContentRootPath, "App_Data")));
+            if (!absLegacy.StartsWith(legacyRoot, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Invalid storage path.");
+            }
+            return absLegacy;
+        }
+
+        // New paths are relative to the configured library root.
+        var abs = Path.GetFullPath(Path.Combine(LibraryRootPath, normalized.Replace('/', Path.DirectorySeparatorChar)));
+        var root = EnsureTrailingSeparator(Path.GetFullPath(LibraryRootPath));
         if (!abs.StartsWith(root, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("Invalid storage path.");
         }
+
         return abs;
     }
 
@@ -55,7 +74,7 @@ public sealed class SystemFileStorage(IWebHostEnvironment env)
         string relativePath,
         CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory(RootPath);
+        Directory.CreateDirectory(SystemRootPath);
 
         var abs = GetAbsoluteSystemPath(relativePath);
         var dir = Path.GetDirectoryName(abs);
@@ -68,7 +87,7 @@ public sealed class SystemFileStorage(IWebHostEnvironment env)
         await using var output = File.Create(abs);
         await input.CopyToAsync(output, cancellationToken);
 
-        return Path.Combine("App_Data", "library", "system", relativePath.Replace('\\', '/')).Replace('\\', '/');
+        return Path.Combine("system", relativePath.Replace('\\', '/')).Replace('\\', '/');
     }
 
     public async Task<string> StoreAsync(
@@ -78,10 +97,10 @@ public sealed class SystemFileStorage(IWebHostEnvironment env)
         string? crc32,
         CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory(RootPath);
+        Directory.CreateDirectory(SystemRootPath);
 
         var systemFolder = SanitizeFolderName(systemName);
-        var systemRoot = Path.Combine(RootPath, systemFolder);
+        var systemRoot = Path.Combine(SystemRootPath, systemFolder);
         Directory.CreateDirectory(systemRoot);
 
         var original = TryGetOriginalFileName(displayName) ?? "system-file.bin";
@@ -98,7 +117,28 @@ public sealed class SystemFileStorage(IWebHostEnvironment env)
         await using var output = File.Create(abs);
         await input.CopyToAsync(output, cancellationToken);
 
-        return Path.Combine("App_Data", "library", "system", systemFolder, fileName).Replace('\\', '/');
+        return Path.Combine("system", systemFolder, fileName).Replace('\\', '/');
+    }
+
+    private string ResolveRootPath(string? configuredRootPath)
+    {
+        configuredRootPath = (configuredRootPath ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(configuredRootPath))
+        {
+            configuredRootPath = "App_Data/library";
+        }
+
+        var abs = Path.IsPathRooted(configuredRootPath)
+            ? Path.GetFullPath(configuredRootPath)
+            : Path.GetFullPath(Path.Combine(env.ContentRootPath, configuredRootPath));
+
+        return abs;
+    }
+
+    private static string EnsureTrailingSeparator(string path)
+    {
+        path = Path.GetFullPath(path);
+        return path.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
     }
 
     private static string? TryGetOriginalFileName(string displayName)

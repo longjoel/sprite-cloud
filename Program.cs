@@ -27,6 +27,7 @@ builder.Services.AddBackgroundJobs();
 builder.Services.AddHttpClient();
 builder.Services.AddMemoryCache();
 builder.Services.AddLibretroDatabase(builder.Configuration);
+builder.Services.Configure<games_vault.Libretro.Import.LibraryStorageOptions>(builder.Configuration.GetSection("Library"));
 builder.Services.Configure<WebPlayerOptions>(builder.Configuration.GetSection("WebPlayer"));
 builder.Services.AddSingleton<WebPlayerAssetLocator>();
 builder.Services.AddHostedService<WebPlayerBootstrapper>();

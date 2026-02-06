@@ -48,6 +48,10 @@
     </header>
     <div class="container">
         <main role="main" class="pb-3">
+            @if (TempData["Message"] is string message && !string.IsNullOrWhiteSpace(message))
+            {
+                <div class="alert alert-info mt-3" role="alert">@message</div>
+            }
             @RenderBody()
         </main>
     </div>
