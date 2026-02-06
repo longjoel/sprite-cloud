@@ -1,10 +1,14 @@
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Options;
 
 namespace games_vault.Libretro.Import;
 
-public sealed class GameFileStorage(IWebHostEnvironment env)
+public sealed class GameFileStorage(IWebHostEnvironment env, IOptions<LibraryStorageOptions> options)
 {
-    private string RootPath => Path.GetFullPath(Path.Combine(env.ContentRootPath, "App_Data", "library", "roms"));
+    private readonly LibraryStorageOptions _options = options.Value ?? new LibraryStorageOptions();
+
+    private string LibraryRootPath => ResolveRootPath(_options.RootPath);
+    private string RomsRootPath => Path.GetFullPath(Path.Combine(LibraryRootPath, "roms"));
 
     public string GetAbsolutePath(string storagePath)
     {
@@ -13,13 +17,27 @@ public sealed class GameFileStorage(IWebHostEnvironment env)
             throw new ArgumentException("Storage path is required.", nameof(storagePath));
         }
 
-        // storagePath is relative to content root.
-        var abs = Path.GetFullPath(Path.Combine(env.ContentRootPath, storagePath));
-        var root = Path.GetFullPath(Path.Combine(env.ContentRootPath, "App_Data"));
+        // Back-compat: older paths are stored relative to content root under App_Data.
+        var normalized = storagePath.Replace('\\', '/').TrimStart('/');
+        if (normalized.StartsWith("App_Data/", StringComparison.OrdinalIgnoreCase))
+        {
+            var absLegacy = Path.GetFullPath(Path.Combine(env.ContentRootPath, normalized.Replace('/', Path.DirectorySeparatorChar)));
+            var legacyRoot = Path.GetFullPath(Path.Combine(env.ContentRootPath, "App_Data")) + Path.DirectorySeparatorChar;
+            if (!absLegacy.StartsWith(legacyRoot, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Invalid storage path.");
+            }
+            return absLegacy;
+        }
+
+        // New paths are relative to the configured library root.
+        var abs = Path.GetFullPath(Path.Combine(LibraryRootPath, normalized.Replace('/', Path.DirectorySeparatorChar)));
+        var root = EnsureTrailingSeparator(Path.GetFullPath(LibraryRootPath));
         if (!abs.StartsWith(root, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("Invalid storage path.");
         }
+
         return abs;
     }
 
@@ -31,10 +49,10 @@ public sealed class GameFileStorage(IWebHostEnvironment env)
         long sizeBytes,
         CancellationToken cancellationToken)
     {
-        Directory.CreateDirectory(RootPath);
+        Directory.CreateDirectory(RomsRootPath);
 
         var systemFolder = SanitizeFolderName(systemName);
-        var systemRoot = Path.Combine(RootPath, systemFolder);
+        var systemRoot = Path.Combine(RomsRootPath, systemFolder);
         Directory.CreateDirectory(systemRoot);
 
         var original = TryGetOriginalFileName(displayName);
@@ -48,7 +66,7 @@ public sealed class GameFileStorage(IWebHostEnvironment env)
             abs = Path.Combine(systemRoot, fileName);
             if (File.Exists(abs))
             {
-                return Path.Combine("App_Data", "library", "roms", systemFolder, fileName).Replace('\\', '/');
+                return Path.Combine("roms", systemFolder, fileName).Replace('\\', '/');
             }
         }
 
@@ -62,7 +80,28 @@ public sealed class GameFileStorage(IWebHostEnvironment env)
             // Keep the stored file anyway; but caller should log mismatch if needed.
         }
 
-        return Path.Combine("App_Data", "library", "roms", systemFolder, fileName).Replace('\\', '/');
+        return Path.Combine("roms", systemFolder, fileName).Replace('\\', '/');
+    }
+
+    private string ResolveRootPath(string? configuredRootPath)
+    {
+        configuredRootPath = (configuredRootPath ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(configuredRootPath))
+        {
+            configuredRootPath = "App_Data/library";
+        }
+
+        var abs = Path.IsPathRooted(configuredRootPath)
+            ? Path.GetFullPath(configuredRootPath)
+            : Path.GetFullPath(Path.Combine(env.ContentRootPath, configuredRootPath));
+
+        return abs;
+    }
+
+    private static string EnsureTrailingSeparator(string path)
+    {
+        path = Path.GetFullPath(path);
+        return path.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
     }
 
     private static string? TryGetExtension(string displayName)
