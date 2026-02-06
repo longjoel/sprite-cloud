@@ -1,0 +1,73 @@
+@model games_vault.Models.ViewModels.GamePlayViewModel
+
+@{
+    ViewData["Title"] = "Play game";
+    var game = Model.Game;
+}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+        <h1 class="h3 mb-1">Play in browser</h1>
+        <div class="text-muted">@game.Name (@game.SystemName)</div>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary" asp-action="Details" asp-route-id="@game.Id">Details</a>
+        <a class="btn btn-outline-secondary" asp-action="Index">Back</a>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(Model.Error))
+{
+    <div class="alert alert-warning">
+        <div class="fw-semibold mb-1">Not ready to play</div>
+        <div>@Model.Error</div>
+        <div class="mt-2">
+            <div class="text-muted">Expected:</div>
+            <ul class="mb-0">
+                <li>Enable web player: <code>WebPlayer:Enabled</code></li>
+                <li>Provide a core mapping: <code>WebPlayer:SystemCores</code> (keyed by <code>Game.SystemName</code>)</li>
+                <li>Place player assets under <code>wwwroot@(Model.PlayerBasePath)</code> (must include <code>index.html</code>)</li>
+            </ul>
+        </div>
+    </div>
+}
+
+<div class="card">
+    <div class="card-body">
+        <div class="fw-semibold mb-2">Player</div>
+
+        <div class="text-muted mb-2">
+            Core: <code>@(Model.CoreKey ?? "(none)")</code> · ROM: <code>@(Model.File?.Name ?? "(none)")</code>
+        </div>
+
+        @if (string.IsNullOrWhiteSpace(Model.Error) && Model.RomUrl is not null)
+        {
+            var savesListUrl = Url.Action("List", "GamePlayerFiles", new { gameId = game.Id }) ?? $"/GamePlayerFiles/List?gameId={game.Id}";
+            var savesPutUrl = Url.Action("Put", "GamePlayerFiles") ?? "/GamePlayerFiles/Put";
+            var tokenUrl = Url.Action("Token", "GamePlayerFiles") ?? "/GamePlayerFiles/Token";
+
+            var iframeSrc = Url.Action("Index", "WebPlayer", new
+            {
+                basePath = Model.PlayerBasePath,
+                core = Model.CoreKey,
+                rom = Model.RomUrl,
+                romName = Model.File?.Name,
+                gameId = game.Id,
+                savesList = savesListUrl,
+                savesPut = savesPutUrl,
+                csrf = tokenUrl
+            }) ?? $"/WebPlayer/Index?basePath={Uri.EscapeDataString(Model.PlayerBasePath)}&core={Uri.EscapeDataString(Model.CoreKey ?? "")}&rom={Uri.EscapeDataString(Model.RomUrl)}";
+
+            <iframe class="w-100 border rounded"
+                    style="height: 70vh;"
+                    src="@iframeSrc">
+            </iframe>
+        }
+        else
+        {
+            <div class="text-muted">
+                Once configured, the web player will appear here.
+            </div>
+        }
+    </div>
+</div>

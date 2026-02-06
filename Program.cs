@@ -1,0 +1,124 @@
+using Microsoft.EntityFrameworkCore;
+using games_vault.BackgroundJobs;
+using Microsoft.Data.Sqlite;
+using games_vault.Libretro;
+using games_vault.Web;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.FileProviders.Physical;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Allow large uploads (e.g. BIOS/system packs).
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = 1024L * 1024L * 1024L; // 1 GiB
+});
+builder.Services.Configure<FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 1024L * 1024L * 1024L; // 1 GiB
+});
+
+// Add services to the container.
+builder.Services.AddControllersWithViews();
+builder.Services.AddDbContext<games_vault.Data.AppDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddBackgroundJobs();
+builder.Services.AddHttpClient();
+builder.Services.AddMemoryCache();
+builder.Services.AddLibretroDatabase(builder.Configuration);
+builder.Services.Configure<WebPlayerOptions>(builder.Configuration.GetSection("WebPlayer"));
+builder.Services.AddSingleton<WebPlayerAssetLocator>();
+builder.Services.AddHostedService<WebPlayerBootstrapper>();
+builder.Services.AddSingleton<WebPlayerDataStorage>();
+builder.Services.AddSingleton<games_vault.NetworkShares.ISmbFileService, games_vault.NetworkShares.SmbLibraryFileService>();
+builder.Services.AddSingleton<games_vault.Libretro.Import.GameFileStorage>();
+builder.Services.AddSingleton<games_vault.Libretro.Import.SystemFileStorage>();
+builder.Services.AddSingleton<games_vault.Libretro.Dat.SystemDatIndexProvider>();
+builder.Services.AddSingleton<games_vault.EverDrive.EverDriveGbFirmwareService>();
+
+var app = builder.Build();
+
+// Configure the HTTP request pipeline.
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler("/Home/Error");
+    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
+    app.UseHsts();
+}
+
+app.UseHttpsRedirection();
+
+// RetroArch's web player relies on dotfiles (e.g. "/webplayer/assets/cores/.index-xhr") and unusual extensions
+// (e.g. "bundle.zip.aa"). ASP.NET Core's default WebRootFileProvider excludes dotfiles.
+app.UseStaticFiles(new StaticFileOptions
+{
+    // RetroArch's web player uses extension-less / uncommon extension assets (e.g. ".index-xhr", "bundle.zip.aa").
+    // Serve them as octet-stream so BrowserFS/XHR can fetch them.
+    ServeUnknownFileTypes = true,
+    FileProvider = string.IsNullOrWhiteSpace(app.Environment.WebRootPath)
+        ? app.Environment.WebRootFileProvider
+        : new PhysicalFileProvider(app.Environment.WebRootPath, ExclusionFilters.None)
+});
+app.UseRouting();
+
+app.UseAuthorization();
+
+app.MapStaticAssets();
+
+app.MapControllerRoute(
+    name: "default",
+    pattern: "{controller=Home}/{action=Index}/{id?}")
+    .WithStaticAssets();
+
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<games_vault.Data.AppDbContext>();
+
+    // If you previously ran with EnsureCreated(), you may have a DB with tables but no migrations history.
+    // MigrateAsync() can't adopt that schema automatically; you need to delete the DB or baseline it.
+    try
+    {
+        var connection = db.Database.GetDbConnection();
+        await connection.OpenAsync();
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText =
+            """
+            SELECT
+              EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='__EFMigrationsHistory') AS HasHistory,
+              EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='Games') AS HasGames;
+            """;
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        await reader.ReadAsync();
+        var hasHistory = reader.GetInt64(0) == 1;
+        var hasGames = reader.GetInt64(1) == 1;
+
+        if (!hasHistory && hasGames)
+        {
+            throw new InvalidOperationException(
+                "Existing SQLite DB was created without migrations (likely via EnsureCreated). " +
+                "Delete the .db file (e.g. games-vault.dev.db) and restart, or baseline it before using migrations.");
+        }
+    }
+    catch (SqliteException)
+    {
+        // If we can't probe schema, fall back to attempting the migration and surface any errors.
+    }
+
+    await db.Database.MigrateAsync();
+
+    // Improve SQLite concurrency for the (chatty) web player sync workload.
+    try
+    {
+        await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;");
+        await db.Database.ExecuteSqlRawAsync("PRAGMA synchronous=NORMAL;");
+        await db.Database.ExecuteSqlRawAsync("PRAGMA busy_timeout=5000;");
+    }
+    catch
+    {
+        // Non-fatal; continue with defaults if PRAGMAs fail.
+    }
+}
+
+app.Run();

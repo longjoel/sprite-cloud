@@ -1,0 +1,17 @@
+@model games_vault.Models.GameFile
+
+@{
+    ViewData["Title"] = "Delete file";
+}
+
+<h1 class="h3">Delete file</h1>
+
+<div class="alert alert-warning mt-3">
+    Delete <strong>@Model.Name</strong> from <strong>@Model.Game.Name</strong>?
+</div>
+
+<form asp-action="Delete" method="post">
+    <input type="hidden" asp-for="Id" />
+    <button type="submit" class="btn btn-danger">Delete</button>
+    <a class="btn btn-link" asp-controller="Games" asp-action="Details" asp-route-id="@Model.GameId">Cancel</a>
+</form>

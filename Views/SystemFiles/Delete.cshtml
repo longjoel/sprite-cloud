@@ -1,0 +1,30 @@
+@model games_vault.Models.SystemFile
+
+@{
+    ViewData["Title"] = "Delete system file";
+}
+
+<h1 class="h3">Delete system file</h1>
+
+<div class="alert alert-warning mt-3">
+    Delete <span class="fw-semibold">@Model.FileName</span> for <span class="fw-semibold">@Model.SystemName</span>?
+</div>
+
+<dl class="row">
+    <dt class="col-sm-3">Kind</dt>
+    <dd class="col-sm-9">@Model.Kind</dd>
+
+    <dt class="col-sm-3">CRC32</dt>
+    <dd class="col-sm-9">@Model.Crc32</dd>
+
+    <dt class="col-sm-3">Size</dt>
+    <dd class="col-sm-9">@Model.SizeBytes</dd>
+</dl>
+
+<form asp-action="Delete" method="post">
+    @Html.AntiForgeryToken()
+    <input type="hidden" asp-for="Id" />
+    <button type="submit" class="btn btn-danger">Delete</button>
+    <a class="btn btn-link" asp-action="Index">Cancel</a>
+</form>
+

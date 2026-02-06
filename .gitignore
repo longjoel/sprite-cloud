@@ -1,0 +1,34 @@
+# Build outputs
+bin/
+obj/
+
+# User- / machine-specific files
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Logs / temp
+*.log
+*.tmp
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Local databases
+*.db
+*.db-shm
+*.db-wal
+
+# ASP.NET / app local data (generated, large, or environment-specific)
+App_Data/
+
+# Generated web player artifacts (large)
+wwwroot/webplayer/
+
+# Optional: local appsettings overrides (often contain secrets)
+appsettings.*.json
+!appsettings.json

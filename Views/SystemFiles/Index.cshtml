@@ -1,0 +1,216 @@
+@model games_vault.Models.ViewModels.SystemFilesIndexViewModel
+
+@{
+    ViewData["Title"] = "System files";
+    var q = Model.Query;
+    var currentPage = Model.Page;
+    var pageSize = Model.PageSize;
+}
+
+@if (TempData["Message"] is string message && !string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert alert-success">@message</div>
+}
+
+@if (Model.RecentJobs.Count > 0)
+{
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+                <div class="fw-semibold">Recent import jobs</div>
+                <a class="btn btn-sm btn-outline-secondary" asp-controller="Jobs" asp-action="Index">Jobs</a>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table table-sm mb-0">
+                    <thead>
+                        <tr>
+                            <th>Job</th>
+                            <th>Command</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var j in Model.RecentJobs)
+                    {
+                        <tr>
+                            <td>#@j.Id</td>
+                            <td>@j.Command</td>
+                            <td>@j.Status</td>
+                            <td>@j.CreatedUtc.ToLocalTime().ToString("u")</td>
+                            <td class="text-end">
+                                <a class="btn btn-sm btn-outline-primary" asp-controller="Jobs" asp-action="Details" asp-route-id="@j.Id">View</a>
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h1 class="h3 mb-0">System files</h1>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary" asp-action="Missing">Missing list</a>
+        <a class="btn btn-outline-secondary" asp-action="ImportPack">Import pack</a>
+        <a class="btn btn-outline-secondary" asp-action="ImportSource">Import from source</a>
+        <a class="btn btn-primary" asp-action="Create">Add system file</a>
+    </div>
+</div>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <form id="systemfiles-search-form" asp-action="Index" method="get" class="d-flex flex-wrap gap-2 align-items-center">
+        <input id="systemfiles-search" name="q" value="@q" class="form-control" placeholder="Search system / file / kind / CRC…" autocomplete="off" />
+        <input type="hidden" name="page" value="@currentPage" />
+        <select id="systemfiles-page-size" name="pageSize" class="form-select" style="width: 8rem;">
+            @foreach (var size in new[] { 25, 50, 100 })
+            {
+                <option value="@size" selected="@(size == pageSize)">@size / page</option>
+            }
+        </select>
+        <button type="submit" class="btn btn-outline-secondary">Search</button>
+        @if (!string.IsNullOrWhiteSpace(q))
+        {
+            <a class="btn btn-outline-secondary" asp-action="Index" asp-route-pageSize="@pageSize">Clear</a>
+        }
+    </form>
+
+    <div class="text-muted">
+        @Model.TotalCount total
+    </div>
+</div>
+
+@if (Model.Files.Count == 0)
+{
+    <div class="alert alert-info mb-0">
+        @if (!string.IsNullOrWhiteSpace(q))
+        {
+            <span>No system files match "@q".</span>
+        }
+        else
+        {
+            <span>No system files yet.</span>
+        }
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped align-middle">
+            <thead>
+                <tr>
+                    <th>File</th>
+                    <th>Kind</th>
+                    <th>System</th>
+                    <th>Target path</th>
+                    <th>CRC32</th>
+                    <th class="text-end">Size</th>
+                    <th class="text-end" style="width: 1%; white-space: nowrap;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var file in Model.Files)
+            {
+                <tr>
+                    <td class="text-truncate" style="max-width: 34rem;">@file.FileName</td>
+                    <td>@file.Kind</td>
+                    <td class="text-truncate" style="max-width: 20rem;">@file.SystemName</td>
+                    <td class="text-truncate" style="max-width: 24rem;">@(!string.IsNullOrWhiteSpace(file.TargetPath) ? file.TargetPath : "—")</td>
+                    <td>@file.Crc32</td>
+                    <td class="text-end">@file.SizeBytes</td>
+                    <td class="text-end">
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                                    type="button"
+                                    data-bs-toggle="dropdown"
+                                    aria-expanded="false">
+                                Actions
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li>
+                                    <a class="dropdown-item" asp-action="Download" asp-route-id="@file.Id">Download</a>
+                                </li>
+                                <li><hr class="dropdown-divider" /></li>
+                                <li>
+                                    <a class="dropdown-item text-danger" asp-action="Delete" asp-route-id="@file.Id">Delete</a>
+                                </li>
+                            </ul>
+                        </div>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+
+    @if (Model.PageCount > 1)
+    {
+        var start = Math.Max(1, Model.Page - 3);
+        var end = Math.Min(Model.PageCount, start + 6);
+        start = Math.Max(1, end - 6);
+
+        <nav aria-label="System files pagination" class="mt-3">
+            <ul class="pagination mb-0">
+                <li class="page-item @(Model.HasPrevious ? "" : "disabled")">
+                    <a class="page-link"
+                       asp-action="Index"
+                       asp-route-q="@q"
+                       asp-route-page="@(Model.Page - 1)"
+                       asp-route-pageSize="@pageSize">Previous</a>
+                </li>
+
+                @for (var p = start; p <= end; p++)
+                {
+                    <li class="page-item @(p == Model.Page ? "active" : "")">
+                        <a class="page-link"
+                           asp-action="Index"
+                           asp-route-q="@q"
+                           asp-route-page="@p"
+                           asp-route-pageSize="@pageSize">@p</a>
+                    </li>
+                }
+
+                <li class="page-item @(Model.HasNext ? "" : "disabled")">
+                    <a class="page-link"
+                       asp-action="Index"
+                       asp-route-q="@q"
+                       asp-route-page="@(Model.Page + 1)"
+                       asp-route-pageSize="@pageSize">Next</a>
+                </li>
+            </ul>
+        </nav>
+    }
+}
+
+@section Scripts {
+    <script>
+        (function () {
+            var form = document.getElementById('systemfiles-search-form');
+            var input = document.getElementById('systemfiles-search');
+            var pageInput = form ? form.querySelector('input[name="page"]') : null;
+            var pageSize = document.getElementById('systemfiles-page-size');
+
+            if (form && input && pageInput) {
+                var t = null;
+                input.addEventListener('input', function () {
+                    if (t) clearTimeout(t);
+                    t = setTimeout(function () {
+                        pageInput.value = "1";
+                        form.submit();
+                    }, 250);
+                });
+            }
+
+            if (form && pageSize && pageInput) {
+                pageSize.addEventListener('change', function () {
+                    pageInput.value = "1";
+                    form.submit();
+                });
+            }
+        })();
+    </script>
+}

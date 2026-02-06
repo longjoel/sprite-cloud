@@ -1,0 +1,81 @@
+@model games_vault.Models.ViewModels.DownloadsIndexViewModel
+
+@{
+    ViewData["Title"] = "Downloads";
+    var currentPage = Model.Page;
+    var pageSize = Model.PageSize;
+}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h1 class="h3 mb-0">Downloads</h1>
+</div>
+
+@if (Model.Artifacts.Count == 0)
+{
+    <div class="alert alert-info mb-0">No artifacts yet.</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped align-middle">
+            <thead>
+                <tr>
+                    <th>File</th>
+                    <th>Source</th>
+                    <th class="text-end">Size</th>
+                    <th>Created</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var a in Model.Artifacts)
+            {
+                <tr>
+                    <td class="text-truncate" style="max-width: 38rem;">@a.FileName</td>
+                    <td class="text-truncate" style="max-width: 20rem;">@a.Source</td>
+                    <td class="text-end">@a.SizeBytes</td>
+                    <td>@a.CreatedUtc.ToLocalTime().ToString("u")</td>
+                    <td class="text-end">
+                        <a class="btn btn-sm btn-outline-primary" asp-action="Get" asp-route-id="@a.Id">Download</a>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+
+    @if (Model.PageCount > 1)
+    {
+        var start = Math.Max(1, Model.Page - 3);
+        var end = Math.Min(Model.PageCount, start + 6);
+        start = Math.Max(1, end - 6);
+
+        <nav aria-label="Downloads pagination" class="mt-3">
+            <ul class="pagination mb-0">
+                <li class="page-item @(Model.HasPrevious ? "" : "disabled")">
+                    <a class="page-link"
+                       asp-action="Index"
+                       asp-route-page="@(Model.Page - 1)"
+                       asp-route-pageSize="@pageSize">Previous</a>
+                </li>
+
+                @for (var p = start; p <= end; p++)
+                {
+                    <li class="page-item @(p == Model.Page ? "active" : "")">
+                        <a class="page-link"
+                           asp-action="Index"
+                           asp-route-page="@p"
+                           asp-route-pageSize="@pageSize">@p</a>
+                    </li>
+                }
+
+                <li class="page-item @(Model.HasNext ? "" : "disabled")">
+                    <a class="page-link"
+                       asp-action="Index"
+                       asp-route-page="@(Model.Page + 1)"
+                       asp-route-pageSize="@pageSize">Next</a>
+                </li>
+            </ul>
+        </nav>
+    }
+}
