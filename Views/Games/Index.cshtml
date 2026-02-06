@@ -1,0 +1,520 @@
+@model games_vault.Models.ViewModels.GamesIndexViewModel
+
+@{
+    ViewData["Title"] = "Games";
+    var q = Model.Query;
+    var currentPage = Model.Page;
+    var pageSize = Model.PageSize;
+    var returnUrl = Context.Request.Path + Context.Request.QueryString;
+
+    var bankModel = new games_vault.Models.ViewModels.GamesBankViewModel
+    {
+        Games = Model.Games,
+        Query = q,
+        Page = currentPage,
+        PageSize = pageSize,
+        TotalCount = Model.TotalCount,
+        BatchId = Model.BatchId,
+        BatchGameIds = Model.BatchGameIds,
+        MissingSystemFilesBySystem = Model.MissingSystemFilesBySystem
+    };
+}
+
+@if (TempData["Message"] is string message && !string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert alert-success">@message</div>
+}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h1 class="h3 mb-0">Games</h1>
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addGameModal">Add game</button>
+</div>
+
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <form id="games-search-form" asp-action="Index" method="get" class="d-flex flex-wrap gap-2 align-items-center">
+        <input id="games-search" name="q" value="@q" class="form-control" placeholder="Search games…" autocomplete="off" />
+        <input type="hidden" name="page" value="@currentPage" />
+        <input type="hidden" name="batchId" value="@Model.BatchId" />
+        <select id="games-page-size" name="pageSize" class="form-select" style="width: 8rem;">
+            @foreach (var size in new[] { 10, 25, 50, 100 })
+            {
+                <option value="@size" selected="@(size == pageSize)">@size / page</option>
+            }
+        </select>
+        <button type="submit" class="btn btn-outline-secondary">Search</button>
+        @if (!string.IsNullOrWhiteSpace(q))
+        {
+            <a class="btn btn-outline-secondary" asp-action="Index" asp-route-pageSize="@pageSize" asp-route-batchId="@Model.BatchId">Clear</a>
+        }
+    </form>
+
+    <div class="text-muted" id="games-total-count">
+        @Model.TotalCount total
+    </div>
+</div>
+
+<div class="modal fade" id="addGameModal" tabindex="-1" aria-labelledby="addGameModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h5 mb-0" id="addGameModalLabel">Add game</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <partial name="_AddGameModalBody" model="Model.AddGame" />
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (Model.OpenAddGameModal)
+{
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            var modalEl = document.getElementById("addGameModal");
+            if (!modalEl || !window.bootstrap || !window.bootstrap.Modal) return;
+            window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        });
+    </script>
+}
+
+<div class="row g-3">
+    <div class="col-lg-7">
+        <div id="games-bank-container">
+            <partial name="_GamesBank" model="bankModel" />
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex align-items-center justify-content-between mb-2">
+                    <h2 class="h5 mb-0">Batch</h2>
+                    @if (Model.BatchId is not null)
+                    {
+                        <span class="text-muted">@Model.BatchTotalCount</span>
+                    }
+                </div>
+
+                <div class="row g-2 align-items-end mb-3">
+                    <div class="col-12">
+                        <label class="form-label mb-1">Saved batches</label>
+                        <select class="form-select" id="batch-select">
+                            <option value="" selected="@(Model.BatchId is null)">Select a batch…</option>
+                            @foreach (var b in Model.SavedBatches)
+                            {
+                                var label = string.IsNullOrWhiteSpace(b.Name) ? "(unnamed batch)" : b.Name;
+                                <option value="@b.Id" selected="@(Model.BatchId == b.Id)">@label</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-12">
+                        <form asp-action="CreateBatch" method="post" class="d-flex gap-2 mb-0">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="returnUrl" value="@returnUrl" />
+                            <input name="name" class="form-control" placeholder="New batch name…" maxlength="100" />
+                            <button type="submit" class="btn btn-outline-primary">Save</button>
+                        </form>
+                    </div>
+                </div>
+
+                @if (Model.BatchId is null)
+                {
+                    <div class="alert alert-info mb-0">
+                        Select a batch (or create a new one) to start collecting games.
+                    </div>
+                }
+                else
+                {
+                    <div class="mb-2">
+                        <div class="fw-semibold">@(!string.IsNullOrWhiteSpace(Model.BatchName) ? Model.BatchName : "(unnamed batch)")</div>
+                        <div class="text-muted">Batch id: @Model.BatchId</div>
+                    </div>
+
+                    <div class="row g-2 align-items-end mb-3">
+                        <div class="col-12">
+                            <label class="form-label mb-1">Batch name</label>
+                            <form asp-action="RenameBatch" method="post" class="d-flex gap-2 mb-0">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="batchId" value="@Model.BatchId" />
+                                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                <input name="name" class="form-control" value="@(Model.BatchName ?? "")" maxlength="100" placeholder="(unnamed batch)" />
+                                <button type="submit" class="btn btn-outline-primary">Rename</button>
+                            </form>
+                        </div>
+
+                        <div class="col-12">
+                            <form asp-action="DeleteBatch"
+                                  method="post"
+                                  class="mb-0"
+                                  onsubmit="return confirm('Delete this batch? This removes the batch and its items, but not the games themselves.');">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="batchId" value="@Model.BatchId" />
+                                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                <button type="submit" class="btn btn-outline-danger w-100">Delete batch</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    @if (Model.BatchGames.Count == 0)
+                    {
+                        <div class="text-muted">No games in this batch yet.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive" style="max-height: 60vh; overflow: auto;">
+                            <table class="table table-sm table-striped align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>System</th>
+                                        <th class="text-end">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                @foreach (var g in Model.BatchGames)
+                                {
+                                    <tr>
+                                        <td class="text-truncate" style="max-width: 16rem;">@g.Name</td>
+                                        <td class="text-truncate" style="max-width: 10rem;">@g.SystemName</td>
+                                        <td class="text-end">
+                                            <form asp-action="RemoveFromBatch" method="post" class="m-0 d-inline">
+                                                @Html.AntiForgeryToken()
+                                                <input type="hidden" name="id" value="@g.Id" />
+                                                <input type="hidden" name="batchId" value="@Model.BatchId" />
+                                                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">Remove</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        @if (Model.BatchPageCount > 1)
+                        {
+                            var start = Math.Max(1, Model.BatchPage - 3);
+                            var end = Math.Min(Model.BatchPageCount, start + 6);
+                            start = Math.Max(1, end - 6);
+
+                            <nav aria-label="Batch games pagination" class="mt-3">
+                                <ul class="pagination mb-0">
+                                    <li class="page-item @(Model.BatchHasPrevious ? "" : "disabled")">
+                                        <a class="page-link"
+                                           asp-action="Index"
+                                           asp-route-q="@q"
+                                           asp-route-page="@currentPage"
+                                           asp-route-pageSize="@pageSize"
+                                           asp-route-batchId="@Model.BatchId"
+                                           asp-route-batchPage="@(Model.BatchPage - 1)"
+                                           asp-route-batchPageSize="@Model.BatchPageSize">Previous</a>
+                                    </li>
+
+                                    @for (var p = start; p <= end; p++)
+                                    {
+                                        <li class="page-item @(p == Model.BatchPage ? "active" : "")">
+                                            <a class="page-link"
+                                               asp-action="Index"
+                                               asp-route-q="@q"
+                                               asp-route-page="@currentPage"
+                                               asp-route-pageSize="@pageSize"
+                                               asp-route-batchId="@Model.BatchId"
+                                               asp-route-batchPage="@p"
+                                               asp-route-batchPageSize="@Model.BatchPageSize">@p</a>
+                                        </li>
+                                    }
+
+                                    <li class="page-item @(Model.BatchHasNext ? "" : "disabled")">
+                                        <a class="page-link"
+                                           asp-action="Index"
+                                           asp-route-q="@q"
+                                           asp-route-page="@currentPage"
+                                           asp-route-pageSize="@pageSize"
+                                           asp-route-batchId="@Model.BatchId"
+                                           asp-route-batchPage="@(Model.BatchPage + 1)"
+                                           asp-route-batchPageSize="@Model.BatchPageSize">Next</a>
+                                    </li>
+                                </ul>
+                            </nav>
+                        }
+                    }
+
+                    <hr />
+
+                    <div class="fw-semibold mb-2">Batch operations</div>
+
+                    <div class="card mb-2">
+                        <div class="card-body">
+                            <div class="fw-semibold">Anbernic (RGxx, etc.)</div>
+                            <div class="text-muted">Multi-system export (coming soon).</div>
+                        </div>
+                    </div>
+
+                    @if (Model.EverDriveGbEligible)
+                    {
+                        <div class="card mb-2">
+                            <div class="card-body">
+                                <div class="fw-semibold mb-1">EverDrive GB</div>
+                                <div class="text-muted mb-2">Build a 1GiB microSD image or zip (GB/GBC only) with selected firmware + this batch’s stored ROMs.</div>
+
+                                <form asp-action="StartEverDriveGbImage" method="post" class="row g-2">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="batchId" value="@Model.BatchId" />
+                                    <input type="hidden" name="returnUrl" value="@returnUrl" />
+
+                                    <div class="col-12">
+                                        <label class="form-label mb-1">Firmware</label>
+                                        <select class="form-select" id="everdrive-firmware-select">
+                                            @if (Model.EverDriveGbFirmwares.Count == 0)
+                                            {
+                                                <option value="" selected>Unable to load list (offline?)</option>
+                                            }
+                                            else
+                                            {
+                                                @foreach (var opt in Model.EverDriveGbFirmwares)
+                                                {
+                                                    <option value="@opt.Url" selected="@(Model.EverDriveGbLatest?.Url == opt.Url)">@opt.Label</option>
+                                                }
+                                            }
+                                        </select>
+                                        <div class="form-text">If the list is empty, paste a direct .zip URL below.</div>
+                                    </div>
+
+                                    <div class="col-12">
+                                        <label class="form-label mb-1">Firmware URL</label>
+                                        <input class="form-control" name="firmwareUrl" id="everdrive-firmware-url" value="@(Model.EverDriveGbLatest?.Url ?? "")" placeholder="https://…/everdrive-gb/…/OS/…zip" />
+                                    </div>
+
+                                    <div class="col-12">
+                                        <label class="form-label mb-1">Label</label>
+                                        <input class="form-control" name="firmwareLabel" id="everdrive-firmware-label" value="@(Model.EverDriveGbLatest?.Label ?? "EverDrive GB firmware")" />
+                                    </div>
+
+                                    <div class="col-12">
+                                        <div class="d-flex gap-2">
+                                            <button type="submit" class="btn btn-outline-primary w-100">Build image (job)</button>
+                                            <button type="submit" class="btn btn-outline-secondary w-100" formaction="/Games/StartEverDriveGbZip">Build zip (job)</button>
+                                        </div>
+                                        <div class="form-text">The finished artifact will appear in Downloads.</div>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="card mb-0 opacity-50">
+                            <div class="card-body">
+                                <div class="fw-semibold">EverDrive GB</div>
+                                <div class="text-muted">
+                                    Not available for this batch.
+                                    @if (!string.IsNullOrWhiteSpace(Model.EverDriveGbIneligibleReason))
+                                    {
+                                        <span>@Model.EverDriveGbIneligibleReason</span>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            var form = document.getElementById('games-search-form');
+            var input = document.getElementById('games-search');
+            var pageInput = form ? form.querySelector('input[name="page"]') : null;
+            var batchIdInput = form ? form.querySelector('input[name="batchId"]') : null;
+            var pageSize = document.getElementById('games-page-size');
+            var batchSelect = document.getElementById('batch-select');
+            var bankContainer = document.getElementById('games-bank-container');
+            var totalCountEl = document.getElementById('games-total-count');
+
+            function getParams() {
+                return {
+                    q: input ? input.value : "",
+                    page: pageInput ? pageInput.value : "1",
+                    pageSize: pageSize ? pageSize.value : "25",
+                    batchId: batchIdInput ? batchIdInput.value : ""
+                };
+            }
+
+            function setUrl(params) {
+                var url = new URL(window.location.href);
+                if (params.q) url.searchParams.set('q', params.q); else url.searchParams.delete('q');
+                if (params.page) url.searchParams.set('page', params.page); else url.searchParams.delete('page');
+                if (params.pageSize) url.searchParams.set('pageSize', params.pageSize); else url.searchParams.delete('pageSize');
+                if (params.batchId) url.searchParams.set('batchId', params.batchId); else url.searchParams.delete('batchId');
+                window.history.replaceState({}, "", url.toString());
+            }
+
+            function wireBulkSelection(root) {
+                if (!root) return;
+                var bulkForm = root.querySelector('#games-bulk-form');
+                var selectAll = root.querySelector('#select-all');
+                var batchId = (root.querySelector("input[name='batchId']") || {}).value || "";
+                var addBtn = root.querySelector('#bulk-add-btn');
+                var deleteBtn = root.querySelector('#bulk-delete-btn');
+                var countEl = root.querySelector('#bulk-selected-count');
+                var checkboxes = Array.prototype.slice.call(root.querySelectorAll('input.game-select'));
+
+                function selectedIds() {
+                    if (window.GVTables) return window.GVTables.collectCheckedIds(root, 'input.game-select');
+                    return checkboxes.filter(function (c) { return c.checked; }).map(function (c) { return parseInt(c.value, 10); }).filter(function (n) { return Number.isFinite(n); });
+                }
+
+                function updateBulk() {
+                    var count = selectedIds().length;
+                    if (deleteBtn) deleteBtn.disabled = count === 0;
+                    if (addBtn) addBtn.disabled = count === 0;
+                    if (countEl) countEl.textContent = count === 0 ? "" : (count + " selected");
+                    if (selectAll) selectAll.checked = count > 0 && count === checkboxes.length;
+                }
+
+                if (bulkForm) {
+                    bulkForm.addEventListener('submit', function (e) {
+                        var submitter = e.submitter || null;
+                        var action = submitter && submitter.getAttribute ? (submitter.getAttribute('formaction') || bulkForm.getAttribute('action') || "") : (bulkForm.getAttribute('action') || "");
+                        var ids = selectedIds();
+                        if (ids.length === 0) {
+                            e.preventDefault();
+                            return;
+                        }
+
+                        if (action.indexOf('/Games/BulkDelete') >= 0 || action.indexOf('/Games/BulkDelete'.toLowerCase()) >= 0) {
+                            if (!confirm('Delete selected games?')) {
+                                e.preventDefault();
+                                return;
+                            }
+                        }
+
+                        // Remove existing ids inputs and re-add.
+                        if (window.GVTables) window.GVTables.setHiddenIds(bulkForm, ids, 'ids');
+                    });
+                }
+
+                if (selectAll) {
+                    selectAll.addEventListener('change', function () {
+                        checkboxes.forEach(function (c) { c.checked = selectAll.checked; });
+                        updateBulk();
+                    });
+                }
+
+                checkboxes.forEach(function (c) { c.addEventListener('change', updateBulk); });
+                updateBulk();
+            }
+
+            async function loadBank(params) {
+                if (!bankContainer) return;
+                var qs = new URLSearchParams();
+                if (params.q) qs.set('q', params.q);
+                if (params.page) qs.set('page', params.page);
+                if (params.pageSize) qs.set('pageSize', params.pageSize);
+                if (params.batchId) qs.set('batchId', params.batchId);
+
+                try {
+                    var res = await fetch('/Games/Bank?' + qs.toString(), { cache: 'no-store', credentials: 'same-origin' });
+                    if (!res.ok) return;
+                    var html = await res.text();
+                    bankContainer.innerHTML = html;
+                    wireBulkSelection(bankContainer);
+                    var total = res.headers.get('X-Games-TotalCount');
+                    if (totalCountEl && total) totalCountEl.textContent = total + " total";
+                } catch (e) { }
+            }
+
+            // Live search: debounce and update the bank only, keeping input focus.
+            if (form && input && pageInput) {
+                var t = null;
+                input.addEventListener('input', function () {
+                    if (t) clearTimeout(t);
+                    t = setTimeout(function () {
+                        pageInput.value = "1";
+                        var params = getParams();
+                        params.page = "1";
+                        setUrl(params);
+                        loadBank(params);
+                    }, 250);
+                });
+            }
+
+            if (form) {
+                form.addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    if (pageInput) pageInput.value = "1";
+                    var params = getParams();
+                    params.page = "1";
+                    setUrl(params);
+                    loadBank(params);
+                });
+            }
+
+            if (form && pageSize && pageInput) {
+                pageSize.addEventListener('change', function () {
+                    pageInput.value = "1";
+                    var params = getParams();
+                    params.page = "1";
+                    setUrl(params);
+                    loadBank(params);
+                });
+            }
+
+            if (batchSelect) {
+                batchSelect.addEventListener('change', function () {
+                    var url = new URL(window.location.href);
+                    if (batchSelect.value) url.searchParams.set('batchId', batchSelect.value);
+                    else url.searchParams.delete('batchId');
+                    // When switching batches, keep current q + pageSize but reset to page 1 for sanity.
+                    url.searchParams.set('page', '1');
+                    url.searchParams.set('batchPage', '1');
+                    window.location.href = url.toString();
+                });
+            }
+
+            var fwSelect = document.getElementById('everdrive-firmware-select');
+            var fwUrl = document.getElementById('everdrive-firmware-url');
+            var fwLabel = document.getElementById('everdrive-firmware-label');
+            if (fwSelect && fwUrl) {
+                fwSelect.addEventListener('change', function () {
+                    fwUrl.value = fwSelect.value || "";
+                    if (fwLabel) {
+                        var txt = fwSelect.options[fwSelect.selectedIndex] ? fwSelect.options[fwSelect.selectedIndex].text : "";
+                        if (txt) fwLabel.value = txt;
+                    }
+                });
+            }
+
+            // Intercept pagination clicks to update bank without losing focus.
+            if (bankContainer) {
+                bankContainer.addEventListener('click', function (e) {
+                    var a = e.target && e.target.closest ? e.target.closest('a.page-link') : null;
+                    if (!a || !a.getAttribute) return;
+                    var href = a.getAttribute('href');
+                    if (!href || href[0] === '#') return;
+                    if (href.indexOf('/Games') !== 0) return;
+                    if (href.indexOf('page=') < 0) return;
+                    e.preventDefault();
+
+                    var url = new URL(href, window.location.origin);
+                    var params = {
+                        q: url.searchParams.get('q') || "",
+                        page: url.searchParams.get('page') || "1",
+                        pageSize: url.searchParams.get('pageSize') || (pageSize ? pageSize.value : "25"),
+                        batchId: url.searchParams.get('batchId') || (batchIdInput ? batchIdInput.value : "")
+                    };
+                    if (pageInput) pageInput.value = params.page;
+                    setUrl(params);
+                    loadBank(params);
+                });
+            }
+
+            wireBulkSelection(bankContainer);
+        })();
+    </script>
+}

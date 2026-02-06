@@ -1,0 +1,137 @@
+@model games_vault.Models.ViewModels.SystemFilesMissingViewModel
+
+@{
+    ViewData["Title"] = "Missing system files";
+}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h1 class="h3 mb-0">Missing system files</h1>
+    <a class="btn btn-outline-secondary" asp-action="Index">Back</a>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="fw-semibold mb-1">Rescan sources</div>
+        <div class="text-muted mb-2">Starts a background job that scans a source and only imports files that match currently-missing entries from <code>System.dat</code>.</div>
+
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <form asp-action="StartLocalSourceScan" method="post" class="row g-2 align-items-end mb-0">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="onlyMissing" value="true" />
+
+                    <div class="col-12">
+                        <label class="form-label mb-1">Local folder</label>
+                        <select name="localFolderId" class="form-select">
+                            <option value="">Select a local folder…</option>
+                            @foreach (var f in Model.LocalFolders)
+                            {
+                                <option value="@f.Id">@f.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-8">
+                        <label class="form-label mb-1">Search</label>
+                        <input name="q" class="form-control" placeholder="Optional filename contains…" />
+                    </div>
+
+                    <div class="col-4">
+                        <label class="form-label mb-1">Max files</label>
+                        <input name="maxFiles" class="form-control" type="number" value="50000" min="1" max="200000" />
+                    </div>
+
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="overwrite" value="true" id="sys-missing-local-overwrite" />
+                            <label class="form-check-label" for="sys-missing-local-overwrite">Overwrite existing target files</label>
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-outline-primary w-100">Rescan missing (job)</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="col-lg-6">
+                <form asp-action="StartNetworkSourceScan" method="post" class="row g-2 align-items-end mb-0">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="onlyMissing" value="true" />
+
+                    <div class="col-12">
+                        <label class="form-label mb-1">Network share</label>
+                        <select name="networkShareId" class="form-select">
+                            <option value="">Select a network share…</option>
+                            @foreach (var s in Model.NetworkShares)
+                            {
+                                <option value="@s.Id">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-8">
+                        <label class="form-label mb-1">Search</label>
+                        <input name="q" class="form-control" placeholder="Optional filename contains…" />
+                    </div>
+
+                    <div class="col-4">
+                        <label class="form-label mb-1">Max files</label>
+                        <input name="maxFiles" class="form-control" type="number" value="50000" min="1" max="200000" />
+                    </div>
+
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="overwrite" value="true" id="sys-missing-share-overwrite" />
+                            <label class="form-check-label" for="sys-missing-share-overwrite">Overwrite existing target files</label>
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-outline-primary w-100">Rescan missing (job)</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (Model.Groups.Count == 0)
+{
+    <div class="alert alert-success mb-0">No missing files (based on libretro System.dat).</div>
+}
+else
+{
+    <div class="alert alert-info">
+        Missing files are computed from libretro-database <code>System.dat</code> by checking for the expected relative paths under the system directory.
+    </div>
+
+    @foreach (var g in Model.Groups)
+    {
+        <div class="card mb-3">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <div class="fw-semibold">@g.System</div>
+                <div class="text-muted">@g.Missing.Count missing</div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-striped align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Path</th>
+                            <th>CRC32</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var m in g.Missing)
+                    {
+                        <tr>
+                            <td class="text-truncate" style="max-width: 48rem;">@m.RelativePath</td>
+                            <td>@m.Crc32</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+}

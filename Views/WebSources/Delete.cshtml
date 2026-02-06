@@ -1,0 +1,20 @@
+@model games_vault.Models.WebSource
+
+@{
+    ViewData["Title"] = "Delete web source";
+}
+
+<h1 class="h3">Delete web source</h1>
+
+<div class="alert alert-warning">
+    Delete <span class="fw-semibold">@Model.Name</span>?
+    <div class="text-muted small mt-1">@Model.IndexUrl</div>
+</div>
+
+<form asp-action="Delete" method="post" class="d-flex gap-2">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="id" value="@Model.Id" />
+    <button type="submit" class="btn btn-danger">Delete</button>
+    <a asp-action="Index" class="btn btn-link">Cancel</a>
+</form>
+

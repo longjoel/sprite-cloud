@@ -1,0 +1,230 @@
+@model games_vault.Models.ViewModels.GameDetailsViewModel
+
+@{
+    ViewData["Title"] = "Game details";
+    var game = Model.Game;
+    var pageSize = Model.FilePageSize;
+    var playerPageSize = Model.PlayerFilePageSize;
+}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+        <h1 class="h3 mb-1">@game.Name</h1>
+        <div class="text-muted">@game.SystemName</div>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-dark" asp-action="Play" asp-route-id="@game.Id">Play in browser</a>
+        <a class="btn btn-outline-secondary" asp-action="Edit" asp-route-id="@game.Id">Edit</a>
+        <a class="btn btn-outline-danger" asp-action="Delete" asp-route-id="@game.Id">Delete</a>
+    </div>
+</div>
+
+@if (TempData["Message"] is string message && !string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert alert-success">@message</div>
+}
+
+<dl class="row">
+    <dt class="col-sm-3">Created</dt>
+    <dd class="col-sm-9">@game.CreatedUtc.ToLocalTime().ToString("u")</dd>
+
+    <dt class="col-sm-3">Release date</dt>
+    <dd class="col-sm-9">@((game.ReleaseDate is null) ? "—" : game.ReleaseDate.Value.ToString("yyyy-MM-dd"))</dd>
+
+    <dt class="col-sm-3">Players</dt>
+    <dd class="col-sm-9">@((game.NumberOfPlayers is null) ? "—" : game.NumberOfPlayers.Value.ToString())</dd>
+
+    <dt class="col-sm-3">Genre</dt>
+    <dd class="col-sm-9">@(!string.IsNullOrWhiteSpace(game.Genre) ? game.Genre : "—")</dd>
+
+    <dt class="col-sm-3">Critic rating</dt>
+    <dd class="col-sm-9">@((game.CriticRating is null) ? "—" : game.CriticRating.Value.ToString("0.##"))</dd>
+
+    <dt class="col-sm-3">User rating</dt>
+    <dd class="col-sm-9">@((game.UserRating is null) ? "—" : game.UserRating.Value.ToString("0.##"))</dd>
+
+    <dt class="col-sm-3">Critic genre</dt>
+    <dd class="col-sm-9">@(!string.IsNullOrWhiteSpace(game.CriticGenre) ? game.CriticGenre : "—")</dd>
+</dl>
+
+<div class="d-flex align-items-center justify-content-between mt-4 mb-2">
+    <h2 class="h5 mb-0">Files</h2>
+    <a class="btn btn-sm btn-primary" asp-controller="GameFiles" asp-action="Create" asp-route-gameId="@game.Id">Add file</a>
+</div>
+
+@if (Model.Files.Count == 0)
+{
+    <div class="alert alert-info mb-0">No files added yet.</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped align-middle">
+            <thead>
+                <tr>
+                    <th>File name</th>
+                    <th>CRC32</th>
+                    <th>Size (bytes)</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var file in Model.Files)
+            {
+                <tr>
+                    <td>@file.Name</td>
+                    <td>@file.Crc32</td>
+                    <td>@file.SizeBytes</td>
+                    <td class="text-end">
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
+                                    type="button"
+                                    data-bs-toggle="dropdown"
+                                    aria-expanded="false">
+                                Actions
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li>
+                                    <a class="dropdown-item" asp-controller="GameFiles" asp-action="Download" asp-route-id="@file.Id">Download</a>
+                                </li>
+                                <li><hr class="dropdown-divider" /></li>
+                                <li>
+                                    <a class="dropdown-item text-danger" asp-controller="GameFiles" asp-action="Delete" asp-route-id="@file.Id">Delete</a>
+                                </li>
+                            </ul>
+                        </div>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+
+    @if (Model.FilePageCount > 1)
+    {
+        var start = Math.Max(1, Model.FilePage - 3);
+        var end = Math.Min(Model.FilePageCount, start + 6);
+        start = Math.Max(1, end - 6);
+
+        <nav aria-label="Game file pagination" class="mt-3">
+            <ul class="pagination mb-0">
+                <li class="page-item @(Model.FileHasPrevious ? "" : "disabled")">
+                    <a class="page-link"
+                       asp-action="Details"
+                       asp-route-id="@game.Id"
+                       asp-route-filePage="@(Model.FilePage - 1)"
+                       asp-route-filePageSize="@pageSize">Previous</a>
+                </li>
+
+                @for (var p = start; p <= end; p++)
+                {
+                    <li class="page-item @(p == Model.FilePage ? "active" : "")">
+                        <a class="page-link"
+                           asp-action="Details"
+                           asp-route-id="@game.Id"
+                           asp-route-filePage="@p"
+                           asp-route-filePageSize="@pageSize">@p</a>
+                    </li>
+                }
+
+                <li class="page-item @(Model.FileHasNext ? "" : "disabled")">
+                    <a class="page-link"
+                       asp-action="Details"
+                       asp-route-id="@game.Id"
+                       asp-route-filePage="@(Model.FilePage + 1)"
+                       asp-route-filePageSize="@pageSize">Next</a>
+                </li>
+            </ul>
+        </nav>
+    }
+}
+
+<div class="d-flex align-items-center justify-content-between mt-4 mb-2">
+    <h2 class="h5 mb-0">Player data</h2>
+    <span class="text-muted">@Model.PlayerFileTotalCount</span>
+</div>
+
+@if (Model.PlayerFiles.Count == 0)
+{
+    <div class="alert alert-info mb-0">No player data saved yet.</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-striped align-middle">
+            <thead>
+                <tr>
+                    <th>Kind</th>
+                    <th>Key</th>
+                    <th>File</th>
+                    <th class="text-end">Size</th>
+                    <th>Updated</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var pf in Model.PlayerFiles)
+            {
+                <tr>
+                    <td>@pf.Kind</td>
+                    <td class="text-truncate" style="max-width: 18rem;">@pf.Key</td>
+                    <td class="text-truncate" style="max-width: 28rem;">@pf.FileName</td>
+                    <td class="text-end">@pf.SizeBytes</td>
+                    <td>@pf.UpdatedUtc.ToLocalTime().ToString("u")</td>
+                    <td class="text-end">
+                        <a class="btn btn-sm btn-outline-primary" asp-controller="GamePlayerFiles" asp-action="Get" asp-route-id="@pf.Id">Download</a>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+
+    @if (Model.PlayerFilePageCount > 1)
+    {
+        var startP = Math.Max(1, Model.PlayerFilePage - 3);
+        var endP = Math.Min(Model.PlayerFilePageCount, startP + 6);
+        startP = Math.Max(1, endP - 6);
+
+        <nav aria-label="Game player file pagination" class="mt-3">
+            <ul class="pagination mb-0">
+                <li class="page-item @(Model.PlayerFileHasPrevious ? "" : "disabled")">
+                    <a class="page-link"
+                       asp-action="Details"
+                       asp-route-id="@game.Id"
+                       asp-route-filePage="@Model.FilePage"
+                       asp-route-filePageSize="@pageSize"
+                       asp-route-playerPage="@(Model.PlayerFilePage - 1)"
+                       asp-route-playerPageSize="@playerPageSize">Previous</a>
+                </li>
+
+                @for (var p = startP; p <= endP; p++)
+                {
+                    <li class="page-item @(p == Model.PlayerFilePage ? "active" : "")">
+                        <a class="page-link"
+                           asp-action="Details"
+                           asp-route-id="@game.Id"
+                           asp-route-filePage="@Model.FilePage"
+                           asp-route-filePageSize="@pageSize"
+                           asp-route-playerPage="@p"
+                           asp-route-playerPageSize="@playerPageSize">@p</a>
+                    </li>
+                }
+
+                <li class="page-item @(Model.PlayerFileHasNext ? "" : "disabled")">
+                    <a class="page-link"
+                       asp-action="Details"
+                       asp-route-id="@game.Id"
+                       asp-route-filePage="@Model.FilePage"
+                       asp-route-filePageSize="@pageSize"
+                       asp-route-playerPage="@(Model.PlayerFilePage + 1)"
+                       asp-route-playerPageSize="@playerPageSize">Next</a>
+                </li>
+            </ul>
+        </nav>
+    }
+}
+
+<div class="mt-3">
+    <a class="btn btn-link" asp-action="Index">Back to list</a>
+</div>

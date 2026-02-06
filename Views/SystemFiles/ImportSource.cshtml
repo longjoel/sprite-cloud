@@ -1,0 +1,105 @@
+@{
+    ViewData["Title"] = "Import system files from source";
+    var localFolders = ViewData["LocalFolders"] as IReadOnlyList<games_vault.Models.LocalFolder> ?? Array.Empty<games_vault.Models.LocalFolder>();
+    var networkShares = ViewData["NetworkShares"] as IReadOnlyList<games_vault.Models.NetworkShare> ?? Array.Empty<games_vault.Models.NetworkShare>();
+}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h1 class="h3 mb-0">Import from source</h1>
+    <a class="btn btn-outline-secondary" asp-action="Index">Back</a>
+</div>
+
+<div class="alert alert-info">
+    Scans an existing Local Folder or Network Share for BIOS/system files (including <code>.zip</code> packs), matches by CRC32 against libretro <code>System.dat</code>, then copies matched files into the correct target paths under the system directory.
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-body">
+                <div class="fw-semibold mb-2">Local folder</div>
+
+                <form asp-action="StartLocalSourceScan" method="post" class="row g-2 align-items-end mb-0">
+                    @Html.AntiForgeryToken()
+
+                    <div class="col-12">
+                        <label class="form-label mb-1">Folder</label>
+                        <select name="localFolderId" class="form-select">
+                            <option value="">Select a local folder…</option>
+                            @foreach (var f in localFolders)
+                            {
+                                <option value="@f.Id">@f.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-8">
+                        <label class="form-label mb-1">Search</label>
+                        <input name="q" class="form-control" placeholder="Optional filename contains…" />
+                    </div>
+
+                    <div class="col-4">
+                        <label class="form-label mb-1">Max files</label>
+                        <input name="maxFiles" class="form-control" type="number" value="50000" min="1" max="200000" />
+                    </div>
+
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="overwrite" value="true" id="sys-import-local-overwrite" />
+                            <label class="form-check-label" for="sys-import-local-overwrite">Overwrite existing target files</label>
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-outline-primary w-100">Start scan (job)</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-body">
+                <div class="fw-semibold mb-2">Network share</div>
+
+                <form asp-action="StartNetworkSourceScan" method="post" class="row g-2 align-items-end mb-0">
+                    @Html.AntiForgeryToken()
+
+                    <div class="col-12">
+                        <label class="form-label mb-1">Share</label>
+                        <select name="networkShareId" class="form-select">
+                            <option value="">Select a network share…</option>
+                            @foreach (var s in networkShares)
+                            {
+                                <option value="@s.Id">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-8">
+                        <label class="form-label mb-1">Search</label>
+                        <input name="q" class="form-control" placeholder="Optional filename contains…" />
+                    </div>
+
+                    <div class="col-4">
+                        <label class="form-label mb-1">Max files</label>
+                        <input name="maxFiles" class="form-control" type="number" value="50000" min="1" max="200000" />
+                    </div>
+
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="overwrite" value="true" id="sys-import-share-overwrite" />
+                            <label class="form-check-label" for="sys-import-share-overwrite">Overwrite existing target files</label>
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <button type="submit" class="btn btn-outline-primary w-100">Start scan (job)</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
