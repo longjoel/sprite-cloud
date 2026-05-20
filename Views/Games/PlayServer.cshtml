@@ -1,0 +1,256 @@
+@model games_vault.Models.ViewModels.ServerGamePlayViewModel
+
+@{
+    ViewData["Title"] = "Play server-side";
+    var game = Model.Game;
+}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+        <h1 class="h3 mb-1">Play server-side</h1>
+        <div class="text-muted">@game.Name (@game.SystemName)</div>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary" asp-action="Play" asp-route-id="@game.Id">Play in browser</a>
+        <a class="btn btn-outline-secondary" asp-action="Details" asp-route-id="@game.Id">Details</a>
+        <a class="btn btn-outline-secondary" asp-action="Index">Back</a>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(Model.Error))
+{
+    <div class="alert alert-warning">
+        <div class="fw-semibold mb-1">Server-side player is not ready</div>
+        <div>@Model.Error</div>
+        <div class="mt-2 text-muted small">
+            Expected setup: Nosebleed binary installed, native libretro core mapped for this system, and ROM readable from local storage.
+        </div>
+    </div>
+}
+
+<div class="card">
+    <div class="card-body">
+        <div class="fw-semibold mb-2">Nosebleed player</div>
+        <div class="text-muted mb-3">
+            ROM: <code>@(Model.File?.Name ?? "(none)")</code>
+            @if (!string.IsNullOrWhiteSpace(Model.BaseUrl))
+            {
+                <span> · Session: <code>@Model.SessionId</code> · Host: <code>@Model.BaseUrl</code></span>
+            }
+        </div>
+
+        @if (string.IsNullOrWhiteSpace(Model.Error) && !string.IsNullOrWhiteSpace(Model.BaseUrl))
+        {
+            <div class="server-player-shell bg-dark rounded p-2">
+                <canvas id="nosebleed-screen" class="w-100 rounded border border-secondary" style="image-rendering: pixelated; background: #000; max-height: 70vh;"></canvas>
+            </div>
+            <div class="d-flex gap-2 align-items-center mt-3 flex-wrap">
+                <button id="nosebleed-connect" class="btn btn-primary" type="button">Connect</button>
+                <button id="nosebleed-audio" class="btn btn-outline-secondary" type="button">Enable audio</button>
+                <span id="nosebleed-status" class="text-muted">Ready.</span>
+            </div>
+            <div class="text-muted small mt-2">
+                Keyboard: arrows/D-pad, Z=A, X=B, Enter=Start, Shift=Select. Browser gamepads are also forwarded to port 0.
+            </div>
+        }
+        else
+        {
+            <div class="text-muted">Once configured, the server-side player will appear here.</div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+@if (string.IsNullOrWhiteSpace(Model.Error) && !string.IsNullOrWhiteSpace(Model.BaseUrl))
+{
+<script>
+(() => {
+    const baseUrl = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.BaseUrl));
+    const token = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Token));
+    const statusEl = document.getElementById("nosebleed-status");
+    const canvas = document.getElementById("nosebleed-screen");
+    const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
+    const connectButton = document.getElementById("nosebleed-connect");
+    const audioButton = document.getElementById("nosebleed-audio");
+    let videoWs = null;
+    let inputWs = null;
+    let audioWs = null;
+    let inputSeq = 0;
+    let inputTimer = 0;
+    let audioCtx = null;
+    let audioStartTime = 0;
+    const keys = new Set();
+
+    function setStatus(text) { statusEl.textContent = text; }
+    function withToken(path) {
+        const url = new URL(path, baseUrl);
+        if (token) url.searchParams.set("token", token);
+        url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+        return url.toString();
+    }
+
+    function connect() {
+        closeSockets();
+        setStatus("Connecting…");
+        videoWs = new WebSocket(withToken("/ws/video"));
+        videoWs.binaryType = "arraybuffer";
+        videoWs.onopen = () => setStatus("Video connected.");
+        videoWs.onmessage = ev => drawFrame(ev.data);
+        videoWs.onerror = () => setStatus("Video socket error.");
+        videoWs.onclose = () => setStatus("Video disconnected.");
+
+        inputWs = new WebSocket(withToken("/ws/input"));
+        inputWs.onopen = () => {
+            setStatus("Connected. Sending input.");
+            startInputLoop();
+        };
+        inputWs.onerror = () => setStatus("Input socket error.");
+        inputWs.onclose = () => stopInputLoop();
+    }
+
+    function closeSockets() {
+        stopInputLoop();
+        for (const ws of [videoWs, inputWs, audioWs]) {
+            try { ws?.close(); } catch { }
+        }
+        videoWs = inputWs = audioWs = null;
+    }
+
+    function drawFrame(buffer) {
+        const data = new DataView(buffer);
+        if (data.byteLength < 33 || magic(data, 0) !== "NBF0") return;
+        const width = data.getUint32(20, true);
+        const height = data.getUint32(24, true);
+        const pitch = data.getUint32(28, true);
+        const pixelFormat = data.getUint8(32);
+        const payloadLen = data.getUint32(33, true);
+        const payloadOffset = 37;
+        if (data.byteLength < payloadOffset + payloadLen) return;
+        if (canvas.width !== width || canvas.height !== height) {
+            canvas.width = width;
+            canvas.height = height;
+        }
+        const src = new Uint8Array(buffer, payloadOffset, payloadLen);
+        const image = ctx.createImageData(width, height);
+        const out = image.data;
+        if (pixelFormat === 0) {
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const si = y * pitch + x * 4;
+                    const di = (y * width + x) * 4;
+                    out[di] = src[si + 2];
+                    out[di + 1] = src[si + 1];
+                    out[di + 2] = src[si];
+                    out[di + 3] = 255;
+                }
+            }
+        } else if (pixelFormat === 1) {
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const si = y * pitch + x * 2;
+                    const v = src[si] | (src[si + 1] << 8);
+                    const di = (y * width + x) * 4;
+                    out[di] = ((v >> 11) & 0x1f) * 255 / 31;
+                    out[di + 1] = ((v >> 5) & 0x3f) * 255 / 63;
+                    out[di + 2] = (v & 0x1f) * 255 / 31;
+                    out[di + 3] = 255;
+                }
+            }
+        } else {
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const si = y * pitch + x * 2;
+                    const v = src[si] | (src[si + 1] << 8);
+                    const di = (y * width + x) * 4;
+                    out[di] = ((v >> 10) & 0x1f) * 255 / 31;
+                    out[di + 1] = ((v >> 5) & 0x1f) * 255 / 31;
+                    out[di + 2] = (v & 0x1f) * 255 / 31;
+                    out[di + 3] = 255;
+                }
+            }
+        }
+        ctx.putImageData(image, 0, 0);
+    }
+
+    function startInputLoop() {
+        stopInputLoop();
+        inputTimer = window.setInterval(sendInput, 16);
+    }
+    function stopInputLoop() {
+        if (inputTimer) window.clearInterval(inputTimer);
+        inputTimer = 0;
+    }
+    function sendInput() {
+        if (!inputWs || inputWs.readyState !== WebSocket.OPEN) return;
+        const pad = navigator.getGamepads?.()[0];
+        const buttons = {
+            a: keys.has("KeyZ") || !!pad?.buttons[0]?.pressed,
+            b: keys.has("KeyX") || !!pad?.buttons[1]?.pressed,
+            x: !!pad?.buttons[2]?.pressed,
+            y: !!pad?.buttons[3]?.pressed,
+            select: keys.has("ShiftLeft") || keys.has("ShiftRight") || !!pad?.buttons[8]?.pressed,
+            start: keys.has("Enter") || !!pad?.buttons[9]?.pressed,
+            up: keys.has("ArrowUp") || !!pad?.buttons[12]?.pressed,
+            down: keys.has("ArrowDown") || !!pad?.buttons[13]?.pressed,
+            left: keys.has("ArrowLeft") || !!pad?.buttons[14]?.pressed,
+            right: keys.has("ArrowRight") || !!pad?.buttons[15]?.pressed
+        };
+        const axes = {
+            lx: pad?.axes[0] ?? 0,
+            ly: pad?.axes[1] ?? 0,
+            rx: pad?.axes[2] ?? 0,
+            ry: pad?.axes[3] ?? 0,
+            l2: pad?.buttons[6]?.value ?? 0,
+            r2: pad?.buttons[7]?.value ?? 0
+        };
+        inputWs.send(JSON.stringify({ type: "input", port: 0, sequence: ++inputSeq, buttons, axes }));
+    }
+
+    async function enableAudio() {
+        audioCtx ??= new AudioContext({ latencyHint: "interactive" });
+        await audioCtx.resume();
+        audioStartTime = Math.max(audioCtx.currentTime, audioStartTime);
+        audioWs = new WebSocket(withToken("/ws/audio"));
+        audioWs.binaryType = "arraybuffer";
+        audioWs.onopen = () => setStatus("Audio connected.");
+        audioWs.onmessage = ev => playAudio(ev.data);
+    }
+
+    function playAudio(buffer) {
+        if (!audioCtx) return;
+        const data = new DataView(buffer);
+        if (data.byteLength < 30 || magic(data, 0) !== "NBA0") return;
+        const sampleRate = data.getUint32(20, true);
+        const channels = data.getUint8(24);
+        const frameCount = data.getUint32(26, true);
+        const payloadLen = data.getUint32(30, true);
+        const offset = 34;
+        if (channels !== 2 || data.byteLength < offset + payloadLen) return;
+        const audioBuffer = audioCtx.createBuffer(2, frameCount, sampleRate);
+        const left = audioBuffer.getChannelData(0);
+        const right = audioBuffer.getChannelData(1);
+        for (let i = 0; i < frameCount; i++) {
+            left[i] = data.getInt16(offset + i * 4, true) / 32768;
+            right[i] = data.getInt16(offset + i * 4 + 2, true) / 32768;
+        }
+        const src = audioCtx.createBufferSource();
+        src.buffer = audioBuffer;
+        src.connect(audioCtx.destination);
+        audioStartTime = Math.max(audioCtx.currentTime, audioStartTime);
+        src.start(audioStartTime);
+        audioStartTime += frameCount / sampleRate;
+    }
+
+    function magic(view, offset) {
+        return String.fromCharCode(view.getUint8(offset), view.getUint8(offset + 1), view.getUint8(offset + 2), view.getUint8(offset + 3));
+    }
+
+    window.addEventListener("keydown", ev => { keys.add(ev.code); if (ev.code.startsWith("Arrow")) ev.preventDefault(); });
+    window.addEventListener("keyup", ev => { keys.delete(ev.code); if (ev.code.startsWith("Arrow")) ev.preventDefault(); });
+    connectButton.addEventListener("click", connect);
+    audioButton.addEventListener("click", enableAudio);
+    connect();
+})();
+</script>
+}
+}
