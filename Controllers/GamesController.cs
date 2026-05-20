@@ -5,6 +5,7 @@ using games_vault.Libretro.Import;
 using games_vault.Libretro.Dat;
 using games_vault.Models;
 using games_vault.Models.ViewModels;
+using games_vault.Nosebleed;
 using games_vault.Web;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.Mvc;
@@ -25,7 +26,9 @@ public class GamesController(
     games_vault.EverDrive.EverDriveGbFirmwareService everDriveFw,
     GameFileStorage fileStorage,
     IWebHostEnvironment env,
-    IOptions<WebPlayerOptions> webPlayerOptions) : Controller
+    IOptions<WebPlayerOptions> webPlayerOptions,
+    IOptions<NosebleedOptions> nosebleedOptions,
+    NosebleedSessionManager nosebleedSessions) : Controller
 {
     public async Task<IActionResult> Index(
         string? q,
@@ -889,6 +892,68 @@ public class GamesController(
     }
 
     [HttpGet]
+    public async Task<IActionResult> PlayServer(int id, CancellationToken cancellationToken = default)
+    {
+        var game = await db.Games
+            .AsNoTracking()
+            .Include(g => g.Files)
+            .FirstOrDefaultAsync(g => g.Id == id, cancellationToken);
+
+        if (game is null)
+        {
+            return NotFound();
+        }
+
+        var opts = nosebleedOptions.Value ?? new NosebleedOptions();
+        var file = game.Files.FirstOrDefault(f => !string.IsNullOrWhiteSpace(f.StoragePath) || !string.IsNullOrWhiteSpace(f.ExternalPath));
+        string? error = null;
+        NosebleedSession? session = null;
+        string? contentPath = null;
+
+        if (!opts.Enabled)
+        {
+            error = "Server-side playback is disabled. Enable it in appsettings under 'Nosebleed:Enabled'.";
+        }
+        else if (file is null)
+        {
+            error = "No stored or linked ROM file found for this game.";
+        }
+        else
+        {
+            contentPath = await ResolveGameFileAbsolutePathAsync(file, cancellationToken);
+            if (string.IsNullOrWhiteSpace(contentPath))
+            {
+                error = "ROM file could not be resolved to an allowed local filesystem path.";
+            }
+            else
+            {
+                var result = await nosebleedSessions.StartOrReuseAsync(game.Id, file.Id, game.SystemName, contentPath, cancellationToken);
+                if (result.Success)
+                {
+                    session = result.Session;
+                }
+                else
+                {
+                    error = result.Error ?? "Failed to start server-side playback.";
+                }
+            }
+        }
+
+        return View(new ServerGamePlayViewModel
+        {
+            Game = game,
+            File = file,
+            PlayerEnabled = opts.Enabled,
+            BaseUrl = session?.BaseUrl,
+            Token = session?.Token,
+            SessionId = session?.Id,
+            CorePath = session?.CorePath,
+            ContentPath = session?.ContentPath ?? contentPath,
+            Error = error
+        });
+    }
+
+    [HttpGet]
     public async Task<IActionResult> Rom(int id, CancellationToken cancellationToken = default)
     {
         var file = await db.GameFiles
@@ -945,6 +1010,43 @@ public class GamesController(
 
         Response.Headers.CacheControl = "no-store";
         return PhysicalFile(abs, "application/octet-stream", enableRangeProcessing: true);
+    }
+
+    private async Task<string?> ResolveGameFileAbsolutePathAsync(GameFile file, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(file.StoragePath))
+        {
+            return fileStorage.GetAbsolutePath(file.StoragePath);
+        }
+
+        if (string.IsNullOrWhiteSpace(file.ExternalPath))
+        {
+            return null;
+        }
+
+        var full = Path.GetFullPath(file.ExternalPath);
+        var allowedRoots = await db.LocalFolders
+            .AsNoTracking()
+            .Where(f => f.Enabled)
+            .Select(f => f.RootPath)
+            .ToListAsync(cancellationToken);
+
+        var allowed = allowedRoots.Any(root =>
+        {
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                return false;
+            }
+
+            var rootFull = Path.GetFullPath(root);
+            if (!rootFull.EndsWith(Path.DirectorySeparatorChar))
+            {
+                rootFull += Path.DirectorySeparatorChar;
+            }
+            return full.StartsWith(rootFull, StringComparison.Ordinal);
+        });
+
+        return allowed ? full : null;
     }
 
     private static bool IsWebPlayerAssetsPresent(WebPlayerOptions options, IWebHostEnvironment env)
