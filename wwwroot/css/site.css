@@ -21,6 +21,31 @@ body {
   margin-bottom: 60px;
 }
 
+/*
+ * The Games page has an action dropdown in the left-column table next to the
+ * Batch card. Without an explicit stacking order, the right column/card can be
+ * painted above an open dropdown, making the menu look buried or clipped.
+ */
+.games-bank-column {
+  position: relative;
+  z-index: 2;
+}
+
+.games-batch-column {
+  position: relative;
+  z-index: 1;
+}
+
+.games-bank-column .dropdown-menu {
+  z-index: 1080;
+}
+
+/* When a table action menu is open, let it escape Bootstrap's responsive table
+   overflow box instead of clipping the menu to the table area. */
+.table-responsive:has(.dropdown-menu.show) {
+  overflow: visible;
+}
+
 .form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
   color: var(--bs-secondary-color);
   text-align: end;

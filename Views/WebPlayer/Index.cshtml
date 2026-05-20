@@ -113,6 +113,27 @@
                 return "/home/web_user/retroarch/userdata/content/" + name;
             }
 
+            function ensureFsDir(path) {
+                if (!window.Module || !window.Module.FS || !path) return;
+                var parts = String(path).split("/").filter(Boolean);
+                var cur = "";
+                for (var i = 0; i < parts.length; i++) {
+                    cur += "/" + parts[i];
+                    try {
+                        var st = window.Module.FS.stat(cur);
+                        if (!window.Module.FS.isDir(st.mode)) throw new Error(cur + " exists and is not a directory");
+                    } catch {
+                        try { window.Module.FS.mkdir(cur); } catch { }
+                    }
+                }
+            }
+
+            function writeContentFile(name, bytes) {
+                var dataView = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+                ensureFsDir("/home/web_user/retroarch/userdata/content");
+                window.Module.FS.writeFile(contentPath(name), dataView, { encoding: "binary" });
+            }
+
             async function fetchArrayBuffer(url) {
                 var res = await fetch(url, { cache: "no-store", credentials: "same-origin" });
                 if (!res.ok) throw new Error("Fetch failed: " + res.status);
@@ -129,7 +150,7 @@
                 if (!cfg.romName) cfg.romName = "content.rom";
 
                 var bytes = await fetchArrayBuffer(cfg.romUrl);
-                window.uploadData(bytes, cfg.romName);
+                writeContentFile(cfg.romName, bytes);
 
                 // Launch directly into content (avoid relaunch(), which can effectively start twice).
                 if (window.Module) {
@@ -186,8 +207,8 @@
                 window.__gamesVaultWebPlayerStarted = true;
 
                 (async function () {
-                    // preLoadingComplete happens after filesystem setup; uploadData is safe then.
-                    if (!window.Module || !window.Module.FS || typeof window.uploadData !== "function") {
+                    // preLoadingComplete happens after filesystem setup; Module.FS is safe then.
+                    if (!window.Module || !window.Module.FS) {
                         return;
                     }
                     try {
