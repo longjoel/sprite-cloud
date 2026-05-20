@@ -104,8 +104,7 @@ public sealed class NosebleedSessionManager(
             if (_options.RequireAuth)
             {
                 psi.ArgumentList.Add("--require-auth");
-                psi.ArgumentList.Add("--auth-secret");
-                psi.ArgumentList.Add(File.ReadAllText(_options.AuthSecretPath).Trim());
+                psi.Environment["NOSEBLEED_AUTH_SECRET"] = File.ReadAllText(_options.AuthSecretPath).Trim();
             }
 
             var process = Process.Start(psi);
