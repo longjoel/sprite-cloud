@@ -211,7 +211,7 @@
                     position: absolute;
                     top: max(.75rem, env(safe-area-inset-top));
                     right: max(1rem, env(safe-area-inset-right));
-                    z-index: 6;
+                    z-index: 7;
                     border: 1px solid rgba(255,255,255,.45);
                     background: rgba(15, 23, 42, .58);
                     color: rgba(255,255,255,.92);
@@ -233,6 +233,82 @@
                     right: auto;
                 }
 
+                .layout-reset-action {
+                    top: max(3.35rem, calc(env(safe-area-inset-top) + 3.35rem));
+                    left: max(1rem, env(safe-area-inset-left));
+                    right: auto;
+                    padding-inline: .62rem;
+                }
+
+                .player-hud {
+                    position: absolute;
+                    top: max(.72rem, env(safe-area-inset-top));
+                    left: 50%;
+                    transform: translateX(-50%);
+                    z-index: 6;
+                    display: flex;
+                    flex-wrap: wrap;
+                    justify-content: center;
+                    gap: .35rem;
+                    max-width: min(68vw, 34rem);
+                    pointer-events: none;
+                }
+
+                .player-hud-chip {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: .3rem;
+                    min-height: 1.65rem;
+                    border: 1px solid rgba(255,255,255,.32);
+                    border-radius: 999px;
+                    padding: .2rem .55rem;
+                    background: rgba(15, 23, 42, .56);
+                    color: rgba(255,255,255,.9);
+                    font-size: .72rem;
+                    font-weight: 800;
+                    letter-spacing: .01em;
+                    line-height: 1;
+                    backdrop-filter: blur(4px);
+                    box-shadow: 0 .25rem .9rem rgba(0,0,0,.3);
+                    white-space: nowrap;
+                }
+
+                .player-hud-chip .chip-dot {
+                    width: .48rem;
+                    height: .48rem;
+                    border-radius: 999px;
+                    background: rgba(255,255,255,.45);
+                    box-shadow: 0 0 .65rem rgba(255,255,255,.2);
+                }
+
+                .player-hud-chip.is-good .chip-dot { background: #20c997; box-shadow: 0 0 .65rem rgba(32,201,151,.75); }
+                .player-hud-chip.is-warn .chip-dot { background: #ffc107; box-shadow: 0 0 .65rem rgba(255,193,7,.75); }
+                .player-hud-chip.is-bad .chip-dot { background: #dc3545; box-shadow: 0 0 .65rem rgba(220,53,69,.75); }
+
+                .player-hud-chip.status-chip {
+                    max-width: 15rem;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+
+                @@media (max-width: 768px) {
+                    .player-hud {
+                        top: max(.48rem, env(safe-area-inset-top));
+                        max-width: 58vw;
+                        gap: .25rem;
+                    }
+
+                    .player-hud-chip {
+                        min-height: 1.45rem;
+                        padding: .16rem .42rem;
+                        font-size: .64rem;
+                    }
+
+                    .player-hud-chip.status-chip {
+                        max-width: 10rem;
+                    }
+                }
+
                 .server-player-shell.layout-editing [data-control-group] {
                     outline: 2px dashed rgba(255,255,255,.75);
                     outline-offset: .3rem;
@@ -251,6 +327,13 @@
 
             <div id="server-player-shell" class="server-player-shell bg-dark rounded p-2">
                 <canvas id="nosebleed-screen" class="w-100 rounded border border-secondary"></canvas>
+                <div id="nosebleed-player-hud" class="player-hud" aria-live="polite">
+                    <span id="nosebleed-video-chip" class="player-hud-chip is-warn"><span class="chip-dot" aria-hidden="true"></span><span class="chip-label">Video idle</span></span>
+                    <span id="nosebleed-input-chip" class="player-hud-chip is-warn"><span class="chip-dot" aria-hidden="true"></span><span class="chip-label">@(Model.IsSpectator ? "Spectator" : "Input idle")</span></span>
+                    <span id="nosebleed-pad-chip" class="player-hud-chip"><span class="chip-dot" aria-hidden="true"></span><span class="chip-label">Pad none</span></span>
+                    <span id="nosebleed-fps-chip" class="player-hud-chip"><span class="chip-dot" aria-hidden="true"></span><span class="chip-label">0 fps</span></span>
+                    <span id="nosebleed-status-chip" class="player-hud-chip status-chip is-warn"><span class="chip-dot" aria-hidden="true"></span><span class="chip-label">Ready</span></span>
+                </div>
                 @if (!Model.IsSpectator)
                 {
                     <div id="touch-gamepad" class="touch-gamepad is-visible @(isGameGear ? "layout-game-gear" : "layout-generic")" aria-label="On-screen @touchLayoutName gamepad">
@@ -284,6 +367,7 @@
                     </div>
                 }
                 <button id="nosebleed-layout-lock" class="player-overlay-action layout-lock-action" type="button" aria-label="Unlock control layout">Unlock layout</button>
+                <button id="nosebleed-layout-reset" class="player-overlay-action layout-reset-action" type="button" aria-label="Reset control layout">Reset</button>
                 <button id="nosebleed-audio-overlay" class="player-overlay-action" type="button" data-control-group="sound" aria-label="Enable sound">Sound</button>
             </div>
             <div class="d-flex gap-2 align-items-center mt-3 flex-wrap">
@@ -293,6 +377,11 @@
                 @if (!Model.IsSpectator)
                 {
                     <button id="nosebleed-touch-toggle" class="btn btn-outline-secondary" type="button">Toggle @touchLayoutName controls</button>
+                    <label class="visually-hidden" for="nosebleed-gamepad-select">Hardware gamepad</label>
+                    <select id="nosebleed-gamepad-select" class="form-select form-select-sm w-auto" aria-label="Hardware gamepad">
+                        <option value="">Keyboard / first gamepad</option>
+                    </select>
+                    <button id="nosebleed-pad-test-toggle" class="btn btn-outline-secondary" type="button" aria-expanded="false" aria-controls="nosebleed-pad-test-panel">Pad test</button>
                 }
                 @if (!Model.IsSpectator && !string.IsNullOrWhiteSpace(Model.SessionId))
                 {
@@ -303,6 +392,15 @@
                 }
                 <span id="nosebleed-status" class="text-muted">Ready.</span>
             </div>
+            @if (!Model.IsSpectator)
+            {
+                <div id="nosebleed-pad-test-panel" class="border rounded bg-body-tertiary p-2 mt-2 small d-none">
+                    <div class="fw-semibold mb-1">Hardware gamepad tester</div>
+                    <div id="nosebleed-pad-test-summary" class="text-muted">No hardware gamepad detected yet.</div>
+                    <div id="nosebleed-pad-test-buttons" class="mt-1 text-break"></div>
+                    <div id="nosebleed-pad-test-axes" class="mt-1 font-monospace text-muted"></div>
+                </div>
+            }
             <div class="text-muted small mt-2">
                 @if (Model.IsSpectator)
                 {

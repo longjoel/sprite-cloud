@@ -18,12 +18,27 @@
     const audioButton = document.getElementById("nosebleed-audio");
     const audioOverlayButton = document.getElementById("nosebleed-audio-overlay");
     const layoutLockButton = document.getElementById("nosebleed-layout-lock");
+    const layoutResetButton = document.getElementById("nosebleed-layout-reset");
     const fullscreenButton = document.getElementById("nosebleed-fullscreen");
     const touchToggleButton = document.getElementById("nosebleed-touch-toggle");
+    const gamepadSelect = document.getElementById("nosebleed-gamepad-select");
+    const padTestToggle = document.getElementById("nosebleed-pad-test-toggle");
+    const padTestPanel = document.getElementById("nosebleed-pad-test-panel");
+    const padTestSummary = document.getElementById("nosebleed-pad-test-summary");
+    const padTestButtons = document.getElementById("nosebleed-pad-test-buttons");
+    const padTestAxes = document.getElementById("nosebleed-pad-test-axes");
     const touchGamepad = document.getElementById("touch-gamepad");
     const touchButtons = Array.from(document.querySelectorAll(".touch-btn[data-button]"));
     const draggableControls = Array.from(document.querySelectorAll("[data-control-group]"));
+    const chips = {
+        video: document.getElementById("nosebleed-video-chip"),
+        input: document.getElementById("nosebleed-input-chip"),
+        pad: document.getElementById("nosebleed-pad-chip"),
+        fps: document.getElementById("nosebleed-fps-chip"),
+        status: document.getElementById("nosebleed-status-chip")
+    };
     const layoutStorageKey = `games-vault:nosebleed-control-layout:${touchLayoutName}`;
+    const gamepadStorageKey = "games-vault:nosebleed-gamepad-index";
     const touchControls = new Set();
     let layoutEditMode = false;
     let activeDrag = null;
@@ -34,11 +49,144 @@
     let inputSeq = 0;
     let inputTimer = 0;
     let keepAliveTimer = 0;
+    let fpsTimer = 0;
+    let framesThisSecond = 0;
+    let pendingVideoFrame = null;
+    let videoFrameScheduled = false;
+    let videoFramesReceived = 0;
+    let videoFramesDropped = 0;
+    let videoRenderMs = 0;
+    let selectedGamepadIndex = null;
+    let padTestTimer = 0;
     let audioCtx = null;
     let audioStartTime = 0;
     const keys = new Set();
 
-    function setStatus(text) { statusEl.textContent = text; }
+    function setStatus(text, tone = "warn") {
+        statusEl.textContent = text;
+        updateChip(chips.status, text.replace(/[.…]+$/u, ""), tone);
+    }
+
+    function updateChip(chip, label, tone = "neutral") {
+        if (!chip) return;
+        const labelEl = chip.querySelector(".chip-label");
+        if (labelEl) labelEl.textContent = label;
+        chip.classList.toggle("is-good", tone === "good");
+        chip.classList.toggle("is-warn", tone === "warn");
+        chip.classList.toggle("is-bad", tone === "bad");
+    }
+
+    function startHudTimers() {
+        stopHudTimers();
+        fpsTimer = window.setInterval(() => {
+            const fps = framesThisSecond;
+            framesThisSecond = 0;
+            const stats = fps > 0 ? `${fps} fps · ${Math.round(videoRenderMs)}ms · ${videoFramesDropped} drop` : "0 fps";
+            updateChip(chips.fps, stats, fps > 0 ? "good" : "warn");
+            chips.fps?.setAttribute("title", `Received ${videoFramesReceived} frames, rendered ${fps} in the last second, dropped ${videoFramesDropped} queued frames, last render ${videoRenderMs.toFixed(1)}ms`);
+            updatePadChip();
+        }, 1000);
+        updatePadChip();
+    }
+
+    function stopHudTimers() {
+        if (fpsTimer) window.clearInterval(fpsTimer);
+        fpsTimer = 0;
+    }
+
+    function connectedGamepads() {
+        return Array.from(navigator.getGamepads?.() || []).filter(Boolean);
+    }
+
+    function syncGamepadSelectionOptions() {
+        if (!gamepadSelect) return;
+        const pads = connectedGamepads();
+        const currentValue = selectedGamepadIndex === null ? "" : String(selectedGamepadIndex);
+        gamepadSelect.replaceChildren(new Option("Keyboard / first gamepad", ""));
+        for (const pad of pads) {
+            const name = pad.id ? pad.id.split("(")[0].trim() : `Gamepad ${pad.index + 1}`;
+            gamepadSelect.appendChild(new Option(`${pad.index + 1}: ${name}`, String(pad.index)));
+        }
+        if ([...gamepadSelect.options].some(option => option.value === currentValue)) {
+            gamepadSelect.value = currentValue;
+        } else {
+            selectedGamepadIndex = null;
+            gamepadSelect.value = "";
+            localStorage.removeItem(gamepadStorageKey);
+        }
+    }
+
+    function getActiveGamepad() {
+        const pads = navigator.getGamepads?.() || [];
+        if (selectedGamepadIndex !== null) return pads[selectedGamepadIndex] || null;
+        return connectedGamepads()[0] || null;
+    }
+
+    function describeGamepad(pad) {
+        if (!pad) return "Pad none";
+        const label = pad.id ? pad.id.split("(")[0].trim() : `Gamepad ${pad.index + 1}`;
+        const shortLabel = label.length > 14 ? `${label.slice(0, 13)}…` : label;
+        return selectedGamepadIndex === null ? shortLabel : `${pad.index + 1}: ${shortLabel}`;
+    }
+
+    function updatePadChip() {
+        syncGamepadSelectionOptions();
+        if (isSpectator) {
+            updateChip(chips.pad, "Pad spectator", "warn");
+            return;
+        }
+        const pad = getActiveGamepad();
+        updateChip(chips.pad, describeGamepad(pad), pad ? "good" : "neutral");
+    }
+
+    function restoreGamepadSelection() {
+        const saved = localStorage.getItem(gamepadStorageKey);
+        if (saved !== null && saved !== "") {
+            const parsed = Number.parseInt(saved, 10);
+            if (Number.isInteger(parsed)) selectedGamepadIndex = parsed;
+        }
+        syncGamepadSelectionOptions();
+    }
+
+    function startPadTest() {
+        if (!padTestPanel) return;
+        padTestPanel.classList.remove("d-none");
+        padTestToggle?.setAttribute("aria-expanded", "true");
+        padTestToggle?.classList.add("active");
+        stopPadTest();
+        updatePadTestPanel();
+        padTestTimer = window.setInterval(updatePadTestPanel, 100);
+    }
+
+    function stopPadTest() {
+        if (padTestTimer) window.clearInterval(padTestTimer);
+        padTestTimer = 0;
+    }
+
+    function hidePadTest() {
+        stopPadTest();
+        padTestPanel?.classList.add("d-none");
+        padTestToggle?.setAttribute("aria-expanded", "false");
+        padTestToggle?.classList.remove("active");
+    }
+
+    function updatePadTestPanel() {
+        if (!padTestPanel || padTestPanel.classList.contains("d-none")) return;
+        const pad = getActiveGamepad();
+        if (!pad) {
+            padTestSummary.textContent = "No hardware gamepad detected. Press a button on the controller or pick it from the selector once the browser exposes it.";
+            padTestButtons.textContent = "";
+            padTestAxes.textContent = "";
+            return;
+        }
+        const pressed = pad.buttons
+            .map((button, index) => button.pressed ? `${index}${button.value > 0 && button.value < 1 ? `:${button.value.toFixed(2)}` : ""}` : null)
+            .filter(Boolean);
+        padTestSummary.textContent = `${pad.index + 1}: ${pad.id || "Gamepad"}`;
+        padTestButtons.textContent = pressed.length > 0 ? `Pressed buttons: ${pressed.join(", ")}` : "Pressed buttons: none";
+        padTestAxes.textContent = `Axes: ${pad.axes.map((axis, index) => `${index}:${axis.toFixed(2)}`).join("  ")}`;
+    }
+
     function withToken(path) {
         const url = new URL(path, baseUrl);
         if (token) url.searchParams.set("token", token);
@@ -49,23 +197,43 @@
     function connect() {
         closeSockets();
         setStatus("Connecting…");
+        updateChip(chips.video, "Video connecting", "warn");
+        updateChip(chips.input, isSpectator ? "Spectator" : "Input connecting", "warn");
+        startHudTimers();
         videoWs = new WebSocket(withToken("/ws/video"));
         videoWs.binaryType = "arraybuffer";
-        videoWs.onopen = () => setStatus("Video connected.");
-        videoWs.onmessage = ev => drawFrame(ev.data);
-        videoWs.onerror = () => setStatus("Video socket error.");
-        videoWs.onclose = () => setStatus("Video disconnected.");
+        videoWs.onopen = () => {
+            updateChip(chips.video, "Video live", "good");
+            setStatus("Video connected.", "good");
+        };
+        videoWs.onmessage = ev => queueVideoFrame(ev.data);
+        videoWs.onerror = () => {
+            updateChip(chips.video, "Video error", "bad");
+            setStatus("Video socket error.", "bad");
+        };
+        videoWs.onclose = () => {
+            updateChip(chips.video, "Video offline", "bad");
+            setStatus("Video disconnected.", "bad");
+        };
 
         if (!isSpectator && assignedPort !== null) {
             inputWs = new WebSocket(withToken("/ws/input"));
             inputWs.onopen = () => {
-                setStatus(`Connected as Player ${assignedPort + 1}. Sending input.`);
+                updateChip(chips.input, `P${assignedPort + 1} input`, "good");
+                setStatus(`Connected as Player ${assignedPort + 1}. Sending input.`, "good");
                 startInputLoop();
             };
-            inputWs.onerror = () => setStatus("Input socket error.");
-            inputWs.onclose = () => stopInputLoop();
+            inputWs.onerror = () => {
+                updateChip(chips.input, "Input error", "bad");
+                setStatus("Input socket error.", "bad");
+            };
+            inputWs.onclose = () => {
+                updateChip(chips.input, "Input offline", "bad");
+                stopInputLoop();
+            };
         } else {
-            setStatus("Connected as spectator. Input disabled.");
+            updateChip(chips.input, "Spectator", "warn");
+            setStatus("Connected as spectator. Input disabled.", "warn");
         }
         startSeatKeepAlive();
     }
@@ -73,13 +241,38 @@
     function closeSockets() {
         stopInputLoop();
         stopSeatKeepAlive();
+        stopHudTimers();
+        updateChip(chips.video, "Video idle", "warn");
+        updateChip(chips.input, isSpectator ? "Spectator" : "Input idle", "warn");
+        updateChip(chips.fps, "0 fps", "neutral");
+        framesThisSecond = 0;
+        videoFramesReceived = 0;
+        videoFramesDropped = 0;
+        videoRenderMs = 0;
+        pendingVideoFrame = null;
+        videoFrameScheduled = false;
         for (const ws of [videoWs, inputWs, audioWs]) {
             try { ws?.close(); } catch { }
         }
         videoWs = inputWs = audioWs = null;
     }
 
+    function queueVideoFrame(buffer) {
+        videoFramesReceived += 1;
+        if (pendingVideoFrame) videoFramesDropped += 1;
+        pendingVideoFrame = buffer;
+        if (videoFrameScheduled) return;
+        videoFrameScheduled = true;
+        window.requestAnimationFrame(() => {
+            videoFrameScheduled = false;
+            const latest = pendingVideoFrame;
+            pendingVideoFrame = null;
+            if (latest) drawFrame(latest);
+        });
+    }
+
     function drawFrame(buffer) {
+        const renderStartedAt = performance.now();
         const data = new DataView(buffer);
         if (data.byteLength < 33 || magic(data, 0) !== "NBF0") return;
         const width = data.getUint32(20, true);
@@ -132,7 +325,9 @@
                 }
             }
         }
+        framesThisSecond += 1;
         ctx.putImageData(image, 0, 0);
+        videoRenderMs = performance.now() - renderStartedAt;
     }
 
     function startInputLoop() {
@@ -142,6 +337,10 @@
     function stopInputLoop() {
         if (inputTimer) window.clearInterval(inputTimer);
         inputTimer = 0;
+    }
+
+    function sendInputImmediately() {
+        try { sendInput(); } catch { }
     }
 
     function startSeatKeepAlive() {
@@ -177,7 +376,7 @@
 
     function sendInput() {
         if (isSpectator || assignedPort === null || !inputWs || inputWs.readyState !== WebSocket.OPEN) return;
-        const pad = navigator.getGamepads?.()[0];
+        const pad = getActiveGamepad();
         const buttons = {
             a: keys.has("KeyZ") || touchControls.has("a") || !!pad?.buttons[0]?.pressed,
             b: keys.has("KeyX") || touchControls.has("b") || !!pad?.buttons[1]?.pressed,
@@ -293,6 +492,7 @@
             touchControls.delete(name);
             button.classList.remove("is-pressed");
         }
+        sendInputImmediately();
     }
 
     function releaseAllTouchButtons() {
@@ -300,6 +500,7 @@
         for (const button of touchButtons) {
             button.classList.remove("is-pressed");
         }
+        sendInputImmediately();
     }
 
     function setLayoutEditMode(enabled) {
@@ -335,6 +536,20 @@
         localStorage.setItem(layoutStorageKey, JSON.stringify(layout));
         setLayoutEditMode(false);
         setStatus("Control layout saved on this device.");
+    }
+
+    function resetLayout() {
+        localStorage.removeItem(layoutStorageKey);
+        releaseAllTouchButtons();
+        for (const control of draggableControls) {
+            control.style.left = "";
+            control.style.top = "";
+            control.style.right = "";
+            control.style.bottom = "";
+            control.style.transform = "";
+        }
+        setLayoutEditMode(false);
+        setStatus("Control layout reset to defaults.", "good");
     }
 
     function positionControl(control, leftPct, topPct) {
@@ -393,6 +608,7 @@
         control.addEventListener("lostpointercapture", endLayoutDrag);
     }
 
+    restoreGamepadSelection();
     applySavedLayout();
 
     for (const button of touchButtons) {
@@ -420,6 +636,14 @@
     });
 
     window.addEventListener("blur", releaseAllTouchButtons);
+    window.addEventListener("gamepadconnected", () => {
+        updatePadChip();
+        updatePadTestPanel();
+    });
+    window.addEventListener("gamepaddisconnected", () => {
+        updatePadChip();
+        updatePadTestPanel();
+    });
     shell.addEventListener("touchend", handleDoubleTap, { passive: false });
     shell.addEventListener("dblclick", ev => {
         if (ev.target?.closest?.(".touch-btn, .player-overlay-action")) return;
@@ -427,8 +651,17 @@
         toggleFullscreen();
     });
 
-    window.addEventListener("keydown", ev => { keys.add(ev.code); if (ev.code.startsWith("Arrow")) ev.preventDefault(); });
-    window.addEventListener("keyup", ev => { keys.delete(ev.code); if (ev.code.startsWith("Arrow")) ev.preventDefault(); });
+    window.addEventListener("keydown", ev => {
+        const wasPressed = keys.has(ev.code);
+        keys.add(ev.code);
+        if (ev.code.startsWith("Arrow")) ev.preventDefault();
+        if (!wasPressed) sendInputImmediately();
+    });
+    window.addEventListener("keyup", ev => {
+        const wasPressed = keys.delete(ev.code);
+        if (ev.code.startsWith("Arrow")) ev.preventDefault();
+        if (wasPressed) sendInputImmediately();
+    });
     connectButton.addEventListener("click", connect);
     audioButton.addEventListener("click", enableAudio);
     audioOverlayButton.addEventListener("click", ev => {
@@ -442,11 +675,31 @@
         if (layoutEditMode) saveLayout();
         else setLayoutEditMode(true);
     });
+    layoutResetButton?.addEventListener("click", ev => {
+        ev.preventDefault();
+        resetLayout();
+    });
     fullscreenButton.addEventListener("click", toggleFullscreen);
     touchToggleButton?.addEventListener("click", () => {
         touchGamepad?.classList.toggle("force-visible");
         touchGamepad?.classList.toggle("is-visible");
         releaseAllTouchButtons();
+    });
+    gamepadSelect?.addEventListener("change", () => {
+        selectedGamepadIndex = gamepadSelect.value === "" ? null : Number.parseInt(gamepadSelect.value, 10);
+        if (selectedGamepadIndex === null || Number.isNaN(selectedGamepadIndex)) {
+            selectedGamepadIndex = null;
+            localStorage.removeItem(gamepadStorageKey);
+        } else {
+            localStorage.setItem(gamepadStorageKey, String(selectedGamepadIndex));
+        }
+        updatePadChip();
+        updatePadTestPanel();
+        setStatus(selectedGamepadIndex === null ? "Using keyboard plus first hardware gamepad." : `Using hardware gamepad ${selectedGamepadIndex + 1}.`, "good");
+    });
+    padTestToggle?.addEventListener("click", () => {
+        if (padTestPanel?.classList.contains("d-none")) startPadTest();
+        else hidePadTest();
     });
     connect();
 })();
