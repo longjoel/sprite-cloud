@@ -3,6 +3,10 @@
 @{
     ViewData["Title"] = "Play server-side";
     var game = Model.Game;
+    var systemName = game.SystemName ?? string.Empty;
+    var isGameGear = systemName.Equals("Sega - Game Gear", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("Game Gear", StringComparison.OrdinalIgnoreCase);
+    var touchLayoutName = isGameGear ? "Sega Game Gear" : "Generic Retropad";
 }
 
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -49,12 +53,247 @@
 
         @if (string.IsNullOrWhiteSpace(Model.Error) && !string.IsNullOrWhiteSpace(Model.BaseUrl))
         {
-            <div class="server-player-shell bg-dark rounded p-2">
-                <canvas id="nosebleed-screen" class="w-100 rounded border border-secondary" style="image-rendering: pixelated; background: #000; max-height: 70vh;"></canvas>
+            <style>
+                .server-player-shell {
+                    position: relative;
+                    overflow: hidden;
+                    touch-action: none;
+                    user-select: none;
+                }
+
+                #nosebleed-screen {
+                    image-rendering: pixelated;
+                    background: #000;
+                    max-height: 70vh;
+                    touch-action: none;
+                }
+
+                .server-player-shell:fullscreen {
+                    width: 100vw;
+                    height: 100vh;
+                    border-radius: 0 !important;
+                    padding: 0 !important;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: #000 !important;
+                }
+
+                .server-player-shell:fullscreen #nosebleed-screen {
+                    width: 100vw !important;
+                    height: 100vh !important;
+                    max-height: none !important;
+                    object-fit: contain;
+                    border: 0 !important;
+                    border-radius: 0 !important;
+                }
+
+                .touch-gamepad {
+                    position: absolute;
+                    inset: 0;
+                    display: none;
+                    pointer-events: none;
+                    z-index: 5;
+                }
+
+                .touch-gamepad.is-visible {
+                    display: block;
+                }
+
+                .touch-gamepad .pad-cluster,
+                .touch-gamepad .face-cluster,
+                .touch-gamepad .menu-cluster {
+                    position: absolute;
+                    pointer-events: auto;
+                }
+
+                .touch-gamepad .pad-cluster {
+                    left: max(1rem, env(safe-area-inset-left));
+                    bottom: max(1rem, env(safe-area-inset-bottom));
+                    width: 9.5rem;
+                    height: 9.5rem;
+                }
+
+                .touch-gamepad .face-cluster {
+                    right: max(1rem, env(safe-area-inset-right));
+                    bottom: max(1.2rem, env(safe-area-inset-bottom));
+                    width: 10.5rem;
+                    height: 8rem;
+                }
+
+                .touch-gamepad .menu-cluster {
+                    left: 50%;
+                    bottom: max(1rem, env(safe-area-inset-bottom));
+                    transform: translateX(-50%);
+                    display: flex;
+                    gap: .75rem;
+                }
+
+                .touch-btn {
+                    position: absolute;
+                    border: 1px solid rgba(255,255,255,.55);
+                    background: rgba(15, 23, 42, .58);
+                    color: rgba(255,255,255,.9);
+                    backdrop-filter: blur(4px);
+                    box-shadow: 0 .25rem 1rem rgba(0,0,0,.35);
+                    touch-action: none;
+                    -webkit-user-select: none;
+                    user-select: none;
+                }
+
+                .touch-btn.is-pressed {
+                    background: rgba(13, 110, 253, .76);
+                    transform: scale(.96);
+                }
+
+                .touch-btn.dpad {
+                    width: 3.1rem;
+                    height: 3.1rem;
+                    border-radius: .85rem;
+                    font-weight: 700;
+                }
+
+                .touch-btn.face {
+                    width: 4rem;
+                    height: 4rem;
+                    border-radius: 999px;
+                    font-weight: 800;
+                    font-size: 1.2rem;
+                }
+
+                .touch-btn.menu {
+                    position: static;
+                    min-width: 4.5rem;
+                    border-radius: 999px;
+                    padding: .55rem .85rem;
+                    font-weight: 700;
+                }
+
+                .touch-btn[data-button="up"] { left: 3.2rem; top: 0; }
+                .touch-btn[data-button="left"] { left: 0; top: 3.2rem; }
+                .touch-btn[data-button="right"] { right: 0; top: 3.2rem; }
+                .touch-btn[data-button="down"] { left: 3.2rem; bottom: 0; }
+                .touch-btn[data-button="b"] { left: 0; bottom: 0; }
+                .touch-btn[data-button="a"] { right: 0; bottom: 1.4rem; }
+                .touch-btn[data-button="y"] { left: 1.4rem; top: 0; }
+                .touch-btn[data-button="x"] { right: 1.4rem; top: 0; }
+
+                .touch-gamepad.layout-game-gear .face-cluster {
+                    width: 9rem;
+                    height: 5rem;
+                    bottom: max(1.65rem, env(safe-area-inset-bottom));
+                }
+
+                .touch-gamepad.layout-game-gear .touch-btn.face {
+                    width: 4.35rem;
+                    height: 4.35rem;
+                    font-size: 1.35rem;
+                }
+
+                .touch-gamepad.layout-game-gear .touch-btn[data-button="b"] { left: 0; bottom: 0; }
+                .touch-gamepad.layout-game-gear .touch-btn[data-button="a"] { right: 0; bottom: 0; }
+
+                .touch-gamepad.layout-game-gear .menu-cluster {
+                    left: auto;
+                    right: max(1.25rem, env(safe-area-inset-right));
+                    bottom: max(6.55rem, calc(env(safe-area-inset-bottom) + 6.55rem));
+                    transform: none;
+                }
+
+                .touch-gamepad.layout-game-gear .touch-btn.menu {
+                    min-width: 4rem;
+                    padding: .4rem .75rem;
+                    font-size: .9rem;
+                    opacity: .82;
+                }
+
+                .player-overlay-action {
+                    position: absolute;
+                    top: max(.75rem, env(safe-area-inset-top));
+                    right: max(1rem, env(safe-area-inset-right));
+                    z-index: 6;
+                    border: 1px solid rgba(255,255,255,.45);
+                    background: rgba(15, 23, 42, .58);
+                    color: rgba(255,255,255,.92);
+                    border-radius: 999px;
+                    padding: .38rem .72rem;
+                    font-size: .84rem;
+                    font-weight: 700;
+                    backdrop-filter: blur(4px);
+                    box-shadow: 0 .25rem 1rem rgba(0,0,0,.35);
+                    touch-action: none;
+                }
+
+                .player-overlay-action.is-on {
+                    background: rgba(25, 135, 84, .7);
+                }
+
+                .layout-lock-action {
+                    left: max(1rem, env(safe-area-inset-left));
+                    right: auto;
+                }
+
+                .server-player-shell.layout-editing [data-control-group] {
+                    outline: 2px dashed rgba(255,255,255,.75);
+                    outline-offset: .3rem;
+                    cursor: grab;
+                }
+
+                .server-player-shell.layout-editing [data-control-group].is-dragging {
+                    cursor: grabbing;
+                    opacity: .86;
+                }
+
+                @@media (hover: hover) and (pointer: fine) {
+                    .touch-gamepad:not(.force-visible) { display: none !important; }
+                }
+            </style>
+
+            <div id="server-player-shell" class="server-player-shell bg-dark rounded p-2">
+                <canvas id="nosebleed-screen" class="w-100 rounded border border-secondary"></canvas>
+                @if (!Model.IsSpectator)
+                {
+                    <div id="touch-gamepad" class="touch-gamepad is-visible @(isGameGear ? "layout-game-gear" : "layout-generic")" aria-label="On-screen @touchLayoutName gamepad">
+                        <div class="pad-cluster" data-control-group="dpad" aria-label="Directional pad">
+                            <button class="touch-btn dpad" type="button" data-button="up" aria-label="Up">▲</button>
+                            <button class="touch-btn dpad" type="button" data-button="left" aria-label="Left">◀</button>
+                            <button class="touch-btn dpad" type="button" data-button="right" aria-label="Right">▶</button>
+                            <button class="touch-btn dpad" type="button" data-button="down" aria-label="Down">▼</button>
+                        </div>
+                        <div class="face-cluster" data-control-group="face" aria-label="Action buttons">
+                            @if (isGameGear)
+                            {
+                                <button class="touch-btn face" type="button" data-button="b" aria-label="Button 1">1</button>
+                                <button class="touch-btn face" type="button" data-button="a" aria-label="Button 2">2</button>
+                            }
+                            else
+                            {
+                                <button class="touch-btn face" type="button" data-button="y" aria-label="Y">Y</button>
+                                <button class="touch-btn face" type="button" data-button="x" aria-label="X">X</button>
+                                <button class="touch-btn face" type="button" data-button="b" aria-label="B">B</button>
+                                <button class="touch-btn face" type="button" data-button="a" aria-label="A">A</button>
+                            }
+                        </div>
+                        <div class="menu-cluster" data-control-group="menu" aria-label="Menu buttons">
+                            @if (!isGameGear)
+                            {
+                                <button class="touch-btn menu" type="button" data-button="select" aria-label="Select">Select</button>
+                            }
+                            <button class="touch-btn menu" type="button" data-button="start" aria-label="Start">Start</button>
+                        </div>
+                    </div>
+                }
+                <button id="nosebleed-layout-lock" class="player-overlay-action layout-lock-action" type="button" aria-label="Unlock control layout">Unlock layout</button>
+                <button id="nosebleed-audio-overlay" class="player-overlay-action" type="button" data-control-group="sound" aria-label="Enable sound">Sound</button>
             </div>
             <div class="d-flex gap-2 align-items-center mt-3 flex-wrap">
                 <button id="nosebleed-connect" class="btn btn-primary" type="button">Connect</button>
                 <button id="nosebleed-audio" class="btn btn-outline-secondary" type="button">Enable audio</button>
+                <button id="nosebleed-fullscreen" class="btn btn-outline-secondary" type="button">Fullscreen</button>
+                @if (!Model.IsSpectator)
+                {
+                    <button id="nosebleed-touch-toggle" class="btn btn-outline-secondary" type="button">Toggle @touchLayoutName controls</button>
+                }
                 @if (!Model.IsSpectator && !string.IsNullOrWhiteSpace(Model.SessionId))
                 {
                     <form asp-action="LeaveServerSession" method="post" class="d-inline">
@@ -71,7 +310,7 @@
                 }
                 else if (Model.PlayerNumber is not null)
                 {
-                    <span>You are Player @Model.PlayerNumber. Keyboard and gamepad input are forwarded to your assigned controller slot.</span>
+                    <span>You are Player @Model.PlayerNumber. The on-screen controls are using the @touchLayoutName layout; keyboard and hardware gamepad input still work too.</span>
                 }
                 else
                 {
@@ -96,12 +335,26 @@
     const assignedPort = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.AssignedPort));
     const isSpectator = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.IsSpectator));
     const sessionId = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.SessionId));
+    const touchLayoutName = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(touchLayoutName));
     const keepAliveUrl = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Url.Action("KeepAliveServerSession", "Games")));
     const statusEl = document.getElementById("nosebleed-status");
+    const shell = document.getElementById("server-player-shell");
     const canvas = document.getElementById("nosebleed-screen");
     const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
     const connectButton = document.getElementById("nosebleed-connect");
     const audioButton = document.getElementById("nosebleed-audio");
+    const audioOverlayButton = document.getElementById("nosebleed-audio-overlay");
+    const layoutLockButton = document.getElementById("nosebleed-layout-lock");
+    const fullscreenButton = document.getElementById("nosebleed-fullscreen");
+    const touchToggleButton = document.getElementById("nosebleed-touch-toggle");
+    const touchGamepad = document.getElementById("touch-gamepad");
+    const touchButtons = Array.from(document.querySelectorAll(".touch-btn[data-button]"));
+    const draggableControls = Array.from(document.querySelectorAll("[data-control-group]"));
+    const layoutStorageKey = `games-vault:nosebleed-control-layout:${touchLayoutName}`;
+    const touchControls = new Set();
+    let layoutEditMode = false;
+    let activeDrag = null;
+    let lastTapAt = 0;
     let videoWs = null;
     let inputWs = null;
     let audioWs = null;
@@ -253,16 +506,16 @@
         if (isSpectator || assignedPort === null || !inputWs || inputWs.readyState !== WebSocket.OPEN) return;
         const pad = navigator.getGamepads?.()[0];
         const buttons = {
-            a: keys.has("KeyZ") || !!pad?.buttons[0]?.pressed,
-            b: keys.has("KeyX") || !!pad?.buttons[1]?.pressed,
-            x: !!pad?.buttons[2]?.pressed,
-            y: !!pad?.buttons[3]?.pressed,
-            select: keys.has("ShiftLeft") || keys.has("ShiftRight") || !!pad?.buttons[8]?.pressed,
-            start: keys.has("Enter") || !!pad?.buttons[9]?.pressed,
-            up: keys.has("ArrowUp") || !!pad?.buttons[12]?.pressed,
-            down: keys.has("ArrowDown") || !!pad?.buttons[13]?.pressed,
-            left: keys.has("ArrowLeft") || !!pad?.buttons[14]?.pressed,
-            right: keys.has("ArrowRight") || !!pad?.buttons[15]?.pressed
+            a: keys.has("KeyZ") || touchControls.has("a") || !!pad?.buttons[0]?.pressed,
+            b: keys.has("KeyX") || touchControls.has("b") || !!pad?.buttons[1]?.pressed,
+            x: touchControls.has("x") || !!pad?.buttons[2]?.pressed,
+            y: touchControls.has("y") || !!pad?.buttons[3]?.pressed,
+            select: keys.has("ShiftLeft") || keys.has("ShiftRight") || touchControls.has("select") || !!pad?.buttons[8]?.pressed,
+            start: keys.has("Enter") || touchControls.has("start") || !!pad?.buttons[9]?.pressed,
+            up: keys.has("ArrowUp") || touchControls.has("up") || !!pad?.buttons[12]?.pressed || ((pad?.axes[1] ?? 0) < -0.5),
+            down: keys.has("ArrowDown") || touchControls.has("down") || !!pad?.buttons[13]?.pressed || ((pad?.axes[1] ?? 0) > 0.5),
+            left: keys.has("ArrowLeft") || touchControls.has("left") || !!pad?.buttons[14]?.pressed || ((pad?.axes[0] ?? 0) < -0.5),
+            right: keys.has("ArrowRight") || touchControls.has("right") || !!pad?.buttons[15]?.pressed || ((pad?.axes[0] ?? 0) > 0.5)
         };
         const axes = {
             lx: pad?.axes[0] ?? 0,
@@ -279,10 +532,24 @@
         audioCtx ??= new AudioContext({ latencyHint: "interactive" });
         await audioCtx.resume();
         audioStartTime = Math.max(audioCtx.currentTime, audioStartTime);
+        if (audioWs && audioWs.readyState === WebSocket.OPEN) {
+            setAudioEnabledUi();
+            return;
+        }
         audioWs = new WebSocket(withToken("/ws/audio"));
         audioWs.binaryType = "arraybuffer";
-        audioWs.onopen = () => setStatus("Audio connected.");
+        audioWs.onopen = () => {
+            setAudioEnabledUi();
+            setStatus("Audio connected.");
+        };
         audioWs.onmessage = ev => playAudio(ev.data);
+    }
+
+    function setAudioEnabledUi() {
+        audioButton.textContent = "Audio enabled";
+        audioOverlayButton.textContent = "Sound on";
+        audioOverlayButton.classList.add("is-on");
+        audioOverlayButton.setAttribute("aria-label", "Sound enabled");
     }
 
     function playAudio(buffer) {
@@ -314,10 +581,200 @@
         return String.fromCharCode(view.getUint8(offset), view.getUint8(offset + 1), view.getUint8(offset + 2), view.getUint8(offset + 3));
     }
 
+    async function toggleFullscreen() {
+        try {
+            if (!document.fullscreenElement) {
+                await shell.requestFullscreen({ navigationUI: "hide" });
+                if (screen.orientation?.lock) {
+                    try { await screen.orientation.lock("landscape"); } catch { }
+                }
+                setStatus("Fullscreen. Double tap the stream or use your browser gesture to exit.");
+            } else {
+                await document.exitFullscreen();
+            }
+        } catch {
+            setStatus("Fullscreen request was blocked by the browser.");
+        }
+    }
+
+    function handleDoubleTap(ev) {
+        // Let actual virtual gamepad button taps pass through without toggling fullscreen.
+        if (ev.target?.closest?.(".touch-btn, .player-overlay-action")) return;
+        const now = Date.now();
+        if (now - lastTapAt <= 320) {
+            ev.preventDefault();
+            lastTapAt = 0;
+            toggleFullscreen();
+            return;
+        }
+        lastTapAt = now;
+    }
+
+    function setTouchButton(button, pressed) {
+        const name = button?.dataset?.button;
+        if (!name) return;
+        if (pressed) {
+            touchControls.add(name);
+            button.classList.add("is-pressed");
+        } else {
+            touchControls.delete(name);
+            button.classList.remove("is-pressed");
+        }
+    }
+
+    function releaseAllTouchButtons() {
+        touchControls.clear();
+        for (const button of touchButtons) {
+            button.classList.remove("is-pressed");
+        }
+    }
+
+    function setLayoutEditMode(enabled) {
+        layoutEditMode = enabled;
+        shell.classList.toggle("layout-editing", enabled);
+        releaseAllTouchButtons();
+        layoutLockButton.textContent = enabled ? "Save layout" : "Unlock layout";
+        layoutLockButton.setAttribute("aria-label", enabled ? "Save control layout" : "Unlock control layout");
+        setStatus(enabled ? "Layout unlocked. Drag the controls, then tap Save layout." : "Layout locked.");
+    }
+
+    function applySavedLayout() {
+        let saved = null;
+        try { saved = JSON.parse(localStorage.getItem(layoutStorageKey) || "null"); } catch { }
+        if (!saved || typeof saved !== "object") return;
+        for (const control of draggableControls) {
+            const item = saved[control.dataset.controlGroup];
+            if (!item || typeof item.left !== "number" || typeof item.top !== "number") continue;
+            positionControl(control, item.left, item.top);
+        }
+    }
+
+    function saveLayout() {
+        const shellRect = shell.getBoundingClientRect();
+        const layout = {};
+        for (const control of draggableControls) {
+            const rect = control.getBoundingClientRect();
+            layout[control.dataset.controlGroup] = {
+                left: ((rect.left - shellRect.left) / shellRect.width) * 100,
+                top: ((rect.top - shellRect.top) / shellRect.height) * 100
+            };
+        }
+        localStorage.setItem(layoutStorageKey, JSON.stringify(layout));
+        setLayoutEditMode(false);
+        setStatus("Control layout saved on this device.");
+    }
+
+    function positionControl(control, leftPct, topPct) {
+        const shellRect = shell.getBoundingClientRect();
+        const rect = control.getBoundingClientRect();
+        const maxLeft = Math.max(0, 100 - (rect.width / shellRect.width) * 100);
+        const maxTop = Math.max(0, 100 - (rect.height / shellRect.height) * 100);
+        const left = Math.min(Math.max(leftPct, 0), maxLeft);
+        const top = Math.min(Math.max(topPct, 0), maxTop);
+        control.style.left = `${left}%`;
+        control.style.top = `${top}%`;
+        control.style.right = "auto";
+        control.style.bottom = "auto";
+        control.style.transform = "none";
+    }
+
+    function beginLayoutDrag(ev, control) {
+        if (!layoutEditMode) return false;
+        ev.preventDefault();
+        ev.stopPropagation();
+        releaseAllTouchButtons();
+        const shellRect = shell.getBoundingClientRect();
+        const rect = control.getBoundingClientRect();
+        activeDrag = {
+            control,
+            pointerId: ev.pointerId,
+            offsetX: ev.clientX - rect.left,
+            offsetY: ev.clientY - rect.top,
+            shellRect
+        };
+        control.classList.add("is-dragging");
+        control.setPointerCapture?.(ev.pointerId);
+        return true;
+    }
+
+    function updateLayoutDrag(ev) {
+        if (!activeDrag || ev.pointerId !== activeDrag.pointerId) return;
+        ev.preventDefault();
+        const rect = activeDrag.control.getBoundingClientRect();
+        const leftPct = ((ev.clientX - activeDrag.shellRect.left - activeDrag.offsetX) / activeDrag.shellRect.width) * 100;
+        const topPct = ((ev.clientY - activeDrag.shellRect.top - activeDrag.offsetY) / activeDrag.shellRect.height) * 100;
+        positionControl(activeDrag.control, leftPct, topPct);
+    }
+
+    function endLayoutDrag(ev) {
+        if (!activeDrag || ev.pointerId !== activeDrag.pointerId) return;
+        activeDrag.control.classList.remove("is-dragging");
+        activeDrag = null;
+    }
+
+    for (const control of draggableControls) {
+        control.addEventListener("pointerdown", ev => beginLayoutDrag(ev, control));
+        control.addEventListener("pointermove", updateLayoutDrag);
+        control.addEventListener("pointerup", endLayoutDrag);
+        control.addEventListener("pointercancel", endLayoutDrag);
+        control.addEventListener("lostpointercapture", endLayoutDrag);
+    }
+
+    applySavedLayout();
+
+    for (const button of touchButtons) {
+        button.addEventListener("pointerdown", ev => {
+            if (layoutEditMode) return;
+            ev.preventDefault();
+            button.setPointerCapture?.(ev.pointerId);
+            setTouchButton(button, true);
+        });
+        button.addEventListener("pointerup", ev => {
+            ev.preventDefault();
+            setTouchButton(button, false);
+        });
+        button.addEventListener("pointercancel", () => setTouchButton(button, false));
+        button.addEventListener("lostpointercapture", () => setTouchButton(button, false));
+        button.addEventListener("contextmenu", ev => ev.preventDefault());
+    }
+
+    document.addEventListener("fullscreenchange", () => {
+        const fullscreen = document.fullscreenElement === shell;
+        fullscreenButton.textContent = fullscreen ? "Exit fullscreen" : "Fullscreen";
+        if (!fullscreen && screen.orientation?.unlock) {
+            try { screen.orientation.unlock(); } catch { }
+        }
+    });
+
+    window.addEventListener("blur", releaseAllTouchButtons);
+    shell.addEventListener("touchend", handleDoubleTap, { passive: false });
+    shell.addEventListener("dblclick", ev => {
+        if (ev.target?.closest?.(".touch-btn, .player-overlay-action")) return;
+        ev.preventDefault();
+        toggleFullscreen();
+    });
+
     window.addEventListener("keydown", ev => { keys.add(ev.code); if (ev.code.startsWith("Arrow")) ev.preventDefault(); });
     window.addEventListener("keyup", ev => { keys.delete(ev.code); if (ev.code.startsWith("Arrow")) ev.preventDefault(); });
     connectButton.addEventListener("click", connect);
     audioButton.addEventListener("click", enableAudio);
+    audioOverlayButton.addEventListener("click", ev => {
+        if (layoutEditMode) {
+            ev.preventDefault();
+            return;
+        }
+        enableAudio();
+    });
+    layoutLockButton.addEventListener("click", () => {
+        if (layoutEditMode) saveLayout();
+        else setLayoutEditMode(true);
+    });
+    fullscreenButton.addEventListener("click", toggleFullscreen);
+    touchToggleButton?.addEventListener("click", () => {
+        touchGamepad?.classList.toggle("force-visible");
+        touchGamepad?.classList.toggle("is-visible");
+        releaseAllTouchButtons();
+    });
     connect();
 })();
 </script>

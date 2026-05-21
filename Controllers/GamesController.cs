@@ -1,5 +1,6 @@
 using games_vault.BackgroundJobs;
 using games_vault.Data;
+using games_vault.Gameplay;
 using games_vault.Libretro;
 using games_vault.Libretro.Import;
 using games_vault.Libretro.Dat;
@@ -30,7 +31,8 @@ public class GamesController(
     IOptions<NosebleedOptions> nosebleedOptions,
     NosebleedSessionManager nosebleedSessions,
     NosebleedSeatManager nosebleedSeats,
-    NosebleedTicketSigner nosebleedTickets) : Controller
+    NosebleedTicketSigner nosebleedTickets,
+    GamePlayTelemetryService gamePlayTelemetry) : Controller
 {
     public async Task<IActionResult> Index(
         string? q,
@@ -935,6 +937,7 @@ public class GamesController(
                 if (result.Success && result.Session is not null)
                 {
                     session = result.Session;
+                    await gamePlayTelemetry.StartAsync(game.Id, file.Id, "nosebleed", session.Id, cancellationToken);
                     var viewerId = GetOrCreateNosebleedViewerId();
                     seat = nosebleedSeats.Assign(session.Id, viewerId, DateTimeOffset.UtcNow);
                     token = seat.Kind == NosebleedSeatKind.Player && seat.Port is not null
@@ -967,7 +970,7 @@ public class GamesController(
     }
 
     [HttpPost]
-    public IActionResult KeepAliveServerSession(string sessionId)
+    public async Task<IActionResult> KeepAliveServerSession(string sessionId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(sessionId) ||
             !Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var viewerId) ||
@@ -976,7 +979,15 @@ public class GamesController(
             return BadRequest();
         }
 
+        nosebleedSessions.Cleanup();
+        if (!nosebleedSessions.GetSessions().Any(x => string.Equals(x.SessionId, sessionId, StringComparison.OrdinalIgnoreCase)))
+        {
+            await gamePlayTelemetry.FinishByExternalSessionAsync(sessionId, "process-exit", cancellationToken);
+            return NotFound();
+        }
+
         var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow);
+        await gamePlayTelemetry.TouchDurationAsync(sessionId, cancellationToken);
         return Json(new
         {
             kind = seat.Kind.ToString().ToLowerInvariant(),

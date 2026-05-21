@@ -15,6 +15,49 @@ public sealed class NosebleedSessionManager(
     private readonly SemaphoreSlim _lock = new(1, 1);
     private int _nextPortOffset;
 
+    public IReadOnlyList<NosebleedSessionSnapshot> GetSessions()
+    {
+        return _sessions.Values
+            .Select(ToSnapshot)
+            .OrderBy(x => x.StartedUtc)
+            .ToList();
+    }
+
+    public IReadOnlyList<int> GetManagedProcessIds()
+    {
+        return _sessions.Values
+            .Where(x => !SafeHasExited(x.Process))
+            .Select(x => SafeProcessId(x.Process))
+            .Where(x => x.HasValue)
+            .Select(x => x!.Value)
+            .ToList();
+    }
+
+    public bool TryStop(string sessionId, string reason = "manual")
+    {
+        foreach (var pair in _sessions.ToArray())
+        {
+            if (!string.Equals(pair.Value.Session.Id, sessionId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (!_sessions.TryRemove(pair.Key, out var removed))
+            {
+                return false;
+            }
+
+            logger.LogInformation("Stopping Nosebleed session {SessionId}: {Reason}", sessionId, reason);
+            TryKill(removed.Process);
+            removed.Process.Dispose();
+            return true;
+        }
+
+        return false;
+    }
+
+    public void Cleanup() => CleanupExitedSessions(disposeRemoved: true);
+
     public async Task<NosebleedStartResult> StartOrReuseAsync(
         int gameId,
         int fileId,
@@ -58,7 +101,7 @@ public sealed class NosebleedSessionManager(
         await _lock.WaitAsync(cancellationToken);
         try
         {
-            CleanupExitedSessions();
+            CleanupExitedSessions(disposeRemoved: true);
 
             if (_sessions.TryGetValue(key, out existing) && !existing.Process.HasExited)
             {
@@ -188,14 +231,60 @@ public sealed class NosebleedSessionManager(
         return false;
     }
 
-    private void CleanupExitedSessions()
+    private void CleanupExitedSessions(bool disposeRemoved = true)
     {
         foreach (var pair in _sessions.ToArray())
         {
-            if (pair.Value.Process.HasExited)
+            if (SafeHasExited(pair.Value.Process))
             {
-                _sessions.TryRemove(pair.Key, out _);
+                if (_sessions.TryRemove(pair.Key, out var removed) && disposeRemoved)
+                {
+                    removed.Process.Dispose();
+                }
             }
+        }
+    }
+
+    private static NosebleedSessionSnapshot ToSnapshot(ManagedSession managed)
+    {
+        var process = managed.Process;
+        var session = managed.Session;
+        var now = DateTimeOffset.UtcNow;
+        return new NosebleedSessionSnapshot(
+            session.Id,
+            session.GameId,
+            session.FileId,
+            session.Port,
+            session.BaseUrl,
+            session.StartedUtc,
+            session.CorePath,
+            session.ContentPath,
+            SafeProcessId(process) ?? 0,
+            SafeHasExited(process),
+            now >= session.StartedUtc ? now - session.StartedUtc : TimeSpan.Zero);
+    }
+
+    private static int? SafeProcessId(Process process)
+    {
+        try
+        {
+            return process.Id;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool SafeHasExited(Process process)
+    {
+        try
+        {
+            return process.HasExited;
+        }
+        catch
+        {
+            return true;
         }
     }
 
