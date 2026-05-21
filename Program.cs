@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using games_vault.BackgroundJobs;
+using games_vault.Gameplay;
 using Microsoft.Data.Sqlite;
 using games_vault.Libretro;
 using games_vault.Nosebleed;
@@ -34,6 +35,8 @@ builder.Services.Configure<NosebleedOptions>(builder.Configuration.GetSection("N
 builder.Services.AddSingleton<NosebleedTicketSigner>();
 builder.Services.AddSingleton<NosebleedSessionManager>();
 builder.Services.AddSingleton<NosebleedSeatManager>();
+builder.Services.AddSingleton<NosebleedProcessInspector>();
+builder.Services.AddScoped<GamePlayTelemetryService>();
 builder.Services.AddSingleton<WebPlayerAssetLocator>();
 builder.Services.AddHostedService<WebPlayerBootstrapper>();
 builder.Services.AddSingleton<WebPlayerDataStorage>();

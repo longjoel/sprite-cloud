@@ -23,6 +23,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<LocalScanRun> LocalScanRuns => Set<LocalScanRun>();
     public DbSet<LocalScanResult> LocalScanResults => Set<LocalScanResult>();
     public DbSet<GamePlayerFile> GamePlayerFiles => Set<GamePlayerFile>();
+    public DbSet<GamePlaySession> GamePlaySessions => Set<GamePlaySession>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -213,6 +214,27 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(x => new { x.GameId, x.Kind, x.Key, x.FileName }).IsUnique();
+        });
+
+        modelBuilder.Entity<GamePlaySession>(entity =>
+        {
+            entity.Property(x => x.Mode).HasMaxLength(40);
+            entity.Property(x => x.ExternalSessionId).HasMaxLength(200);
+            entity.Property(x => x.EndReason).HasMaxLength(100);
+
+            entity.HasOne(x => x.Game)
+                .WithMany()
+                .HasForeignKey(x => x.GameId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.GameFile)
+                .WithMany()
+                .HasForeignKey(x => x.GameFileId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(x => new { x.GameId, x.StartedUtc });
+            entity.HasIndex(x => x.ExternalSessionId);
+            entity.HasIndex(x => new { x.Mode, x.StartedUtc });
         });
     }
 }
