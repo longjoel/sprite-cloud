@@ -28,7 +28,9 @@ public class GamesController(
     IWebHostEnvironment env,
     IOptions<WebPlayerOptions> webPlayerOptions,
     IOptions<NosebleedOptions> nosebleedOptions,
-    NosebleedSessionManager nosebleedSessions) : Controller
+    NosebleedSessionManager nosebleedSessions,
+    NosebleedSeatManager nosebleedSeats,
+    NosebleedTicketSigner nosebleedTickets) : Controller
 {
     public async Task<IActionResult> Index(
         string? q,
@@ -908,6 +910,8 @@ public class GamesController(
         var file = game.Files.FirstOrDefault(f => !string.IsNullOrWhiteSpace(f.StoragePath) || !string.IsNullOrWhiteSpace(f.ExternalPath));
         string? error = null;
         NosebleedSession? session = null;
+        NosebleedSeatAssignment? seat = null;
+        string? token = null;
         string? contentPath = null;
 
         if (!opts.Enabled)
@@ -928,9 +932,14 @@ public class GamesController(
             else
             {
                 var result = await nosebleedSessions.StartOrReuseAsync(game.Id, file.Id, game.SystemName, contentPath, cancellationToken);
-                if (result.Success)
+                if (result.Success && result.Session is not null)
                 {
                     session = result.Session;
+                    var viewerId = GetOrCreateNosebleedViewerId();
+                    seat = nosebleedSeats.Assign(session.Id, viewerId, DateTimeOffset.UtcNow);
+                    token = seat.Kind == NosebleedSeatKind.Player && seat.Port is not null
+                        ? nosebleedTickets.CreatePlayerToken(session.Id, viewerId, seat.Port.Value)
+                        : nosebleedTickets.CreateSpectatorToken(session.Id, viewerId);
                 }
                 else
                 {
@@ -945,12 +954,48 @@ public class GamesController(
             File = file,
             PlayerEnabled = opts.Enabled,
             BaseUrl = session?.BaseUrl,
-            Token = session?.Token,
+            Token = token,
             SessionId = session?.Id,
+            AssignedPort = seat?.Port,
+            PlayerNumber = seat?.PlayerNumber,
+            IsSpectator = seat?.Kind == NosebleedSeatKind.Spectator,
+            SeatExpiresUtc = seat?.ExpiresUtc,
             CorePath = session?.CorePath,
             ContentPath = session?.ContentPath ?? contentPath,
             Error = error
         });
+    }
+
+    [HttpPost]
+    public IActionResult KeepAliveServerSession(string sessionId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId) ||
+            !Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var viewerId) ||
+            !Guid.TryParse(viewerId, out _))
+        {
+            return BadRequest();
+        }
+
+        var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow);
+        return Json(new
+        {
+            kind = seat.Kind.ToString().ToLowerInvariant(),
+            port = seat.Port,
+            playerNumber = seat.PlayerNumber,
+            expiresUtc = seat.ExpiresUtc
+        });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult LeaveServerSession(string sessionId)
+    {
+        if (Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var viewerId))
+        {
+            nosebleedSeats.Release(sessionId, viewerId);
+        }
+
+        return RedirectToAction(nameof(Index));
     }
 
     [HttpGet]
@@ -1010,6 +1055,28 @@ public class GamesController(
 
         Response.Headers.CacheControl = "no-store";
         return PhysicalFile(abs, "application/octet-stream", enableRangeProcessing: true);
+    }
+
+    private const string NosebleedViewerCookieName = "games_vault_nosebleed_viewer";
+
+    private string GetOrCreateNosebleedViewerId()
+    {
+        if (Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var existing)
+            && Guid.TryParse(existing, out _))
+        {
+            return existing;
+        }
+
+        var id = Guid.NewGuid().ToString("N");
+        Response.Cookies.Append(NosebleedViewerCookieName, id, new CookieOptions
+        {
+            Path = "/",
+            HttpOnly = true,
+            SameSite = SameSiteMode.Lax,
+            Secure = Request.IsHttps,
+            MaxAge = TimeSpan.FromDays(30)
+        });
+        return id;
     }
 
     private async Task<string?> ResolveGameFileAbsolutePathAsync(GameFile file, CancellationToken cancellationToken)

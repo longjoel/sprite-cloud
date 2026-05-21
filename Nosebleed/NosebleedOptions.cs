@@ -24,6 +24,10 @@ public sealed class NosebleedOptions
 
     public int TicketTtlMinutes { get; set; } = 120;
 
+    public int MaxPlayersPerSession { get; set; } = 4;
+
+    public int SeatTtlMinutes { get; set; } = 30;
+
     public bool CopyContentToSession { get; set; } = true;
 
     public float Fps { get; set; } = 60;
