@@ -36,6 +36,14 @@
             @if (!string.IsNullOrWhiteSpace(Model.BaseUrl))
             {
                 <span> · Session: <code>@Model.SessionId</code> · Host: <code>@Model.BaseUrl</code></span>
+                @if (Model.IsSpectator)
+                {
+                    <span> · <span class="badge bg-secondary">Spectator</span></span>
+                }
+                else if (Model.PlayerNumber is not null)
+                {
+                    <span> · <span class="badge bg-success">Player @Model.PlayerNumber</span></span>
+                }
             }
         </div>
 
@@ -47,10 +55,28 @@
             <div class="d-flex gap-2 align-items-center mt-3 flex-wrap">
                 <button id="nosebleed-connect" class="btn btn-primary" type="button">Connect</button>
                 <button id="nosebleed-audio" class="btn btn-outline-secondary" type="button">Enable audio</button>
+                @if (!Model.IsSpectator && !string.IsNullOrWhiteSpace(Model.SessionId))
+                {
+                    <form asp-action="LeaveServerSession" method="post" class="d-inline">
+                        <input type="hidden" name="sessionId" value="@Model.SessionId" />
+                        <button type="submit" class="btn btn-outline-warning">Leave seat</button>
+                    </form>
+                }
                 <span id="nosebleed-status" class="text-muted">Ready.</span>
             </div>
             <div class="text-muted small mt-2">
-                Keyboard: arrows/D-pad, Z=A, X=B, Enter=Start, Shift=Select. Browser gamepads are also forwarded to port 0.
+                @if (Model.IsSpectator)
+                {
+                    <span>You are watching as a spectator. Video and audio are available, but input is disabled until a player slot frees up.</span>
+                }
+                else if (Model.PlayerNumber is not null)
+                {
+                    <span>You are Player @Model.PlayerNumber. Keyboard and gamepad input are forwarded to your assigned controller slot.</span>
+                }
+                else
+                {
+                    <span>Keyboard: arrows/D-pad, Z=A, X=B, Enter=Start, Shift=Select. Browser gamepads are forwarded to your assigned controller slot.</span>
+                }
             </div>
         }
         else
@@ -67,6 +93,10 @@
 (() => {
     const baseUrl = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.BaseUrl));
     const token = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Token));
+    const assignedPort = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.AssignedPort));
+    const isSpectator = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.IsSpectator));
+    const sessionId = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.SessionId));
+    const keepAliveUrl = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Url.Action("KeepAliveServerSession", "Games")));
     const statusEl = document.getElementById("nosebleed-status");
     const canvas = document.getElementById("nosebleed-screen");
     const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
@@ -77,6 +107,7 @@
     let audioWs = null;
     let inputSeq = 0;
     let inputTimer = 0;
+    let keepAliveTimer = 0;
     let audioCtx = null;
     let audioStartTime = 0;
     const keys = new Set();
@@ -99,17 +130,23 @@
         videoWs.onerror = () => setStatus("Video socket error.");
         videoWs.onclose = () => setStatus("Video disconnected.");
 
-        inputWs = new WebSocket(withToken("/ws/input"));
-        inputWs.onopen = () => {
-            setStatus("Connected. Sending input.");
-            startInputLoop();
-        };
-        inputWs.onerror = () => setStatus("Input socket error.");
-        inputWs.onclose = () => stopInputLoop();
+        if (!isSpectator && assignedPort !== null) {
+            inputWs = new WebSocket(withToken("/ws/input"));
+            inputWs.onopen = () => {
+                setStatus(`Connected as Player ${assignedPort + 1}. Sending input.`);
+                startInputLoop();
+            };
+            inputWs.onerror = () => setStatus("Input socket error.");
+            inputWs.onclose = () => stopInputLoop();
+        } else {
+            setStatus("Connected as spectator. Input disabled.");
+        }
+        startSeatKeepAlive();
     }
 
     function closeSockets() {
         stopInputLoop();
+        stopSeatKeepAlive();
         for (const ws of [videoWs, inputWs, audioWs]) {
             try { ws?.close(); } catch { }
         }
@@ -180,8 +217,40 @@
         if (inputTimer) window.clearInterval(inputTimer);
         inputTimer = 0;
     }
+
+    function startSeatKeepAlive() {
+        stopSeatKeepAlive();
+        sendSeatKeepAlive();
+        keepAliveTimer = window.setInterval(sendSeatKeepAlive, 60000);
+    }
+
+    function stopSeatKeepAlive() {
+        if (keepAliveTimer) window.clearInterval(keepAliveTimer);
+        keepAliveTimer = 0;
+    }
+
+    async function sendSeatKeepAlive() {
+        if (!sessionId || !keepAliveUrl) return;
+        try {
+            const response = await fetch(keepAliveUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: new URLSearchParams({ sessionId }),
+                credentials: "same-origin"
+            });
+            if (!response.ok) return;
+            const assignment = await response.json();
+            if ((isSpectator && assignment.kind === "player") ||
+                (!isSpectator && assignment.port !== assignedPort)) {
+                window.location.reload();
+            }
+        } catch {
+            // Keep playback running even if the seat heartbeat briefly fails.
+        }
+    }
+
     function sendInput() {
-        if (!inputWs || inputWs.readyState !== WebSocket.OPEN) return;
+        if (isSpectator || assignedPort === null || !inputWs || inputWs.readyState !== WebSocket.OPEN) return;
         const pad = navigator.getGamepads?.()[0];
         const buttons = {
             a: keys.has("KeyZ") || !!pad?.buttons[0]?.pressed,
@@ -203,7 +272,7 @@
             l2: pad?.buttons[6]?.value ?? 0,
             r2: pad?.buttons[7]?.value ?? 0
         };
-        inputWs.send(JSON.stringify({ type: "input", port: 0, sequence: ++inputSeq, buttons, axes }));
+        inputWs.send(JSON.stringify({ type: "input", port: assignedPort, sequence: ++inputSeq, buttons, axes }));
     }
 
     async function enableAudio() {

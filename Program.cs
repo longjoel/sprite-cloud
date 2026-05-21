@@ -33,6 +33,7 @@ builder.Services.Configure<WebPlayerOptions>(builder.Configuration.GetSection("W
 builder.Services.Configure<NosebleedOptions>(builder.Configuration.GetSection("Nosebleed"));
 builder.Services.AddSingleton<NosebleedTicketSigner>();
 builder.Services.AddSingleton<NosebleedSessionManager>();
+builder.Services.AddSingleton<NosebleedSeatManager>();
 builder.Services.AddSingleton<WebPlayerAssetLocator>();
 builder.Services.AddHostedService<WebPlayerBootstrapper>();
 builder.Services.AddSingleton<WebPlayerDataStorage>();

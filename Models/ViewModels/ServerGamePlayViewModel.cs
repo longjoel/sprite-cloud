@@ -8,6 +8,10 @@ public sealed class ServerGamePlayViewModel
     public string? BaseUrl { get; init; }
     public string? Token { get; init; }
     public string? SessionId { get; init; }
+    public int? AssignedPort { get; init; }
+    public int? PlayerNumber { get; init; }
+    public bool IsSpectator { get; init; }
+    public DateTimeOffset? SeatExpiresUtc { get; init; }
     public string? CorePath { get; init; }
     public string? ContentPath { get; init; }
     public string? Error { get; init; }

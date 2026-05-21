@@ -16,14 +16,29 @@ public sealed class NosebleedTicketSigner(IOptions<NosebleedOptions> options, IL
             return null;
         }
 
+        return CreateToken(matchId, playerId, "player", new[] { port });
+    }
+
+    public string? CreateSpectatorToken(string matchId, string viewerId)
+    {
+        if (!_options.RequireAuth)
+        {
+            return null;
+        }
+
+        return CreateToken(matchId, viewerId, "spectator", Array.Empty<int>());
+    }
+
+    private string CreateToken(string matchId, string playerId, string role, IReadOnlyCollection<int> allowedPorts)
+    {
         var secret = GetOrCreateSecret();
         var now = DateTimeOffset.UtcNow;
         var payload = new
         {
             match_id = matchId,
             player_id = playerId,
-            role = "player",
-            allowed_ports = new[] { port },
+            role,
+            allowed_ports = allowedPorts,
             exp_unix_ms = now.AddMinutes(Math.Max(1, _options.TicketTtlMinutes)).ToUnixTimeMilliseconds(),
             iat_unix_ms = now.ToUnixTimeMilliseconds()
         };
