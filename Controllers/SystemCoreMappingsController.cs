@@ -14,7 +14,8 @@ public sealed class SystemCoreMappingsController(
     SystemCoreMappingResolver resolver,
     SystemCoreAutomapper automapper,
     CurrentAccessService currentAccess,
-    IOptions<NosebleedOptions> nosebleedOptions) : Controller
+    IOptions<NosebleedOptions> nosebleedOptions,
+    LibretroCoreInstaller coreInstaller) : Controller
 {
     public async Task<IActionResult> Index(CancellationToken cancellationToken = default)
     {
@@ -124,8 +125,12 @@ public sealed class SystemCoreMappingsController(
             return RedirectToAction("Index", "Profiles");
         }
 
+        var installResult = await coreInstaller.InstallKnownCoresForDetectedSystemsAsync(cancellationToken);
         var result = await automapper.AutoMapDetectedSystemsAsync(GetInstalledNativeCores(), cancellationToken);
-        TempData["Message"] = $"Auto-map complete: created {result.Created}, updated {result.Updated}, missing installed core {result.MissingCore}, unknown system {result.UnknownSystem}.";
+        var installedText = installResult.Installed > 0
+            ? $" Installed {installResult.Installed} missing core(s): {string.Join(", ", installResult.InstalledCores)}."
+            : "";
+        TempData["Message"] = $"Auto-map complete: created {result.Created}, updated {result.Updated}, missing installed core {result.MissingCore}, unknown system {result.UnknownSystem}." + installedText;
         return RedirectToAction(nameof(Index));
     }
 

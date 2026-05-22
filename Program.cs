@@ -41,6 +41,7 @@ builder.Services.AddScoped<ProfileInviteService>();
 builder.Services.AddScoped<LocalProfileService>();
 builder.Services.AddScoped<SystemCoreMappingResolver>();
 builder.Services.AddScoped<SystemCoreAutomapper>();
+builder.Services.AddScoped<LibretroCoreInstaller>();
 builder.Services.AddScoped<CurrentProfileViewDataFilter>();
 builder.Services.AddLibretroDatabase(builder.Configuration);
 builder.Services.Configure<games_vault.Libretro.Import.LibraryStorageOptions>(builder.Configuration.GetSection("Library"));
@@ -175,15 +176,24 @@ await using (var scope = app.Services.CreateAsyncScope())
     }
 
     var nosebleedCoreRoot = builder.Configuration.GetValue<string>("Nosebleed:CoreRoot");
-    if (!string.IsNullOrWhiteSpace(nosebleedCoreRoot) && Directory.Exists(nosebleedCoreRoot))
+    if (!string.IsNullOrWhiteSpace(nosebleedCoreRoot))
     {
-        var installedNativeCores = Directory.EnumerateFiles(nosebleedCoreRoot, "*_libretro.so", SearchOption.TopDirectoryOnly)
-            .Select(Path.GetFileName)
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Select(x => x!)
-            .ToList();
-        var automapper = scope.ServiceProvider.GetRequiredService<SystemCoreAutomapper>();
-        await automapper.AutoMapDetectedSystemsAsync(installedNativeCores);
+        if (builder.Configuration.GetValue("Nosebleed:AutoInstallKnownCores", true))
+        {
+            var installer = scope.ServiceProvider.GetRequiredService<LibretroCoreInstaller>();
+            await installer.InstallKnownCoresForDetectedSystemsAsync();
+        }
+
+        if (Directory.Exists(nosebleedCoreRoot))
+        {
+            var installedNativeCores = Directory.EnumerateFiles(nosebleedCoreRoot, "*_libretro.so", SearchOption.TopDirectoryOnly)
+                .Select(Path.GetFileName)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x!)
+                .ToList();
+            var automapper = scope.ServiceProvider.GetRequiredService<SystemCoreAutomapper>();
+            await automapper.AutoMapDetectedSystemsAsync(installedNativeCores);
+        }
     }
 
     // Improve SQLite concurrency for the (chatty) web player sync workload.
