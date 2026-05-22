@@ -14,8 +14,8 @@ public sealed class GamePlayTelemetryServiceTests
         await using var fixture = await CreateFixtureAsync();
         var service = new GamePlayTelemetryService(fixture.Db);
 
-        var first = await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "ext-1", CancellationToken.None);
-        var second = await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "ext-1", CancellationToken.None);
+        var first = await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "ext-1", null, CancellationToken.None);
+        var second = await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "ext-1", null, CancellationToken.None);
 
         Assert.Equal(first.Id, second.Id);
         Assert.Single(await fixture.Db.GamePlaySessions.ToListAsync());
@@ -27,7 +27,7 @@ public sealed class GamePlayTelemetryServiceTests
     {
         await using var fixture = await CreateFixtureAsync();
         var service = new GamePlayTelemetryService(fixture.Db);
-        var started = await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "ext-2", CancellationToken.None);
+        var started = await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "ext-2", null, CancellationToken.None);
         started.StartedUtc = DateTime.UtcNow.AddSeconds(-90);
         await fixture.Db.SaveChangesAsync();
 
@@ -45,7 +45,7 @@ public sealed class GamePlayTelemetryServiceTests
     {
         await using var fixture = await CreateFixtureAsync();
         var service = new GamePlayTelemetryService(fixture.Db);
-        var started = await service.StartAsync(fixture.Game.Id, null, "web", "ext-3", CancellationToken.None);
+        var started = await service.StartAsync(fixture.Game.Id, null, "web", "ext-3", null, CancellationToken.None);
         started.StartedUtc = DateTime.UtcNow.AddSeconds(-42);
         await fixture.Db.SaveChangesAsync();
 
@@ -62,7 +62,7 @@ public sealed class GamePlayTelemetryServiceTests
     {
         await using var fixture = await CreateFixtureAsync();
         var service = new GamePlayTelemetryService(fixture.Db);
-        var active = await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "active", CancellationToken.None);
+        var active = await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "active", null, CancellationToken.None);
         active.StartedUtc = DateTime.UtcNow.AddSeconds(-30);
         fixture.Db.GamePlaySessions.Add(new GamePlaySession
         {
@@ -77,7 +77,7 @@ public sealed class GamePlayTelemetryServiceTests
         });
         await fixture.Db.SaveChangesAsync();
 
-        var stats = await service.GetDashboardStatsAsync(CancellationToken.None);
+        var stats = await service.GetDashboardStatsAsync(null, CancellationToken.None);
 
         Assert.Equal(2, stats.TotalSessions);
         Assert.Equal(1, stats.ActiveSessions);
@@ -87,13 +87,45 @@ public sealed class GamePlayTelemetryServiceTests
     }
 
     [Fact]
+    public async Task StartAsync_StoresProfileIdAndBackfillsExistingAnonymousSession()
+    {
+        await using var fixture = await CreateFixtureAsync();
+        var service = new GamePlayTelemetryService(fixture.Db);
+
+        var anonymous = await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "profile-ext", null, CancellationToken.None);
+        var profiled = await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "profile-ext", fixture.ProfileOne.Id, CancellationToken.None);
+
+        Assert.Equal(anonymous.Id, profiled.Id);
+        Assert.Equal(fixture.ProfileOne.Id, profiled.ProfileId);
+        Assert.Equal(fixture.ProfileOne.Id, (await fixture.Db.GamePlaySessions.SingleAsync()).ProfileId);
+    }
+
+    [Fact]
+    public async Task GetDashboardStatsAsync_FiltersByProfileWhenProfileIdProvided()
+    {
+        await using var fixture = await CreateFixtureAsync();
+        var service = new GamePlayTelemetryService(fixture.Db);
+
+        await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "player-one", fixture.ProfileOne.Id, CancellationToken.None);
+        await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "player-two", fixture.ProfileTwo.Id, CancellationToken.None);
+        await service.StartAsync(fixture.Game.Id, fixture.File.Id, "web", "anonymous", null, CancellationToken.None);
+
+        var playerOne = await service.GetDashboardStatsAsync(fixture.ProfileOne.Id, CancellationToken.None);
+        var global = await service.GetDashboardStatsAsync(null, CancellationToken.None);
+
+        Assert.Equal(1, playerOne.TotalSessions);
+        Assert.Equal(1, playerOne.ActiveSessions);
+        Assert.Equal(3, global.TotalSessions);
+    }
+
+    [Fact]
     public async Task ReconcileActiveExternalSessionsAsync_EndsMissingActiveExternalSessionsForModeOnly()
     {
         await using var fixture = await CreateFixtureAsync();
         var service = new GamePlayTelemetryService(fixture.Db);
-        var stale = await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "stale", CancellationToken.None);
-        var active = await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "active", CancellationToken.None);
-        var web = await service.StartAsync(fixture.Game.Id, fixture.File.Id, "web", "web-stale", CancellationToken.None);
+        var stale = await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "stale", null, CancellationToken.None);
+        var active = await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "active", null, CancellationToken.None);
+        var web = await service.StartAsync(fixture.Game.Id, fixture.File.Id, "web", "web-stale", null, CancellationToken.None);
         stale.StartedUtc = DateTime.UtcNow.AddSeconds(-75);
         active.StartedUtc = DateTime.UtcNow.AddSeconds(-30);
         web.StartedUtc = DateTime.UtcNow.AddSeconds(-90);
@@ -118,7 +150,7 @@ public sealed class GamePlayTelemetryServiceTests
     {
         await using var fixture = await CreateFixtureAsync();
         var service = new GamePlayTelemetryService(fixture.Db);
-        await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "delete-me", CancellationToken.None);
+        await service.StartAsync(fixture.Game.Id, fixture.File.Id, "nosebleed", "delete-me", null, CancellationToken.None);
 
         fixture.Db.Games.Remove(fixture.Game);
         await fixture.Db.SaveChangesAsync();
@@ -137,13 +169,16 @@ public sealed class GamePlayTelemetryServiceTests
         await db.Database.EnsureCreatedAsync();
         var game = new Game { Name = "Game", SystemName = "gb", SizeBytes = 1 };
         var file = new GameFile { Game = game, Name = "game.gb", SizeBytes = 1 };
+        var profileOne = new UserProfile { DisplayName = "Player One", PasskeyUserHandleBase64Url = "player-one", Color = "#0d6efd" };
+        var profileTwo = new UserProfile { DisplayName = "Player Two", PasskeyUserHandleBase64Url = "player-two", Color = "#198754" };
         db.Games.Add(game);
         db.GameFiles.Add(file);
+        db.UserProfiles.AddRange(profileOne, profileTwo);
         await db.SaveChangesAsync();
-        return new TestFixture(connection, db, game, file);
+        return new TestFixture(connection, db, game, file, profileOne, profileTwo);
     }
 
-    private sealed record TestFixture(SqliteConnection Connection, AppDbContext Db, Game Game, GameFile File) : IAsyncDisposable
+    private sealed record TestFixture(SqliteConnection Connection, AppDbContext Db, Game Game, GameFile File, UserProfile ProfileOne, UserProfile ProfileTwo) : IAsyncDisposable
     {
         public async ValueTask DisposeAsync()
         {

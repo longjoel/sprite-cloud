@@ -4,13 +4,15 @@ using games_vault.Models;
 using games_vault.Models.ViewModels;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using games_vault.Profiles;
 
 namespace games_vault.Controllers;
 
-public class JobsController(AppDbContext db) : Controller
+public class JobsController(AppDbContext db, CurrentAccessService currentAccess) : Controller
 {
     public async Task<IActionResult> Index(string? status = null, int page = 1, int pageSize = 100)
     {
+        if (await RequireAdminAsync() is { } denied) return denied;
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 10, 100);
 
@@ -35,6 +37,7 @@ public class JobsController(AppDbContext db) : Controller
     [HttpGet]
     public async Task<IActionResult> Rows(string? status = null, int page = 1, int pageSize = 100)
     {
+        if (!await currentAccess.IsAdminAsync(HttpContext.RequestAborted)) return StatusCode(StatusCodes.Status403Forbidden);
         Response.Headers.CacheControl = "no-store";
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 10, 100);
@@ -50,6 +53,7 @@ public class JobsController(AppDbContext db) : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Retry(int id)
     {
+        if (await RequireAdminAsync() is { } denied) return denied;
         var job = await db.BackgroundJobs.FindAsync(id);
         if (job is null)
         {
@@ -74,6 +78,7 @@ public class JobsController(AppDbContext db) : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> ClearCompleted(string? status = null, int page = 1, int pageSize = 100)
     {
+        if (await RequireAdminAsync() is { } denied) return denied;
         // "Completed" here means succeeded; failed jobs are usually kept for diagnosis unless explicitly deleted.
         var deleted = await db.BackgroundJobs
             .Where(x => x.Status == BackgroundJobStatus.Succeeded)
@@ -87,6 +92,7 @@ public class JobsController(AppDbContext db) : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> PauseSelected(int[] ids, string? status = null, int page = 1, int pageSize = 100)
     {
+        if (await RequireAdminAsync() is { } denied) return denied;
         ids = (ids ?? Array.Empty<int>()).Where(x => x > 0).Distinct().ToArray();
         if (ids.Length == 0)
         {
@@ -111,6 +117,7 @@ public class JobsController(AppDbContext db) : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> CancelSelected(int[] ids, string? status = null, int page = 1, int pageSize = 100)
     {
+        if (await RequireAdminAsync() is { } denied) return denied;
         ids = (ids ?? Array.Empty<int>()).Where(x => x > 0).Distinct().ToArray();
         if (ids.Length == 0)
         {
@@ -137,6 +144,7 @@ public class JobsController(AppDbContext db) : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> DeleteSelected(int[] ids, string? status = null, int page = 1, int pageSize = 100)
     {
+        if (await RequireAdminAsync() is { } denied) return denied;
         ids = (ids ?? Array.Empty<int>()).Where(x => x > 0).Distinct().ToArray();
         if (ids.Length == 0)
         {
@@ -156,6 +164,7 @@ public class JobsController(AppDbContext db) : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> RerunSelected(int[] ids, string? status = null, int page = 1, int pageSize = 100)
     {
+        if (await RequireAdminAsync() is { } denied) return denied;
         ids = (ids ?? Array.Empty<int>()).Where(x => x > 0).Distinct().ToArray();
         if (ids.Length == 0)
         {
@@ -202,6 +211,7 @@ public class JobsController(AppDbContext db) : Controller
 
     public async Task<IActionResult> Details(int id, int logPage = 1, int logPageSize = 100)
     {
+        if (await RequireAdminAsync() is { } denied) return denied;
         logPage = Math.Max(1, logPage);
         logPageSize = Math.Clamp(logPageSize, 10, 100);
 
@@ -316,6 +326,17 @@ public class JobsController(AppDbContext db) : Controller
         job.StartedUtc = null;
         job.CompletedUtc = null;
         job.UpdatedUtc = DateTime.UtcNow;
+    }
+
+    private async Task<IActionResult?> RequireAdminAsync()
+    {
+        if (await currentAccess.IsAdminAsync(HttpContext.RequestAborted))
+        {
+            return null;
+        }
+
+        TempData["Message"] = "Admin profile required to access background jobs.";
+        return RedirectToAction("Index", "Profiles");
     }
 
     private IQueryable<BackgroundJob> QueryJobs(string? status)

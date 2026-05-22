@@ -5,6 +5,7 @@ using Microsoft.Data.Sqlite;
 using games_vault.Libretro;
 using games_vault.Nosebleed;
 using games_vault.Web;
+using games_vault.Profiles;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.FileProviders.Physical;
@@ -22,12 +23,25 @@ builder.Services.Configure<FormOptions>(options =>
 });
 
 // Add services to the container.
-builder.Services.AddControllersWithViews();
+builder.Services.AddControllersWithViews(options =>
+{
+    options.Filters.Add<CurrentProfileViewDataFilter>();
+});
 builder.Services.AddDbContext<games_vault.Data.AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddBackgroundJobs();
 builder.Services.AddHttpClient();
 builder.Services.AddMemoryCache();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<CurrentProfileService>();
+builder.Services.AddScoped<CurrentAccessService>();
+builder.Services.AddScoped<PasskeyReadinessService>();
+builder.Services.AddScoped<PasskeyService>();
+builder.Services.AddScoped<ProfileInviteService>();
+builder.Services.AddScoped<LocalProfileService>();
+builder.Services.AddScoped<SystemCoreMappingResolver>();
+builder.Services.AddScoped<SystemCoreAutomapper>();
+builder.Services.AddScoped<CurrentProfileViewDataFilter>();
 builder.Services.AddLibretroDatabase(builder.Configuration);
 builder.Services.Configure<games_vault.Libretro.Import.LibraryStorageOptions>(builder.Configuration.GetSection("Library"));
 builder.Services.Configure<WebPlayerOptions>(builder.Configuration.GetSection("WebPlayer"));
@@ -69,6 +83,7 @@ app.UseStaticFiles(new StaticFileOptions
         ? app.Environment.WebRootFileProvider
         : new PhysicalFileProvider(app.Environment.WebRootPath, ExclusionFilters.None)
 });
+app.UseWebSockets();
 app.UseRouting();
 
 app.UseAuthorization();
@@ -116,6 +131,60 @@ await using (var scope = app.Services.CreateAsyncScope())
     }
 
     await db.Database.MigrateAsync();
+
+    var configuredNativeCores = builder.Configuration.GetSection("Nosebleed:SystemCores")
+        .Get<Dictionary<string, string>>() ?? [];
+    var configuredWebCores = builder.Configuration.GetSection("WebPlayer:SystemCores")
+        .Get<Dictionary<string, string>>() ?? [];
+    foreach (var pair in configuredNativeCores)
+    {
+        var systemName = pair.Key.Trim();
+        if (string.IsNullOrWhiteSpace(systemName))
+        {
+            continue;
+        }
+
+        var mapping = await db.SystemCoreMappings.FirstOrDefaultAsync(x => x.SystemName == systemName);
+        if (mapping is null)
+        {
+            mapping = new games_vault.Models.SystemCoreMapping
+            {
+                SystemName = systemName,
+                CreatedUtc = DateTime.UtcNow
+            };
+            db.SystemCoreMappings.Add(mapping);
+        }
+
+        if (string.IsNullOrWhiteSpace(mapping.NativeCoreFileName) && !string.IsNullOrWhiteSpace(pair.Value))
+        {
+            mapping.NativeCoreFileName = pair.Value.Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(mapping.WebPlayerCoreKey) &&
+            configuredWebCores.TryGetValue(systemName, out var webCore) &&
+            !string.IsNullOrWhiteSpace(webCore))
+        {
+            mapping.WebPlayerCoreKey = webCore.Trim();
+        }
+
+        mapping.UpdatedUtc = DateTime.UtcNow;
+    }
+    if (configuredNativeCores.Count > 0)
+    {
+        await db.SaveChangesAsync();
+    }
+
+    var nosebleedCoreRoot = builder.Configuration.GetValue<string>("Nosebleed:CoreRoot");
+    if (!string.IsNullOrWhiteSpace(nosebleedCoreRoot) && Directory.Exists(nosebleedCoreRoot))
+    {
+        var installedNativeCores = Directory.EnumerateFiles(nosebleedCoreRoot, "*_libretro.so", SearchOption.TopDirectoryOnly)
+            .Select(Path.GetFileName)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x!)
+            .ToList();
+        var automapper = scope.ServiceProvider.GetRequiredService<SystemCoreAutomapper>();
+        await automapper.AutoMapDetectedSystemsAsync(installedNativeCores);
+    }
 
     // Improve SQLite concurrency for the (chatty) web player sync workload.
     try

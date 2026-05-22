@@ -20,6 +20,7 @@
     const layoutLockButton = document.getElementById("nosebleed-layout-lock");
     const layoutResetButton = document.getElementById("nosebleed-layout-reset");
     const fullscreenButton = document.getElementById("nosebleed-fullscreen");
+    const overlayToggleButton = document.getElementById("nosebleed-overlay-toggle");
     const touchToggleButton = document.getElementById("nosebleed-touch-toggle");
     const gamepadSelect = document.getElementById("nosebleed-gamepad-select");
     const padTestToggle = document.getElementById("nosebleed-pad-test-toggle");
@@ -29,7 +30,11 @@
     const padTestAxes = document.getElementById("nosebleed-pad-test-axes");
     const touchGamepad = document.getElementById("touch-gamepad");
     const touchButtons = Array.from(document.querySelectorAll(".touch-btn[data-button]"));
+    const dpadClusters = Array.from(document.querySelectorAll(".pad-cluster"));
     const draggableControls = Array.from(document.querySelectorAll("[data-control-group]"));
+    const inputHelpers = window.GamesVaultNosebleedInput;
+    const playerHelpers = window.GamesVaultNosebleedServerPlayer;
+    const dpadButtonNames = new Set(inputHelpers?.DPAD_BUTTONS || ["up", "down", "left", "right"]);
     const chips = {
         video: document.getElementById("nosebleed-video-chip"),
         input: document.getElementById("nosebleed-input-chip"),
@@ -38,10 +43,12 @@
         status: document.getElementById("nosebleed-status-chip")
     };
     const layoutStorageKey = `games-vault:nosebleed-control-layout:${touchLayoutName}`;
+    const overlayStorageKey = "games-vault:nosebleed-overlays-enabled";
     const gamepadStorageKey = "games-vault:nosebleed-gamepad-index";
     const touchControls = new Set();
     let layoutEditMode = false;
     let activeDrag = null;
+    let activeDpadPointer = null;
     let lastTapAt = 0;
     let videoWs = null;
     let inputWs = null;
@@ -58,8 +65,11 @@
     let videoRenderMs = 0;
     let selectedGamepadIndex = null;
     let padTestTimer = 0;
+    let gamepadPollTimer = 0;
     let audioCtx = null;
     let audioStartTime = 0;
+    let audioEnabled = false;
+    let overlaysEnabled = localStorage.getItem(overlayStorageKey) !== "0";
     const keys = new Set();
 
     function setStatus(text, tone = "warn") {
@@ -110,9 +120,11 @@
         if ([...gamepadSelect.options].some(option => option.value === currentValue)) {
             gamepadSelect.value = currentValue;
         } else {
-            selectedGamepadIndex = null;
-            gamepadSelect.value = "";
-            localStorage.removeItem(gamepadStorageKey);
+            const fallback = playerHelpers?.chooseInitialGamepadIndex?.(navigator.getGamepads?.() || [], selectedGamepadIndex) ?? null;
+            selectedGamepadIndex = fallback;
+            gamepadSelect.value = fallback === null ? "" : String(fallback);
+            if (fallback === null) localStorage.removeItem(gamepadStorageKey);
+            else localStorage.setItem(gamepadStorageKey, String(fallback));
         }
     }
 
@@ -145,7 +157,31 @@
             const parsed = Number.parseInt(saved, 10);
             if (Number.isInteger(parsed)) selectedGamepadIndex = parsed;
         }
+        selectedGamepadIndex = playerHelpers?.chooseInitialGamepadIndex?.(navigator.getGamepads?.() || [], selectedGamepadIndex) ?? selectedGamepadIndex;
         syncGamepadSelectionOptions();
+    }
+
+    function startGamepadPolling() {
+        if (!navigator.getGamepads) return;
+        stopGamepadPolling();
+        gamepadPollTimer = window.setInterval(() => {
+            const before = describeGamepad(getActiveGamepad());
+            if (selectedGamepadIndex === null) {
+                selectedGamepadIndex = playerHelpers?.chooseInitialGamepadIndex?.(navigator.getGamepads(), null) ?? null;
+            }
+            syncGamepadSelectionOptions();
+            const afterPad = getActiveGamepad();
+            const after = describeGamepad(afterPad);
+            if (before !== after) {
+                updatePadChip();
+                updatePadTestPanel();
+            }
+        }, 1000);
+    }
+
+    function stopGamepadPolling() {
+        if (gamepadPollTimer) window.clearInterval(gamepadPollTimer);
+        gamepadPollTimer = 0;
     }
 
     function startPadTest() {
@@ -255,6 +291,8 @@
             try { ws?.close(); } catch { }
         }
         videoWs = inputWs = audioWs = null;
+        audioEnabled = false;
+        setAudioDisabledUi();
     }
 
     function queueVideoFrame(buffer) {
@@ -285,6 +323,7 @@
         if (canvas.width !== width || canvas.height !== height) {
             canvas.width = width;
             canvas.height = height;
+            fitCanvasToShell();
         }
         const src = new Uint8Array(buffer, payloadOffset, payloadLen);
         const image = ctx.createImageData(width, height);
@@ -328,6 +367,20 @@
         framesThisSecond += 1;
         ctx.putImageData(image, 0, 0);
         videoRenderMs = performance.now() - renderStartedAt;
+    }
+
+    function fitCanvasToShell() {
+        if (!canvas.width || !canvas.height) return;
+        const shellRect = shell.getBoundingClientRect();
+        const maxHeight = document.fullscreenElement === shell
+            ? window.innerHeight
+            : Math.min(window.innerHeight * 0.70, Math.max(1, shellRect.width));
+        const availableWidth = Math.max(1, shellRect.width - 16);
+        const availableHeight = Math.max(1, maxHeight);
+        const size = playerHelpers?.calculateContainedSize?.(canvas.width, canvas.height, availableWidth, availableHeight)
+            || { width: availableWidth, height: availableHeight };
+        canvas.style.width = `${size.width}px`;
+        canvas.style.height = `${size.height}px`;
     }
 
     function startInputLoop() {
@@ -403,6 +456,7 @@
     async function enableAudio() {
         audioCtx ??= new AudioContext({ latencyHint: "interactive" });
         await audioCtx.resume();
+        audioEnabled = true;
         audioStartTime = Math.max(audioCtx.currentTime, audioStartTime);
         if (audioWs && audioWs.readyState === WebSocket.OPEN) {
             setAudioEnabledUi();
@@ -415,17 +469,50 @@
             setStatus("Audio connected.");
         };
         audioWs.onmessage = ev => playAudio(ev.data);
+        audioWs.onclose = () => {
+            if (audioEnabled) setStatus("Audio disconnected.", "warn");
+        };
+    }
+
+    async function disableAudio() {
+        audioEnabled = false;
+        audioStartTime = 0;
+        if (audioWs) {
+            try { audioWs.close(); } catch { }
+        }
+        audioWs = null;
+        if (audioCtx?.state === "running") {
+            try { await audioCtx.suspend(); } catch { }
+        }
+        setAudioDisabledUi();
+        setStatus("Audio muted.", "good");
+    }
+
+    async function toggleAudio() {
+        if (playerHelpers?.nextAudioEnabledState?.(audioEnabled)) await enableAudio();
+        else await disableAudio();
     }
 
     function setAudioEnabledUi() {
-        audioButton.textContent = "Audio enabled";
+        audioButton.textContent = "Mute audio";
+        audioButton.classList.remove("btn-outline-secondary");
+        audioButton.classList.add("btn-success");
         audioOverlayButton.textContent = "Sound on";
         audioOverlayButton.classList.add("is-on");
-        audioOverlayButton.setAttribute("aria-label", "Sound enabled");
+        audioOverlayButton.setAttribute("aria-label", "Mute sound");
+    }
+
+    function setAudioDisabledUi() {
+        audioButton.textContent = "Enable audio";
+        audioButton.classList.add("btn-outline-secondary");
+        audioButton.classList.remove("btn-success");
+        audioOverlayButton.textContent = "Sound";
+        audioOverlayButton.classList.remove("is-on");
+        audioOverlayButton.setAttribute("aria-label", "Enable sound");
     }
 
     function playAudio(buffer) {
-        if (!audioCtx) return;
+        if (!audioCtx || !audioEnabled) return;
         const data = new DataView(buffer);
         if (data.byteLength < 30 || magic(data, 0) !== "NBA0") return;
         const sampleRate = data.getUint32(20, true);
@@ -447,6 +534,24 @@
         audioStartTime = Math.max(audioCtx.currentTime, audioStartTime);
         src.start(audioStartTime);
         audioStartTime += frameCount / sampleRate;
+    }
+
+    function setOverlayEnabled(enabled, persist = true) {
+        overlaysEnabled = enabled;
+        shell.classList.toggle("overlays-hidden", !enabled);
+        overlayToggleButton.textContent = enabled ? "Hide overlay" : "Show overlay";
+        overlayToggleButton.setAttribute("aria-pressed", String(!enabled));
+        if (persist) localStorage.setItem(overlayStorageKey, enabled ? "1" : "0");
+        if (!enabled) {
+            setLayoutEditMode(false);
+            releaseAllTouchButtons();
+        }
+    }
+
+    function toggleOverlay() {
+        const next = playerHelpers?.nextOverlayEnabledState?.(overlaysEnabled) ?? !overlaysEnabled;
+        setOverlayEnabled(next);
+        setStatus(next ? "Overlay visible." : "Overlay hidden for kiosk mode.", "good");
     }
 
     function magic(view, offset) {
@@ -482,20 +587,62 @@
         lastTapAt = now;
     }
 
+    function setTouchControl(name, button, pressed) {
+        if (pressed) {
+            touchControls.add(name);
+            button?.classList.add("is-pressed");
+        } else {
+            touchControls.delete(name);
+            button?.classList.remove("is-pressed");
+        }
+    }
+
     function setTouchButton(button, pressed) {
         const name = button?.dataset?.button;
         if (!name) return;
-        if (pressed) {
-            touchControls.add(name);
-            button.classList.add("is-pressed");
-        } else {
-            touchControls.delete(name);
-            button.classList.remove("is-pressed");
+        setTouchControl(name, button, pressed);
+        sendInputImmediately();
+    }
+
+    function isDpadButton(button) {
+        return dpadButtonNames.has(button?.dataset?.button || "");
+    }
+
+    function setDpadButtons(buttonNames) {
+        const pressed = new Set(buttonNames);
+        for (const button of touchButtons) {
+            const name = button.dataset.button;
+            if (!dpadButtonNames.has(name)) continue;
+            setTouchControl(name, button, pressed.has(name));
         }
         sendInputImmediately();
     }
 
+    function updateDpadPointer(ev) {
+        if (!activeDpadPointer || ev.pointerId !== activeDpadPointer.pointerId) return;
+        ev.preventDefault();
+        const rect = activeDpadPointer.cluster.getBoundingClientRect();
+        const buttons = inputHelpers?.resolveDpadButtonsFromPoint?.(rect, ev.clientX, ev.clientY) || [];
+        setDpadButtons(buttons);
+    }
+
+    function beginDpadPointer(ev, cluster) {
+        if (layoutEditMode) return false;
+        ev.preventDefault();
+        activeDpadPointer = { pointerId: ev.pointerId, cluster };
+        cluster.setPointerCapture?.(ev.pointerId);
+        updateDpadPointer(ev);
+        return true;
+    }
+
+    function endDpadPointer(ev) {
+        if (!activeDpadPointer || ev.pointerId !== activeDpadPointer.pointerId) return;
+        activeDpadPointer = null;
+        setDpadButtons([]);
+    }
+
     function releaseAllTouchButtons() {
+        activeDpadPointer = null;
         touchControls.clear();
         for (const button of touchButtons) {
             button.classList.remove("is-pressed");
@@ -608,34 +755,50 @@
         control.addEventListener("lostpointercapture", endLayoutDrag);
     }
 
+    for (const cluster of dpadClusters) {
+        cluster.addEventListener("pointerdown", ev => beginDpadPointer(ev, cluster));
+        cluster.addEventListener("pointermove", updateDpadPointer);
+        cluster.addEventListener("pointerup", endDpadPointer);
+        cluster.addEventListener("pointercancel", endDpadPointer);
+        cluster.addEventListener("lostpointercapture", endDpadPointer);
+    }
+
     restoreGamepadSelection();
     applySavedLayout();
 
     for (const button of touchButtons) {
         button.addEventListener("pointerdown", ev => {
             if (layoutEditMode) return;
+            if (isDpadButton(button)) return;
             ev.preventDefault();
             button.setPointerCapture?.(ev.pointerId);
             setTouchButton(button, true);
         });
         button.addEventListener("pointerup", ev => {
+            if (isDpadButton(button)) return;
             ev.preventDefault();
             setTouchButton(button, false);
         });
-        button.addEventListener("pointercancel", () => setTouchButton(button, false));
-        button.addEventListener("lostpointercapture", () => setTouchButton(button, false));
+        button.addEventListener("pointercancel", () => {
+            if (!isDpadButton(button)) setTouchButton(button, false);
+        });
+        button.addEventListener("lostpointercapture", () => {
+            if (!isDpadButton(button)) setTouchButton(button, false);
+        });
         button.addEventListener("contextmenu", ev => ev.preventDefault());
     }
 
     document.addEventListener("fullscreenchange", () => {
         const fullscreen = document.fullscreenElement === shell;
         fullscreenButton.textContent = fullscreen ? "Exit fullscreen" : "Fullscreen";
+        fitCanvasToShell();
         if (!fullscreen && screen.orientation?.unlock) {
             try { screen.orientation.unlock(); } catch { }
         }
     });
 
     window.addEventListener("blur", releaseAllTouchButtons);
+    window.addEventListener("resize", fitCanvasToShell);
     window.addEventListener("gamepadconnected", () => {
         updatePadChip();
         updatePadTestPanel();
@@ -663,14 +826,15 @@
         if (wasPressed) sendInputImmediately();
     });
     connectButton.addEventListener("click", connect);
-    audioButton.addEventListener("click", enableAudio);
+    audioButton.addEventListener("click", toggleAudio);
     audioOverlayButton.addEventListener("click", ev => {
         if (layoutEditMode) {
             ev.preventDefault();
             return;
         }
-        enableAudio();
+        toggleAudio();
     });
+    overlayToggleButton?.addEventListener("click", toggleOverlay);
     layoutLockButton.addEventListener("click", () => {
         if (layoutEditMode) saveLayout();
         else setLayoutEditMode(true);
@@ -702,4 +866,8 @@
         else hidePadTest();
     });
     connect();
+    setOverlayEnabled(overlaysEnabled, false);
+    setAudioDisabledUi();
+    startGamepadPolling();
+    updatePadChip();
 })();

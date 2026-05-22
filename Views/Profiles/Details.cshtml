@@ -1,0 +1,71 @@
+@model games_vault.Models.ViewModels.ProfileDetailsViewModel
+@{
+    ViewData["Title"] = Model.DisplayName;
+}
+
+<div class="d-flex align-items-center gap-3 mb-4">
+    <span class="rounded-circle d-inline-block" style="width:3rem;height:3rem;background:@Model.Color"></span>
+    <div>
+        <h1 class="mb-0">@Model.DisplayName</h1>
+        <div class="text-muted">@(Model.IsCurrent ? "Current player profile" : "Player profile")</div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-4"><div class="card"><div class="card-body"><div class="text-muted small">Play time</div><div class="h4">@Model.TotalPlayTime.TotalHours.ToString("0.0") h</div></div></div></div>
+    <div class="col-md-4"><div class="card"><div class="card-body"><div class="text-muted small">Sessions</div><div class="h4">@Model.SessionCount</div></div></div></div>
+    <div class="col-md-4"><div class="card"><div class="card-body"><div class="text-muted small">Last played</div><div class="h4">@(Model.LastPlayedGame ?? "—")</div></div></div></div>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-5">
+        <h2 class="h4">Top games</h2>
+        @if (Model.TopGames.Count == 0)
+        {
+            <p class="text-muted">No games played yet.</p>
+        }
+        else
+        {
+            <div class="list-group">
+                @foreach (var game in Model.TopGames)
+                {
+                    <a class="list-group-item list-group-item-action" asp-controller="Games" asp-action="Details" asp-route-id="@game.GameId">
+                        <div class="fw-semibold">@game.GameName</div>
+                        <div class="small text-muted">@game.TotalPlayTime.TotalHours.ToString("0.0") h · @game.SessionCount sessions</div>
+                    </a>
+                }
+            </div>
+        }
+
+        <div class="card mt-4">
+            <div class="card-body">
+                <h2 class="h5">Profile saves</h2>
+                <p class="text-muted mb-0">Coming next: save files and save states scoped to this profile.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-7">
+        <h2 class="h4">Recent sessions</h2>
+        @if (Model.RecentSessions.Count == 0)
+        {
+            <p class="text-muted">No sessions yet.</p>
+        }
+        else
+        {
+            <div class="list-group">
+                @foreach (var session in Model.RecentSessions)
+                {
+                    <a class="list-group-item list-group-item-action" asp-controller="Games" asp-action="Details" asp-route-id="@session.GameId">
+                        <div class="d-flex justify-content-between gap-3">
+                            <div>
+                                <div class="fw-semibold">@session.GameName</div>
+                                <div class="small text-muted">@session.Mode · @session.StartedUtc.ToLocalTime().ToString("g")</div>
+                            </div>
+                            <div class="text-end small">@session.Duration.TotalMinutes.ToString("0") min</div>
+                        </div>
+                    </a>
+                }
+            </div>
+        }
+    </div>
+</div>

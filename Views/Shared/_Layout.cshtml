@@ -20,17 +20,29 @@
                 </button>
                 <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
                     <ul class="navbar-nav flex-grow-1">
+                        @{ var canManageLibrary = ViewData["CanManageLibrary"] as bool? == true; }
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Index">Home</a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Profiles" asp-action="Index">Profiles</a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-controller="Games" asp-action="Index">Games</a>
                         </li>
+                        @if (canManageLibrary)
+                        {
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-controller="GameFiles" asp-action="Index">Game Files</a>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-controller="SystemFiles" asp-action="Index">System Files</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="SystemCoreMappings" asp-action="Index">Core Mappings</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Profiles" asp-action="Invites">Profile Invites</a>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-controller="Sources" asp-action="Index">Sources</a>
@@ -41,7 +53,20 @@
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-controller="Downloads" asp-action="Index">Downloads</a>
                         </li>
+                        }
                     </ul>
+                    <div class="navbar-nav ms-auto">
+                        <a class="nav-link text-dark" asp-controller="Profiles" asp-action="Index">
+                            @if (ViewData["CurrentProfileName"] is string profileName && !string.IsNullOrWhiteSpace(profileName))
+                            {
+                                <span>Playing as <strong>@profileName</strong></span>
+                            }
+                            else
+                            {
+                                <span>Viewer mode</span>
+                            }
+                        </a>
+                    </div>
                 </div>
             </div>
         </nav>
