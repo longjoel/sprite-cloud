@@ -18,6 +18,10 @@ public sealed class NosebleedOptions
 
     public string CoreRoot { get; set; } = "/srv/storage/games-vault/nosebleed/cores";
 
+    public string CoreBuildbotBaseUrl { get; set; } = "https://buildbot.libretro.com/nightly/linux/x86_64/latest";
+
+    public bool AutoInstallKnownCores { get; set; } = true;
+
     public bool RequireAuth { get; set; } = true;
 
     public string AuthSecretPath { get; set; } = "/var/lib/games-vault/nosebleed-auth-secret";
