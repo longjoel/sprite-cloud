@@ -62,10 +62,16 @@
                 }
 
                 #nosebleed-screen {
+                    display: block;
                     image-rendering: pixelated;
                     background: #000;
+                    max-width: 100%;
                     max-height: 70vh;
+                    width: auto;
+                    height: auto;
+                    margin-inline: auto;
                     touch-action: none;
+                    object-fit: contain;
                 }
 
                 .server-player-shell:fullscreen {
@@ -320,13 +326,19 @@
                     opacity: .86;
                 }
 
+                .server-player-shell.overlays-hidden .player-hud,
+                .server-player-shell.overlays-hidden .touch-gamepad,
+                .server-player-shell.overlays-hidden .player-overlay-action {
+                    display: none !important;
+                }
+
                 @@media (hover: hover) and (pointer: fine) {
                     .touch-gamepad:not(.force-visible) { display: none !important; }
                 }
             </style>
 
             <div id="server-player-shell" class="server-player-shell bg-dark rounded p-2">
-                <canvas id="nosebleed-screen" class="w-100 rounded border border-secondary"></canvas>
+                <canvas id="nosebleed-screen" class="rounded border border-secondary"></canvas>
                 <div id="nosebleed-player-hud" class="player-hud" aria-live="polite">
                     <span id="nosebleed-video-chip" class="player-hud-chip is-warn"><span class="chip-dot" aria-hidden="true"></span><span class="chip-label">Video idle</span></span>
                     <span id="nosebleed-input-chip" class="player-hud-chip is-warn"><span class="chip-dot" aria-hidden="true"></span><span class="chip-label">@(Model.IsSpectator ? "Spectator" : "Input idle")</span></span>
@@ -374,6 +386,7 @@
                 <button id="nosebleed-connect" class="btn btn-primary" type="button">Connect</button>
                 <button id="nosebleed-audio" class="btn btn-outline-secondary" type="button">Enable audio</button>
                 <button id="nosebleed-fullscreen" class="btn btn-outline-secondary" type="button">Fullscreen</button>
+                <button id="nosebleed-overlay-toggle" class="btn btn-outline-secondary" type="button" aria-pressed="false">Hide overlay</button>
                 @if (!Model.IsSpectator)
                 {
                     <button id="nosebleed-touch-toggle" class="btn btn-outline-secondary" type="button">Toggle @touchLayoutName controls</button>
@@ -438,6 +451,8 @@
     keepAliveUrl = Url.Action("KeepAliveServerSession", "Games")
 }))
 </script>
+<script src="~/js/nosebleed-player/input-helpers.js" asp-append-version="true"></script>
+<script src="~/js/nosebleed-player/server-player-helpers.js" asp-append-version="true"></script>
 <script src="~/js/nosebleed-player/server-player.js" asp-append-version="true"></script>
 }
 }

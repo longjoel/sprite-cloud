@@ -24,6 +24,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<LocalScanResult> LocalScanResults => Set<LocalScanResult>();
     public DbSet<GamePlayerFile> GamePlayerFiles => Set<GamePlayerFile>();
     public DbSet<GamePlaySession> GamePlaySessions => Set<GamePlaySession>();
+    public DbSet<SystemCoreMapping> SystemCoreMappings => Set<SystemCoreMapping>();
+    public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
+    public DbSet<UserProfilePasskey> UserProfilePasskeys => Set<UserProfilePasskey>();
+    public DbSet<ProfileInviteCode> ProfileInviteCodes => Set<ProfileInviteCode>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -216,6 +220,51 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasIndex(x => new { x.GameId, x.Kind, x.Key, x.FileName }).IsUnique();
         });
 
+        modelBuilder.Entity<SystemCoreMapping>(entity =>
+        {
+            entity.Property(x => x.SystemName).HasMaxLength(100);
+            entity.Property(x => x.NativeCoreFileName).HasMaxLength(260);
+            entity.Property(x => x.WebPlayerCoreKey).HasMaxLength(100);
+            entity.Property(x => x.Notes).HasMaxLength(1000);
+            entity.HasIndex(x => x.SystemName).IsUnique();
+        });
+
+        modelBuilder.Entity<UserProfile>(entity =>
+        {
+            entity.Property(x => x.DisplayName).HasMaxLength(80);
+            entity.Property(x => x.AvatarKey).HasMaxLength(32);
+            entity.Property(x => x.Color).HasMaxLength(20);
+            entity.Property(x => x.PasskeyUserHandleBase64Url).HasMaxLength(128);
+            entity.Property(x => x.PinHash).HasMaxLength(256);
+            entity.HasIndex(x => x.DisplayName);
+            entity.HasIndex(x => x.PasskeyUserHandleBase64Url).IsUnique();
+        });
+
+        modelBuilder.Entity<ProfileInviteCode>(entity =>
+        {
+            entity.Property(x => x.Code).HasMaxLength(64);
+            entity.HasIndex(x => x.Code).IsUnique();
+
+            entity.HasOne(x => x.UsedByProfile)
+                .WithMany()
+                .HasForeignKey(x => x.UsedByProfileId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<UserProfilePasskey>(entity =>
+        {
+            entity.Property(x => x.CredentialIdBase64Url).HasMaxLength(512);
+            entity.Property(x => x.UserHandleBase64Url).HasMaxLength(128);
+            entity.Property(x => x.DeviceName).HasMaxLength(200);
+            entity.HasIndex(x => x.CredentialIdBase64Url).IsUnique();
+            entity.HasIndex(x => x.UserHandleBase64Url);
+
+            entity.HasOne(x => x.Profile)
+                .WithMany()
+                .HasForeignKey(x => x.ProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<GamePlaySession>(entity =>
         {
             entity.Property(x => x.Mode).HasMaxLength(40);
@@ -232,9 +281,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .HasForeignKey(x => x.GameFileId)
                 .OnDelete(DeleteBehavior.SetNull);
 
+            entity.HasOne(x => x.Profile)
+                .WithMany()
+                .HasForeignKey(x => x.ProfileId)
+                .OnDelete(DeleteBehavior.SetNull);
+
             entity.HasIndex(x => new { x.GameId, x.StartedUtc });
             entity.HasIndex(x => x.ExternalSessionId);
             entity.HasIndex(x => new { x.Mode, x.StartedUtc });
+            entity.HasIndex(x => new { x.ProfileId, x.StartedUtc });
         });
     }
 }

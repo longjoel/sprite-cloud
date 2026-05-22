@@ -6,6 +6,10 @@ namespace games_vault.Models.ViewModels;
 public sealed class HomeIndexViewModel
 {
     public bool ShowDashboard { get; set; }
+    public int? CurrentProfileId { get; set; }
+    public string? CurrentProfileName { get; set; }
+    public TimeSpan GlobalTotalPlayTime { get; set; }
+    public int GlobalPlaySessionCount { get; set; }
 
     public int GamesCount { get; set; }
     public int SystemsCount { get; set; }

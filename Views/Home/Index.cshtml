@@ -2,6 +2,7 @@
 
 @{
     ViewData["Title"] = Model.ShowDashboard ? "Games Vault" : "Setup";
+    var canManageLibrary = ViewData["CanManageLibrary"] as bool? == true;
 }
 
 @functions {
@@ -45,14 +46,21 @@
 {
     <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-4">
         <div>
-            <h1 class="display-6 mb-1">Games Vault</h1>
-            <div class="text-muted">Dashboard, play telemetry, and Nosebleed session management.</div>
+            <h1 class="display-6 mb-1">@(Model.CurrentProfileName is null ? "Games Vault" : $"{Model.CurrentProfileName}'s Dashboard")</h1>
+            <div class="text-muted">@(Model.CurrentProfileName is null ? "All-player dashboard, active sessions, and viewer mode." : "Profile play telemetry, active sessions, and Nosebleed session management.")</div>
         </div>
         <div class="d-flex gap-2 flex-wrap">
             <a class="btn btn-primary" asp-controller="Games" asp-action="Index">Browse games</a>
-            <a class="btn btn-outline-primary" asp-controller="Games" asp-action="Index" asp-route-openAdd="true">Add game</a>
-            <a class="btn btn-outline-secondary" asp-controller="Jobs" asp-action="Index">Jobs</a>
-            <a class="btn btn-outline-secondary" asp-controller="Sources" asp-action="Index">Sources</a>
+            @if (canManageLibrary)
+            {
+                <a class="btn btn-outline-primary" asp-controller="Games" asp-action="Index" asp-route-openAdd="true">Add game</a>
+                <a class="btn btn-outline-secondary" asp-controller="Jobs" asp-action="Index">Jobs</a>
+                <a class="btn btn-outline-secondary" asp-controller="Sources" asp-action="Index">Sources</a>
+            }
+            else if (Model.CurrentProfileId is null)
+            {
+                <a class="btn btn-outline-primary" asp-controller="Profiles" asp-action="Index">Sign in to play</a>
+            }
         </div>
     </div>
 
@@ -76,29 +84,30 @@
                 @foreach (var session in Model.ActiveNosebleedSessions)
                 {
                     <div class="col-md-6 col-xl-4">
-                        <div class="card h-100 shadow-sm">
+                        <div class="card h-100 shadow-sm" data-nosebleed-preview-card data-preview-url="@Url.Action("NosebleedPreviewVideo", "Home", new { sessionId = session.SessionId })">
+                            <div class="ratio ratio-16x9 bg-dark rounded-top overflow-hidden">
+                                <canvas data-nosebleed-preview-canvas class="w-100 h-100" style="image-rendering: pixelated;"></canvas>
+                            </div>
                             <div class="card-body">
-                                <div class="d-flex justify-content-between align-items-start gap-2">
-                                    <div>
-                                        <h3 class="h6 mb-1">@session.GameName</h3>
-                                        <div class="small text-muted">Runtime @FormatDuration(session.Runtime)</div>
-                                    </div>
-                                    <span class="badge text-bg-success">:@session.Port</span>
+                                <div>
+                                    <h3 class="h6 mb-1">@session.GameName</h3>
+                                    <div class="small text-muted">Runtime @FormatDuration(session.Runtime)</div>
                                 </div>
                                 <dl class="row small mt-3 mb-0">
                                     <dt class="col-4">Session</dt>
                                     <dd class="col-8"><code title="@session.SessionId">@ShortId(session.SessionId)</code></dd>
-                                    <dt class="col-4">PID</dt>
-                                    <dd class="col-8">@session.ProcessId</dd>
-                                    <dt class="col-4">URL</dt>
-                                    <dd class="col-8"><a href="@session.BaseUrl" target="_blank" rel="noreferrer">@session.BaseUrl</a></dd>
+                                    <dt class="col-4">Status</dt>
+                                    <dd class="col-8">Games Vault preview relay</dd>
                                 </dl>
                                 <div class="d-flex gap-2 flex-wrap mt-3">
                                     <a class="btn btn-sm btn-outline-primary" asp-controller="Games" asp-action="PlayServer" asp-route-id="@session.GameId">Open</a>
-                                    <form asp-action="StopNosebleedSession" method="post" asp-antiforgery="true">
-                                        <input type="hidden" name="sessionId" value="@session.SessionId" />
-                                        <button type="submit" class="btn btn-sm btn-outline-danger">Stop</button>
-                                    </form>
+                                    @if (canManageLibrary)
+                                    {
+                                        <form asp-action="StopNosebleedSession" method="post" asp-antiforgery="true">
+                                            <input type="hidden" name="sessionId" value="@session.SessionId" />
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">Stop</button>
+                                        </form>
+                                    }
                                 </div>
                             </div>
                         </div>
@@ -176,10 +185,17 @@
                                     <td>@session.Port</td>
                                     <td class="small">@FormatDuration(session.Runtime)</td>
                                     <td class="text-end">
-                                        <form asp-action="StopNosebleedSession" method="post" asp-antiforgery="true" class="d-inline">
-                                            <input type="hidden" name="sessionId" value="@session.SessionId" />
-                                            <button type="submit" class="btn btn-sm btn-outline-danger">Stop</button>
-                                        </form>
+                                        @if (canManageLibrary)
+                                        {
+                                            <form asp-action="StopNosebleedSession" method="post" asp-antiforgery="true" class="d-inline">
+                                                <input type="hidden" name="sessionId" value="@session.SessionId" />
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">Stop</button>
+                                            </form>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">Admin only</span>
+                                        }
                                     </td>
                                 </tr>
                             }
@@ -195,10 +211,17 @@
                                     <td>@(proc.Port?.ToString() ?? "—")</td>
                                     <td class="small text-truncate" style="max-width: 260px;" title="@proc.ContentPath">@(proc.ContentPath ?? proc.CorePath ?? "—")</td>
                                     <td class="text-end">
-                                        <form asp-action="KillNosebleedProcess" method="post" asp-antiforgery="true" class="d-inline">
-                                            <input type="hidden" name="pid" value="@proc.ProcessId" />
-                                            <button type="submit" class="btn btn-sm btn-outline-danger">Kill</button>
-                                        </form>
+                                        @if (canManageLibrary)
+                                        {
+                                            <form asp-action="KillNosebleedProcess" method="post" asp-antiforgery="true" class="d-inline">
+                                                <input type="hidden" name="pid" value="@proc.ProcessId" />
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">Kill</button>
+                                            </form>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">Admin only</span>
+                                        }
                                     </td>
                                 </tr>
                             }
@@ -251,10 +274,17 @@
                         <span class="fw-semibold">@(Model.MissingSystemFilesCount?.ToString() ?? "Unknown")</span>
                     </div>
                     <div class="d-flex gap-2 flex-wrap">
-                        <form asp-action="StartInstallAll" method="post" asp-antiforgery="true">
-                            <button type="submit" class="btn btn-sm btn-success">Run setup jobs</button>
-                        </form>
-                        <a class="btn btn-sm btn-outline-secondary" asp-controller="SystemFiles" asp-action="Missing">Missing files</a>
+                        @if (canManageLibrary)
+                        {
+                            <form asp-action="StartInstallAll" method="post" asp-antiforgery="true">
+                                <button type="submit" class="btn btn-sm btn-success">Run setup jobs</button>
+                            </form>
+                            <a class="btn btn-sm btn-outline-secondary" asp-controller="SystemFiles" asp-action="Missing">Missing files</a>
+                        }
+                        else
+                        {
+                            <a class="btn btn-sm btn-outline-primary" asp-controller="Profiles" asp-action="Index">Sign in as admin for setup</a>
+                        }
                     </div>
                 </div>
             </div>
@@ -268,7 +298,14 @@ else
             <h1 class="display-6 mb-3">Setup</h1>
             <p class="text-muted">
                 Use this page as a quick install/tutorial checklist. Each step queues a background job; monitor progress under
-                <a asp-controller="Jobs" asp-action="Index">Jobs</a>.
+                @if (canManageLibrary)
+                {
+                    <a asp-controller="Jobs" asp-action="Index">Jobs</a><text>.</text>
+                }
+                else
+                {
+                    <a asp-controller="Profiles" asp-action="Index">an admin profile</a><text>.</text>
+                }
             </p>
 
             <div class="row g-3 mb-3">
@@ -368,13 +405,20 @@ else
                     }
 
                     <div class="mt-3 d-flex gap-2 flex-wrap">
-                        <form asp-action="StartLibretroSync" method="post" asp-antiforgery="true">
-                            <button type="submit" class="btn btn-primary">Sync</button>
-                        </form>
-                        <form asp-action="StartLibretroSync" method="post" asp-antiforgery="true">
-                            <input type="hidden" name="force" value="true" />
-                            <button type="submit" class="btn btn-outline-danger">Force re-sync</button>
-                        </form>
+                        @if (canManageLibrary)
+                        {
+                            <form asp-action="StartLibretroSync" method="post" asp-antiforgery="true">
+                                <button type="submit" class="btn btn-primary">Sync</button>
+                            </form>
+                            <form asp-action="StartLibretroSync" method="post" asp-antiforgery="true">
+                                <input type="hidden" name="force" value="true" />
+                                <button type="submit" class="btn btn-outline-danger">Force re-sync</button>
+                            </form>
+                        }
+                        else
+                        {
+                            <a class="btn btn-outline-primary" asp-controller="Profiles" asp-action="Index">Sign in as admin to sync</a>
+                        }
                     </div>
                 </div>
             </div>
@@ -425,13 +469,20 @@ else
                     }
 
                     <div class="mt-3 d-flex gap-2 flex-wrap">
-                        <form asp-action="StartWebPlayerInstall" method="post" asp-antiforgery="true">
-                            <button type="submit" class="btn btn-primary" @(Model.WebPlayerEnabled ? "" : "disabled")>Install</button>
-                        </form>
-                        <form asp-action="StartWebPlayerInstall" method="post" asp-antiforgery="true">
-                            <input type="hidden" name="force" value="true" />
-                            <button type="submit" class="btn btn-outline-danger" @(Model.WebPlayerEnabled ? "" : "disabled")>Force reinstall</button>
-                        </form>
+                        @if (canManageLibrary)
+                        {
+                            <form asp-action="StartWebPlayerInstall" method="post" asp-antiforgery="true">
+                                <button type="submit" class="btn btn-primary" @(Model.WebPlayerEnabled ? "" : "disabled")>Install</button>
+                            </form>
+                            <form asp-action="StartWebPlayerInstall" method="post" asp-antiforgery="true">
+                                <input type="hidden" name="force" value="true" />
+                                <button type="submit" class="btn btn-outline-danger" @(Model.WebPlayerEnabled ? "" : "disabled")>Force reinstall</button>
+                            </form>
+                        }
+                        else
+                        {
+                            <a class="btn btn-outline-primary" asp-controller="Profiles" asp-action="Index">Sign in as admin to install</a>
+                        }
 
                         @if (Model.WebPlayerInstalled && Model.WebPlayerEnabled)
                         {
@@ -446,13 +497,20 @@ else
                 <div class="card-body">
                     <h2 class="h5 mb-2">Quick start</h2>
                     <div class="d-flex gap-2 flex-wrap">
-                        <form asp-action="StartInstallAll" method="post" asp-antiforgery="true">
-                            <button type="submit" class="btn btn-success">Run setup jobs</button>
-                        </form>
-                        <a class="btn btn-outline-secondary" asp-controller="Jobs" asp-action="Index">View jobs</a>
+                        @if (canManageLibrary)
+                        {
+                            <form asp-action="StartInstallAll" method="post" asp-antiforgery="true">
+                                <button type="submit" class="btn btn-success">Run setup jobs</button>
+                            </form>
+                            <a class="btn btn-outline-secondary" asp-controller="Jobs" asp-action="Index">View jobs</a>
+                            <a class="btn btn-outline-secondary" asp-controller="SystemFiles" asp-action="Index">System files</a>
+                            <a class="btn btn-outline-secondary" asp-controller="Sources" asp-action="Index">Sources</a>
+                        }
+                        else
+                        {
+                            <a class="btn btn-outline-primary" asp-controller="Profiles" asp-action="Index">Sign in as admin for setup</a>
+                        }
                         <a class="btn btn-outline-secondary" asp-controller="Games" asp-action="Index">Games</a>
-                        <a class="btn btn-outline-secondary" asp-controller="SystemFiles" asp-action="Index">System files</a>
-                        <a class="btn btn-outline-secondary" asp-controller="Sources" asp-action="Index">Sources</a>
                     </div>
                 </div>
             </div>
@@ -471,4 +529,11 @@ else
             </div>
         </div>
     </div>
+}
+
+@section Scripts {
+    @if (Model.ActiveNosebleedSessions.Count > 0)
+    {
+        <script src="~/js/nosebleed-player/preview.js" asp-append-version="true"></script>
+    }
 }

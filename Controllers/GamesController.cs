@@ -8,6 +8,7 @@ using games_vault.Models;
 using games_vault.Models.ViewModels;
 using games_vault.Nosebleed;
 using games_vault.Web;
+using games_vault.Profiles;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
@@ -32,7 +33,9 @@ public class GamesController(
     NosebleedSessionManager nosebleedSessions,
     NosebleedSeatManager nosebleedSeats,
     NosebleedTicketSigner nosebleedTickets,
-    GamePlayTelemetryService gamePlayTelemetry) : Controller
+    GamePlayTelemetryService gamePlayTelemetry,
+    CurrentProfileService currentProfile,
+    CurrentAccessService currentAccess) : Controller
 {
     public async Task<IActionResult> Index(
         string? q,
@@ -926,27 +929,57 @@ public class GamesController(
         }
         else
         {
-            contentPath = await ResolveGameFileAbsolutePathAsync(file, cancellationToken);
-            if (string.IsNullOrWhiteSpace(contentPath))
+            var canPlay = await currentAccess.CanPlayAsync(cancellationToken);
+            if (!canPlay)
             {
-                error = "ROM file could not be resolved to an allowed local filesystem path.";
-            }
-            else
-            {
-                var result = await nosebleedSessions.StartOrReuseAsync(game.Id, file.Id, game.SystemName, contentPath, cancellationToken);
-                if (result.Success && result.Session is not null)
+                var existing = nosebleedSessions.GetSessions()
+                    .FirstOrDefault(x => x.GameId == game.Id && !x.HasExited);
+                if (existing is null)
                 {
-                    session = result.Session;
-                    await gamePlayTelemetry.StartAsync(game.Id, file.Id, "nosebleed", session.Id, cancellationToken);
-                    var viewerId = GetOrCreateNosebleedViewerId();
-                    seat = nosebleedSeats.Assign(session.Id, viewerId, DateTimeOffset.UtcNow);
-                    token = seat.Kind == NosebleedSeatKind.Player && seat.Port is not null
-                        ? nosebleedTickets.CreatePlayerToken(session.Id, viewerId, seat.Port.Value)
-                        : nosebleedTickets.CreateSpectatorToken(session.Id, viewerId);
+                    error = "Sign in with a player profile to start this game. Viewers can join active games as spectators.";
                 }
                 else
                 {
-                    error = result.Error ?? "Failed to start server-side playback.";
+                    var viewerId = GetOrCreateNosebleedViewerId();
+                    seat = nosebleedSeats.Assign(existing.SessionId, viewerId, DateTimeOffset.UtcNow);
+                    token = nosebleedTickets.CreateSpectatorToken(existing.SessionId, viewerId);
+                    session = new NosebleedSession(
+                        existing.SessionId,
+                        existing.GameId,
+                        existing.FileId,
+                        existing.Port,
+                        existing.BaseUrl,
+                        token,
+                        existing.StartedUtc,
+                        existing.CorePath,
+                        existing.ContentPath);
+                }
+            }
+            else
+            {
+                contentPath = await ResolveGameFileAbsolutePathAsync(file, cancellationToken);
+                if (string.IsNullOrWhiteSpace(contentPath))
+                {
+                    error = "ROM file could not be resolved to an allowed local filesystem path.";
+                }
+                else
+                {
+                    var result = await nosebleedSessions.StartOrReuseAsync(game.Id, file.Id, game.SystemName, contentPath, cancellationToken);
+                    if (result.Success && result.Session is not null)
+                    {
+                        session = result.Session;
+                        var profile = await currentProfile.GetCurrentAsync(cancellationToken);
+                        await gamePlayTelemetry.StartAsync(game.Id, file.Id, "nosebleed", session.Id, profile?.Id, cancellationToken);
+                        var viewerId = GetOrCreateNosebleedViewerId();
+                        seat = nosebleedSeats.Assign(session.Id, viewerId, DateTimeOffset.UtcNow);
+                        token = seat.Kind == NosebleedSeatKind.Player && seat.Port is not null
+                            ? nosebleedTickets.CreatePlayerToken(session.Id, viewerId, seat.Port.Value)
+                            : nosebleedTickets.CreateSpectatorToken(session.Id, viewerId);
+                    }
+                    else
+                    {
+                        error = result.Error ?? "Failed to start server-side playback.";
+                    }
                 }
             }
         }

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.WebSockets;
 using games_vault.BackgroundJobs;
 using games_vault.Data;
 using games_vault.Gameplay;
@@ -12,6 +13,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using games_vault.Models;
+using games_vault.Profiles;
 
 namespace games_vault.Controllers;
 
@@ -25,7 +27,10 @@ public class HomeController(
     IInternalJobsClient internalJobs,
     GamePlayTelemetryService gamePlayTelemetry,
     NosebleedSessionManager nosebleedSessions,
-    NosebleedProcessInspector nosebleedProcessInspector) : Controller
+    NosebleedTicketSigner nosebleedTickets,
+    NosebleedProcessInspector nosebleedProcessInspector,
+    CurrentProfileService currentProfile,
+    CurrentAccessService currentAccess) : Controller
 {
     public async Task<IActionResult> Index(CancellationToken cancellationToken = default)
     {
@@ -58,14 +63,28 @@ public class HomeController(
             "process-exit",
             cancellationToken);
 
-        var telemetryStats = await gamePlayTelemetry.GetDashboardStatsAsync(cancellationToken);
-        var lastPlayedGame = await db.GamePlaySessions
-            .AsNoTracking()
+        var currentUserProfile = await currentProfile.GetCurrentAsync(cancellationToken);
+        var telemetryStats = await gamePlayTelemetry.GetDashboardStatsAsync(currentUserProfile?.Id, cancellationToken);
+        var globalTelemetryStats = currentUserProfile is null
+            ? telemetryStats
+            : await gamePlayTelemetry.GetDashboardStatsAsync(null, cancellationToken);
+        var lastPlayedGameQuery = db.GamePlaySessions
+            .AsNoTracking();
+        if (currentUserProfile is not null)
+        {
+            lastPlayedGameQuery = lastPlayedGameQuery.Where(x => x.ProfileId == currentUserProfile.Id);
+        }
+        var lastPlayedGame = await lastPlayedGameQuery
             .OrderByDescending(x => x.StartedUtc)
             .Select(x => x.Game.Name)
             .FirstOrDefaultAsync(cancellationToken);
-        var playRows = await db.GamePlaySessions
-            .AsNoTracking()
+        var playRowsQuery = db.GamePlaySessions
+            .AsNoTracking();
+        if (currentUserProfile is not null)
+        {
+            playRowsQuery = playRowsQuery.Where(x => x.ProfileId == currentUserProfile.Id);
+        }
+        var playRows = await playRowsQuery
             .Select(x => new { x.GameId, GameName = x.Game.Name, x.StartedUtc, x.EndedUtc, x.DurationSeconds })
             .ToListAsync(cancellationToken);
 
@@ -128,6 +147,10 @@ public class HomeController(
         return View(new HomeIndexViewModel
         {
             ShowDashboard = telemetryStats.TotalSessions > 0 || activeSessionModels.Count > 0 || gamesCount > 0,
+            CurrentProfileId = currentUserProfile?.Id,
+            CurrentProfileName = currentUserProfile?.DisplayName,
+            GlobalTotalPlayTime = TimeSpan.FromSeconds(globalTelemetryStats.TotalDurationSeconds),
+            GlobalPlaySessionCount = globalTelemetryStats.TotalSessions,
             GamesCount = gamesCount,
             SystemsCount = systemsCount,
             GameFilesCount = gameFilesCount,
@@ -154,10 +177,105 @@ public class HomeController(
         });
     }
 
+    [HttpGet]
+    public async Task<IActionResult> NosebleedPreviewVideo(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (!HttpContext.WebSockets.IsWebSocketRequest)
+        {
+            return BadRequest("This endpoint requires a WebSocket request.");
+        }
+
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return BadRequest("No Nosebleed session id was provided.");
+        }
+
+        var session = nosebleedSessions.GetSessions()
+            .FirstOrDefault(x => string.Equals(x.SessionId, sessionId, StringComparison.OrdinalIgnoreCase));
+        if (session is null || session.HasExited)
+        {
+            return NotFound();
+        }
+
+        var token = nosebleedTickets.CreateSpectatorToken(session.SessionId, "games-vault-dashboard");
+        var target = BuildNosebleedWebSocketUri(session.BaseUrl, "/ws/video", token);
+        if (target is null)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway);
+        }
+
+        using var upstream = new ClientWebSocket();
+        try
+        {
+            await upstream.ConnectAsync(target, cancellationToken);
+        }
+        catch
+        {
+            return StatusCode(StatusCodes.Status502BadGateway);
+        }
+
+        using var downstream = await HttpContext.WebSockets.AcceptWebSocketAsync();
+        var buffer = new byte[64 * 1024];
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested && upstream.State == WebSocketState.Open && downstream.State == WebSocketState.Open)
+            {
+                var result = await upstream.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
+                if (result.MessageType == WebSocketMessageType.Close)
+                {
+                    await downstream.CloseAsync(
+                        result.CloseStatus ?? WebSocketCloseStatus.NormalClosure,
+                        result.CloseStatusDescription,
+                        cancellationToken);
+                    break;
+                }
+
+                await downstream.SendAsync(
+                    new ArraySegment<byte>(buffer, 0, result.Count),
+                    result.MessageType,
+                    result.EndOfMessage,
+                    cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (WebSocketException)
+        {
+        }
+
+        return new EmptyResult();
+    }
+
+    private static Uri? BuildNosebleedWebSocketUri(string baseUrl, string path, string? token)
+    {
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri))
+        {
+            return null;
+        }
+
+        var builder = new UriBuilder(new Uri(baseUri, path))
+        {
+            Scheme = baseUri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase) ? "wss" : "ws"
+        };
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            builder.Query = $"token={Uri.EscapeDataString(token)}";
+        }
+
+        return builder.Uri;
+    }
+
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> StopNosebleedSession(string sessionId, CancellationToken cancellationToken = default)
     {
+        if (!await currentAccess.IsAdminAsync(cancellationToken))
+        {
+            TempData["Message"] = "Admin mode is required to stop Nosebleed sessions.";
+            return RedirectToAction(nameof(Index));
+        }
+
         if (string.IsNullOrWhiteSpace(sessionId))
         {
             TempData["Message"] = "No Nosebleed session id was provided.";
@@ -174,8 +292,14 @@ public class HomeController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public IActionResult KillNosebleedProcess(int pid)
+    public async Task<IActionResult> KillNosebleedProcess(int pid, CancellationToken cancellationToken = default)
     {
+        if (!await currentAccess.IsAdminAsync(cancellationToken))
+        {
+            TempData["Message"] = "Admin mode is required to kill Nosebleed processes.";
+            return RedirectToAction(nameof(Index));
+        }
+
         if (nosebleedSessions.GetManagedProcessIds().Contains(pid))
         {
             TempData["Message"] = $"Process {pid} is a managed Nosebleed session. Use Stop session instead.";
@@ -193,6 +317,12 @@ public class HomeController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> StartLibretroSync(bool force = false, CancellationToken cancellationToken = default)
     {
+        if (!await currentAccess.IsAdminAsync(cancellationToken))
+        {
+            TempData["Message"] = "Admin profile required to queue setup jobs.";
+            return RedirectToAction("Index", "Profiles");
+        }
+
         var jobId = await internalJobs.EnqueueLibretroSyncAsync(force, cancellationToken);
         TempData["Message"] = force ? $"Queued forced libretro sync job #{jobId}." : $"Queued libretro sync job #{jobId}.";
         return RedirectToAction("Details", "Jobs", new { id = jobId });
@@ -202,6 +332,12 @@ public class HomeController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> StartWebPlayerInstall(bool force = false, CancellationToken cancellationToken = default)
     {
+        if (!await currentAccess.IsAdminAsync(cancellationToken))
+        {
+            TempData["Message"] = "Admin profile required to queue setup jobs.";
+            return RedirectToAction("Index", "Profiles");
+        }
+
         var jobId = await internalJobs.EnqueueWebPlayerInstallAsync(force, cancellationToken);
         TempData["Message"] = force ? $"Queued forced web player install job #{jobId}." : $"Queued web player install job #{jobId}.";
         return RedirectToAction("Details", "Jobs", new { id = jobId });
@@ -211,6 +347,12 @@ public class HomeController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> StartInstallAll(CancellationToken cancellationToken = default)
     {
+        if (!await currentAccess.IsAdminAsync(cancellationToken))
+        {
+            TempData["Message"] = "Admin profile required to queue setup jobs.";
+            return RedirectToAction("Index", "Profiles");
+        }
+
         var libretroJobId = await internalJobs.EnqueueLibretroSyncAsync(force: false, cancellationToken);
         var webPlayerJobId = await internalJobs.EnqueueWebPlayerInstallAsync(force: false, cancellationToken);
         TempData["Message"] = $"Queued install jobs: libretro sync #{libretroJobId}, web player install #{webPlayerJobId}.";
