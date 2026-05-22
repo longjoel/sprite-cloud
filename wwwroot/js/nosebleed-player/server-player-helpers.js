@@ -29,10 +29,15 @@
         return !current;
     }
 
-    function chooseInitialGamepadIndex(gamepads, savedIndex) {
+    function chooseInitialGamepadIndex(gamepads, savedIndex, preferredIndex) {
         const pads = Array.from(gamepads || []);
         if (Number.isInteger(savedIndex) && pads[savedIndex]) {
             return savedIndex;
+        }
+
+        if (Number.isInteger(preferredIndex)) {
+            const preferred = pads.find(pad => pad && pad.index === preferredIndex);
+            if (preferred) return preferred.index;
         }
 
         const first = pads.find(Boolean);

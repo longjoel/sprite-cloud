@@ -61,4 +61,16 @@ assert.equal(
   'no connected gamepad should leave selection unset'
 );
 
+const twoPads = [{ index: 0, id: 'P1 Pad' }, { index: 1, id: 'P2 Pad' }];
+assert.equal(
+  helpers.chooseInitialGamepadIndex(twoPads, null, 1),
+  1,
+  'player 2 should default to the second hardware gamepad instead of hijacking player 1 input'
+);
+assert.equal(
+  helpers.chooseInitialGamepadIndex(twoPads, 0, 1),
+  0,
+  'an explicit per-seat saved selection should still be honored'
+);
+
 console.log('nosebleed server player helper tests passed');

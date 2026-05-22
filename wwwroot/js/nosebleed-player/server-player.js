@@ -44,7 +44,8 @@
     };
     const layoutStorageKey = `games-vault:nosebleed-control-layout:${touchLayoutName}`;
     const overlayStorageKey = "games-vault:nosebleed-overlays-enabled";
-    const gamepadStorageKey = "games-vault:nosebleed-gamepad-index";
+    const preferredGamepadIndex = Number.isInteger(assignedPort) ? assignedPort : null;
+    const gamepadStorageKey = `games-vault:nosebleed-gamepad-index:${sessionId || "global"}:port:${assignedPort ?? "spectator"}`;
     const touchControls = new Set();
     let layoutEditMode = false;
     let activeDrag = null;
@@ -112,7 +113,7 @@
         if (!gamepadSelect) return;
         const pads = connectedGamepads();
         const currentValue = selectedGamepadIndex === null ? "" : String(selectedGamepadIndex);
-        gamepadSelect.replaceChildren(new Option("Keyboard / first gamepad", ""));
+        gamepadSelect.replaceChildren(new Option("Auto / keyboard", ""));
         for (const pad of pads) {
             const name = pad.id ? pad.id.split("(")[0].trim() : `Gamepad ${pad.index + 1}`;
             gamepadSelect.appendChild(new Option(`${pad.index + 1}: ${name}`, String(pad.index)));
@@ -120,7 +121,7 @@
         if ([...gamepadSelect.options].some(option => option.value === currentValue)) {
             gamepadSelect.value = currentValue;
         } else {
-            const fallback = playerHelpers?.chooseInitialGamepadIndex?.(navigator.getGamepads?.() || [], selectedGamepadIndex) ?? null;
+            const fallback = playerHelpers?.chooseInitialGamepadIndex?.(navigator.getGamepads?.() || [], selectedGamepadIndex, preferredGamepadIndex) ?? null;
             selectedGamepadIndex = fallback;
             gamepadSelect.value = fallback === null ? "" : String(fallback);
             if (fallback === null) localStorage.removeItem(gamepadStorageKey);
@@ -157,7 +158,7 @@
             const parsed = Number.parseInt(saved, 10);
             if (Number.isInteger(parsed)) selectedGamepadIndex = parsed;
         }
-        selectedGamepadIndex = playerHelpers?.chooseInitialGamepadIndex?.(navigator.getGamepads?.() || [], selectedGamepadIndex) ?? selectedGamepadIndex;
+        selectedGamepadIndex = playerHelpers?.chooseInitialGamepadIndex?.(navigator.getGamepads?.() || [], selectedGamepadIndex, preferredGamepadIndex) ?? selectedGamepadIndex;
         syncGamepadSelectionOptions();
     }
 
@@ -167,7 +168,7 @@
         gamepadPollTimer = window.setInterval(() => {
             const before = describeGamepad(getActiveGamepad());
             if (selectedGamepadIndex === null) {
-                selectedGamepadIndex = playerHelpers?.chooseInitialGamepadIndex?.(navigator.getGamepads(), null) ?? null;
+                selectedGamepadIndex = playerHelpers?.chooseInitialGamepadIndex?.(navigator.getGamepads(), null, preferredGamepadIndex) ?? null;
             }
             syncGamepadSelectionOptions();
             const afterPad = getActiveGamepad();
