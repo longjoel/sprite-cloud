@@ -29,4 +29,8 @@ public sealed class GamePlaySession
 
     [StringLength(100)]
     public string? EndReason { get; set; }
+
+    public int? ProfileId { get; set; }
+
+    public UserProfile? Profile { get; set; }
 }

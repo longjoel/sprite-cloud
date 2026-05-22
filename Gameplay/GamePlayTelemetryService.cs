@@ -11,6 +11,7 @@ public sealed class GamePlayTelemetryService(AppDbContext db)
         int? fileId,
         string mode,
         string? externalSessionId,
+        int? profileId,
         CancellationToken ct)
     {
         mode = Normalize(mode, 40);
@@ -25,6 +26,10 @@ public sealed class GamePlayTelemetryService(AppDbContext db)
             if (existing is not null)
             {
                 existing.DurationSeconds = ComputeDurationSeconds(existing.StartedUtc, null, DateTime.UtcNow);
+                if (existing.ProfileId is null && profileId is not null)
+                {
+                    existing.ProfileId = profileId;
+                }
                 await db.SaveChangesAsync(ct);
                 return existing;
             }
@@ -36,6 +41,7 @@ public sealed class GamePlayTelemetryService(AppDbContext db)
             GameFileId = fileId,
             Mode = mode,
             ExternalSessionId = externalSessionId,
+            ProfileId = profileId,
             StartedUtc = DateTime.UtcNow,
             DurationSeconds = 0
         };
@@ -128,10 +134,16 @@ public sealed class GamePlayTelemetryService(AppDbContext db)
         return true;
     }
 
-    public async Task<GamePlayDashboardStats> GetDashboardStatsAsync(CancellationToken ct)
+    public async Task<GamePlayDashboardStats> GetDashboardStatsAsync(int? profileId, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
-        var sessions = await db.GamePlaySessions.AsNoTracking().ToListAsync(ct);
+        var query = db.GamePlaySessions.AsNoTracking();
+        if (profileId is not null)
+        {
+            query = query.Where(x => x.ProfileId == profileId);
+        }
+
+        var sessions = await query.ToListAsync(ct);
         var rows = sessions.Select(x => new
         {
             x.Mode,

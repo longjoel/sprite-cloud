@@ -6,6 +6,7 @@ namespace games_vault.Nosebleed;
 
 public sealed class NosebleedSessionManager(
     IOptions<NosebleedOptions> options,
+    IServiceScopeFactory scopeFactory,
     NosebleedTicketSigner ticketSigner,
     IHttpClientFactory httpClientFactory,
     ILogger<NosebleedSessionManager> logger) : IDisposable
@@ -80,9 +81,12 @@ public sealed class NosebleedSessionManager(
             return NosebleedStartResult.Fail($"ROM file not found at '{contentPath}'.");
         }
 
-        if (!_options.SystemCores.TryGetValue(systemName, out var coreName) || string.IsNullOrWhiteSpace(coreName))
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var coreMappingResolver = scope.ServiceProvider.GetRequiredService<SystemCoreMappingResolver>();
+        var coreName = await coreMappingResolver.ResolveNativeCoreAsync(systemName, cancellationToken);
+        if (string.IsNullOrWhiteSpace(coreName))
         {
-            return NosebleedStartResult.Fail($"No Nosebleed native core mapping found for '{systemName}'. Configure Nosebleed:SystemCores.");
+            return NosebleedStartResult.Fail($"No native core mapping found for '{systemName}'. Admins can configure it under System Core Mappings.");
         }
 
         var corePath = Path.IsPathRooted(coreName) ? coreName : Path.Combine(_options.CoreRoot, coreName);

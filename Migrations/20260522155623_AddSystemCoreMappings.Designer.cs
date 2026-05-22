@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using games_vault.Data;
 
@@ -10,9 +11,11 @@ using games_vault.Data;
 namespace games_vault.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260522155623_AddSystemCoreMappings")]
+    partial class AddSystemCoreMappings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.1");
@@ -570,36 +573,6 @@ namespace games_vault.Migrations
                     b.ToTable("NetworkShares");
                 });
 
-            modelBuilder.Entity("games_vault.Models.ProfileInviteCode", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int?>("UsedByProfileId")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime?>("UsedUtc")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Code")
-                        .IsUnique();
-
-                    b.HasIndex("UsedByProfileId");
-
-                    b.ToTable("ProfileInviteCodes");
-                });
-
             modelBuilder.Entity("games_vault.Models.SystemCoreMapping", b =>
                 {
                     b.Property<int>("Id")
@@ -608,9 +581,6 @@ namespace games_vault.Migrations
 
                     b.Property<DateTime>("CreatedUtc")
                         .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsAutoMapped")
-                        .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("INTEGER");
@@ -724,10 +694,6 @@ namespace games_vault.Migrations
                     b.Property<string>("PasskeyUserHandleBase64Url")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("PinHash")
-                        .HasMaxLength(256)
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime>("UpdatedUtc")
@@ -1028,16 +994,6 @@ namespace games_vault.Migrations
                     b.Navigation("BackgroundJob");
 
                     b.Navigation("NetworkShare");
-                });
-
-            modelBuilder.Entity("games_vault.Models.ProfileInviteCode", b =>
-                {
-                    b.HasOne("games_vault.Models.UserProfile", "UsedByProfile")
-                        .WithMany()
-                        .HasForeignKey("UsedByProfileId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("UsedByProfile");
                 });
 
             modelBuilder.Entity("games_vault.Models.UserProfilePasskey", b =>
