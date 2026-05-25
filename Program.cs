@@ -63,6 +63,31 @@ builder.Services.AddSingleton<games_vault.EverDrive.EverDriveGbFirmwareService>(
 
 var app = builder.Build();
 
+var configuredPathBase = app.Configuration["PathBase"]
+    ?? Environment.GetEnvironmentVariable("ASPNETCORE_PATHBASE");
+if (!string.IsNullOrWhiteSpace(configuredPathBase))
+{
+    configuredPathBase = configuredPathBase.Trim();
+    if (!configuredPathBase.StartsWith('/'))
+    {
+        configuredPathBase = "/" + configuredPathBase;
+    }
+
+    configuredPathBase = configuredPathBase.TrimEnd('/');
+    if (!string.IsNullOrEmpty(configuredPathBase))
+    {
+        app.UsePathBase(configuredPathBase);
+    }
+}
+
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Robots-Tag"] = "noindex, nofollow, noarchive";
+    await next();
+});
+
+app.MapGet("/robots.txt", () => Results.Text("User-agent: *\nDisallow: /\n", "text/plain"));
+
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {

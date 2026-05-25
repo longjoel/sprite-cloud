@@ -39,7 +39,7 @@
             ROM: <code>@(Model.File?.Name ?? "(none)")</code>
             @if (!string.IsNullOrWhiteSpace(Model.BaseUrl))
             {
-                <span> · Session: <code>@Model.SessionId</code> · Host: <code>@Model.BaseUrl</code></span>
+                <span> · Session: <code>@Model.SessionId</code> · WebSockets: <code>proxied through Games Vault</code></span>
                 @if (Model.IsSpectator)
                 {
                     <span> · <span class="badge bg-secondary">Spectator</span></span>
@@ -442,8 +442,14 @@
 <script type="application/json" id="nosebleed-player-config">
 @Html.Raw(System.Text.Json.JsonSerializer.Serialize(new
 {
-    baseUrl = Model.BaseUrl,
-    token = Model.Token,
+    baseUrl = (string?)null,
+    token = (string?)null,
+    websocketUrls = new
+    {
+        video = Url.Action("NosebleedProxy", "Games", new { sessionId = Model.SessionId, channel = "video" }),
+        audio = Url.Action("NosebleedProxy", "Games", new { sessionId = Model.SessionId, channel = "audio" }),
+        input = Url.Action("NosebleedProxy", "Games", new { sessionId = Model.SessionId, channel = "input" })
+    },
     assignedPort = Model.AssignedPort,
     isSpectator = Model.IsSpectator,
     sessionId = Model.SessionId,
