@@ -1,3 +1,4 @@
+using System.Net.WebSockets;
 using games_vault.BackgroundJobs;
 using games_vault.Data;
 using games_vault.Gameplay;
@@ -1030,6 +1031,95 @@ public class GamesController(
         });
     }
 
+    [HttpGet]
+    public async Task<IActionResult> NosebleedProxy(string sessionId, string channel, CancellationToken cancellationToken = default)
+    {
+        if (!HttpContext.WebSockets.IsWebSocketRequest)
+        {
+            return BadRequest("This endpoint requires a WebSocket request.");
+        }
+
+        if (!IsAllowedWebSocketOrigin(Request))
+        {
+            return Forbid();
+        }
+
+        if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(channel) ||
+            !Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var viewerId) ||
+            !Guid.TryParse(viewerId, out _))
+        {
+            return BadRequest();
+        }
+
+        channel = channel.Trim().ToLowerInvariant();
+        if (channel is not ("video" or "audio" or "input"))
+        {
+            return NotFound();
+        }
+
+        var session = nosebleedSessions.GetSessions()
+            .FirstOrDefault(x => string.Equals(x.SessionId, sessionId, StringComparison.OrdinalIgnoreCase));
+        if (session is null || session.HasExited)
+        {
+            await gamePlayTelemetry.FinishByExternalSessionAsync(sessionId, "process-exit", cancellationToken);
+            return NotFound();
+        }
+
+        var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow);
+        string? token;
+        if (channel == "input")
+        {
+            if (!await currentAccess.CanPlayAsync(cancellationToken) ||
+                seat.Kind != NosebleedSeatKind.Player ||
+                seat.Port is null)
+            {
+                return Forbid();
+            }
+
+            token = nosebleedTickets.CreatePlayerToken(sessionId, viewerId, seat.Port.Value);
+        }
+        else
+        {
+            token = nosebleedTickets.CreateSpectatorToken(sessionId, viewerId);
+        }
+
+        var target = BuildNosebleedWebSocketUri(session.BaseUrl, $"/ws/{channel}", token);
+        if (target is null)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway);
+        }
+
+        using var upstream = new ClientWebSocket();
+        try
+        {
+            await upstream.ConnectAsync(target, cancellationToken);
+        }
+        catch
+        {
+            return StatusCode(StatusCodes.Status502BadGateway);
+        }
+
+        using var downstream = await HttpContext.WebSockets.AcceptWebSocketAsync();
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, HttpContext.RequestAborted);
+        var clientToUpstream = PumpWebSocketAsync(downstream, upstream, linkedCts.Token);
+        var upstreamToClient = PumpWebSocketAsync(upstream, downstream, linkedCts.Token);
+        await Task.WhenAny(clientToUpstream, upstreamToClient);
+        await linkedCts.CancelAsync();
+
+        try
+        {
+            await Task.WhenAll(clientToUpstream, upstreamToClient);
+        }
+        catch (OperationCanceledException) when (linkedCts.IsCancellationRequested)
+        {
+        }
+        catch (WebSocketException)
+        {
+        }
+
+        return new EmptyResult();
+    }
+
     [HttpPost]
     [ValidateAntiForgeryToken]
     public IActionResult LeaveServerSession(string sessionId)
@@ -1102,6 +1192,76 @@ public class GamesController(
     }
 
     private const string NosebleedViewerCookieName = "games_vault_nosebleed_viewer";
+
+    private static Uri? BuildNosebleedWebSocketUri(string baseUrl, string path, string? token)
+    {
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri))
+        {
+            return null;
+        }
+
+        var builder = new UriBuilder(new Uri(baseUri, path))
+        {
+            Scheme = baseUri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase) ? "wss" : "ws"
+        };
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            builder.Query = $"token={Uri.EscapeDataString(token)}";
+        }
+
+        return builder.Uri;
+    }
+
+    private static bool IsAllowedWebSocketOrigin(HttpRequest request)
+    {
+        var origin = request.Headers.Origin.ToString();
+        if (string.IsNullOrWhiteSpace(origin) || !Uri.TryCreate(origin, UriKind.Absolute, out var originUri))
+        {
+            return false;
+        }
+
+        var requestHost = request.Host.Host;
+        if (!string.Equals(originUri.Host, requestHost, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (request.Host.Port is not { } requestPort)
+        {
+            return originUri.IsDefaultPort;
+        }
+
+        return originUri.Port == requestPort;
+    }
+
+    private static async Task PumpWebSocketAsync(WebSocket source, WebSocket destination, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[64 * 1024];
+        while (!cancellationToken.IsCancellationRequested &&
+               source.State == WebSocketState.Open &&
+               destination.State == WebSocketState.Open)
+        {
+            var result = await source.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                if (destination.State == WebSocketState.Open || destination.State == WebSocketState.CloseReceived)
+                {
+                    await destination.CloseAsync(
+                        result.CloseStatus ?? WebSocketCloseStatus.NormalClosure,
+                        result.CloseStatusDescription,
+                        cancellationToken);
+                }
+
+                break;
+            }
+
+            await destination.SendAsync(
+                new ArraySegment<byte>(buffer, 0, result.Count),
+                result.MessageType,
+                result.EndOfMessage,
+                cancellationToken);
+        }
+    }
 
     private string GetOrCreateNosebleedViewerId()
     {
