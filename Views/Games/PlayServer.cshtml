@@ -24,6 +24,43 @@
     </div>
 </div>
 
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="d-flex flex-wrap align-items-center gap-2 justify-content-between">
+            <div>
+                <div class="fw-semibold">Session rooms</div>
+                <div class="text-muted small">Create a fresh room or join by 4-letter code.</div>
+            </div>
+            <form asp-action="CreateRoom" asp-route-id="@game.Id" method="post" class="d-inline">
+                <button type="submit" class="btn btn-success">Create new session</button>
+            </form>
+        </div>
+        <div class="mt-3 d-flex flex-wrap gap-2">
+            @if (Model.ActiveRooms.Count == 0)
+            {
+                <span class="text-muted small">No active rooms yet.</span>
+            }
+            else
+            {
+                @foreach (var room in Model.ActiveRooms)
+                {
+                    var isCurrent = string.Equals(Model.CurrentRoomCode, room.Code, StringComparison.OrdinalIgnoreCase);
+                    <span class="badge @(isCurrent ? "bg-success" : "bg-secondary")">@room.Code</span>
+                }
+            }
+        </div>
+        <form asp-action="JoinRoomByCode" asp-route-id="@game.Id" method="post" class="mt-3 row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label" for="room-code">Join code</label>
+                <input id="room-code" class="form-control text-uppercase" name="code" maxlength="4" placeholder="ABCD" required />
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-outline-primary">Join room</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 @if (!string.IsNullOrWhiteSpace(Model.Error))
 {
     <div class="alert alert-warning">

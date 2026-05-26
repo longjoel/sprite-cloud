@@ -54,6 +54,8 @@ builder.Services.AddSingleton<NosebleedSessionManager>();
 builder.Services.AddSingleton<NosebleedSeatManager>();
 builder.Services.AddSingleton<NosebleedProcessInspector>();
 builder.Services.AddScoped<GamePlayTelemetryService>();
+builder.Services.AddSingleton<RoomCodeGenerator>();
+builder.Services.AddScoped<GamePlayRoomService>();
 builder.Services.AddSingleton<WebPlayerAssetLocator>();
 builder.Services.AddHostedService<WebPlayerBootstrapper>();
 builder.Services.AddHostedService<ArcadeCabinetSupervisor>();
