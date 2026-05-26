@@ -268,6 +268,58 @@ namespace games_vault.Migrations
                     b.ToTable("GameFiles");
                 });
 
+            modelBuilder.Entity("games_vault.Models.GamePlaySession", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("DurationSeconds")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("EndReason")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("EndedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExternalSessionId")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("GameFileId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("GameId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("ProfileId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("StartedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalSessionId");
+
+                    b.HasIndex("GameFileId");
+
+                    b.HasIndex("GameId", "StartedUtc");
+
+                    b.HasIndex("Mode", "StartedUtc");
+
+                    b.HasIndex("ProfileId", "StartedUtc");
+
+                    b.ToTable("GamePlaySessions");
+                });
+
             modelBuilder.Entity("games_vault.Models.GamePlayerFile", b =>
                 {
                     b.Property<int>("Id")
@@ -518,6 +570,79 @@ namespace games_vault.Migrations
                     b.ToTable("NetworkShares");
                 });
 
+            modelBuilder.Entity("games_vault.Models.ProfileInviteCode", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("UsedByProfileId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("UsedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("UsedByProfileId");
+
+                    b.ToTable("ProfileInviteCodes");
+                });
+
+            modelBuilder.Entity("games_vault.Models.SystemCoreMapping", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsAutoMapped")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("NativeCoreFileName")
+                        .HasMaxLength(260)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SystemName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("WebPlayerCoreKey")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SystemName")
+                        .IsUnique();
+
+                    b.ToTable("SystemCoreMappings");
+                });
+
             modelBuilder.Entity("games_vault.Models.SystemFile", b =>
                 {
                     b.Property<int>("Id")
@@ -565,6 +690,105 @@ namespace games_vault.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("SystemFiles");
+                });
+
+            modelBuilder.Entity("games_vault.Models.UserProfile", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AvatarKey")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsAdmin")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsArchived")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("PasskeyUserHandleBase64Url")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PinHash")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DisplayName");
+
+                    b.HasIndex("PasskeyUserHandleBase64Url")
+                        .IsUnique();
+
+                    b.ToTable("UserProfiles");
+                });
+
+            modelBuilder.Entity("games_vault.Models.UserProfilePasskey", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CredentialIdBase64Url")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeviceName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastUsedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ProfileId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<byte[]>("PublicKey")
+                        .IsRequired()
+                        .HasColumnType("BLOB");
+
+                    b.Property<uint>("SignatureCounter")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserHandleBase64Url")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CredentialIdBase64Url")
+                        .IsUnique();
+
+                    b.HasIndex("ProfileId");
+
+                    b.HasIndex("UserHandleBase64Url");
+
+                    b.ToTable("UserProfilePasskeys");
                 });
 
             modelBuilder.Entity("games_vault.Models.WebScanResult", b =>
@@ -710,6 +934,31 @@ namespace games_vault.Migrations
                     b.Navigation("Game");
                 });
 
+            modelBuilder.Entity("games_vault.Models.GamePlaySession", b =>
+                {
+                    b.HasOne("games_vault.Models.GameFile", "GameFile")
+                        .WithMany()
+                        .HasForeignKey("GameFileId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("games_vault.Models.Game", "Game")
+                        .WithMany()
+                        .HasForeignKey("GameId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("games_vault.Models.UserProfile", "Profile")
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Game");
+
+                    b.Navigation("GameFile");
+
+                    b.Navigation("Profile");
+                });
+
             modelBuilder.Entity("games_vault.Models.GamePlayerFile", b =>
                 {
                     b.HasOne("games_vault.Models.Game", "Game")
@@ -779,6 +1028,27 @@ namespace games_vault.Migrations
                     b.Navigation("BackgroundJob");
 
                     b.Navigation("NetworkShare");
+                });
+
+            modelBuilder.Entity("games_vault.Models.ProfileInviteCode", b =>
+                {
+                    b.HasOne("games_vault.Models.UserProfile", "UsedByProfile")
+                        .WithMany()
+                        .HasForeignKey("UsedByProfileId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("UsedByProfile");
+                });
+
+            modelBuilder.Entity("games_vault.Models.UserProfilePasskey", b =>
+                {
+                    b.HasOne("games_vault.Models.UserProfile", "Profile")
+                        .WithMany()
+                        .HasForeignKey("ProfileId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Profile");
                 });
 
             modelBuilder.Entity("games_vault.Models.WebScanResult", b =>

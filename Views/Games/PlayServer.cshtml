@@ -1,0 +1,464 @@
+@model games_vault.Models.ViewModels.ServerGamePlayViewModel
+
+@{
+    ViewData["Title"] = "Play server-side";
+    var game = Model.Game;
+    var systemName = game.SystemName ?? string.Empty;
+    var isGameGear = systemName.Equals("Sega - Game Gear", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("Game Gear", StringComparison.OrdinalIgnoreCase);
+    var touchLayoutName = isGameGear ? "Sega Game Gear" : "Generic Retropad";
+}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+        <h1 class="h3 mb-1">Play server-side</h1>
+        <div class="text-muted">@game.Name (@game.SystemName)</div>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary" asp-action="Play" asp-route-id="@game.Id">Play in browser</a>
+        <a class="btn btn-outline-secondary" asp-action="Details" asp-route-id="@game.Id">Details</a>
+        <a class="btn btn-outline-secondary" asp-action="Index">Back</a>
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(Model.Error))
+{
+    <div class="alert alert-warning">
+        <div class="fw-semibold mb-1">Server-side player is not ready</div>
+        <div>@Model.Error</div>
+        <div class="mt-2 text-muted small">
+            Expected setup: Nosebleed binary installed, native libretro core mapped for this system, and ROM readable from local storage.
+        </div>
+    </div>
+}
+
+<div class="card">
+    <div class="card-body">
+        <div class="fw-semibold mb-2">Nosebleed player</div>
+        <div class="text-muted mb-3">
+            ROM: <code>@(Model.File?.Name ?? "(none)")</code>
+            @if (!string.IsNullOrWhiteSpace(Model.BaseUrl))
+            {
+                <span> · Session: <code>@Model.SessionId</code> · WebSockets: <code>proxied through Games Vault</code></span>
+                @if (Model.IsSpectator)
+                {
+                    <span> · <span class="badge bg-secondary">Spectator</span></span>
+                }
+                else if (Model.PlayerNumber is not null)
+                {
+                    <span> · <span class="badge bg-success">Player @Model.PlayerNumber</span></span>
+                }
+            }
+        </div>
+
+        @if (string.IsNullOrWhiteSpace(Model.Error) && !string.IsNullOrWhiteSpace(Model.BaseUrl))
+        {
+            <style>
+                .server-player-shell {
+                    position: relative;
+                    overflow: hidden;
+                    touch-action: none;
+                    user-select: none;
+                }
+
+                #nosebleed-screen {
+                    display: block;
+                    image-rendering: pixelated;
+                    background: #000;
+                    max-width: 100%;
+                    max-height: 70vh;
+                    width: auto;
+                    height: auto;
+                    margin-inline: auto;
+                    touch-action: none;
+                    object-fit: contain;
+                }
+
+                .server-player-shell:fullscreen {
+                    width: 100vw;
+                    height: 100vh;
+                    border-radius: 0 !important;
+                    padding: 0 !important;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: #000 !important;
+                }
+
+                .server-player-shell:fullscreen #nosebleed-screen {
+                    width: 100vw !important;
+                    height: 100vh !important;
+                    max-height: none !important;
+                    object-fit: contain;
+                    border: 0 !important;
+                    border-radius: 0 !important;
+                }
+
+                .touch-gamepad {
+                    position: absolute;
+                    inset: 0;
+                    display: none;
+                    pointer-events: none;
+                    z-index: 5;
+                }
+
+                .touch-gamepad.is-visible {
+                    display: block;
+                }
+
+                .touch-gamepad .pad-cluster,
+                .touch-gamepad .face-cluster,
+                .touch-gamepad .menu-cluster {
+                    position: absolute;
+                    pointer-events: auto;
+                }
+
+                .touch-gamepad .pad-cluster {
+                    left: max(1rem, env(safe-area-inset-left));
+                    bottom: max(1rem, env(safe-area-inset-bottom));
+                    width: 9.5rem;
+                    height: 9.5rem;
+                }
+
+                .touch-gamepad .face-cluster {
+                    right: max(1rem, env(safe-area-inset-right));
+                    bottom: max(1.2rem, env(safe-area-inset-bottom));
+                    width: 10.5rem;
+                    height: 8rem;
+                }
+
+                .touch-gamepad .menu-cluster {
+                    left: 50%;
+                    bottom: max(1rem, env(safe-area-inset-bottom));
+                    transform: translateX(-50%);
+                    display: flex;
+                    gap: .75rem;
+                }
+
+                .touch-btn {
+                    position: absolute;
+                    border: 1px solid rgba(255,255,255,.55);
+                    background: rgba(15, 23, 42, .58);
+                    color: rgba(255,255,255,.9);
+                    backdrop-filter: blur(4px);
+                    box-shadow: 0 .25rem 1rem rgba(0,0,0,.35);
+                    touch-action: none;
+                    -webkit-user-select: none;
+                    user-select: none;
+                }
+
+                .touch-btn.is-pressed {
+                    background: rgba(13, 110, 253, .76);
+                    transform: scale(.96);
+                }
+
+                .touch-btn.dpad {
+                    width: 3.1rem;
+                    height: 3.1rem;
+                    border-radius: .85rem;
+                    font-weight: 700;
+                }
+
+                .touch-btn.face {
+                    width: 4rem;
+                    height: 4rem;
+                    border-radius: 999px;
+                    font-weight: 800;
+                    font-size: 1.2rem;
+                }
+
+                .touch-btn.menu {
+                    position: static;
+                    min-width: 4.5rem;
+                    border-radius: 999px;
+                    padding: .55rem .85rem;
+                    font-weight: 700;
+                }
+
+                .touch-btn[data-button="up"] { left: 3.2rem; top: 0; }
+                .touch-btn[data-button="left"] { left: 0; top: 3.2rem; }
+                .touch-btn[data-button="right"] { right: 0; top: 3.2rem; }
+                .touch-btn[data-button="down"] { left: 3.2rem; bottom: 0; }
+                .touch-btn[data-button="b"] { left: 0; bottom: 0; }
+                .touch-btn[data-button="a"] { right: 0; bottom: 1.4rem; }
+                .touch-btn[data-button="y"] { left: 1.4rem; top: 0; }
+                .touch-btn[data-button="x"] { right: 1.4rem; top: 0; }
+
+                .touch-gamepad.layout-game-gear .face-cluster {
+                    width: 9rem;
+                    height: 5rem;
+                    bottom: max(1.65rem, env(safe-area-inset-bottom));
+                }
+
+                .touch-gamepad.layout-game-gear .touch-btn.face {
+                    width: 4.35rem;
+                    height: 4.35rem;
+                    font-size: 1.35rem;
+                }
+
+                .touch-gamepad.layout-game-gear .touch-btn[data-button="b"] { left: 0; bottom: 0; }
+                .touch-gamepad.layout-game-gear .touch-btn[data-button="a"] { right: 0; bottom: 0; }
+
+                .touch-gamepad.layout-game-gear .menu-cluster {
+                    left: auto;
+                    right: max(1.25rem, env(safe-area-inset-right));
+                    bottom: max(6.55rem, calc(env(safe-area-inset-bottom) + 6.55rem));
+                    transform: none;
+                }
+
+                .touch-gamepad.layout-game-gear .touch-btn.menu {
+                    min-width: 4rem;
+                    padding: .4rem .75rem;
+                    font-size: .9rem;
+                    opacity: .82;
+                }
+
+                .player-overlay-action {
+                    position: absolute;
+                    top: max(.75rem, env(safe-area-inset-top));
+                    right: max(1rem, env(safe-area-inset-right));
+                    z-index: 7;
+                    border: 1px solid rgba(255,255,255,.45);
+                    background: rgba(15, 23, 42, .58);
+                    color: rgba(255,255,255,.92);
+                    border-radius: 999px;
+                    padding: .38rem .72rem;
+                    font-size: .84rem;
+                    font-weight: 700;
+                    backdrop-filter: blur(4px);
+                    box-shadow: 0 .25rem 1rem rgba(0,0,0,.35);
+                    touch-action: none;
+                }
+
+                .player-overlay-action.is-on {
+                    background: rgba(25, 135, 84, .7);
+                }
+
+                .layout-lock-action {
+                    left: max(1rem, env(safe-area-inset-left));
+                    right: auto;
+                }
+
+                .layout-reset-action {
+                    top: max(3.35rem, calc(env(safe-area-inset-top) + 3.35rem));
+                    left: max(1rem, env(safe-area-inset-left));
+                    right: auto;
+                    padding-inline: .62rem;
+                }
+
+                .player-hud {
+                    position: absolute;
+                    top: max(.72rem, env(safe-area-inset-top));
+                    left: 50%;
+                    transform: translateX(-50%);
+                    z-index: 6;
+                    display: flex;
+                    flex-wrap: wrap;
+                    justify-content: center;
+                    gap: .35rem;
+                    max-width: min(68vw, 34rem);
+                    pointer-events: none;
+                }
+
+                .player-hud-chip {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: .3rem;
+                    min-height: 1.65rem;
+                    border: 1px solid rgba(255,255,255,.32);
+                    border-radius: 999px;
+                    padding: .2rem .55rem;
+                    background: rgba(15, 23, 42, .56);
+                    color: rgba(255,255,255,.9);
+                    font-size: .72rem;
+                    font-weight: 800;
+                    letter-spacing: .01em;
+                    line-height: 1;
+                    backdrop-filter: blur(4px);
+                    box-shadow: 0 .25rem .9rem rgba(0,0,0,.3);
+                    white-space: nowrap;
+                }
+
+                .player-hud-chip .chip-dot {
+                    width: .48rem;
+                    height: .48rem;
+                    border-radius: 999px;
+                    background: rgba(255,255,255,.45);
+                    box-shadow: 0 0 .65rem rgba(255,255,255,.2);
+                }
+
+                .player-hud-chip.is-good .chip-dot { background: #20c997; box-shadow: 0 0 .65rem rgba(32,201,151,.75); }
+                .player-hud-chip.is-warn .chip-dot { background: #ffc107; box-shadow: 0 0 .65rem rgba(255,193,7,.75); }
+                .player-hud-chip.is-bad .chip-dot { background: #dc3545; box-shadow: 0 0 .65rem rgba(220,53,69,.75); }
+
+                .player-hud-chip.status-chip {
+                    max-width: 15rem;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+
+                @@media (max-width: 768px) {
+                    .player-hud {
+                        top: max(.48rem, env(safe-area-inset-top));
+                        max-width: 58vw;
+                        gap: .25rem;
+                    }
+
+                    .player-hud-chip {
+                        min-height: 1.45rem;
+                        padding: .16rem .42rem;
+                        font-size: .64rem;
+                    }
+
+                    .player-hud-chip.status-chip {
+                        max-width: 10rem;
+                    }
+                }
+
+                .server-player-shell.layout-editing [data-control-group] {
+                    outline: 2px dashed rgba(255,255,255,.75);
+                    outline-offset: .3rem;
+                    cursor: grab;
+                }
+
+                .server-player-shell.layout-editing [data-control-group].is-dragging {
+                    cursor: grabbing;
+                    opacity: .86;
+                }
+
+                .server-player-shell.overlays-hidden .player-hud,
+                .server-player-shell.overlays-hidden .touch-gamepad,
+                .server-player-shell.overlays-hidden .player-overlay-action {
+                    display: none !important;
+                }
+
+                @@media (hover: hover) and (pointer: fine) {
+                    .touch-gamepad:not(.force-visible) { display: none !important; }
+                }
+            </style>
+
+            <div id="server-player-shell" class="server-player-shell bg-dark rounded p-2">
+                <canvas id="nosebleed-screen" class="rounded border border-secondary"></canvas>
+                <div id="nosebleed-player-hud" class="player-hud" aria-live="polite">
+                    <span id="nosebleed-video-chip" class="player-hud-chip is-warn"><span class="chip-dot" aria-hidden="true"></span><span class="chip-label">Video idle</span></span>
+                    <span id="nosebleed-input-chip" class="player-hud-chip is-warn"><span class="chip-dot" aria-hidden="true"></span><span class="chip-label">@(Model.IsSpectator ? "Spectator" : "Input idle")</span></span>
+                    <span id="nosebleed-pad-chip" class="player-hud-chip"><span class="chip-dot" aria-hidden="true"></span><span class="chip-label">Pad none</span></span>
+                    <span id="nosebleed-fps-chip" class="player-hud-chip"><span class="chip-dot" aria-hidden="true"></span><span class="chip-label">0 fps</span></span>
+                    <span id="nosebleed-status-chip" class="player-hud-chip status-chip is-warn"><span class="chip-dot" aria-hidden="true"></span><span class="chip-label">Ready</span></span>
+                </div>
+                @if (!Model.IsSpectator)
+                {
+                    <div id="touch-gamepad" class="touch-gamepad is-visible @(isGameGear ? "layout-game-gear" : "layout-generic")" aria-label="On-screen @touchLayoutName gamepad">
+                        <div class="pad-cluster" data-control-group="dpad" aria-label="Directional pad">
+                            <button class="touch-btn dpad" type="button" data-button="up" aria-label="Up">▲</button>
+                            <button class="touch-btn dpad" type="button" data-button="left" aria-label="Left">◀</button>
+                            <button class="touch-btn dpad" type="button" data-button="right" aria-label="Right">▶</button>
+                            <button class="touch-btn dpad" type="button" data-button="down" aria-label="Down">▼</button>
+                        </div>
+                        <div class="face-cluster" data-control-group="face" aria-label="Action buttons">
+                            @if (isGameGear)
+                            {
+                                <button class="touch-btn face" type="button" data-button="b" aria-label="Button 1">1</button>
+                                <button class="touch-btn face" type="button" data-button="a" aria-label="Button 2">2</button>
+                            }
+                            else
+                            {
+                                <button class="touch-btn face" type="button" data-button="y" aria-label="Y">Y</button>
+                                <button class="touch-btn face" type="button" data-button="x" aria-label="X">X</button>
+                                <button class="touch-btn face" type="button" data-button="b" aria-label="B">B</button>
+                                <button class="touch-btn face" type="button" data-button="a" aria-label="A">A</button>
+                            }
+                        </div>
+                        <div class="menu-cluster" data-control-group="menu" aria-label="Menu buttons">
+                            @if (!isGameGear)
+                            {
+                                <button class="touch-btn menu" type="button" data-button="select" aria-label="Select">Select</button>
+                            }
+                            <button class="touch-btn menu" type="button" data-button="start" aria-label="Start">Start</button>
+                        </div>
+                    </div>
+                }
+                <button id="nosebleed-layout-lock" class="player-overlay-action layout-lock-action" type="button" aria-label="Unlock control layout">Unlock layout</button>
+                <button id="nosebleed-layout-reset" class="player-overlay-action layout-reset-action" type="button" aria-label="Reset control layout">Reset</button>
+                <button id="nosebleed-audio-overlay" class="player-overlay-action" type="button" data-control-group="sound" aria-label="Enable sound">Sound</button>
+            </div>
+            <div class="d-flex gap-2 align-items-center mt-3 flex-wrap">
+                <button id="nosebleed-connect" class="btn btn-primary" type="button">Connect</button>
+                <button id="nosebleed-audio" class="btn btn-outline-secondary" type="button">Enable audio</button>
+                <button id="nosebleed-fullscreen" class="btn btn-outline-secondary" type="button">Fullscreen</button>
+                <button id="nosebleed-overlay-toggle" class="btn btn-outline-secondary" type="button" aria-pressed="false">Hide overlay</button>
+                @if (!Model.IsSpectator)
+                {
+                    <button id="nosebleed-touch-toggle" class="btn btn-outline-secondary" type="button">Toggle @touchLayoutName controls</button>
+                    <label class="visually-hidden" for="nosebleed-gamepad-select">Hardware gamepad</label>
+                    <select id="nosebleed-gamepad-select" class="form-select form-select-sm w-auto" aria-label="Hardware gamepad">
+                        <option value="">Keyboard / first gamepad</option>
+                    </select>
+                    <button id="nosebleed-pad-test-toggle" class="btn btn-outline-secondary" type="button" aria-expanded="false" aria-controls="nosebleed-pad-test-panel">Pad test</button>
+                }
+                @if (!Model.IsSpectator && !string.IsNullOrWhiteSpace(Model.SessionId))
+                {
+                    <form asp-action="LeaveServerSession" method="post" class="d-inline">
+                        <input type="hidden" name="sessionId" value="@Model.SessionId" />
+                        <button type="submit" class="btn btn-outline-warning">Leave seat</button>
+                    </form>
+                }
+                <span id="nosebleed-status" class="text-muted">Ready.</span>
+            </div>
+            @if (!Model.IsSpectator)
+            {
+                <div id="nosebleed-pad-test-panel" class="border rounded bg-body-tertiary p-2 mt-2 small d-none">
+                    <div class="fw-semibold mb-1">Hardware gamepad tester</div>
+                    <div id="nosebleed-pad-test-summary" class="text-muted">No hardware gamepad detected yet.</div>
+                    <div id="nosebleed-pad-test-buttons" class="mt-1 text-break"></div>
+                    <div id="nosebleed-pad-test-axes" class="mt-1 font-monospace text-muted"></div>
+                </div>
+            }
+            <div class="text-muted small mt-2">
+                @if (Model.IsSpectator)
+                {
+                    <span>You are watching as a spectator. Video and audio are available, but input is disabled until a player slot frees up.</span>
+                }
+                else if (Model.PlayerNumber is not null)
+                {
+                    <span>You are Player @Model.PlayerNumber. The on-screen controls are using the @touchLayoutName layout; keyboard and hardware gamepad input still work too.</span>
+                }
+                else
+                {
+                    <span>Keyboard: arrows/D-pad, Z=A, X=B, Enter=Start, Shift=Select. Browser gamepads are forwarded to your assigned controller slot.</span>
+                }
+            </div>
+        }
+        else
+        {
+            <div class="text-muted">Once configured, the server-side player will appear here.</div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+@if (string.IsNullOrWhiteSpace(Model.Error) && !string.IsNullOrWhiteSpace(Model.BaseUrl))
+{
+<script type="application/json" id="nosebleed-player-config">
+@Html.Raw(System.Text.Json.JsonSerializer.Serialize(new
+{
+    baseUrl = (string?)null,
+    token = (string?)null,
+    websocketUrls = new
+    {
+        video = Url.Action("NosebleedProxy", "Games", new { sessionId = Model.SessionId, channel = "video" }),
+        audio = Url.Action("NosebleedProxy", "Games", new { sessionId = Model.SessionId, channel = "audio" }),
+        input = Url.Action("NosebleedProxy", "Games", new { sessionId = Model.SessionId, channel = "input" })
+    },
+    assignedPort = Model.AssignedPort,
+    isSpectator = Model.IsSpectator,
+    sessionId = Model.SessionId,
+    touchLayoutName,
+    keepAliveUrl = Url.Action("KeepAliveServerSession", "Games")
+}))
+</script>
+<script src="~/js/nosebleed-player/input-helpers.js" asp-append-version="true"></script>
+<script src="~/js/nosebleed-player/server-player-helpers.js" asp-append-version="true"></script>
+<script src="~/js/nosebleed-player/server-player.js" asp-append-version="true"></script>
+}
+}

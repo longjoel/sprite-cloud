@@ -1,0 +1,82 @@
+@model games_vault.Models.ViewModels.SystemCoreMappingsIndexViewModel
+
+@{
+    ViewData["Title"] = "System Core Mappings";
+}
+
+<div class="d-flex align-items-center justify-content-between gap-3 mb-3">
+    <div>
+        <h1 class="h3 mb-1">System Core Mappings</h1>
+        <p class="text-muted mb-0">Map imported game systems to native Nosebleed libretro cores. Appsettings mappings are used as fallback/bootstrap defaults.</p>
+    </div>
+    <form method="post" asp-action="AutoMap">
+        @Html.AntiForgeryToken()
+        <button type="submit" class="btn btn-success">Auto-map missing systems</button>
+    </form>
+</div>
+
+@if (Model.InstalledNativeCores.Count == 0)
+{
+    <div class="alert alert-warning">
+        No native cores were found under the configured Nosebleed core directory. Install cores before launching server-side playback.
+    </div>
+}
+
+<div class="vstack gap-3">
+@foreach (var row in Model.Rows)
+{
+    var statusClass = row.HasNativeCoreMapping ? "success" : "warning";
+    var statusText = row.HasNativeCoreMapping
+        ? (row.IsAutoMapped ? "Auto-mapped" : "Mapped")
+        : "Needs mapping";
+    <form method="post" asp-action="Save" class="card shadow-sm">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="systemName" value="@row.SystemName" />
+        <div class="card-body">
+            <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+                <div>
+                    <h2 class="h5 mb-1">@row.SystemName</h2>
+                    <div class="small text-muted">@row.GameCount game(s)</div>
+                </div>
+                <span class="badge text-bg-@statusClass">@statusText</span>
+            </div>
+
+            <div class="row g-3 align-items-end">
+                <div class="col-md-5">
+                    <label class="form-label">Native Nosebleed core</label>
+                    <select class="form-select" name="nativeCoreFileName">
+                        <option value="">-- No native core selected --</option>
+                        @foreach (var core in Model.InstalledNativeCores)
+                        {
+                            <option value="@core" selected="@(string.Equals(core, row.NativeCoreFileName, StringComparison.OrdinalIgnoreCase))">@core</option>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(row.NativeCoreFileName) && !Model.InstalledNativeCores.Any(x => string.Equals(x, row.NativeCoreFileName, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            <option value="@row.NativeCoreFileName" selected>@row.NativeCoreFileName (configured, not found)</option>
+                        }
+                    </select>
+                    <div class="form-text">For server-side gameplay via Nosebleed.</div>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Web player core key</label>
+                    <input class="form-control" name="webPlayerCoreKey" value="@row.WebPlayerCoreKey" placeholder="e.g. genesis_plus_gx" />
+                    <div class="form-text">Optional for browser player follow-up.</div>
+                </div>
+                <div class="col-md-2">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" name="isEnabled" value="true" checked="@row.IsEnabled" id="enabled-@row.Id-@row.SystemName.GetHashCode()" />
+                        <label class="form-check-label" for="enabled-@row.Id-@row.SystemName.GetHashCode()">Enabled</label>
+                    </div>
+                </div>
+                <div class="col-md-2 d-grid">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+                <div class="col-12">
+                    <label class="form-label">Notes</label>
+                    <input class="form-control" name="notes" value="@row.Notes" placeholder="Optional notes about this mapping" />
+                </div>
+            </div>
+        </div>
+    </form>
+}
+</div>

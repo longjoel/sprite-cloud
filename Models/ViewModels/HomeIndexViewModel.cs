@@ -1,10 +1,27 @@
 using games_vault.Models;
+using games_vault.Nosebleed;
 
 namespace games_vault.Models.ViewModels;
 
 public sealed class HomeIndexViewModel
 {
+    public bool ShowDashboard { get; set; }
+    public int? CurrentProfileId { get; set; }
+    public string? CurrentProfileName { get; set; }
+    public TimeSpan GlobalTotalPlayTime { get; set; }
+    public int GlobalPlaySessionCount { get; set; }
+
     public int GamesCount { get; set; }
+    public int SystemsCount { get; set; }
+    public int GameFilesCount { get; set; }
+    public long TotalGameBytes { get; set; }
+
+    public TimeSpan TotalPlayTime { get; set; }
+    public int PlaySessionCount { get; set; }
+    public string? LastPlayedGame { get; set; }
+    public IReadOnlyList<TopPlayedGameViewModel> TopPlayedGames { get; set; } = [];
+    public IReadOnlyList<ActiveNosebleedSessionViewModel> ActiveNosebleedSessions { get; set; } = [];
+    public IReadOnlyList<NosebleedProcessSnapshot> OrphanNosebleedProcesses { get; set; } = [];
 
     public int NetworkSharesCount { get; set; }
     public int LocalFoldersCount { get; set; }
@@ -21,6 +38,30 @@ public sealed class HomeIndexViewModel
 
     public BackgroundJobSummary? LatestLibretroSyncJob { get; set; }
     public BackgroundJobSummary? LatestWebPlayerInstallJob { get; set; }
+}
+
+public sealed class TopPlayedGameViewModel
+{
+    public int GameId { get; set; }
+    public string GameName { get; set; } = "Unknown game";
+    public int SessionCount { get; set; }
+    public TimeSpan TotalPlayTime { get; set; }
+}
+
+public sealed class ActiveNosebleedSessionViewModel
+{
+    public string SessionId { get; set; } = "";
+    public int GameId { get; set; }
+    public int FileId { get; set; }
+    public string GameName { get; set; } = "Unknown game";
+    public int Port { get; set; }
+    public string BaseUrl { get; set; } = "";
+    public DateTimeOffset StartedUtc { get; set; }
+    public TimeSpan Runtime { get; set; }
+    public string CorePath { get; set; } = "";
+    public string ContentPath { get; set; } = "";
+    public int ProcessId { get; set; }
+    public bool HasExited { get; set; }
 }
 
 public sealed class BackgroundJobSummary

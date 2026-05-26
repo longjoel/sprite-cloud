@@ -114,7 +114,10 @@ else
                                         </button>
                                     </li>
                                     <li>
-                                        <a class="dropdown-item" asp-action="Play" asp-route-id="@game.Id" target="_blank">Play</a>
+                                        <a class="dropdown-item" asp-action="Play" asp-route-id="@game.Id" target="_blank">Play in browser</a>
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item" asp-action="PlayServer" asp-route-id="@game.Id" target="_blank">Play server-side</a>
                                     </li>
                                     <li>
                                         <button class="dropdown-item"
