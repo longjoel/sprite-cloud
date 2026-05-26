@@ -1032,11 +1032,16 @@ public class GamesController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public IActionResult LeaveServerSession(string sessionId)
+    public IActionResult LeaveServerSession(string sessionId, string? returnUrl = null)
     {
         if (Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var viewerId))
         {
             nosebleedSeats.Release(sessionId, viewerId);
+        }
+
+        if (!string.IsNullOrWhiteSpace(returnUrl) && Url.IsLocalUrl(returnUrl))
+        {
+            return LocalRedirect(returnUrl);
         }
 
         return RedirectToAction(nameof(Index));

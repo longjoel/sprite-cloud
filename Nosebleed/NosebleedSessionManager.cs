@@ -64,7 +64,8 @@ public sealed class NosebleedSessionManager(
         int fileId,
         string systemName,
         string contentPath,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? instanceKey = null)
     {
         if (!_options.Enabled)
         {
@@ -96,7 +97,9 @@ public sealed class NosebleedSessionManager(
             return NosebleedStartResult.Fail($"Nosebleed core not found at '{corePath}'.");
         }
 
-        var key = $"{gameId}:{fileId}:{corePath}:{contentPath}";
+        var key = string.IsNullOrWhiteSpace(instanceKey)
+            ? $"{gameId}:{fileId}:{corePath}:{contentPath}"
+            : instanceKey.Trim();
         if (_sessions.TryGetValue(key, out var existing) && !existing.Process.HasExited)
         {
             return NosebleedStartResult.Ok(existing.Session);

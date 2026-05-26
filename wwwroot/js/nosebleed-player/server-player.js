@@ -73,6 +73,18 @@
     let overlaysEnabled = localStorage.getItem(overlayStorageKey) !== "0";
     const keys = new Set();
 
+    function isFullscreenActive() {
+        return document.fullscreenElement === shell || document.webkitFullscreenElement === shell || shell.classList.contains("is-ios-fullscreen");
+    }
+
+    function syncFullscreenUi() {
+        const fullscreen = isFullscreenActive();
+        fullscreenButton.textContent = fullscreen ? "Exit fullscreen" : "Fullscreen";
+        document.documentElement.classList.toggle("games-vault-player-fullscreen", fullscreen);
+        document.body?.classList.toggle("games-vault-player-fullscreen", fullscreen);
+        fitCanvasToShell();
+    }
+
     function setStatus(text, tone = "warn") {
         statusEl.textContent = text;
         updateChip(chips.status, text.replace(/[.…]+$/u, ""), tone);
@@ -373,7 +385,7 @@
     function fitCanvasToShell() {
         if (!canvas.width || !canvas.height) return;
         const shellRect = shell.getBoundingClientRect();
-        const maxHeight = document.fullscreenElement === shell
+        const maxHeight = isFullscreenActive()
             ? window.innerHeight
             : Math.min(window.innerHeight * 0.70, Math.max(1, shellRect.width));
         const availableWidth = Math.max(1, shellRect.width - 16);
@@ -559,18 +571,47 @@
         return String.fromCharCode(view.getUint8(offset), view.getUint8(offset + 1), view.getUint8(offset + 2), view.getUint8(offset + 3));
     }
 
+    function enterCssFullscreenFallback() {
+        shell.classList.add("is-ios-fullscreen");
+        syncFullscreenUi();
+        setStatus("Fullscreen view. Double tap the stream again to exit.", "good");
+    }
+
+    async function exitCssFullscreenFallback() {
+        shell.classList.remove("is-ios-fullscreen");
+        syncFullscreenUi();
+        setStatus("Exited fullscreen view.", "good");
+    }
+
     async function toggleFullscreen() {
         try {
-            if (!document.fullscreenElement) {
-                await shell.requestFullscreen({ navigationUI: "hide" });
+            if (!isFullscreenActive()) {
+                if (shell.requestFullscreen) {
+                    await shell.requestFullscreen({ navigationUI: "hide" });
+                } else if (shell.webkitRequestFullscreen) {
+                    shell.webkitRequestFullscreen();
+                } else {
+                    enterCssFullscreenFallback();
+                    return;
+                }
                 if (screen.orientation?.lock) {
                     try { await screen.orientation.lock("landscape"); } catch { }
                 }
                 setStatus("Fullscreen. Double tap the stream or use your browser gesture to exit.");
             } else {
-                await document.exitFullscreen();
+                if (shell.classList.contains("is-ios-fullscreen")) {
+                    await exitCssFullscreenFallback();
+                } else if (document.exitFullscreen) {
+                    await document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();
+                }
             }
         } catch {
+            if (!isFullscreenActive()) {
+                enterCssFullscreenFallback();
+                return;
+            }
             setStatus("Fullscreen request was blocked by the browser.");
         }
     }
@@ -789,14 +830,15 @@
         button.addEventListener("contextmenu", ev => ev.preventDefault());
     }
 
-    document.addEventListener("fullscreenchange", () => {
-        const fullscreen = document.fullscreenElement === shell;
-        fullscreenButton.textContent = fullscreen ? "Exit fullscreen" : "Fullscreen";
-        fitCanvasToShell();
-        if (!fullscreen && screen.orientation?.unlock) {
+    function handleFullscreenChange() {
+        syncFullscreenUi();
+        if (!isFullscreenActive() && screen.orientation?.unlock) {
             try { screen.orientation.unlock(); } catch { }
         }
-    });
+    }
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
 
     window.addEventListener("blur", releaseAllTouchButtons);
     window.addEventListener("resize", fitCanvasToShell);

@@ -6,7 +6,10 @@
     var systemName = game.SystemName ?? string.Empty;
     var isGameGear = systemName.Equals("Sega - Game Gear", StringComparison.OrdinalIgnoreCase)
         || systemName.Contains("Game Gear", StringComparison.OrdinalIgnoreCase);
-    var touchLayoutName = isGameGear ? "Sega Game Gear" : "Generic Retropad";
+    var isGenesis = systemName.Equals("Sega - Mega Drive - Genesis", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("Mega Drive", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("Genesis", StringComparison.OrdinalIgnoreCase);
+    var touchLayoutName = isGameGear ? "Sega Game Gear" : isGenesis ? "Sega Genesis" : "Generic Retropad";
 }
 
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -74,9 +77,11 @@
                     object-fit: contain;
                 }
 
-                .server-player-shell:fullscreen {
+                .server-player-shell:fullscreen,
+                .server-player-shell.is-ios-fullscreen {
                     width: 100vw;
                     height: 100vh;
+                    height: 100dvh;
                     border-radius: 0 !important;
                     padding: 0 !important;
                     display: flex;
@@ -85,9 +90,23 @@
                     background: #000 !important;
                 }
 
-                .server-player-shell:fullscreen #nosebleed-screen {
+                .server-player-shell.is-ios-fullscreen {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 2147483000;
+                }
+
+                html.games-vault-player-fullscreen,
+                body.games-vault-player-fullscreen {
+                    overflow: hidden !important;
+                    overscroll-behavior: none;
+                }
+
+                .server-player-shell:fullscreen #nosebleed-screen,
+                .server-player-shell.is-ios-fullscreen #nosebleed-screen {
                     width: 100vw !important;
                     height: 100vh !important;
+                    height: 100dvh !important;
                     max-height: none !important;
                     object-fit: contain;
                     border: 0 !important;
@@ -211,6 +230,32 @@
                     padding: .4rem .75rem;
                     font-size: .9rem;
                     opacity: .82;
+                }
+
+                .touch-gamepad.layout-genesis .face-cluster {
+                    position: static;
+                    pointer-events: none;
+                }
+
+                .touch-gamepad.layout-genesis .touch-btn.face {
+                    width: 4.25rem;
+                    height: 4.25rem;
+                    font-size: 1.32rem;
+                    pointer-events: auto;
+                }
+
+                .touch-gamepad.layout-genesis .touch-btn.face[data-button="y"] { left: auto; right: 9.9rem; bottom: max(1.35rem, env(safe-area-inset-bottom)); }
+                .touch-gamepad.layout-genesis .touch-btn.face[data-button="b"] { left: auto; right: 5.45rem; bottom: max(2.75rem, calc(env(safe-area-inset-bottom) + 1.4rem)); }
+                .touch-gamepad.layout-genesis .touch-btn.face[data-button="a"] { left: auto; right: max(1rem, env(safe-area-inset-right)); bottom: max(4.15rem, calc(env(safe-area-inset-bottom) + 2.8rem)); }
+
+                .touch-gamepad.layout-genesis .menu-cluster {
+                    left: 50%;
+                    bottom: max(1rem, env(safe-area-inset-bottom));
+                    transform: translateX(-50%);
+                }
+
+                .touch-gamepad.layout-genesis .touch-btn.menu[data-button="start"] {
+                    min-width: 5rem;
                 }
 
                 .player-overlay-action {
@@ -348,18 +393,24 @@
                 </div>
                 @if (!Model.IsSpectator)
                 {
-                    <div id="touch-gamepad" class="touch-gamepad is-visible @(isGameGear ? "layout-game-gear" : "layout-generic")" aria-label="On-screen @touchLayoutName gamepad">
+                    <div id="touch-gamepad" class="touch-gamepad is-visible @(isGameGear ? "layout-game-gear" : isGenesis ? "layout-genesis" : "layout-generic")" aria-label="On-screen @touchLayoutName gamepad">
                         <div class="pad-cluster" data-control-group="dpad" aria-label="Directional pad">
                             <button class="touch-btn dpad" type="button" data-button="up" aria-label="Up">▲</button>
                             <button class="touch-btn dpad" type="button" data-button="left" aria-label="Left">◀</button>
                             <button class="touch-btn dpad" type="button" data-button="right" aria-label="Right">▶</button>
                             <button class="touch-btn dpad" type="button" data-button="down" aria-label="Down">▼</button>
                         </div>
-                        <div class="face-cluster" data-control-group="face" aria-label="Action buttons">
+                        <div class="face-cluster" @(isGenesis ? "" : "data-control-group=\"face\"") aria-label="Action buttons">
                             @if (isGameGear)
                             {
                                 <button class="touch-btn face" type="button" data-button="b" aria-label="Button 1">1</button>
                                 <button class="touch-btn face" type="button" data-button="a" aria-label="Button 2">2</button>
+                            }
+                            else if (isGenesis)
+                            {
+                                <button class="touch-btn face" type="button" data-button="y" data-control-group="genesis-a" aria-label="Genesis A">A</button>
+                                <button class="touch-btn face" type="button" data-button="b" data-control-group="genesis-b" aria-label="Genesis B">B</button>
+                                <button class="touch-btn face" type="button" data-button="a" data-control-group="genesis-c" aria-label="Genesis C">C</button>
                             }
                             else
                             {
@@ -370,7 +421,7 @@
                             }
                         </div>
                         <div class="menu-cluster" data-control-group="menu" aria-label="Menu buttons">
-                            @if (!isGameGear)
+                            @if (!isGameGear && !isGenesis)
                             {
                                 <button class="touch-btn menu" type="button" data-button="select" aria-label="Select">Select</button>
                             }
@@ -398,8 +449,12 @@
                 }
                 @if (!Model.IsSpectator && !string.IsNullOrWhiteSpace(Model.SessionId))
                 {
-                    <form asp-action="LeaveServerSession" method="post" class="d-inline">
+                    <form asp-controller="Games" asp-action="LeaveServerSession" method="post" class="d-inline">
                         <input type="hidden" name="sessionId" value="@Model.SessionId" />
+                        @if (!string.IsNullOrWhiteSpace(Model.LeaveSessionReturnUrl))
+                        {
+                            <input type="hidden" name="returnUrl" value="@Model.LeaveSessionReturnUrl" />
+                        }
                         <button type="submit" class="btn btn-outline-warning">Leave seat</button>
                     </form>
                 }
