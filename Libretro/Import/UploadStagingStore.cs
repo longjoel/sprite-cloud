@@ -1,10 +1,13 @@
 using System.Text;
+using Microsoft.Extensions.Options;
 
 namespace games_vault.Libretro.Import;
 
-public sealed class UploadStagingStore(IWebHostEnvironment env)
+public sealed class UploadStagingStore(IWebHostEnvironment env, IOptions<LibraryStorageOptions> options)
 {
-    private string RootPath => Path.GetFullPath(Path.Combine(env.ContentRootPath, "App_Data", "uploads"));
+    private readonly LibraryStorageOptions _options = options.Value ?? new LibraryStorageOptions();
+
+    private string RootPath => ResolveRootPath(_options.UploadStagingRootPath);
 
     public string CreateStagingDirectory()
     {
@@ -69,6 +72,19 @@ public sealed class UploadStagingStore(IWebHostEnvironment env)
         }
     }
 
+    private string ResolveRootPath(string? configuredRootPath)
+    {
+        configuredRootPath = (configuredRootPath ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(configuredRootPath))
+        {
+            configuredRootPath = "App_Data/uploads";
+        }
+
+        return Path.IsPathRooted(configuredRootPath)
+            ? Path.GetFullPath(configuredRootPath)
+            : Path.GetFullPath(Path.Combine(env.ContentRootPath, configuredRootPath));
+    }
+
     private static string EnsureUnique(string destPath)
     {
         if (!File.Exists(destPath))
@@ -114,4 +130,3 @@ public sealed class UploadStagingStore(IWebHostEnvironment env)
         return sb.ToString().Trim();
     }
 }
-
