@@ -1,11 +1,15 @@
+using System.Net.WebSockets;
 using games_vault.BackgroundJobs;
 using games_vault.Data;
+using games_vault.Gameplay;
 using games_vault.Libretro;
 using games_vault.Libretro.Import;
 using games_vault.Libretro.Dat;
 using games_vault.Models;
 using games_vault.Models.ViewModels;
+using games_vault.Nosebleed;
 using games_vault.Web;
+using games_vault.Profiles;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
@@ -25,7 +29,14 @@ public class GamesController(
     games_vault.EverDrive.EverDriveGbFirmwareService everDriveFw,
     GameFileStorage fileStorage,
     IWebHostEnvironment env,
-    IOptions<WebPlayerOptions> webPlayerOptions) : Controller
+    IOptions<WebPlayerOptions> webPlayerOptions,
+    IOptions<NosebleedOptions> nosebleedOptions,
+    NosebleedSessionManager nosebleedSessions,
+    NosebleedSeatManager nosebleedSeats,
+    NosebleedTicketSigner nosebleedTickets,
+    GamePlayTelemetryService gamePlayTelemetry,
+    CurrentProfileService currentProfile,
+    CurrentAccessService currentAccess) : Controller
 {
     public async Task<IActionResult> Index(
         string? q,
@@ -889,6 +900,239 @@ public class GamesController(
     }
 
     [HttpGet]
+    public async Task<IActionResult> PlayServer(int id, CancellationToken cancellationToken = default)
+    {
+        var game = await db.Games
+            .AsNoTracking()
+            .Include(g => g.Files)
+            .FirstOrDefaultAsync(g => g.Id == id, cancellationToken);
+
+        if (game is null)
+        {
+            return NotFound();
+        }
+
+        var opts = nosebleedOptions.Value ?? new NosebleedOptions();
+        var file = game.Files.FirstOrDefault(f => !string.IsNullOrWhiteSpace(f.StoragePath) || !string.IsNullOrWhiteSpace(f.ExternalPath));
+        string? error = null;
+        NosebleedSession? session = null;
+        NosebleedSeatAssignment? seat = null;
+        string? token = null;
+        string? contentPath = null;
+
+        if (!opts.Enabled)
+        {
+            error = "Server-side playback is disabled. Enable it in appsettings under 'Nosebleed:Enabled'.";
+        }
+        else if (file is null)
+        {
+            error = "No stored or linked ROM file found for this game.";
+        }
+        else
+        {
+            var canPlay = await currentAccess.CanPlayAsync(cancellationToken);
+            if (!canPlay)
+            {
+                var existing = nosebleedSessions.GetSessions()
+                    .FirstOrDefault(x => x.GameId == game.Id && !x.HasExited);
+                if (existing is null)
+                {
+                    error = "Sign in with a player profile to start this game. Viewers can join active games as spectators.";
+                }
+                else
+                {
+                    var viewerId = GetOrCreateNosebleedViewerId();
+                    seat = nosebleedSeats.Assign(existing.SessionId, viewerId, DateTimeOffset.UtcNow);
+                    token = nosebleedTickets.CreateSpectatorToken(existing.SessionId, viewerId);
+                    session = new NosebleedSession(
+                        existing.SessionId,
+                        existing.GameId,
+                        existing.FileId,
+                        existing.Port,
+                        existing.BaseUrl,
+                        token,
+                        existing.StartedUtc,
+                        existing.CorePath,
+                        existing.ContentPath);
+                }
+            }
+            else
+            {
+                contentPath = await ResolveGameFileAbsolutePathAsync(file, cancellationToken);
+                if (string.IsNullOrWhiteSpace(contentPath))
+                {
+                    error = "ROM file could not be resolved to an allowed local filesystem path.";
+                }
+                else
+                {
+                    var result = await nosebleedSessions.StartOrReuseAsync(game.Id, file.Id, game.SystemName, contentPath, cancellationToken);
+                    if (result.Success && result.Session is not null)
+                    {
+                        session = result.Session;
+                        var profile = await currentProfile.GetCurrentAsync(cancellationToken);
+                        await gamePlayTelemetry.StartAsync(game.Id, file.Id, "nosebleed", session.Id, profile?.Id, cancellationToken);
+                        var viewerId = GetOrCreateNosebleedViewerId();
+                        seat = nosebleedSeats.Assign(session.Id, viewerId, DateTimeOffset.UtcNow);
+                        token = seat.Kind == NosebleedSeatKind.Player && seat.Port is not null
+                            ? nosebleedTickets.CreatePlayerToken(session.Id, viewerId, seat.Port.Value)
+                            : nosebleedTickets.CreateSpectatorToken(session.Id, viewerId);
+                    }
+                    else
+                    {
+                        error = result.Error ?? "Failed to start server-side playback.";
+                    }
+                }
+            }
+        }
+
+        return View(new ServerGamePlayViewModel
+        {
+            Game = game,
+            File = file,
+            PlayerEnabled = opts.Enabled,
+            BaseUrl = session?.BaseUrl,
+            Token = token,
+            SessionId = session?.Id,
+            AssignedPort = seat?.Port,
+            PlayerNumber = seat?.PlayerNumber,
+            IsSpectator = seat?.Kind == NosebleedSeatKind.Spectator,
+            SeatExpiresUtc = seat?.ExpiresUtc,
+            CorePath = session?.CorePath,
+            ContentPath = session?.ContentPath ?? contentPath,
+            Error = error
+        });
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> KeepAliveServerSession(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId) ||
+            !Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var viewerId) ||
+            !Guid.TryParse(viewerId, out _))
+        {
+            return BadRequest();
+        }
+
+        nosebleedSessions.Cleanup();
+        if (!nosebleedSessions.GetSessions().Any(x => string.Equals(x.SessionId, sessionId, StringComparison.OrdinalIgnoreCase)))
+        {
+            await gamePlayTelemetry.FinishByExternalSessionAsync(sessionId, "process-exit", cancellationToken);
+            return NotFound();
+        }
+
+        var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow);
+        await gamePlayTelemetry.TouchDurationAsync(sessionId, cancellationToken);
+        return Json(new
+        {
+            kind = seat.Kind.ToString().ToLowerInvariant(),
+            port = seat.Port,
+            playerNumber = seat.PlayerNumber,
+            expiresUtc = seat.ExpiresUtc
+        });
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> NosebleedProxy(string sessionId, string channel, CancellationToken cancellationToken = default)
+    {
+        if (!HttpContext.WebSockets.IsWebSocketRequest)
+        {
+            return BadRequest("This endpoint requires a WebSocket request.");
+        }
+
+        if (!IsAllowedWebSocketOrigin(Request))
+        {
+            return Forbid();
+        }
+
+        if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(channel) ||
+            !Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var viewerId) ||
+            !Guid.TryParse(viewerId, out _))
+        {
+            return BadRequest();
+        }
+
+        channel = channel.Trim().ToLowerInvariant();
+        if (channel is not ("video" or "audio" or "input"))
+        {
+            return NotFound();
+        }
+
+        var session = nosebleedSessions.GetSessions()
+            .FirstOrDefault(x => string.Equals(x.SessionId, sessionId, StringComparison.OrdinalIgnoreCase));
+        if (session is null || session.HasExited)
+        {
+            await gamePlayTelemetry.FinishByExternalSessionAsync(sessionId, "process-exit", cancellationToken);
+            return NotFound();
+        }
+
+        var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow);
+        string? token;
+        if (channel == "input")
+        {
+            if (!await currentAccess.CanPlayAsync(cancellationToken) ||
+                seat.Kind != NosebleedSeatKind.Player ||
+                seat.Port is null)
+            {
+                return Forbid();
+            }
+
+            token = nosebleedTickets.CreatePlayerToken(sessionId, viewerId, seat.Port.Value);
+        }
+        else
+        {
+            token = nosebleedTickets.CreateSpectatorToken(sessionId, viewerId);
+        }
+
+        var target = BuildNosebleedWebSocketUri(session.BaseUrl, $"/ws/{channel}", token);
+        if (target is null)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway);
+        }
+
+        using var upstream = new ClientWebSocket();
+        try
+        {
+            await upstream.ConnectAsync(target, cancellationToken);
+        }
+        catch
+        {
+            return StatusCode(StatusCodes.Status502BadGateway);
+        }
+
+        using var downstream = await HttpContext.WebSockets.AcceptWebSocketAsync();
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, HttpContext.RequestAborted);
+        var clientToUpstream = PumpWebSocketAsync(downstream, upstream, linkedCts.Token);
+        var upstreamToClient = PumpWebSocketAsync(upstream, downstream, linkedCts.Token);
+        await Task.WhenAny(clientToUpstream, upstreamToClient);
+        await linkedCts.CancelAsync();
+
+        try
+        {
+            await Task.WhenAll(clientToUpstream, upstreamToClient);
+        }
+        catch (OperationCanceledException) when (linkedCts.IsCancellationRequested)
+        {
+        }
+        catch (WebSocketException)
+        {
+        }
+
+        return new EmptyResult();
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult LeaveServerSession(string sessionId)
+    {
+        if (Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var viewerId))
+        {
+            nosebleedSeats.Release(sessionId, viewerId);
+        }
+
+        return RedirectToAction(nameof(Index));
+    }
+
+    [HttpGet]
     public async Task<IActionResult> Rom(int id, CancellationToken cancellationToken = default)
     {
         var file = await db.GameFiles
@@ -945,6 +1189,135 @@ public class GamesController(
 
         Response.Headers.CacheControl = "no-store";
         return PhysicalFile(abs, "application/octet-stream", enableRangeProcessing: true);
+    }
+
+    private const string NosebleedViewerCookieName = "games_vault_nosebleed_viewer";
+
+    private static Uri? BuildNosebleedWebSocketUri(string baseUrl, string path, string? token)
+    {
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri))
+        {
+            return null;
+        }
+
+        var builder = new UriBuilder(new Uri(baseUri, path))
+        {
+            Scheme = baseUri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase) ? "wss" : "ws"
+        };
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            builder.Query = $"token={Uri.EscapeDataString(token)}";
+        }
+
+        return builder.Uri;
+    }
+
+    private static bool IsAllowedWebSocketOrigin(HttpRequest request)
+    {
+        var origin = request.Headers.Origin.ToString();
+        if (string.IsNullOrWhiteSpace(origin) || !Uri.TryCreate(origin, UriKind.Absolute, out var originUri))
+        {
+            return false;
+        }
+
+        var requestHost = request.Host.Host;
+        if (!string.Equals(originUri.Host, requestHost, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (request.Host.Port is not { } requestPort)
+        {
+            return originUri.IsDefaultPort;
+        }
+
+        return originUri.Port == requestPort;
+    }
+
+    private static async Task PumpWebSocketAsync(WebSocket source, WebSocket destination, CancellationToken cancellationToken)
+    {
+        var buffer = new byte[64 * 1024];
+        while (!cancellationToken.IsCancellationRequested &&
+               source.State == WebSocketState.Open &&
+               destination.State == WebSocketState.Open)
+        {
+            var result = await source.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                if (destination.State == WebSocketState.Open || destination.State == WebSocketState.CloseReceived)
+                {
+                    await destination.CloseAsync(
+                        result.CloseStatus ?? WebSocketCloseStatus.NormalClosure,
+                        result.CloseStatusDescription,
+                        cancellationToken);
+                }
+
+                break;
+            }
+
+            await destination.SendAsync(
+                new ArraySegment<byte>(buffer, 0, result.Count),
+                result.MessageType,
+                result.EndOfMessage,
+                cancellationToken);
+        }
+    }
+
+    private string GetOrCreateNosebleedViewerId()
+    {
+        if (Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var existing)
+            && Guid.TryParse(existing, out _))
+        {
+            return existing;
+        }
+
+        var id = Guid.NewGuid().ToString("N");
+        Response.Cookies.Append(NosebleedViewerCookieName, id, new CookieOptions
+        {
+            Path = "/",
+            HttpOnly = true,
+            SameSite = SameSiteMode.Lax,
+            Secure = Request.IsHttps,
+            MaxAge = TimeSpan.FromDays(30)
+        });
+        return id;
+    }
+
+    private async Task<string?> ResolveGameFileAbsolutePathAsync(GameFile file, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(file.StoragePath))
+        {
+            return fileStorage.GetAbsolutePath(file.StoragePath);
+        }
+
+        if (string.IsNullOrWhiteSpace(file.ExternalPath))
+        {
+            return null;
+        }
+
+        var full = Path.GetFullPath(file.ExternalPath);
+        var allowedRoots = await db.LocalFolders
+            .AsNoTracking()
+            .Where(f => f.Enabled)
+            .Select(f => f.RootPath)
+            .ToListAsync(cancellationToken);
+
+        var allowed = allowedRoots.Any(root =>
+        {
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                return false;
+            }
+
+            var rootFull = Path.GetFullPath(root);
+            if (!rootFull.EndsWith(Path.DirectorySeparatorChar))
+            {
+                rootFull += Path.DirectorySeparatorChar;
+            }
+            return full.StartsWith(rootFull, StringComparison.Ordinal);
+        });
+
+        return allowed ? full : null;
     }
 
     private static bool IsWebPlayerAssetsPresent(WebPlayerOptions options, IWebHostEnvironment env)
