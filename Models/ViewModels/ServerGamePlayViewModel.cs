@@ -14,5 +14,6 @@ public sealed class ServerGamePlayViewModel
     public DateTimeOffset? SeatExpiresUtc { get; init; }
     public string? CorePath { get; init; }
     public string? ContentPath { get; init; }
+    public string? LeaveSessionReturnUrl { get; init; }
     public string? Error { get; init; }
 }
