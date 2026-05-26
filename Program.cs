@@ -66,6 +66,23 @@ builder.Services.AddSingleton<games_vault.EverDrive.EverDriveGbFirmwareService>(
 
 var app = builder.Build();
 
+var configuredPathBase = builder.Configuration["ASPNETCORE_PATHBASE"]
+    ?? builder.Configuration["PathBase"];
+if (!string.IsNullOrWhiteSpace(configuredPathBase))
+{
+    var normalizedPathBase = configuredPathBase!.Trim();
+    if (!normalizedPathBase.StartsWith('/'))
+    {
+        normalizedPathBase = "/" + normalizedPathBase;
+    }
+
+    normalizedPathBase = normalizedPathBase.TrimEnd('/');
+    if (!string.IsNullOrWhiteSpace(normalizedPathBase))
+    {
+        app.UsePathBase(normalizedPathBase);
+    }
+}
+
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
