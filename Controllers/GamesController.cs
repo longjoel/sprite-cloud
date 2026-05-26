@@ -35,6 +35,7 @@ public class GamesController(
     NosebleedSeatManager nosebleedSeats,
     NosebleedTicketSigner nosebleedTickets,
     GamePlayTelemetryService gamePlayTelemetry,
+    GamePlayRoomService roomService,
     CurrentProfileService currentProfile,
     CurrentAccessService currentAccess) : Controller
 {
@@ -899,8 +900,67 @@ public class GamesController(
         });
     }
 
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> CreateRoom(int id, CancellationToken cancellationToken = default)
+    {
+        var game = await db.Games
+            .AsNoTracking()
+            .Include(g => g.Files)
+            .FirstOrDefaultAsync(g => g.Id == id, cancellationToken);
+
+        if (game is null)
+        {
+            return NotFound();
+        }
+
+        var file = game.Files.FirstOrDefault(f => !string.IsNullOrWhiteSpace(f.StoragePath) || !string.IsNullOrWhiteSpace(f.ExternalPath));
+        if (file is null)
+        {
+            TempData["Message"] = "No ROM file is available for this game yet.";
+            return RedirectToAction(nameof(PlayServer), new { id });
+        }
+
+        var contentPath = await ResolveGameFileAbsolutePathAsync(file, cancellationToken);
+        if (string.IsNullOrWhiteSpace(contentPath))
+        {
+            TempData["Message"] = "ROM file could not be resolved to an allowed local filesystem path.";
+            return RedirectToAction(nameof(PlayServer), new { id });
+        }
+
+        var created = await roomService.CreateRoomAsync(game.Id, file.Id, game.SystemName, contentPath, cancellationToken);
+        if (!created.Success || created.Room is null)
+        {
+            TempData["Message"] = created.Error ?? "Failed to create room.";
+            return RedirectToAction(nameof(PlayServer), new { id });
+        }
+
+        return RedirectToAction(nameof(PlayServer), new { id, code = created.Room.Code });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> JoinRoomByCode(int id, string? code, CancellationToken cancellationToken = default)
+    {
+        var game = await db.Games.AsNoTracking().FirstOrDefaultAsync(g => g.Id == id, cancellationToken);
+        if (game is null)
+        {
+            return NotFound();
+        }
+
+        var viewerId = GetOrCreateNosebleedViewerId();
+        var joined = await roomService.JoinByCodeAsync(code ?? string.Empty, viewerId, cancellationToken);
+        if (!joined.Success || joined.Room is null)
+        {
+            TempData["Message"] = joined.Error ?? "Unable to join that room.";
+            return RedirectToAction(nameof(PlayServer), new { id });
+        }
+
+        return RedirectToAction(nameof(PlayServer), new { id, code = joined.Room.Code });
+    }
+
     [HttpGet]
-    public async Task<IActionResult> PlayServer(int id, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> PlayServer(int id, string? code = null, CancellationToken cancellationToken = default)
     {
         var game = await db.Games
             .AsNoTracking()
@@ -914,11 +974,22 @@ public class GamesController(
 
         var opts = nosebleedOptions.Value ?? new NosebleedOptions();
         var file = game.Files.FirstOrDefault(f => !string.IsNullOrWhiteSpace(f.StoragePath) || !string.IsNullOrWhiteSpace(f.ExternalPath));
+        var activeRooms = (await roomService.ListActiveRoomsForGameAsync(game.Id, cancellationToken))
+            .Select(x => new GamePlayRoomSummaryViewModel
+            {
+                Id = x.Id,
+                Code = x.Code,
+                SessionId = x.NosebleedSessionId,
+                LastActiveUtc = DateTime.SpecifyKind(x.LastActiveUtc, DateTimeKind.Utc)
+            })
+            .ToList();
+
         string? error = null;
         NosebleedSession? session = null;
         NosebleedSeatAssignment? seat = null;
         string? token = null;
         string? contentPath = null;
+        string? currentRoomCode = null;
 
         if (!opts.Enabled)
         {
@@ -928,61 +999,27 @@ public class GamesController(
         {
             error = "No stored or linked ROM file found for this game.";
         }
-        else
+        else if (!string.IsNullOrWhiteSpace(code))
         {
-            var canPlay = await currentAccess.CanPlayAsync(cancellationToken);
-            if (!canPlay)
+            var viewerId = GetOrCreateNosebleedViewerId();
+            var joinResult = await roomService.JoinByCodeAsync(code, viewerId, cancellationToken);
+            if (joinResult.Success && joinResult.Room is not null && joinResult.Session is not null)
             {
-                var existing = nosebleedSessions.GetSessions()
-                    .FirstOrDefault(x => x.GameId == game.Id && !x.HasExited);
-                if (existing is null)
-                {
-                    error = "Sign in with a player profile to start this game. Viewers can join active games as spectators.";
-                }
-                else
-                {
-                    var viewerId = GetOrCreateNosebleedViewerId();
-                    seat = nosebleedSeats.Assign(existing.SessionId, viewerId, DateTimeOffset.UtcNow);
-                    token = nosebleedTickets.CreateSpectatorToken(existing.SessionId, viewerId);
-                    session = new NosebleedSession(
-                        existing.SessionId,
-                        existing.GameId,
-                        existing.FileId,
-                        existing.Port,
-                        existing.BaseUrl,
-                        token,
-                        existing.StartedUtc,
-                        existing.CorePath,
-                        existing.ContentPath);
-                }
+                currentRoomCode = joinResult.Room.Code;
+                session = joinResult.Session;
+                seat = joinResult.Seat;
+                token = joinResult.Token;
+                var profile = await currentProfile.GetCurrentAsync(cancellationToken);
+                await gamePlayTelemetry.StartAsync(game.Id, file.Id, "nosebleed", session.Id, profile?.Id, cancellationToken);
             }
             else
             {
-                contentPath = await ResolveGameFileAbsolutePathAsync(file, cancellationToken);
-                if (string.IsNullOrWhiteSpace(contentPath))
-                {
-                    error = "ROM file could not be resolved to an allowed local filesystem path.";
-                }
-                else
-                {
-                    var result = await nosebleedSessions.StartOrReuseAsync(game.Id, file.Id, game.SystemName, contentPath, cancellationToken);
-                    if (result.Success && result.Session is not null)
-                    {
-                        session = result.Session;
-                        var profile = await currentProfile.GetCurrentAsync(cancellationToken);
-                        await gamePlayTelemetry.StartAsync(game.Id, file.Id, "nosebleed", session.Id, profile?.Id, cancellationToken);
-                        var viewerId = GetOrCreateNosebleedViewerId();
-                        seat = nosebleedSeats.Assign(session.Id, viewerId, DateTimeOffset.UtcNow);
-                        token = seat.Kind == NosebleedSeatKind.Player && seat.Port is not null
-                            ? nosebleedTickets.CreatePlayerToken(session.Id, viewerId, seat.Port.Value)
-                            : nosebleedTickets.CreateSpectatorToken(session.Id, viewerId);
-                    }
-                    else
-                    {
-                        error = result.Error ?? "Failed to start server-side playback.";
-                    }
-                }
+                error = joinResult.Error ?? "Unable to join the requested room.";
             }
+        }
+        else
+        {
+            error = "Create a new room or join by session code to start server-side play.";
         }
 
         return View(new ServerGamePlayViewModel
@@ -999,7 +1036,9 @@ public class GamesController(
             SeatExpiresUtc = seat?.ExpiresUtc,
             CorePath = session?.CorePath,
             ContentPath = session?.ContentPath ?? contentPath,
-            Error = error
+            Error = error,
+            CurrentRoomCode = currentRoomCode,
+            ActiveRooms = activeRooms
         });
     }
 

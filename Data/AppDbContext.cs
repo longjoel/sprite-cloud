@@ -30,6 +30,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
     public DbSet<UserProfilePasskey> UserProfilePasskeys => Set<UserProfilePasskey>();
     public DbSet<ProfileInviteCode> ProfileInviteCodes => Set<ProfileInviteCode>();
+    public DbSet<GamePlayRoom> GamePlayRooms => Set<GamePlayRoom>();
+    public DbSet<GamePlayRoomParticipant> GamePlayRoomParticipants => Set<GamePlayRoomParticipant>();
+    public DbSet<GamePlayRoomChatMessage> GamePlayRoomChatMessages => Set<GamePlayRoomChatMessage>();
+    public DbSet<ProfileAuthSession> ProfileAuthSessions => Set<ProfileAuthSession>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -325,6 +329,87 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasIndex(x => x.ExternalSessionId);
             entity.HasIndex(x => new { x.Mode, x.StartedUtc });
             entity.HasIndex(x => new { x.ProfileId, x.StartedUtc });
+        });
+
+        modelBuilder.Entity<GamePlayRoom>(entity =>
+        {
+            entity.Property(x => x.Code).HasMaxLength(4);
+            entity.Property(x => x.NosebleedSessionId).HasMaxLength(200);
+
+            entity.HasOne(x => x.Game)
+                .WithMany()
+                .HasForeignKey(x => x.GameId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.GameFile)
+                .WithMany()
+                .HasForeignKey(x => x.GameFileId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.CreatedByProfile)
+                .WithMany()
+                .HasForeignKey(x => x.CreatedByProfileId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(x => x.ArcadeCabinet)
+                .WithMany()
+                .HasForeignKey(x => x.ArcadeCabinetId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(x => new { x.Code, x.Status }).IsUnique();
+            entity.HasIndex(x => x.NosebleedSessionId);
+            entity.HasIndex(x => new { x.GameId, x.GameFileId, x.Status });
+        });
+
+        modelBuilder.Entity<GamePlayRoomParticipant>(entity =>
+        {
+            entity.Property(x => x.ViewerId).HasMaxLength(64);
+            entity.Property(x => x.DisplayNameSnapshot).HasMaxLength(80);
+
+            entity.HasOne(x => x.Room)
+                .WithMany(x => x.Participants)
+                .HasForeignKey(x => x.RoomId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Profile)
+                .WithMany()
+                .HasForeignKey(x => x.ProfileId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(x => new { x.RoomId, x.ViewerId }).IsUnique();
+            entity.HasIndex(x => new { x.RoomId, x.IsConnected });
+        });
+
+        modelBuilder.Entity<GamePlayRoomChatMessage>(entity =>
+        {
+            entity.Property(x => x.DisplayNameSnapshot).HasMaxLength(80);
+            entity.Property(x => x.Message).HasMaxLength(280);
+
+            entity.HasOne(x => x.Room)
+                .WithMany(x => x.ChatMessages)
+                .HasForeignKey(x => x.RoomId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Profile)
+                .WithMany()
+                .HasForeignKey(x => x.ProfileId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(x => new { x.RoomId, x.CreatedUtc });
+        });
+
+        modelBuilder.Entity<ProfileAuthSession>(entity =>
+        {
+            entity.Property(x => x.SessionNonce).HasMaxLength(64);
+            entity.Property(x => x.UserAgentHash).HasMaxLength(128);
+
+            entity.HasOne(x => x.Profile)
+                .WithMany()
+                .HasForeignKey(x => x.ProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => x.SessionNonce).IsUnique();
+            entity.HasIndex(x => new { x.ProfileId, x.RevokedUtc });
         });
     }
 }
