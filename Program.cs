@@ -66,23 +66,31 @@ builder.Services.AddSingleton<games_vault.EverDrive.EverDriveGbFirmwareService>(
 
 var app = builder.Build();
 
-var configuredPathBase = builder.Configuration["ASPNETCORE_PATHBASE"]
-    ?? builder.Configuration["PathBase"];
+var configuredPathBase = app.Configuration["PathBase"]
+    ?? app.Configuration["ASPNETCORE_PATHBASE"]
+    ?? Environment.GetEnvironmentVariable("ASPNETCORE_PATHBASE");
 if (!string.IsNullOrWhiteSpace(configuredPathBase))
 {
-    var normalizedPathBase = configuredPathBase!.Trim();
-    if (!normalizedPathBase.StartsWith('/'))
+    configuredPathBase = configuredPathBase.Trim();
+    if (!configuredPathBase.StartsWith('/'))
     {
-        normalizedPathBase = "/" + normalizedPathBase;
+        configuredPathBase = "/" + configuredPathBase;
     }
 
-    normalizedPathBase = normalizedPathBase.TrimEnd('/');
-    if (!string.IsNullOrWhiteSpace(normalizedPathBase))
+    configuredPathBase = configuredPathBase.TrimEnd('/');
+    if (!string.IsNullOrEmpty(configuredPathBase))
     {
-        app.UsePathBase(normalizedPathBase);
+        app.UsePathBase(configuredPathBase);
     }
 }
 
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Robots-Tag"] = "noindex, nofollow, noarchive";
+    await next();
+});
+
+app.MapGet("/robots.txt", () => Results.Text("User-agent: *\nDisallow: /\n", "text/plain"));
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {

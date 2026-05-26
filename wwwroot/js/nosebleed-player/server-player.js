@@ -5,6 +5,7 @@
 
     const baseUrl = config.baseUrl;
     const token = config.token;
+    const websocketUrls = config.websocketUrls || {};
     const assignedPort = config.assignedPort;
     const isSpectator = config.isSpectator;
     const sessionId = config.sessionId;
@@ -237,6 +238,19 @@
     }
 
     function withToken(path) {
+        const proxyUrl = path === "/ws/video"
+            ? websocketUrls.video
+            : path === "/ws/audio"
+                ? websocketUrls.audio
+                : path === "/ws/input"
+                    ? websocketUrls.input
+                    : null;
+        if (proxyUrl) {
+            const url = new URL(proxyUrl, window.location.href);
+            url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+            return url.toString();
+        }
+        if (!baseUrl) throw new Error(`No WebSocket URL configured for ${path}`);
         const url = new URL(path, baseUrl);
         if (token) url.searchParams.set("token", token);
         url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
