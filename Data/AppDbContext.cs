@@ -24,6 +24,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<LocalScanResult> LocalScanResults => Set<LocalScanResult>();
     public DbSet<GamePlayerFile> GamePlayerFiles => Set<GamePlayerFile>();
     public DbSet<GamePlaySession> GamePlaySessions => Set<GamePlaySession>();
+    public DbSet<global::games_vault.Models.Arcade> Arcades => Set<global::games_vault.Models.Arcade>();
+    public DbSet<ArcadeCabinet> ArcadeCabinets => Set<ArcadeCabinet>();
     public DbSet<SystemCoreMapping> SystemCoreMappings => Set<SystemCoreMapping>();
     public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
     public DbSet<UserProfilePasskey> UserProfilePasskeys => Set<UserProfilePasskey>();
@@ -218,6 +220,39 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(x => new { x.GameId, x.Kind, x.Key, x.FileName }).IsUnique();
+        });
+
+        modelBuilder.Entity<global::games_vault.Models.Arcade>(entity =>
+        {
+            entity.Property(x => x.Name).HasMaxLength(120);
+            entity.Property(x => x.Slug).HasMaxLength(120);
+            entity.Property(x => x.Description).HasMaxLength(1000);
+            entity.HasIndex(x => x.Slug).IsUnique();
+        });
+
+        modelBuilder.Entity<ArcadeCabinet>(entity =>
+        {
+            entity.Property(x => x.DisplayName).HasMaxLength(120);
+            entity.Property(x => x.RuntimeSessionId).HasMaxLength(200);
+            entity.Property(x => x.LastError).HasMaxLength(1000);
+
+            entity.HasOne(x => x.Arcade)
+                .WithMany(x => x.Cabinets)
+                .HasForeignKey(x => x.ArcadeId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Game)
+                .WithMany()
+                .HasForeignKey(x => x.GameId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.GameFile)
+                .WithMany()
+                .HasForeignKey(x => x.GameFileId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(x => new { x.ArcadeId, x.SortOrder });
+            entity.HasIndex(x => x.RuntimeSessionId);
         });
 
         modelBuilder.Entity<SystemCoreMapping>(entity =>

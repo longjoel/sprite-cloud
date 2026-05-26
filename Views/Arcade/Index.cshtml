@@ -1,0 +1,150 @@
+@model games_vault.Models.ViewModels.ArcadeIndexViewModel
+@{
+    ViewData["Title"] = "Arcade";
+}
+
+<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-4">
+    <div>
+        <div class="text-uppercase text-muted small fw-semibold mb-2">Arcade experiment</div>
+        <h1 class="display-6 mb-1">@(Model.Arcade?.Name ?? "Arcade")</h1>
+        <p class="text-muted mb-0">Persistent free-play cabinets. The games keep running even when nobody is connected.</p>
+    </div>
+    @if (Model.CanManage)
+    {
+        <div class="d-flex gap-2 flex-wrap">
+            @if (Model.Arcade is null)
+            {
+                <form asp-action="CreateDefault" method="post" asp-antiforgery="true">
+                    <button type="submit" class="btn btn-primary">Create free-play arcade</button>
+                </form>
+            }
+        </div>
+    }
+</div>
+
+@if (!Model.NosebleedEnabled)
+{
+    <div class="alert alert-warning">Nosebleed server-side playback is disabled, so arcade cabinets cannot boot yet.</div>
+}
+
+@if (Model.Arcade is null)
+{
+    <div class="alert alert-secondary">No arcade exists yet. Create the default free-play arcade to add persistent cabinets.</div>
+}
+else
+{
+    @if (Model.CanManage)
+    {
+        <div class="card mb-4">
+            <div class="card-header fw-semibold">Add a free-play cabinet</div>
+            <div class="card-body">
+                @if (Model.GameOptions.Count == 0)
+                {
+                    <div class="text-muted">No playable games with stored or linked ROM files were found.</div>
+                }
+                else
+                {
+                    <form asp-action="AddCabinet" method="post" asp-antiforgery="true" class="row g-2 align-items-end">
+                        <div class="col-md-5">
+                            <label class="form-label" for="gameId">Game</label>
+                            <select class="form-select" id="gameId" name="gameId" required>
+                                @foreach (var game in Model.GameOptions)
+                                {
+                                    <option value="@game.Id">@game.Name (@game.SystemName)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label" for="displayName">Cabinet label</label>
+                            <input class="form-control" id="displayName" name="displayName" placeholder="Defaults to game name" />
+                        </div>
+                        <div class="col-md-2 d-grid">
+                            <button type="submit" class="btn btn-primary">Add cabinet</button>
+                        </div>
+                    </form>
+                }
+            </div>
+        </div>
+    }
+
+    @if (Model.Cabinets.Count == 0)
+    {
+        <div class="alert alert-secondary">No cabinets yet. Add a game above to boot the first persistent free-play cabinet.</div>
+    }
+    else
+    {
+        <div class="row g-3">
+            @foreach (var cabinet in Model.Cabinets)
+            {
+                <div class="col-md-6 col-xl-4">
+                    <div class="card h-100 shadow-sm @(cabinet.IsRunning ? "border-success" : "")" @(cabinet.IsRunning ? $"data-nosebleed-preview-card data-preview-url=\"{Url.Action("NosebleedPreviewVideo", "Home", new { sessionId = cabinet.RuntimeSessionId })}\"" : "")>
+                        <div class="ratio ratio-16x9 bg-dark rounded-top overflow-hidden d-flex align-items-center justify-content-center">
+                            @if (cabinet.IsRunning)
+                            {
+                                <canvas data-nosebleed-preview-canvas class="w-100 h-100" style="image-rendering: pixelated;"></canvas>
+                            }
+                            else
+                            {
+                                <div class="text-light small">Waiting for cabinet runtime…</div>
+                            }
+                        </div>
+                        <div class="card-body d-flex flex-column">
+                            <div class="d-flex justify-content-between align-items-start gap-2">
+                                <div>
+                                    <h2 class="h5 mb-1">@cabinet.DisplayName</h2>
+                                    <div class="text-muted small">@cabinet.GameName</div>
+                                </div>
+                                <span class="badge @(cabinet.IsRunning ? "text-bg-success" : cabinet.IsEnabled ? "text-bg-warning" : "text-bg-secondary")">
+                                    @(cabinet.IsRunning ? "Running" : cabinet.IsEnabled ? "Booting" : "Stopped")
+                                </span>
+                            </div>
+                            <dl class="row small mt-3 mb-2">
+                                <dt class="col-5">Mode</dt>
+                                <dd class="col-7">@cabinet.CreditMode</dd>
+                                <dt class="col-5">System</dt>
+                                <dd class="col-7">@cabinet.SystemName</dd>
+                                <dt class="col-5">Runtime</dt>
+                                <dd class="col-7">@(cabinet.Session is null ? "—" : FormatDuration(cabinet.Session.Runtime))</dd>
+                            </dl>
+                            @if (!string.IsNullOrWhiteSpace(cabinet.LastError))
+                            {
+                                <div class="alert alert-warning small py-2">@cabinet.LastError</div>
+                            }
+                            <div class="d-flex gap-2 flex-wrap mt-auto">
+                                <a class="btn btn-sm btn-primary" asp-action="Join" asp-route-id="@cabinet.Id">@(Model.CanPlay ? "Join" : "Watch")</a>
+                                @if (Model.CanManage)
+                                {
+                                    <form asp-action="StartCabinet" method="post" asp-antiforgery="true">
+                                        <input type="hidden" name="id" value="@cabinet.Id" />
+                                        <button type="submit" class="btn btn-sm btn-outline-success">Start</button>
+                                    </form>
+                                    <form asp-action="RestartCabinet" method="post" asp-antiforgery="true">
+                                        <input type="hidden" name="id" value="@cabinet.Id" />
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary">Restart</button>
+                                    </form>
+                                    <form asp-action="StopCabinet" method="post" asp-antiforgery="true">
+                                        <input type="hidden" name="id" value="@cabinet.Id" />
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Stop</button>
+                                    </form>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+}
+
+@functions {
+    static string FormatDuration(TimeSpan duration)
+    {
+        if (duration.TotalHours >= 1) return $"{(int)duration.TotalHours}h {duration.Minutes}m";
+        if (duration.TotalMinutes >= 1) return $"{duration.Minutes}m {duration.Seconds}s";
+        return $"{Math.Max(0, duration.Seconds)}s";
+    }
+}
+
+@section Scripts {
+    <script src="~/js/nosebleed-player/preview.js" asp-append-version="true"></script>
+}
