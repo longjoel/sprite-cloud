@@ -13,6 +13,7 @@ public sealed class PasskeyService(
     IMemoryCache cache,
     IHttpContextAccessor httpContextAccessor,
     CurrentProfileService currentProfile,
+    ProfileAuthSessionService authSessions,
     IConfiguration configuration)
 {
     private static readonly TimeSpan ChallengeTtl = TimeSpan.FromMinutes(5);
@@ -37,7 +38,6 @@ public sealed class PasskeyService(
             AuthenticatorSelection = new AuthenticatorSelection
             {
                 ResidentKey = ResidentKeyRequirement.Required,
-                RequireResidentKey = true,
                 UserVerification = UserVerificationRequirement.Preferred
             },
             AttestationPreference = AttestationConveyancePreference.None
@@ -106,7 +106,8 @@ public sealed class PasskeyService(
         });
         await db.SaveChangesAsync(ct);
         cache.Remove(RegistrationCacheKey(dto.Challenge));
-        currentProfile.SetCurrent(profile.Id);
+        var authSession = await authSessions.CreateSessionAsync(profile.Id, ct);
+        currentProfile.SetCurrent(profile.Id, authSession.SessionNonce);
         return profile;
     }
 
@@ -166,7 +167,8 @@ public sealed class PasskeyService(
         stored.LastUsedUtc = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
         cache.Remove(LoginCacheKey(dto.Challenge));
-        currentProfile.SetCurrent(stored.ProfileId);
+        var authSession = await authSessions.CreateSessionAsync(stored.ProfileId, ct);
+        currentProfile.SetCurrent(stored.ProfileId, authSession.SessionNonce);
         return stored.Profile;
     }
 
