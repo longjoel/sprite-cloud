@@ -169,6 +169,51 @@ public sealed class GamePlayRoomService(
         return normalized.Length == 4 ? normalized : null;
     }
 
+    public async Task<RoomChatPostResult> AddChatMessageAsync(int roomId, string? rawMessage, CancellationToken ct)
+    {
+        if (!await currentAccess.CanPlayAsync(ct))
+        {
+            return RoomChatPostResult.Fail("Sign in with a player profile to chat.");
+        }
+
+        var messageText = NormalizeChatMessage(rawMessage);
+        if (string.IsNullOrWhiteSpace(messageText))
+        {
+            return RoomChatPostResult.Fail("Enter a chat message.");
+        }
+
+        if (messageText.Length > 280)
+        {
+            return RoomChatPostResult.Fail("Chat messages must be 280 characters or less.");
+        }
+
+        var room = await db.GamePlayRooms.FirstOrDefaultAsync(x => x.Id == roomId && x.Status == GamePlayRoomStatus.Active, ct);
+        if (room is null)
+        {
+            return RoomChatPostResult.Fail("That room is no longer active.");
+        }
+
+        var profile = await currentProfile.GetCurrentAsync(ct);
+        if (profile is null)
+        {
+            return RoomChatPostResult.Fail("Sign in with a player profile to chat.");
+        }
+
+        var chatMessage = new GamePlayRoomChatMessage
+        {
+            RoomId = room.Id,
+            ProfileId = profile.Id,
+            DisplayNameSnapshot = string.IsNullOrWhiteSpace(profile.DisplayName) ? "Player" : profile.DisplayName.Trim(),
+            Message = messageText,
+            CreatedUtc = DateTime.UtcNow
+        };
+
+        db.GamePlayRoomChatMessages.Add(chatMessage);
+        room.LastActiveUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return RoomChatPostResult.Ok(chatMessage);
+    }
+
     public static RoomPresenceSnapshot BuildPresenceSnapshot(
         IReadOnlyList<NosebleedSeatAssignment> assignments,
         IReadOnlyList<GamePlayRoomParticipant> participants)
@@ -192,5 +237,31 @@ public sealed class GamePlayRoomService(
 
         var watcherCount = assignments.Count(x => x.Kind == NosebleedSeatKind.Spectator);
         return new RoomPresenceSnapshot(players, watcherCount, assignments.Count);
+    }
+
+    public static RoomChatSnapshot BuildChatSnapshot(IReadOnlyList<GamePlayRoomChatMessage> messages)
+    {
+        var snapshot = messages
+            .OrderBy(x => x.CreatedUtc)
+            .Select(x => new RoomChatMessageSnapshot(
+                string.IsNullOrWhiteSpace(x.DisplayNameSnapshot) ? "Viewer" : x.DisplayNameSnapshot.Trim(),
+                x.Message,
+                DateTime.SpecifyKind(x.CreatedUtc, DateTimeKind.Utc)))
+            .ToList();
+
+        return new RoomChatSnapshot(snapshot);
+    }
+
+    private static string NormalizeChatMessage(string? rawMessage)
+    {
+        if (string.IsNullOrWhiteSpace(rawMessage))
+        {
+            return string.Empty;
+        }
+
+        return rawMessage
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Trim();
     }
 }
