@@ -96,6 +96,66 @@ public sealed class LibretroZipImportTests
         Assert.Equal(new FileInfo(zipPath).Length, new FileInfo(storedPath).Length);
     }
 
+    [Fact]
+    public async Task ImportFromStagedDirectoryAsync_matches_mame_zip_by_filename_when_outer_crc_is_missing()
+    {
+        var contentRoot = CreateTempDirectory();
+        var libraryRoot = CreateTempDirectory();
+        var stagingRoot = CreateTempDirectory();
+        var zipPath = Path.Combine(stagingRoot, "joust.zip");
+        var memberBytes = Enumerable.Range(0, 64).Select(i => (byte)(255 - i)).ToArray();
+        CreateZip(zipPath, ("3006-19.7b", memberBytes));
+
+        var memberCrc = await ComputeCrcAsync(Path.Combine(CreateExtractDirectory(zipPath), "3006-19.7b"));
+        CreateLibretroDatabaseWithoutOuterZipCrc(contentRoot, memberCrc, memberBytes.Length);
+
+        await using var fixture = await CreateFixtureAsync(contentRoot);
+        var environment = new FakeEnvironment(contentRoot);
+        var storageOptions = Options.Create(new LibraryStorageOptions { RootPath = libraryRoot });
+        var databaseOptions = Options.Create(new LibretroDatabaseOptions { RootPath = "libretro-db" });
+        var fileStorage = new GameFileStorage(environment, storageOptions);
+        var store = new LibretroDatabaseStore(environment, databaseOptions);
+        var parser = new LibretroDatParser();
+        var builder = new LibretroDatIndexBuilder(store, parser, LoggerFactory.Create(_ => { }).CreateLogger<LibretroDatIndexBuilder>());
+        var importer = new GameUploadImporter(
+            fixture.Db,
+            new UploadFileScanner(),
+            builder,
+            fileStorage,
+            LoggerFactory.Create(_ => { }).CreateLogger<GameUploadImporter>());
+
+        var job = new BackgroundJob
+        {
+            Command = "test",
+            CreatedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow,
+            Status = BackgroundJobStatus.Queued,
+            PayloadJson = "{}"
+        };
+        fixture.Db.BackgroundJobs.Add(job);
+        await fixture.Db.SaveChangesAsync();
+
+        var context = new BackgroundJobExecutionContext(
+            job,
+            fixture.Db,
+            new ServiceCollection().BuildServiceProvider(),
+            LoggerFactory.Create(_ => { }).CreateLogger("test"));
+
+        var result = await importer.ImportFromStagedDirectoryAsync(stagingRoot, context, CancellationToken.None);
+
+        Assert.Equal(2, result.TotalScannedFileCount);
+        Assert.Equal(1, result.TotalMatchedFileCount);
+
+        var game = await fixture.Db.Games.Include(x => x.Files).SingleAsync();
+        var file = Assert.Single(game.Files);
+        Assert.Equal("MAME 2003-Plus", game.SystemName);
+        Assert.Equal("Joust (White-Green label)", game.Name);
+        Assert.Equal("joust.zip", file.Name);
+        Assert.Equal("joust.zip", file.OriginalFileName);
+        Assert.NotNull(file.StoragePath);
+        Assert.True(File.Exists(fileStorage.GetAbsolutePath(file.StoragePath!)));
+    }
+
     private static void CreateLibretroDatabase(string contentRoot, string outerCrc, long outerSize, string memberCrc, long memberSize)
     {
         var datDir = Path.Combine(contentRoot, "libretro-db", "dat");
@@ -111,6 +171,36 @@ clrmamepro (
 game (
     name "Joust (White-Green label)"
     rom ( name "joust.zip" size {outerSize} crc {outerCrc} )
+)
+""");
+
+        File.WriteAllText(Path.Combine(memberDir, "MAME.dat"), $"""
+clrmamepro (
+    name "MAME"
+)
+
+game (
+    name "Joust (White-Green label)"
+    rom ( name "3006-19.7b" size {memberSize} crc {memberCrc} )
+)
+""");
+    }
+
+    private static void CreateLibretroDatabaseWithoutOuterZipCrc(string contentRoot, string memberCrc, long memberSize)
+    {
+        var datDir = Path.Combine(contentRoot, "libretro-db", "dat");
+        var memberDir = Path.Combine(contentRoot, "libretro-db", "metadat", "mame-member");
+        Directory.CreateDirectory(datDir);
+        Directory.CreateDirectory(memberDir);
+
+        File.WriteAllText(Path.Combine(datDir, "MAME 2003-Plus.dat"), """
+clrmamepro (
+    name "MAME 2003-Plus"
+)
+
+game (
+    name "Joust (White-Green label)"
+    rom ( name "joust.zip" size 0 crc DEADBEEF )
 )
 """);
 

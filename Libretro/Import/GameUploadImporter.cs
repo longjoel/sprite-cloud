@@ -69,11 +69,7 @@ public sealed class GameUploadImporter(
             throw new InvalidOperationException("Libretro database isn't available yet. Run the libretro sync job first.");
         }
 
-        var matched = scanned
-            .Select(f => (File: f, Match: index.TryGetByCrc32(f.Crc32, out var entry) ? entry : null))
-            .Where(x => x.Match is not null)
-            .Select(x => (x.File, Match: x.Match!))
-            .ToList();
+        var matched = MatchScannedFiles(scanned, index);
 
         if (matched.Count == 0)
         {
@@ -201,11 +197,7 @@ public sealed class GameUploadImporter(
             throw new InvalidOperationException("Libretro database isn't available yet. Run the libretro sync job first.");
         }
 
-        var matched = scanned
-            .Select(f => (File: f, Match: index.TryGetByCrc32(f.Crc32, out var entry) ? entry : null))
-            .Where(x => x.Match is not null)
-            .Select(x => (x.File, Match: x.Match!))
-            .ToList();
+        var matched = MatchScannedFiles(scanned, index);
 
         if (matched.Count == 0)
         {
@@ -375,4 +367,59 @@ public sealed class GameUploadImporter(
         var baseName = Path.GetFileName(last);
         return string.IsNullOrWhiteSpace(baseName) ? null : (baseName.Length > 260 ? baseName[^260..] : baseName);
     }
+
+    private static List<(ScannedUploadFile File, LibretroDatRomEntry Match)> MatchScannedFiles(
+        List<ScannedUploadFile> scanned,
+        LibretroDatIndex index)
+    {
+        var arcadeZipPrefixes = scanned
+            .Where(f => IsTopLevelZip(f.DisplayName))
+            .Select(f => TryResolveMatch(f, index))
+            .Where(x => x.Match is not null && IsMameSystem(x.Match.SystemName))
+            .Select(x => x.File.DisplayName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return scanned
+            .Where(f => !IsNestedEntryUnderMatchedArcadeZip(f.DisplayName, arcadeZipPrefixes))
+            .Select(f => TryResolveMatch(f, index))
+            .Where(x => x.Match is not null)
+            .Select(x => (x.File, Match: x.Match!))
+            .ToList();
+    }
+
+    private static (ScannedUploadFile File, LibretroDatRomEntry? Match) TryResolveMatch(
+        ScannedUploadFile file,
+        LibretroDatIndex index)
+    {
+        if (index.TryGetByCrc32(file.Crc32, out var crcEntry))
+        {
+            return (file, crcEntry);
+        }
+
+        if (IsTopLevelZip(file.DisplayName) && index.TryGetArcadeZipByFileName(file.DisplayName, out var arcadeZipEntry))
+        {
+            return (file, arcadeZipEntry);
+        }
+
+        return (file, null);
+    }
+
+    private static bool IsNestedEntryUnderMatchedArcadeZip(string displayName, HashSet<string> arcadeZipPrefixes)
+    {
+        var separatorIndex = displayName.IndexOf(':');
+        if (separatorIndex <= 0)
+        {
+            return false;
+        }
+
+        var outerZip = displayName[..separatorIndex];
+        return arcadeZipPrefixes.Contains(outerZip);
+    }
+
+    private static bool IsTopLevelZip(string displayName) =>
+        displayName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+        && !displayName.Contains(':', StringComparison.Ordinal);
+
+    private static bool IsMameSystem(string systemName) =>
+        systemName.Contains("MAME", StringComparison.OrdinalIgnoreCase);
 }

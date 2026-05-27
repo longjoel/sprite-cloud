@@ -10,6 +10,7 @@ public sealed class LibretroDatIndexBuilder(
     public LibretroDatIndex BuildFromDisk()
     {
         var map = new Dictionary<string, (LibretroDatRomEntry Entry, int Score)>(StringComparer.OrdinalIgnoreCase);
+        var arcadeZipMap = new Dictionary<string, (LibretroDatRomEntry Entry, int Score)>(StringComparer.OrdinalIgnoreCase);
 
         // libretro-database precedence: dat overrides metadat.
         var paths = new[]
@@ -45,6 +46,15 @@ public sealed class LibretroDatIndexBuilder(
                         {
                             map[entry.Crc32] = (entry, score);
                         }
+
+                        if (IsArcadeZipEntry(entry))
+                        {
+                            var normalizedFileName = LibretroDatIndex.NormalizeFileName(entry.RomName);
+                            if (!arcadeZipMap.TryGetValue(normalizedFileName, out var existingZip) || score >= existingZip.Score)
+                            {
+                                arcadeZipMap[normalizedFileName] = (entry, score);
+                            }
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -54,7 +64,9 @@ public sealed class LibretroDatIndexBuilder(
             }
         }
 
-        return new LibretroDatIndex(map.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Entry, StringComparer.OrdinalIgnoreCase));
+        return new LibretroDatIndex(
+            map.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Entry, StringComparer.OrdinalIgnoreCase),
+            arcadeZipMap.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.Entry, StringComparer.OrdinalIgnoreCase));
     }
 
     private static int Score(LibretroDatRomEntry entry, string datPath)
@@ -97,5 +109,11 @@ public sealed class LibretroDatIndexBuilder(
     {
         var normalizedPath = datPath.Replace('\\', '/');
         return normalizedPath.Contains("/metadat/mame-member/", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsArcadeZipEntry(LibretroDatRomEntry entry)
+    {
+        return entry.SystemName.Contains("MAME", StringComparison.OrdinalIgnoreCase)
+            && entry.RomName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
     }
 }
