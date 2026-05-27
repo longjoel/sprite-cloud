@@ -38,7 +38,6 @@ public sealed class PasskeyService(
             AuthenticatorSelection = new AuthenticatorSelection
             {
                 ResidentKey = ResidentKeyRequirement.Required,
-                RequireResidentKey = true,
                 UserVerification = UserVerificationRequirement.Preferred
             },
             AttestationPreference = AttestationConveyancePreference.None
