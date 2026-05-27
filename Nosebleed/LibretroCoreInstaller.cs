@@ -7,6 +7,8 @@ namespace games_vault.Nosebleed;
 
 public sealed record LibretroCoreInstallResult(int Installed, int AlreadyInstalled, int UnknownSystem, IReadOnlyList<string> InstalledCores);
 
+public sealed record LibretroCoreEnsureResult(bool Available, bool Installed, string? CoreFileName, string? FailureReason = null);
+
 public sealed class LibretroCoreInstaller(
     AppDbContext db,
     IHttpClientFactory httpClientFactory,
@@ -74,6 +76,42 @@ public sealed class LibretroCoreInstaller(
         }
 
         return new LibretroCoreInstallResult(installed, alreadyInstalled, unknownSystem, installedCores);
+    }
+
+    public async Task<LibretroCoreEnsureResult> EnsureCoreAvailableAsync(
+        string systemName,
+        string? preferredCoreFileName = null,
+        CancellationToken cancellationToken = default)
+    {
+        var coreRoot = _options.CoreRoot;
+        if (string.IsNullOrWhiteSpace(coreRoot))
+        {
+            return new LibretroCoreEnsureResult(false, false, null, "Nosebleed:CoreRoot is not configured.");
+        }
+
+        var normalizedSystemName = systemName?.Trim() ?? string.Empty;
+        var coreFileName = !string.IsNullOrWhiteSpace(preferredCoreFileName)
+            ? preferredCoreFileName.Trim()
+            : CoreCompatibilityCatalog.Find(normalizedSystemName)?.NativeCoreFileName;
+        if (string.IsNullOrWhiteSpace(coreFileName))
+        {
+            return new LibretroCoreEnsureResult(false, false, null, $"No known native core is registered for '{normalizedSystemName}'.");
+        }
+
+        Directory.CreateDirectory(coreRoot);
+        var destination = Path.GetFullPath(Path.Combine(coreRoot, coreFileName));
+        if (!destination.StartsWith(Path.GetFullPath(coreRoot), StringComparison.Ordinal))
+        {
+            return new LibretroCoreEnsureResult(false, false, coreFileName, $"Invalid core file name: {coreFileName}");
+        }
+
+        if (File.Exists(destination))
+        {
+            return new LibretroCoreEnsureResult(true, false, coreFileName);
+        }
+
+        await InstallCoreAsync(coreFileName, destination, cancellationToken);
+        return new LibretroCoreEnsureResult(true, true, coreFileName);
     }
 
     public async Task InstallCoreAsync(string coreFileName, string destinationPath, CancellationToken cancellationToken = default)

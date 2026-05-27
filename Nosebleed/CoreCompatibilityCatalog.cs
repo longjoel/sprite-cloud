@@ -15,6 +15,7 @@ public static class CoreCompatibilityCatalog
         new("Nintendo - Game Boy", "gambatte_libretro.so", "gambatte"),
         new("Nintendo - Game Boy Color", "gambatte_libretro.so", "gambatte"),
         new("Nintendo - Game Boy Advance", "mgba_libretro.so", "mgba"),
+        new("MAME", "mame2003_plus_libretro.so"),
         new("Sega - Game Gear", "genesis_plus_gx_libretro.so", "genesis_plus_gx"),
         new("Sega - Master System - Mark III", "genesis_plus_gx_libretro.so", "genesis_plus_gx"),
         new("Sega - Mega Drive - Genesis", "genesis_plus_gx_libretro.so", "genesis_plus_gx"),

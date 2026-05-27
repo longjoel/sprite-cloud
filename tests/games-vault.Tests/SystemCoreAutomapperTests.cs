@@ -69,6 +69,24 @@ public sealed class SystemCoreAutomapperTests
         Assert.Empty(await fixture.Db.SystemCoreMappings.ToListAsync());
     }
 
+    [Fact]
+    public async Task AutoMapDetectedSystemsAsync_creates_mame_mapping_when_mame_core_is_installed()
+    {
+        await using var fixture = await CreateFixtureAsync();
+        fixture.Db.Games.Add(new Game { Name = "Joust", SystemName = "MAME", SizeBytes = 1 });
+        await fixture.Db.SaveChangesAsync();
+
+        var automapper = new SystemCoreAutomapper(fixture.Db);
+
+        var result = await automapper.AutoMapDetectedSystemsAsync(["mame2003_plus_libretro.so"]);
+
+        Assert.Equal(1, result.Created);
+        var mapping = await fixture.Db.SystemCoreMappings.SingleAsync(x => x.SystemName == "MAME");
+        Assert.Equal("mame2003_plus_libretro.so", mapping.NativeCoreFileName);
+        Assert.Null(mapping.WebPlayerCoreKey);
+        Assert.True(mapping.IsAutoMapped);
+    }
+
     private static async Task<TestFixture> CreateFixtureAsync()
     {
         var connection = new SqliteConnection("Data Source=:memory:");
