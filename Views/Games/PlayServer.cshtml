@@ -79,7 +79,7 @@
             ROM: <code>@(Model.File?.Name ?? "(none)")</code>
             @if (!string.IsNullOrWhiteSpace(Model.BaseUrl))
             {
-                <span> · Session: <code>@Model.SessionId</code> · WebSockets: <code>proxied through Games Vault</code></span>
+                <span> · Session: <code>@Model.SessionId</code> · Room: <code>@(Model.CurrentRoomCode ?? "----")</code> · WebSockets: <code>proxied through Games Vault</code></span>
                 @if (Model.IsSpectator)
                 {
                     <span> · <span class="badge bg-secondary">Spectator</span></span>
@@ -90,6 +90,22 @@
                 }
             }
         </div>
+
+        @if (Model.CurrentRoomId is not null && !string.IsNullOrWhiteSpace(Model.SessionId))
+        {
+            <div class="border rounded p-3 mb-3 bg-body-tertiary" id="room-presence-panel">
+                <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-2">
+                    <div>
+                        <div class="fw-semibold">Room presence</div>
+                        <div class="text-muted small">Live roster for room <code>@Model.CurrentRoomCode</code>.</div>
+                    </div>
+                    <div class="small text-muted" id="room-presence-summary">Loading presence…</div>
+                </div>
+                <ul class="list-unstyled mb-0 small" id="room-presence-players">
+                    <li class="text-muted">Loading players…</li>
+                </ul>
+            </div>
+        }
 
         @if (string.IsNullOrWhiteSpace(Model.Error) && !string.IsNullOrWhiteSpace(Model.BaseUrl))
         {
@@ -546,11 +562,63 @@
     isSpectator = Model.IsSpectator,
     sessionId = Model.SessionId,
     touchLayoutName,
-    keepAliveUrl = Url.Action("KeepAliveServerSession", "Games")
+    keepAliveUrl = Url.Action("KeepAliveServerSession", "Games"),
+    roomPresenceUrl = Model.CurrentRoomId is null ? null : Url.Action("RoomPresence", "Games", new { roomId = Model.CurrentRoomId })
 }))
 </script>
 <script src="~/js/nosebleed-player/input-helpers.js" asp-append-version="true"></script>
 <script src="~/js/nosebleed-player/server-player-helpers.js" asp-append-version="true"></script>
 <script src="~/js/nosebleed-player/server-player.js" asp-append-version="true"></script>
+<script>
+(() => {
+    const configEl = document.getElementById('nosebleed-player-config');
+    const summaryEl = document.getElementById('room-presence-summary');
+    const playersEl = document.getElementById('room-presence-players');
+    if (!configEl || !summaryEl || !playersEl) {
+        return;
+    }
+
+    let config;
+    try {
+        config = JSON.parse(configEl.textContent || '{}');
+    } catch {
+        return;
+    }
+
+    if (!config.roomPresenceUrl) {
+        return;
+    }
+
+    const render = (payload) => {
+        const players = Array.isArray(payload.players) ? payload.players : [];
+        summaryEl.textContent = `${payload.totalConnected ?? 0} connected · ${payload.watcherCount ?? 0} watching`;
+        if (players.length === 0) {
+            playersEl.innerHTML = '<li class="text-muted">No players connected right now.</li>';
+            return;
+        }
+
+        playersEl.innerHTML = players
+            .map(player => `<li><span class="fw-semibold">P${player.playerNumber}</span> — ${player.displayName}</li>`)
+            .join('');
+    };
+
+    const loadPresence = async () => {
+        try {
+            const response = await fetch(config.roomPresenceUrl, { credentials: 'same-origin', cache: 'no-store' });
+            if (!response.ok) {
+                throw new Error(`presence ${response.status}`);
+            }
+
+            render(await response.json());
+        } catch {
+            summaryEl.textContent = 'Presence unavailable right now.';
+            playersEl.innerHTML = '<li class="text-muted">Could not load presence.</li>';
+        }
+    };
+
+    loadPresence();
+    window.setInterval(loadPresence, 3000);
+})();
+</script>
 }
 }

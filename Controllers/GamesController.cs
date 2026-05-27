@@ -989,6 +989,7 @@ public class GamesController(
         NosebleedSeatAssignment? seat = null;
         string? token = null;
         string? contentPath = null;
+        int? currentRoomId = null;
         string? currentRoomCode = null;
 
         if (!opts.Enabled)
@@ -1005,6 +1006,7 @@ public class GamesController(
             var joinResult = await roomService.JoinByCodeAsync(code, viewerId, cancellationToken);
             if (joinResult.Success && joinResult.Room is not null && joinResult.Session is not null)
             {
+                currentRoomId = joinResult.Room.Id;
                 currentRoomCode = joinResult.Room.Code;
                 session = joinResult.Session;
                 seat = joinResult.Seat;
@@ -1037,6 +1039,7 @@ public class GamesController(
             CorePath = session?.CorePath,
             ContentPath = session?.ContentPath ?? contentPath,
             Error = error,
+            CurrentRoomId = currentRoomId,
             CurrentRoomCode = currentRoomCode,
             ActiveRooms = activeRooms
         });
@@ -1067,6 +1070,35 @@ public class GamesController(
             port = seat.Port,
             playerNumber = seat.PlayerNumber,
             expiresUtc = seat.ExpiresUtc
+        });
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> RoomPresence(int roomId, CancellationToken cancellationToken = default)
+    {
+        var room = await db.GamePlayRooms
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == roomId && x.Status == GamePlayRoomStatus.Active, cancellationToken);
+        if (room is null || string.IsNullOrWhiteSpace(room.NosebleedSessionId))
+        {
+            return NotFound();
+        }
+
+        var assignments = nosebleedSeats.GetAssignments(room.NosebleedSessionId, DateTimeOffset.UtcNow);
+        var viewerIds = assignments.Select(x => x.ViewerId).Distinct(StringComparer.Ordinal).ToList();
+        var participants = viewerIds.Count == 0
+            ? []
+            : await db.GamePlayRoomParticipants
+                .AsNoTracking()
+                .Where(x => x.RoomId == room.Id && viewerIds.Contains(x.ViewerId))
+                .ToListAsync(cancellationToken);
+
+        var snapshot = GamePlayRoomService.BuildPresenceSnapshot(assignments, participants);
+        return Json(new
+        {
+            players = snapshot.Players.Select(x => new { displayName = x.DisplayName, playerNumber = x.PlayerNumber, port = x.Port }),
+            watcherCount = snapshot.WatcherCount,
+            totalConnected = snapshot.TotalConnected
         });
     }
 

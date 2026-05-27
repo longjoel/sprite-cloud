@@ -168,4 +168,29 @@ public sealed class GamePlayRoomService(
         var normalized = new string(code.Trim().ToUpperInvariant().Where(char.IsLetter).ToArray());
         return normalized.Length == 4 ? normalized : null;
     }
+
+    public static RoomPresenceSnapshot BuildPresenceSnapshot(
+        IReadOnlyList<NosebleedSeatAssignment> assignments,
+        IReadOnlyList<GamePlayRoomParticipant> participants)
+    {
+        var participantsByViewer = participants
+            .GroupBy(x => x.ViewerId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.LastSeenUtc).First(), StringComparer.Ordinal);
+
+        var players = assignments
+            .Where(x => x.Kind == NosebleedSeatKind.Player)
+            .OrderBy(x => x.PlayerNumber ?? int.MaxValue)
+            .Select(x =>
+            {
+                participantsByViewer.TryGetValue(x.ViewerId, out var participant);
+                var displayName = string.IsNullOrWhiteSpace(participant?.DisplayNameSnapshot)
+                    ? "Viewer"
+                    : participant.DisplayNameSnapshot!.Trim();
+                return new RoomPresencePlayer(displayName, x.PlayerNumber ?? 0, x.Port);
+            })
+            .ToList();
+
+        var watcherCount = assignments.Count(x => x.Kind == NosebleedSeatKind.Spectator);
+        return new RoomPresenceSnapshot(players, watcherCount, assignments.Count);
+    }
 }

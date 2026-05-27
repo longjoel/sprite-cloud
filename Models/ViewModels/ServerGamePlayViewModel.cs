@@ -16,6 +16,7 @@ public sealed class ServerGamePlayViewModel
     public string? ContentPath { get; init; }
     public string? LeaveSessionReturnUrl { get; init; }
     public string? Error { get; init; }
+    public int? CurrentRoomId { get; init; }
     public string? CurrentRoomCode { get; init; }
     public IReadOnlyList<GamePlayRoomSummaryViewModel> ActiveRooms { get; init; } = [];
 }
