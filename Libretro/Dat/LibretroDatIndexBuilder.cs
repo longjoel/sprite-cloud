@@ -27,6 +27,11 @@ public sealed class LibretroDatIndexBuilder(
 
             foreach (var datPath in Directory.EnumerateFiles(root, "*.dat", SearchOption.AllDirectories))
             {
+                if (ShouldSkipDat(datPath))
+                {
+                    continue;
+                }
+
                 try
                 {
                     var content = File.ReadAllText(datPath);
@@ -86,5 +91,11 @@ public sealed class LibretroDatIndexBuilder(
         }
 
         return score;
+    }
+
+    private static bool ShouldSkipDat(string datPath)
+    {
+        var normalizedPath = datPath.Replace('\\', '/');
+        return normalizedPath.Contains("/metadat/mame-member/", StringComparison.OrdinalIgnoreCase);
     }
 }
