@@ -33,4 +33,14 @@ public sealed class LibretroCoreInstallerTests
         Assert.Equal("mame2003_plus_libretro.so", entry.NativeCoreFileName);
         Assert.Null(entry.WebPlayerCoreKey);
     }
+
+    [Fact]
+    public void Catalog_knows_mame_2003_plus_native_core()
+    {
+        var entry = CoreCompatibilityCatalog.Find("MAME 2003-Plus");
+
+        Assert.NotNull(entry);
+        Assert.Equal("mame2003_plus_libretro.so", entry.NativeCoreFileName);
+        Assert.Null(entry.WebPlayerCoreKey);
+    }
 }
