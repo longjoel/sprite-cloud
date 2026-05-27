@@ -35,6 +35,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<CurrentProfileService>();
+builder.Services.AddScoped<ProfileAuthSessionService>();
 builder.Services.AddScoped<CurrentAccessService>();
 builder.Services.AddScoped<PasskeyReadinessService>();
 builder.Services.AddScoped<PasskeyService>();
@@ -116,6 +117,7 @@ app.UseStaticFiles(new StaticFileOptions
 });
 app.UseWebSockets();
 app.UseRouting();
+app.UseMiddleware<ProfileSessionEnforcementMiddleware>();
 
 app.UseAuthorization();
 

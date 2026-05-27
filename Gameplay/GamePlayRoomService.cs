@@ -168,4 +168,100 @@ public sealed class GamePlayRoomService(
         var normalized = new string(code.Trim().ToUpperInvariant().Where(char.IsLetter).ToArray());
         return normalized.Length == 4 ? normalized : null;
     }
+
+    public async Task<RoomChatPostResult> AddChatMessageAsync(int roomId, string? rawMessage, CancellationToken ct)
+    {
+        if (!await currentAccess.CanPlayAsync(ct))
+        {
+            return RoomChatPostResult.Fail("Sign in with a player profile to chat.");
+        }
+
+        var messageText = NormalizeChatMessage(rawMessage);
+        if (string.IsNullOrWhiteSpace(messageText))
+        {
+            return RoomChatPostResult.Fail("Enter a chat message.");
+        }
+
+        if (messageText.Length > 280)
+        {
+            return RoomChatPostResult.Fail("Chat messages must be 280 characters or less.");
+        }
+
+        var room = await db.GamePlayRooms.FirstOrDefaultAsync(x => x.Id == roomId && x.Status == GamePlayRoomStatus.Active, ct);
+        if (room is null)
+        {
+            return RoomChatPostResult.Fail("That room is no longer active.");
+        }
+
+        var profile = await currentProfile.GetCurrentAsync(ct);
+        if (profile is null)
+        {
+            return RoomChatPostResult.Fail("Sign in with a player profile to chat.");
+        }
+
+        var chatMessage = new GamePlayRoomChatMessage
+        {
+            RoomId = room.Id,
+            ProfileId = profile.Id,
+            DisplayNameSnapshot = string.IsNullOrWhiteSpace(profile.DisplayName) ? "Player" : profile.DisplayName.Trim(),
+            Message = messageText,
+            CreatedUtc = DateTime.UtcNow
+        };
+
+        db.GamePlayRoomChatMessages.Add(chatMessage);
+        room.LastActiveUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return RoomChatPostResult.Ok(chatMessage);
+    }
+
+    public static RoomPresenceSnapshot BuildPresenceSnapshot(
+        IReadOnlyList<NosebleedSeatAssignment> assignments,
+        IReadOnlyList<GamePlayRoomParticipant> participants)
+    {
+        var participantsByViewer = participants
+            .GroupBy(x => x.ViewerId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(x => x.LastSeenUtc).First(), StringComparer.Ordinal);
+
+        var players = assignments
+            .Where(x => x.Kind == NosebleedSeatKind.Player)
+            .OrderBy(x => x.PlayerNumber ?? int.MaxValue)
+            .Select(x =>
+            {
+                participantsByViewer.TryGetValue(x.ViewerId, out var participant);
+                var displayName = string.IsNullOrWhiteSpace(participant?.DisplayNameSnapshot)
+                    ? "Viewer"
+                    : participant.DisplayNameSnapshot!.Trim();
+                return new RoomPresencePlayer(displayName, x.PlayerNumber ?? 0, x.Port);
+            })
+            .ToList();
+
+        var watcherCount = assignments.Count(x => x.Kind == NosebleedSeatKind.Spectator);
+        return new RoomPresenceSnapshot(players, watcherCount, assignments.Count);
+    }
+
+    public static RoomChatSnapshot BuildChatSnapshot(IReadOnlyList<GamePlayRoomChatMessage> messages)
+    {
+        var snapshot = messages
+            .OrderBy(x => x.CreatedUtc)
+            .Select(x => new RoomChatMessageSnapshot(
+                string.IsNullOrWhiteSpace(x.DisplayNameSnapshot) ? "Viewer" : x.DisplayNameSnapshot.Trim(),
+                x.Message,
+                DateTime.SpecifyKind(x.CreatedUtc, DateTimeKind.Utc)))
+            .ToList();
+
+        return new RoomChatSnapshot(snapshot);
+    }
+
+    private static string NormalizeChatMessage(string? rawMessage)
+    {
+        if (string.IsNullOrWhiteSpace(rawMessage))
+        {
+            return string.Empty;
+        }
+
+        return rawMessage
+            .Replace("\r", " ", StringComparison.Ordinal)
+            .Replace("\n", " ", StringComparison.Ordinal)
+            .Trim();
+    }
 }

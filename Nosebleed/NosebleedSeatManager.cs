@@ -63,6 +63,24 @@ public sealed class NosebleedSeatManager(IOptions<NosebleedOptions> options)
         }
     }
 
+    public IReadOnlyList<NosebleedSeatAssignment> GetAssignments(string sessionId, DateTimeOffset now)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId) || !_sessions.TryGetValue(sessionId, out var session))
+        {
+            return [];
+        }
+
+        lock (session.Gate)
+        {
+            CleanupExpired(session.Seats, now);
+            return session.Seats
+                .OrderBy(x => x.Kind == NosebleedSeatKind.Spectator ? 1 : 0)
+                .ThenBy(x => x.Port ?? int.MaxValue)
+                .ThenBy(x => x.AssignedUtc)
+                .ToList();
+        }
+    }
+
     private int SeatTtlMinutes() => Math.Max(1, _options.SeatTtlMinutes);
 
     private static int FindFreePort(List<NosebleedSeatAssignment> seats, int maxPlayers)

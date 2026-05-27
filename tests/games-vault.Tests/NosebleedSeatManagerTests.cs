@@ -93,6 +93,28 @@ public sealed class NosebleedSeatManagerTests
         Assert.Equal(0, promoted.Port);
     }
 
+    [Fact]
+    public void GetAssignments_ReturnsOnlyActiveSeatsInPlayerThenSpectatorOrder()
+    {
+        var manager = CreateManager(maxPlayers: 2, ttlMinutes: 1);
+        var now = DateTimeOffset.UtcNow;
+
+        manager.Assign("s1", "player-one", now);
+        manager.Assign("s1", "player-two", now);
+        var spectator = manager.Assign("s1", "spectator", now);
+        Assert.Equal(NosebleedSeatKind.Spectator, spectator.Kind);
+
+        var active = manager.GetAssignments("s1", now.AddSeconds(10)).ToList();
+
+        Assert.Equal(3, active.Count);
+        Assert.Equal("player-one", active[0].ViewerId);
+        Assert.Equal(0, active[0].Port);
+        Assert.Equal("player-two", active[1].ViewerId);
+        Assert.Equal(1, active[1].Port);
+        Assert.Equal("spectator", active[2].ViewerId);
+        Assert.Null(active[2].Port);
+    }
+
     private static NosebleedSeatManager CreateManager(int maxPlayers, int ttlMinutes) => new(
         Options.Create(new NosebleedOptions
         {
