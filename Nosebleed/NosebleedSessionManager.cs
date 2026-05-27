@@ -84,17 +84,44 @@ public sealed class NosebleedSessionManager(
 
         await using var scope = scopeFactory.CreateAsyncScope();
         var coreMappingResolver = scope.ServiceProvider.GetRequiredService<SystemCoreMappingResolver>();
+        var coreInstaller = scope.ServiceProvider.GetRequiredService<LibretroCoreInstaller>();
+        var automapper = scope.ServiceProvider.GetRequiredService<SystemCoreAutomapper>();
         var coreName = await coreMappingResolver.ResolveNativeCoreAsync(systemName, cancellationToken);
+        var coreWasInstalledOnDemand = false;
         if (string.IsNullOrWhiteSpace(coreName))
         {
-            return NosebleedStartResult.Fail($"No native core mapping found for '{systemName}'. Admins can configure it under System Core Mappings.");
+            var ensureResult = await coreInstaller.EnsureCoreAvailableAsync(systemName, cancellationToken: cancellationToken);
+            if (!ensureResult.Available)
+            {
+                return NosebleedStartResult.Fail($"No native core mapping found for '{systemName}'. Admins can configure it under System Core Mappings.");
+            }
+
+            coreWasInstalledOnDemand = ensureResult.Installed;
+            await automapper.AutoMapDetectedSystemsAsync(GetInstalledNativeCores(), cancellationToken);
+            coreName = await coreMappingResolver.ResolveNativeCoreAsync(systemName, cancellationToken);
+            if (string.IsNullOrWhiteSpace(coreName))
+            {
+                return NosebleedStartResult.Fail($"No native core mapping found for '{systemName}' after installing the known core.");
+            }
         }
 
         var corePath = Path.IsPathRooted(coreName) ? coreName : Path.Combine(_options.CoreRoot, coreName);
         corePath = Path.GetFullPath(corePath);
         if (!File.Exists(corePath))
         {
-            return NosebleedStartResult.Fail($"Nosebleed core not found at '{corePath}'.");
+            var ensureResult = await coreInstaller.EnsureCoreAvailableAsync(systemName, coreName, cancellationToken);
+            if (!ensureResult.Available)
+            {
+                return NosebleedStartResult.Fail($"Nosebleed core not found at '{corePath}'.");
+            }
+
+            coreWasInstalledOnDemand |= ensureResult.Installed;
+            corePath = Path.IsPathRooted(coreName) ? coreName : Path.Combine(_options.CoreRoot, coreName);
+            corePath = Path.GetFullPath(corePath);
+            if (!File.Exists(corePath))
+            {
+                return NosebleedStartResult.Fail($"Nosebleed core not found at '{corePath}'.");
+            }
         }
 
         var key = string.IsNullOrWhiteSpace(instanceKey)
@@ -185,6 +212,10 @@ public sealed class NosebleedSessionManager(
                 corePath,
                 Path.GetFullPath(contentPath));
             _sessions[key] = new ManagedSession(session, process);
+            if (coreWasInstalledOnDemand)
+            {
+                logger.LogInformation("Installed libretro core on demand for system {SystemName}: {CorePath}", systemName, corePath);
+            }
             return NosebleedStartResult.Ok(session);
         }
         catch (Exception ex)
@@ -212,6 +243,20 @@ public sealed class NosebleedSessionManager(
         }
 
         return _options.BaseListenPort + Random.Shared.Next(1000, 5000);
+    }
+
+    private IReadOnlyList<string> GetInstalledNativeCores()
+    {
+        if (string.IsNullOrWhiteSpace(_options.CoreRoot) || !Directory.Exists(_options.CoreRoot))
+        {
+            return [];
+        }
+
+        return Directory.EnumerateFiles(_options.CoreRoot, "*_libretro.so", SearchOption.TopDirectoryOnly)
+            .Select(Path.GetFileName)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x!)
+            .ToList();
     }
 
     private async Task<bool> WaitForHealthAsync(string baseUrl, Process process, CancellationToken cancellationToken)
