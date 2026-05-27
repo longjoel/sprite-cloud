@@ -1,11 +1,11 @@
 namespace games_vault.Profiles;
 
-public sealed class ProfileSessionEnforcementMiddleware(
-    RequestDelegate next,
-    CurrentProfileService currentProfile,
-    ProfileAuthSessionService authSessions)
+public sealed class ProfileSessionEnforcementMiddleware(RequestDelegate next)
 {
-    public async Task InvokeAsync(HttpContext context)
+    public async Task InvokeAsync(
+        HttpContext context,
+        CurrentProfileService currentProfile,
+        ProfileAuthSessionService authSessions)
     {
         if (!currentProfile.TryGetCurrentProfileId(out var profileId))
         {

@@ -37,16 +37,59 @@ public sealed class ProfileSessionEnforcementMiddlewareTests
         fixture.HttpContext.Request.Headers.Cookie =
             $"{CurrentProfileService.CookieName}={profile.Id}; {CurrentProfileService.SessionCookieName}=revoked-session";
 
-        var middleware = new ProfileSessionEnforcementMiddleware(
-            _ => Task.CompletedTask,
+        var middleware = new ProfileSessionEnforcementMiddleware(_ => Task.CompletedTask);
+
+        await middleware.InvokeAsync(
+            fixture.HttpContext,
             new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor),
             new ProfileAuthSessionService(fixture.Db, fixture.HttpContextAccessor));
-
-        await middleware.InvokeAsync(fixture.HttpContext);
 
         var setCookie = fixture.HttpContext.Response.Headers.SetCookie.ToString();
         Assert.Contains(CurrentProfileService.CookieName, setCookie);
         Assert.Contains(CurrentProfileService.SessionCookieName, setCookie);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_PreventsRevokedSessionFromRemainingAuthenticatedForCurrentRequest()
+    {
+        await using var fixture = await CreateFixtureAsync();
+        var profile = new UserProfile
+        {
+            DisplayName = "Joel",
+            Color = "#198754",
+            PasskeyUserHandleBase64Url = "handle",
+            PinHash = "hash",
+            CreatedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow
+        };
+        fixture.Db.UserProfiles.Add(profile);
+        await fixture.Db.SaveChangesAsync();
+
+        fixture.Db.ProfileAuthSessions.Add(new ProfileAuthSession
+        {
+            ProfileId = profile.Id,
+            SessionNonce = "revoked-session",
+            LastSeenUtc = DateTime.UtcNow,
+            RevokedUtc = DateTime.UtcNow
+        });
+        await fixture.Db.SaveChangesAsync();
+
+        fixture.HttpContext.Request.Headers.Cookie =
+            $"{CurrentProfileService.CookieName}={profile.Id}; {CurrentProfileService.SessionCookieName}=revoked-session";
+
+        UserProfile? profileSeenDownstream = null;
+        var middleware = new ProfileSessionEnforcementMiddleware(async _ =>
+        {
+            var downstreamCurrent = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
+            profileSeenDownstream = await downstreamCurrent.GetCurrentAsync(CancellationToken.None);
+        });
+
+        await middleware.InvokeAsync(
+            fixture.HttpContext,
+            new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor),
+            new ProfileAuthSessionService(fixture.Db, fixture.HttpContextAccessor));
+
+        Assert.Null(profileSeenDownstream);
     }
 
     private static async Task<TestFixture> CreateFixtureAsync()

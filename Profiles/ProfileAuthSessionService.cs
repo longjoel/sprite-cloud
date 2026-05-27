@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using games_vault.Data;
 using games_vault.Models;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace games_vault.Profiles;
@@ -12,28 +13,41 @@ public sealed class ProfileAuthSessionService(
 {
     public async Task<ProfileAuthSession> CreateSessionAsync(int profileId, CancellationToken ct)
     {
-        var now = DateTime.UtcNow;
-        var activeSessions = await db.ProfileAuthSessions
-            .Where(x => x.ProfileId == profileId && x.RevokedUtc == null)
-            .ToListAsync(ct);
-
-        foreach (var session in activeSessions)
+        for (var attempt = 0; attempt < 2; attempt++)
         {
-            session.RevokedUtc = now;
-            session.LastSeenUtc = now;
+            var now = DateTime.UtcNow;
+            var activeSessions = await db.ProfileAuthSessions
+                .Where(x => x.ProfileId == profileId && x.RevokedUtc == null)
+                .ToListAsync(ct);
+
+            foreach (var session in activeSessions)
+            {
+                session.RevokedUtc = now;
+                session.LastSeenUtc = now;
+            }
+
+            var authSession = new ProfileAuthSession
+            {
+                ProfileId = profileId,
+                SessionNonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant(),
+                UserAgentHash = HashUserAgent(httpContextAccessor.HttpContext?.Request.Headers.UserAgent.ToString()),
+                LastSeenUtc = now
+            };
+
+            db.ProfileAuthSessions.Add(authSession);
+
+            try
+            {
+                await db.SaveChangesAsync(ct);
+                return authSession;
+            }
+            catch (DbUpdateException ex) when (attempt == 0 && IsUniqueConstraintViolation(ex))
+            {
+                db.ChangeTracker.Clear();
+            }
         }
 
-        var authSession = new ProfileAuthSession
-        {
-            ProfileId = profileId,
-            SessionNonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant(),
-            UserAgentHash = HashUserAgent(httpContextAccessor.HttpContext?.Request.Headers.UserAgent.ToString()),
-            LastSeenUtc = now
-        };
-
-        db.ProfileAuthSessions.Add(authSession);
-        await db.SaveChangesAsync(ct);
-        return authSession;
+        throw new InvalidOperationException("Failed to create a single active auth session.");
     }
 
     public async Task<bool> ValidateSessionAsync(int profileId, string? sessionNonce, CancellationToken ct)
@@ -54,6 +68,9 @@ public sealed class ProfileAuthSessionService(
         await db.SaveChangesAsync(ct);
         return true;
     }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException ex)
+        => ex.InnerException is SqliteException sqlite && sqlite.SqliteErrorCode == 19;
 
     private static string? HashUserAgent(string? userAgent)
     {

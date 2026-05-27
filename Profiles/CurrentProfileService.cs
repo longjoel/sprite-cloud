@@ -9,6 +9,9 @@ public sealed class CurrentProfileService(AppDbContext db, IHttpContextAccessor 
 {
     public const string CookieName = "gv.profile";
     public const string SessionCookieName = "gv.profile_session";
+    private const string ClearedRequestStateKey = "gv.current-profile.cleared";
+    private const string RequestProfileIdKey = "gv.current-profile.id";
+    private const string RequestSessionNonceKey = "gv.current-profile.session";
 
     public async Task<UserProfile?> GetCurrentAsync(CancellationToken ct)
     {
@@ -26,7 +29,23 @@ public sealed class CurrentProfileService(AppDbContext db, IHttpContextAccessor 
     {
         profileId = 0;
         var http = httpContextAccessor.HttpContext;
-        if (http is null || !http.Request.Cookies.TryGetValue(CookieName, out var raw))
+        if (http is null)
+        {
+            return false;
+        }
+
+        if (http.Items.TryGetValue(ClearedRequestStateKey, out var cleared) && cleared is true)
+        {
+            return false;
+        }
+
+        if (http.Items.TryGetValue(RequestProfileIdKey, out var overrideProfileId) && overrideProfileId is int requestProfileId)
+        {
+            profileId = requestProfileId;
+            return true;
+        }
+
+        if (!http.Request.Cookies.TryGetValue(CookieName, out var raw))
         {
             return false;
         }
@@ -37,7 +56,22 @@ public sealed class CurrentProfileService(AppDbContext db, IHttpContextAccessor 
     public string? GetCurrentSessionNonce()
     {
         var http = httpContextAccessor.HttpContext;
-        if (http is null || !http.Request.Cookies.TryGetValue(SessionCookieName, out var nonce))
+        if (http is null)
+        {
+            return null;
+        }
+
+        if (http.Items.TryGetValue(ClearedRequestStateKey, out var cleared) && cleared is true)
+        {
+            return null;
+        }
+
+        if (http.Items.TryGetValue(RequestSessionNonceKey, out var overrideSessionNonce) && overrideSessionNonce is string requestSessionNonce)
+        {
+            return string.IsNullOrWhiteSpace(requestSessionNonce) ? null : requestSessionNonce;
+        }
+
+        if (!http.Request.Cookies.TryGetValue(SessionCookieName, out var nonce))
         {
             return null;
         }
@@ -56,6 +90,9 @@ public sealed class CurrentProfileService(AppDbContext db, IHttpContextAccessor 
             Expires = DateTimeOffset.UtcNow.AddYears(1)
         };
 
+        http.Items[ClearedRequestStateKey] = false;
+        http.Items[RequestProfileIdKey] = profileId;
+        http.Items[RequestSessionNonceKey] = sessionNonce;
         http.Response.Cookies.Append(CookieName, profileId.ToString(CultureInfo.InvariantCulture), cookieOptions);
         http.Response.Cookies.Append(SessionCookieName, sessionNonce, cookieOptions);
     }
@@ -63,7 +100,15 @@ public sealed class CurrentProfileService(AppDbContext db, IHttpContextAccessor 
     public void ClearCurrent()
     {
         var http = httpContextAccessor.HttpContext;
-        http?.Response.Cookies.Delete(CookieName);
-        http?.Response.Cookies.Delete(SessionCookieName);
+        if (http is null)
+        {
+            return;
+        }
+
+        http.Items[ClearedRequestStateKey] = true;
+        http.Items.Remove(RequestProfileIdKey);
+        http.Items.Remove(RequestSessionNonceKey);
+        http.Response.Cookies.Delete(CookieName);
+        http.Response.Cookies.Delete(SessionCookieName);
     }
 }
