@@ -24,8 +24,17 @@ public sealed class UploadFileScanner
 
             if (IsZip(file.FileName))
             {
-                await using var stream = file.OpenReadStream();
-                await ScanZipStreamAsync(stream, file.FileName, depth: 0, results, cancellationToken);
+                await using (var stream = file.OpenReadStream())
+                {
+                    var crc = await Crc32.ComputeAsync(stream, cancellationToken);
+                    results.Add(new ScannedUploadFile(
+                        DisplayName: file.FileName,
+                        SizeBytes: file.Length,
+                        Crc32: crc.ToString("X8")));
+                }
+
+                await using var zipStream = file.OpenReadStream();
+                await ScanZipStreamAsync(zipStream, file.FileName, depth: 0, results, cancellationToken);
             }
             else
             {
@@ -63,6 +72,13 @@ public sealed class UploadFileScanner
             if (IsZip(fileInfo.Name))
             {
                 await using var stream = File.OpenRead(path);
+                var crc = await Crc32.ComputeAsync(stream, cancellationToken);
+                results.Add(new ScannedUploadFile(
+                    DisplayName: fileInfo.Name,
+                    SizeBytes: fileInfo.Length,
+                    Crc32: crc.ToString("X8")));
+
+                stream.Position = 0;
                 await ScanZipStreamAsync(stream, fileInfo.Name, depth: 0, results, cancellationToken);
             }
             else
