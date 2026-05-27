@@ -38,6 +38,54 @@ public sealed class LocalProfileServiceTests
         Assert.Equal(2, await fixture.Db.UserProfiles.CountAsync());
     }
 
+    [Fact]
+    public async Task SignInAsync_CreatesProfileSessionCookieAndAuthSessionRecord()
+    {
+        await using var fixture = await CreateFixtureAsync();
+        var current = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
+        var service = new LocalProfileService(fixture.Db, current);
+        var profile = await service.CreateAsync("Joel", "#198754", CancellationToken.None);
+
+        fixture.HttpContext.Response.Headers.Clear();
+
+        var signedIn = await service.SignInAsync(profile.Id, LocalProfileService.DefaultPin, CancellationToken.None);
+
+        Assert.True(signedIn);
+        Assert.Contains($"{CurrentProfileService.CookieName}={profile.Id}", fixture.HttpContext.Response.Headers.SetCookie.ToString());
+        Assert.Contains(CurrentProfileService.SessionCookieName, fixture.HttpContext.Response.Headers.SetCookie.ToString());
+
+        var authSession = await fixture.Db.ProfileAuthSessions.SingleAsync(x => x.ProfileId == profile.Id && x.RevokedUtc == null);
+        Assert.Equal(profile.Id, authSession.ProfileId);
+        Assert.Null(authSession.RevokedUtc);
+        Assert.False(string.IsNullOrWhiteSpace(authSession.SessionNonce));
+    }
+
+    [Fact]
+    public async Task SignInAsync_RevokesPreviousSessionWhenSameProfileSignsInAgain()
+    {
+        await using var fixture = await CreateFixtureAsync();
+        var current = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
+        var service = new LocalProfileService(fixture.Db, current);
+        var profile = await service.CreateAsync("Joel", "#198754", CancellationToken.None);
+
+        fixture.HttpContext.Response.Headers.Clear();
+        Assert.True(await service.SignInAsync(profile.Id, LocalProfileService.DefaultPin, CancellationToken.None));
+        var firstSession = await fixture.Db.ProfileAuthSessions.SingleAsync(x => x.ProfileId == profile.Id && x.RevokedUtc == null);
+
+        fixture.HttpContext.Response.Headers.Clear();
+        Assert.True(await service.SignInAsync(profile.Id, LocalProfileService.DefaultPin, CancellationToken.None));
+
+        var sessions = await fixture.Db.ProfileAuthSessions
+            .Where(x => x.ProfileId == profile.Id)
+            .OrderBy(x => x.Id)
+            .ToListAsync();
+        Assert.Equal(3, sessions.Count);
+        Assert.Equal(firstSession.Id, sessions[1].Id);
+        Assert.NotNull(sessions[1].RevokedUtc);
+        Assert.Null(sessions[2].RevokedUtc);
+        Assert.NotEqual(sessions[1].SessionNonce, sessions[2].SessionNonce);
+    }
+
     private static async Task<TestFixture> CreateFixtureAsync()
     {
         var connection = new SqliteConnection("Data Source=:memory:");

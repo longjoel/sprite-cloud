@@ -7,7 +7,11 @@ using System.Security.Cryptography;
 
 namespace games_vault.Profiles;
 
-public sealed class LocalProfileService(AppDbContext db, CurrentProfileService currentProfile, ProfileInviteService? invites = null)
+public sealed class LocalProfileService(
+    AppDbContext db,
+    CurrentProfileService currentProfile,
+    ProfileInviteService? invites = null,
+    ProfileAuthSessionService? authSessions = null)
 {
     public const string DefaultPin = "0000";
 
@@ -16,7 +20,8 @@ public sealed class LocalProfileService(AppDbContext db, CurrentProfileService c
         var profile = await BuildProfileAsync(displayName, color, ct);
         db.UserProfiles.Add(profile);
         await db.SaveChangesAsync(ct);
-        currentProfile.SetCurrent(profile.Id);
+        var authSession = await CreateAuthSessionAsync(profile.Id, ct);
+        currentProfile.SetCurrent(profile.Id, authSession.SessionNonce);
         return profile;
     }
 
@@ -34,7 +39,8 @@ public sealed class LocalProfileService(AppDbContext db, CurrentProfileService c
 
         await invites.ConsumeAsync(inviteCode, profile.Id, ct);
         await db.SaveChangesAsync(ct);
-        currentProfile.SetCurrent(profile.Id);
+        var authSession = await CreateAuthSessionAsync(profile.Id, ct);
+        currentProfile.SetCurrent(profile.Id, authSession.SessionNonce);
         return profile;
     }
 
@@ -45,7 +51,8 @@ public sealed class LocalProfileService(AppDbContext db, CurrentProfileService c
             return false;
         }
 
-        currentProfile.SetCurrent(profileId);
+        var authSession = await CreateAuthSessionAsync(profileId, ct);
+        currentProfile.SetCurrent(profileId, authSession.SessionNonce);
         return true;
     }
 
@@ -58,6 +65,34 @@ public sealed class LocalProfileService(AppDbContext db, CurrentProfileService c
         }
 
         return VerifyPin(profile.PinHash, pin);
+    }
+
+    private async Task<ProfileAuthSession> CreateAuthSessionAsync(int profileId, CancellationToken ct)
+    {
+        if (authSessions is not null)
+        {
+            return await authSessions.CreateSessionAsync(profileId, ct);
+        }
+
+        var now = DateTime.UtcNow;
+        var existing = await db.ProfileAuthSessions
+            .Where(x => x.ProfileId == profileId && x.RevokedUtc == null)
+            .ToListAsync(ct);
+        foreach (var session in existing)
+        {
+            session.RevokedUtc = now;
+            session.LastSeenUtc = now;
+        }
+
+        var authSession = new ProfileAuthSession
+        {
+            ProfileId = profileId,
+            SessionNonce = Guid.NewGuid().ToString("N"),
+            LastSeenUtc = now
+        };
+        db.ProfileAuthSessions.Add(authSession);
+        await db.SaveChangesAsync(ct);
+        return authSession;
     }
 
     private async Task<UserProfile> BuildProfileAsync(string displayName, string? color, CancellationToken ct)

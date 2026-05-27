@@ -79,7 +79,7 @@
             ROM: <code>@(Model.File?.Name ?? "(none)")</code>
             @if (!string.IsNullOrWhiteSpace(Model.BaseUrl))
             {
-                <span> · Session: <code>@Model.SessionId</code> · WebSockets: <code>proxied through Games Vault</code></span>
+                <span> · Session: <code>@Model.SessionId</code> · Room: <code>@(Model.CurrentRoomCode ?? "----")</code> · WebSockets: <code>proxied through Games Vault</code></span>
                 @if (Model.IsSpectator)
                 {
                     <span> · <span class="badge bg-secondary">Spectator</span></span>
@@ -90,6 +90,53 @@
                 }
             }
         </div>
+
+        @if (Model.CurrentRoomId is not null && !string.IsNullOrWhiteSpace(Model.SessionId))
+        {
+            <div class="border rounded p-3 mb-3 bg-body-tertiary" id="room-presence-panel">
+                <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-2">
+                    <div>
+                        <div class="fw-semibold">Room presence</div>
+                        <div class="text-muted small">Live roster for room <code>@Model.CurrentRoomCode</code>.</div>
+                    </div>
+                    <div class="small text-muted" id="room-presence-summary">Loading presence…</div>
+                </div>
+                <ul class="list-unstyled mb-0 small" id="room-presence-players">
+                    <li class="text-muted">Loading players…</li>
+                </ul>
+            </div>
+
+            <div class="border rounded p-3 mb-3 bg-body-tertiary" id="room-chat-panel">
+                <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-2">
+                    <div>
+                        <div class="fw-semibold">Room chat</div>
+                        <div class="text-muted small">
+                            @if (Model.CanChat)
+                            {
+                                <span>Signed in as <span class="fw-semibold">@(string.IsNullOrWhiteSpace(Model.CurrentProfileDisplayName) ? "Player" : Model.CurrentProfileDisplayName)</span>.</span>
+                            }
+                            else
+                            {
+                                <span>Watching only. Sign in with a player profile to chat.</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="small text-muted" id="room-chat-status">Loading chat…</div>
+                </div>
+                <div class="border rounded bg-body p-2 mb-2" style="max-height: 14rem; overflow-y: auto;" id="room-chat-log">
+                    <ul class="list-unstyled mb-0 small" id="room-chat-messages">
+                        <li class="text-muted">Loading messages…</li>
+                    </ul>
+                </div>
+                @if (Model.CanChat)
+                {
+                    <form asp-action="RoomChat" asp-route-roomId="@Model.CurrentRoomId" method="post" asp-antiforgery="true" id="room-chat-form" class="d-flex gap-2">
+                        <input class="form-control" type="text" name="message" maxlength="280" autocomplete="off" placeholder="Say something to the room…" required />
+                        <button type="submit" class="btn btn-outline-primary text-nowrap">Send</button>
+                    </form>
+                }
+            </div>
+        }
 
         @if (string.IsNullOrWhiteSpace(Model.Error) && !string.IsNullOrWhiteSpace(Model.BaseUrl))
         {
@@ -546,11 +593,200 @@
     isSpectator = Model.IsSpectator,
     sessionId = Model.SessionId,
     touchLayoutName,
-    keepAliveUrl = Url.Action("KeepAliveServerSession", "Games")
+    keepAliveUrl = Url.Action("KeepAliveServerSession", "Games"),
+    roomPresenceUrl = Model.CurrentRoomId is null ? null : Url.Action("RoomPresence", "Games", new { roomId = Model.CurrentRoomId }),
+    roomChatUrl = Model.CurrentRoomId is null ? null : Url.Action("RoomChat", "Games", new { roomId = Model.CurrentRoomId })
 }))
 </script>
 <script src="~/js/nosebleed-player/input-helpers.js" asp-append-version="true"></script>
 <script src="~/js/nosebleed-player/server-player-helpers.js" asp-append-version="true"></script>
 <script src="~/js/nosebleed-player/server-player.js" asp-append-version="true"></script>
+<script>
+(() => {
+    const configEl = document.getElementById('nosebleed-player-config');
+    if (!configEl) {
+        return;
+    }
+
+    let config;
+    try {
+        config = JSON.parse(configEl.textContent || '{}');
+    } catch {
+        return;
+    }
+
+    const presenceSummaryEl = document.getElementById('room-presence-summary');
+    const presencePlayersEl = document.getElementById('room-presence-players');
+    const chatStatusEl = document.getElementById('room-chat-status');
+    const chatMessagesEl = document.getElementById('room-chat-messages');
+    const chatLogEl = document.getElementById('room-chat-log');
+    const chatFormEl = document.getElementById('room-chat-form');
+
+    const clearChildren = (el) => {
+        while (el && el.firstChild) {
+            el.removeChild(el.firstChild);
+        }
+    };
+
+    const appendMutedListItem = (el, text) => {
+        if (!el) {
+            return;
+        }
+
+        const item = document.createElement('li');
+        item.className = 'text-muted';
+        item.textContent = text;
+        el.appendChild(item);
+    };
+
+    const renderPresence = (payload) => {
+        if (!presenceSummaryEl || !presencePlayersEl) {
+            return;
+        }
+
+        const players = Array.isArray(payload.players) ? payload.players : [];
+        presenceSummaryEl.textContent = `${payload.totalConnected ?? 0} connected · ${payload.watcherCount ?? 0} watching`;
+        clearChildren(presencePlayersEl);
+        if (players.length === 0) {
+            appendMutedListItem(presencePlayersEl, 'No players connected right now.');
+            return;
+        }
+
+        for (const player of players) {
+            const item = document.createElement('li');
+            const label = document.createElement('span');
+            label.className = 'fw-semibold';
+            label.textContent = `P${player.playerNumber}`;
+            item.appendChild(label);
+            item.append(` — ${player.displayName ?? 'Viewer'}`);
+            presencePlayersEl.appendChild(item);
+        }
+    };
+
+    const renderChat = (payload) => {
+        if (!chatStatusEl || !chatMessagesEl) {
+            return;
+        }
+
+        const messages = Array.isArray(payload.messages) ? payload.messages : [];
+        chatStatusEl.textContent = messages.length === 0 ? 'No messages yet.' : `${messages.length} recent message${messages.length === 1 ? '' : 's'}`;
+        clearChildren(chatMessagesEl);
+        if (messages.length === 0) {
+            appendMutedListItem(chatMessagesEl, 'No one has chatted yet.');
+            return;
+        }
+
+        for (const entry of messages) {
+            const item = document.createElement('li');
+            item.className = 'mb-2';
+
+            const meta = document.createElement('div');
+            meta.className = 'text-muted';
+            const timestamp = entry.createdUtc ? new Date(entry.createdUtc) : null;
+            const timeLabel = timestamp && !Number.isNaN(timestamp.valueOf())
+                ? timestamp.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+                : '';
+            meta.textContent = `${entry.displayName ?? 'Viewer'}${timeLabel ? ` · ${timeLabel}` : ''}`;
+
+            const body = document.createElement('div');
+            body.className = 'text-break';
+            body.textContent = entry.message ?? '';
+
+            item.appendChild(meta);
+            item.appendChild(body);
+            chatMessagesEl.appendChild(item);
+        }
+
+        if (chatLogEl) {
+            chatLogEl.scrollTop = chatLogEl.scrollHeight;
+        }
+    };
+
+    const loadPresence = async () => {
+        if (!config.roomPresenceUrl) {
+            return;
+        }
+
+        try {
+            const response = await fetch(config.roomPresenceUrl, { credentials: 'same-origin', cache: 'no-store' });
+            if (!response.ok) {
+                throw new Error(`presence ${response.status}`);
+            }
+
+            renderPresence(await response.json());
+        } catch {
+            if (presenceSummaryEl && presencePlayersEl) {
+                presenceSummaryEl.textContent = 'Presence unavailable right now.';
+                clearChildren(presencePlayersEl);
+                appendMutedListItem(presencePlayersEl, 'Could not load presence.');
+            }
+        }
+    };
+
+    const loadChat = async () => {
+        if (!config.roomChatUrl) {
+            return;
+        }
+
+        try {
+            const response = await fetch(config.roomChatUrl, { credentials: 'same-origin', cache: 'no-store' });
+            if (!response.ok) {
+                throw new Error(`chat ${response.status}`);
+            }
+
+            renderChat(await response.json());
+        } catch {
+            if (chatStatusEl && chatMessagesEl) {
+                chatStatusEl.textContent = 'Chat unavailable right now.';
+                clearChildren(chatMessagesEl);
+                appendMutedListItem(chatMessagesEl, 'Could not load chat.');
+            }
+        }
+    };
+
+    if (chatFormEl && config.roomChatUrl) {
+        chatFormEl.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const submitButton = chatFormEl.querySelector('button[type="submit"]');
+            const input = chatFormEl.querySelector('input[name="message"]');
+            if (!(input instanceof HTMLInputElement)) {
+                return;
+            }
+
+            submitButton?.setAttribute('disabled', 'disabled');
+            if (chatStatusEl) {
+                chatStatusEl.textContent = 'Sending…';
+            }
+
+            try {
+                const response = await fetch(chatFormEl.action, {
+                    method: 'POST',
+                    body: new FormData(chatFormEl),
+                    credentials: 'same-origin'
+                });
+
+                const payload = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    throw new Error(payload.error || `chat ${response.status}`);
+                }
+
+                input.value = '';
+                await loadChat();
+            } catch (error) {
+                if (chatStatusEl) {
+                    chatStatusEl.textContent = error instanceof Error ? error.message : 'Could not send chat message.';
+                }
+            } finally {
+                submitButton?.removeAttribute('disabled');
+            }
+        });
+    }
+
+    loadPresence();
+    loadChat();
+    window.setInterval(loadPresence, 3000);
+    window.setInterval(loadChat, 3000);
+})();
+</script>
 }
 }

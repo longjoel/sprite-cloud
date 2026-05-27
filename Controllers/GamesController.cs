@@ -974,7 +974,8 @@ public class GamesController(
 
         var opts = nosebleedOptions.Value ?? new NosebleedOptions();
         var file = game.Files.FirstOrDefault(f => !string.IsNullOrWhiteSpace(f.StoragePath) || !string.IsNullOrWhiteSpace(f.ExternalPath));
-        var activeRooms = (await roomService.ListActiveRoomsForGameAsync(game.Id, cancellationToken))
+        var activeRooms = await roomService.ListActiveRoomsForGameAsync(game.Id, cancellationToken);
+        var activeRoomSummaries = activeRooms
             .Select(x => new GamePlayRoomSummaryViewModel
             {
                 Id = x.Id,
@@ -983,12 +984,15 @@ public class GamesController(
                 LastActiveUtc = DateTime.SpecifyKind(x.LastActiveUtc, DateTimeKind.Utc)
             })
             .ToList();
+        var currentSignedInProfile = await currentProfile.GetCurrentAsync(cancellationToken);
+        var canChat = await currentAccess.CanPlayAsync(cancellationToken);
 
         string? error = null;
         NosebleedSession? session = null;
         NosebleedSeatAssignment? seat = null;
         string? token = null;
         string? contentPath = null;
+        int? currentRoomId = null;
         string? currentRoomCode = null;
 
         if (!opts.Enabled)
@@ -1005,12 +1009,12 @@ public class GamesController(
             var joinResult = await roomService.JoinByCodeAsync(code, viewerId, cancellationToken);
             if (joinResult.Success && joinResult.Room is not null && joinResult.Session is not null)
             {
+                currentRoomId = joinResult.Room.Id;
                 currentRoomCode = joinResult.Room.Code;
                 session = joinResult.Session;
                 seat = joinResult.Seat;
                 token = joinResult.Token;
-                var profile = await currentProfile.GetCurrentAsync(cancellationToken);
-                await gamePlayTelemetry.StartAsync(game.Id, file.Id, "nosebleed", session.Id, profile?.Id, cancellationToken);
+                await gamePlayTelemetry.StartAsync(game.Id, file.Id, "nosebleed", session.Id, currentSignedInProfile?.Id, cancellationToken);
             }
             else
             {
@@ -1037,8 +1041,11 @@ public class GamesController(
             CorePath = session?.CorePath,
             ContentPath = session?.ContentPath ?? contentPath,
             Error = error,
+            CurrentRoomId = currentRoomId,
             CurrentRoomCode = currentRoomCode,
-            ActiveRooms = activeRooms
+            CanChat = canChat,
+            CurrentProfileDisplayName = currentSignedInProfile?.DisplayName,
+            ActiveRooms = activeRoomSummaries
         });
     }
 
@@ -1067,6 +1074,88 @@ public class GamesController(
             port = seat.Port,
             playerNumber = seat.PlayerNumber,
             expiresUtc = seat.ExpiresUtc
+        });
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> RoomPresence(int roomId, CancellationToken cancellationToken = default)
+    {
+        var room = await db.GamePlayRooms
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == roomId && x.Status == GamePlayRoomStatus.Active, cancellationToken);
+        if (room is null || string.IsNullOrWhiteSpace(room.NosebleedSessionId))
+        {
+            return NotFound();
+        }
+
+        var assignments = nosebleedSeats.GetAssignments(room.NosebleedSessionId, DateTimeOffset.UtcNow);
+        var viewerIds = assignments.Select(x => x.ViewerId).Distinct(StringComparer.Ordinal).ToList();
+        var participants = viewerIds.Count == 0
+            ? []
+            : await db.GamePlayRoomParticipants
+                .AsNoTracking()
+                .Where(x => x.RoomId == room.Id && viewerIds.Contains(x.ViewerId))
+                .ToListAsync(cancellationToken);
+
+        var snapshot = GamePlayRoomService.BuildPresenceSnapshot(assignments, participants);
+        return Json(new
+        {
+            players = snapshot.Players.Select(x => new { displayName = x.DisplayName, playerNumber = x.PlayerNumber, port = x.Port }),
+            watcherCount = snapshot.WatcherCount,
+            totalConnected = snapshot.TotalConnected
+        });
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> RoomChat(int roomId, CancellationToken cancellationToken = default)
+    {
+        var roomExists = await db.GamePlayRooms
+            .AsNoTracking()
+            .AnyAsync(x => x.Id == roomId && x.Status == GamePlayRoomStatus.Active, cancellationToken);
+        if (!roomExists)
+        {
+            return NotFound();
+        }
+
+        var messages = await db.GamePlayRoomChatMessages
+            .AsNoTracking()
+            .Where(x => x.RoomId == roomId)
+            .OrderByDescending(x => x.CreatedUtc)
+            .Take(40)
+            .ToListAsync(cancellationToken);
+
+        var snapshot = GamePlayRoomService.BuildChatSnapshot(messages);
+        return Json(new
+        {
+            messages = snapshot.Messages.Select(x => new
+            {
+                displayName = x.DisplayName,
+                message = x.Message,
+                createdUtc = x.CreatedUtc.ToString("O", CultureInfo.InvariantCulture)
+            })
+        });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> RoomChat(int roomId, string message, CancellationToken cancellationToken = default)
+    {
+        var result = await roomService.AddChatMessageAsync(roomId, message, cancellationToken);
+        if (!result.Success || result.Message is null)
+        {
+            Response.StatusCode = StatusCodes.Status400BadRequest;
+            return Json(new { error = result.Error ?? "Unable to send chat message." });
+        }
+
+        return Json(new
+        {
+            ok = true,
+            message = new
+            {
+                displayName = string.IsNullOrWhiteSpace(result.Message.DisplayNameSnapshot) ? "Player" : result.Message.DisplayNameSnapshot.Trim(),
+                message = result.Message.Message,
+                createdUtc = DateTime.SpecifyKind(result.Message.CreatedUtc, DateTimeKind.Utc).ToString("O", CultureInfo.InvariantCulture)
+            }
         });
     }
 

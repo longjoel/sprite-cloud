@@ -409,6 +409,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(x => x.SessionNonce).IsUnique();
+            entity.HasIndex(x => x.ProfileId)
+                .HasFilter("\"RevokedUtc\" IS NULL")
+                .IsUnique();
             entity.HasIndex(x => new { x.ProfileId, x.RevokedUtc });
         });
     }
