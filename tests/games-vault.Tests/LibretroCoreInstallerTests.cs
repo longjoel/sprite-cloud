@@ -23,4 +23,14 @@ public sealed class LibretroCoreInstallerTests
         Assert.Equal("snes9x_libretro.so", entry.NativeCoreFileName);
         Assert.Equal("snes9x", entry.WebPlayerCoreKey);
     }
+
+    [Fact]
+    public void Catalog_knows_mame_native_core()
+    {
+        var entry = CoreCompatibilityCatalog.Find("MAME");
+
+        Assert.NotNull(entry);
+        Assert.Equal("mame2003_plus_libretro.so", entry.NativeCoreFileName);
+        Assert.Null(entry.WebPlayerCoreKey);
+    }
 }
