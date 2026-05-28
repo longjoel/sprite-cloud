@@ -31,6 +31,7 @@
     const padTestAxes = document.getElementById("nosebleed-pad-test-axes");
     const touchGamepad = document.getElementById("touch-gamepad");
     const touchButtons = Array.from(document.querySelectorAll(".touch-btn[data-button]"));
+    const commandButtons = Array.from(document.querySelectorAll(".touch-btn[data-command]"));
     const dpadClusters = Array.from(document.querySelectorAll(".pad-cluster"));
     const draggableControls = Array.from(document.querySelectorAll("[data-control-group]"));
     const inputHelpers = window.GamesVaultNosebleedInput;
@@ -421,6 +422,29 @@
 
     function sendInputImmediately() {
         try { sendInput(); } catch { }
+    }
+
+    function flashCommandButton(button) {
+        if (!button) return;
+        button.classList.add("is-pressed");
+        window.setTimeout(() => button.classList.remove("is-pressed"), 150);
+    }
+
+    function sendCommand(command, button = null, port = assignedPort ?? 0) {
+        if (isSpectator || assignedPort === null || !inputWs || inputWs.readyState !== WebSocket.OPEN) {
+            setStatus("Connect as a player before sending arcade commands.", "warn");
+            return false;
+        }
+
+        flashCommandButton(button);
+        inputWs.send(JSON.stringify({ type: "command", command, port, sequence: ++inputSeq }));
+        if (command === "insert_coin") {
+            setStatus(`Coin inserted for Player ${assignedPort + 1}.`, "good");
+        } else if (command === "reset") {
+            setStatus("Reset command sent to the machine.", "good");
+        }
+
+        return true;
     }
 
     function startSeatKeepAlive() {
@@ -844,6 +868,15 @@
         button.addEventListener("contextmenu", ev => ev.preventDefault());
     }
 
+    for (const button of commandButtons) {
+        button.addEventListener("pointerdown", ev => {
+            if (layoutEditMode) return;
+            ev.preventDefault();
+            sendCommand(button.dataset.command, button);
+        });
+        button.addEventListener("contextmenu", ev => ev.preventDefault());
+    }
+
     function handleFullscreenChange() {
         syncFullscreenUi();
         if (!isFullscreenActive() && screen.orientation?.unlock) {
@@ -872,6 +905,17 @@
     });
 
     window.addEventListener("keydown", ev => {
+        if (ev.target instanceof HTMLInputElement || ev.target instanceof HTMLTextAreaElement || ev.target?.isContentEditable) return;
+        if (!ev.repeat && ev.code === "KeyC") {
+            ev.preventDefault();
+            sendCommand("insert_coin");
+            return;
+        }
+        if (!ev.repeat && ev.code === "KeyR") {
+            ev.preventDefault();
+            sendCommand("reset");
+            return;
+        }
         const wasPressed = keys.has(ev.code);
         keys.add(ev.code);
         if (ev.code.startsWith("Arrow")) ev.preventDefault();
