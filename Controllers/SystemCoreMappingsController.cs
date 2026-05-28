@@ -15,7 +15,8 @@ public sealed class SystemCoreMappingsController(
     SystemCoreAutomapper automapper,
     CurrentAccessService currentAccess,
     IOptions<NosebleedOptions> nosebleedOptions,
-    LibretroCoreInstaller coreInstaller) : Controller
+    LibretroCoreInstaller coreInstaller,
+    InstalledCoreInventoryBuilder installedCoreInventoryBuilder) : Controller
 {
     public async Task<IActionResult> Index(CancellationToken cancellationToken = default)
     {
@@ -63,11 +64,14 @@ public sealed class SystemCoreMappingsController(
         }
 
         rows = rows.OrderBy(r => r.SystemName).ToList();
+        var installedNativeCores = GetInstalledNativeCores();
+        var installedCoreInventory = installedCoreInventoryBuilder.Build(installedNativeCores, mappings.Values.ToList());
 
         return View(new SystemCoreMappingsIndexViewModel
         {
             Rows = rows,
-            InstalledNativeCores = GetInstalledNativeCores()
+            InstalledNativeCores = installedNativeCores,
+            InstalledCoreInventory = installedCoreInventory
         });
     }
 

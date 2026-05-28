@@ -15,11 +15,68 @@
     </form>
 </div>
 
+<div class="alert alert-info">
+    Manual core selection uses the installed <code>*_libretro.so</code> files currently present under the configured Nosebleed core directory. The compatibility catalog is only used for automap/install suggestions, not to limit what you can select.
+</div>
+
 @if (Model.InstalledNativeCores.Count == 0)
 {
     <div class="alert alert-warning">
         No native cores were found under the configured Nosebleed core directory. Install cores before launching server-side playback.
     </div>
+}
+else
+{
+    <section class="card shadow-sm mb-4">
+        <div class="card-body">
+            <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+                <div>
+                    <h2 class="h5 mb-1">Installed native cores</h2>
+                    <p class="text-muted mb-0">Every installed core on disk appears here and in the mapping dropdowns below.</p>
+                </div>
+                <span class="badge text-bg-primary">@Model.InstalledCoreInventory.Count installed</span>
+            </div>
+
+            <div class="row g-3">
+                @foreach (var core in Model.InstalledCoreInventory)
+                {
+                    var statusClass = core.IsKnownToCatalog ? "success" : "secondary";
+                    var statusText = core.IsKnownToCatalog ? "Known to catalog" : "Installed only";
+                    <div class="col-12 col-xl-6">
+                        <div class="border rounded p-3 h-100">
+                            <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-2">
+                                <div>
+                                    <div class="fw-semibold">@core.DisplayName</div>
+                                    <div><code>@core.FileName</code></div>
+                                </div>
+                                <span class="badge text-bg-@statusClass">@statusText</span>
+                            </div>
+
+                            <div class="small text-muted mb-1">Known catalog systems</div>
+                            @if (core.KnownSystemNames.Count == 0)
+                            {
+                                <div class="small">None yet</div>
+                            }
+                            else
+                            {
+                                <div class="small">@string.Join(", ", core.KnownSystemNames)</div>
+                            }
+
+                            <div class="small text-muted mt-3 mb-1">Currently mapped systems</div>
+                            @if (core.UsedBySystemNames.Count == 0)
+                            {
+                                <div class="small">Not used by any saved system mapping yet</div>
+                            }
+                            else
+                            {
+                                <div class="small">@string.Join(", ", core.UsedBySystemNames)</div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    </section>
 }
 
 <div class="vstack gap-3">
