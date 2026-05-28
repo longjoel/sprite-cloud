@@ -44,6 +44,7 @@ builder.Services.AddScoped<LocalProfileService>();
 builder.Services.AddScoped<ArcadeGameFileResolver>();
 builder.Services.AddScoped<SystemCoreMappingResolver>();
 builder.Services.AddScoped<SystemCoreAutomapper>();
+builder.Services.AddScoped<InstalledCoreInventoryBuilder>();
 builder.Services.AddScoped<LibretroCoreInstaller>();
 builder.Services.AddScoped<CurrentProfileViewDataFilter>();
 builder.Services.AddLibretroDatabase(builder.Configuration);
