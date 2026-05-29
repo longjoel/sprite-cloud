@@ -9,7 +9,18 @@
     var isGenesis = systemName.Equals("Sega - Mega Drive - Genesis", StringComparison.OrdinalIgnoreCase)
         || systemName.Contains("Mega Drive", StringComparison.OrdinalIgnoreCase)
         || systemName.Contains("Genesis", StringComparison.OrdinalIgnoreCase);
-    var touchLayoutName = isGameGear ? "Sega Game Gear" : isGenesis ? "Sega Genesis" : "Generic Retropad";
+    var isArcade = systemName.Contains("Arcade", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("MAME", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("FinalBurn", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("FBNeo", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("Neo Geo", StringComparison.OrdinalIgnoreCase);
+    var touchLayoutName = isGameGear
+        ? "Sega Game Gear"
+        : isGenesis
+            ? "Sega Genesis"
+            : isArcade
+                ? "Arcade 4-Button"
+                : "Generic Retropad";
 }
 
 <div class="d-flex align-items-center justify-content-between mb-3">
@@ -342,6 +353,34 @@
                     min-width: 5rem;
                 }
 
+                .touch-gamepad.layout-arcade .face-cluster {
+                    width: 16rem;
+                    height: 6.8rem;
+                    right: max(.75rem, env(safe-area-inset-right));
+                    bottom: max(1.1rem, env(safe-area-inset-bottom));
+                }
+
+                .touch-gamepad.layout-arcade .touch-btn.face {
+                    width: 3.8rem;
+                    height: 3.8rem;
+                    font-size: 1.15rem;
+                }
+
+                .touch-gamepad.layout-arcade .touch-btn.face[data-button="b"] { left: 0; bottom: 0; }
+                .touch-gamepad.layout-arcade .touch-btn.face[data-button="a"] { left: 3.9rem; bottom: .65rem; }
+                .touch-gamepad.layout-arcade .touch-btn.face[data-button="y"] { left: 7.8rem; bottom: 1.3rem; }
+                .touch-gamepad.layout-arcade .touch-btn.face[data-button="x"] { left: 11.7rem; bottom: 1.95rem; }
+
+                .touch-gamepad.layout-arcade .menu-cluster {
+                    gap: .55rem;
+                }
+
+                .touch-gamepad.layout-arcade .touch-btn.menu {
+                    min-width: 4rem;
+                    padding: .45rem .72rem;
+                    font-size: .9rem;
+                }
+
                 .player-overlay-action {
                     position: absolute;
                     top: max(.75rem, env(safe-area-inset-top));
@@ -477,7 +516,7 @@
                 </div>
                 @if (!Model.IsSpectator)
                 {
-                    <div id="touch-gamepad" class="touch-gamepad is-visible @(isGameGear ? "layout-game-gear" : isGenesis ? "layout-genesis" : "layout-generic")" aria-label="On-screen @touchLayoutName gamepad">
+                    <div id="touch-gamepad" class="touch-gamepad is-visible @(isGameGear ? "layout-game-gear" : isGenesis ? "layout-genesis" : isArcade ? "layout-arcade" : "layout-generic")" aria-label="On-screen @touchLayoutName gamepad">
                         <div class="pad-cluster" data-control-group="dpad" aria-label="Directional pad">
                             <button class="touch-btn dpad" type="button" data-button="up" aria-label="Up">▲</button>
                             <button class="touch-btn dpad" type="button" data-button="left" aria-label="Left">◀</button>
@@ -496,6 +535,13 @@
                                 <button class="touch-btn face" type="button" data-button="b" data-control-group="genesis-b" aria-label="Genesis B">B</button>
                                 <button class="touch-btn face" type="button" data-button="a" data-control-group="genesis-c" aria-label="Genesis C">C</button>
                             }
+                            else if (isArcade)
+                            {
+                                <button class="touch-btn face" type="button" data-button="b" aria-label="Arcade button 1">1</button>
+                                <button class="touch-btn face" type="button" data-button="a" aria-label="Arcade button 2">2</button>
+                                <button class="touch-btn face" type="button" data-button="y" aria-label="Arcade button 3">3</button>
+                                <button class="touch-btn face" type="button" data-button="x" aria-label="Arcade button 4">4</button>
+                            }
                             else
                             {
                                 <button class="touch-btn face" type="button" data-button="y" aria-label="Y">Y</button>
@@ -505,11 +551,21 @@
                             }
                         </div>
                         <div class="menu-cluster" data-control-group="menu" aria-label="Menu buttons">
-                            @if (!isGameGear && !isGenesis)
+                            @if (isArcade)
+                            {
+                                <button class="touch-btn menu" type="button" data-command="insert_coin" aria-label="Insert coin">Coin</button>
+                                <button class="touch-btn menu" type="button" data-button="start" aria-label="Start">Start</button>
+                                <button class="touch-btn menu" type="button" data-command="reset" aria-label="Reset machine">Reset</button>
+                            }
+                            else if (!isGameGear && !isGenesis)
                             {
                                 <button class="touch-btn menu" type="button" data-button="select" aria-label="Select">Select</button>
+                                <button class="touch-btn menu" type="button" data-button="start" aria-label="Start">Start</button>
                             }
-                            <button class="touch-btn menu" type="button" data-button="start" aria-label="Start">Start</button>
+                            else
+                            {
+                                <button class="touch-btn menu" type="button" data-button="start" aria-label="Start">Start</button>
+                            }
                         </div>
                     </div>
                 }
@@ -560,7 +616,7 @@
                 }
                 else if (Model.PlayerNumber is not null)
                 {
-                    <span>You are Player @Model.PlayerNumber. The on-screen controls are using the @touchLayoutName layout; keyboard and hardware gamepad input still work too.</span>
+                    <span>You are Player @Model.PlayerNumber. The on-screen controls are using the @touchLayoutName layout; keyboard and hardware gamepad input still work too.@if (isArcade) { <text> Arcade shortcuts: C inserts coin, R resets the machine.</text> }</span>
                 }
                 else
                 {
