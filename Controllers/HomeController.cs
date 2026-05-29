@@ -28,6 +28,7 @@ public class HomeController(
     GamePlayTelemetryService gamePlayTelemetry,
     NosebleedSessionManager nosebleedSessions,
     NosebleedTicketSigner nosebleedTickets,
+    NosebleedRelayMetrics nosebleedRelayMetrics,
     NosebleedProcessInspector nosebleedProcessInspector,
     CurrentProfileService currentProfile,
     CurrentAccessService currentAccess) : Controller
@@ -215,27 +216,9 @@ public class HomeController(
         }
 
         using var downstream = await HttpContext.WebSockets.AcceptWebSocketAsync();
-        var buffer = new byte[64 * 1024];
         try
         {
-            while (!cancellationToken.IsCancellationRequested && upstream.State == WebSocketState.Open && downstream.State == WebSocketState.Open)
-            {
-                var result = await upstream.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
-                if (result.MessageType == WebSocketMessageType.Close)
-                {
-                    await downstream.CloseAsync(
-                        result.CloseStatus ?? WebSocketCloseStatus.NormalClosure,
-                        result.CloseStatusDescription,
-                        cancellationToken);
-                    break;
-                }
-
-                await downstream.SendAsync(
-                    new ArraySegment<byte>(buffer, 0, result.Count),
-                    result.MessageType,
-                    result.EndOfMessage,
-                    cancellationToken);
-            }
+            await NosebleedWebSocketRelay.PumpLatestOnlyAsync(upstream, downstream, "video", nosebleedRelayMetrics, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
