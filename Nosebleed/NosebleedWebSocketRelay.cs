@@ -17,11 +17,17 @@ public static class NosebleedWebSocketRelay
             : NosebleedRelayMode.Ordered;
 
     public static Task PumpUpstreamToDownstreamAsync(string channel, WebSocket source, WebSocket destination, CancellationToken cancellationToken)
-        => GetUpstreamMode(channel) == NosebleedRelayMode.LatestOnly
-            ? PumpLatestOnlyAsync(source, destination, cancellationToken)
-            : PumpOrderedAsync(source, destination, cancellationToken);
+        => PumpUpstreamToDownstreamAsync(channel, source, destination, metrics: null, cancellationToken);
 
-    public static async Task PumpOrderedAsync(WebSocket source, WebSocket destination, CancellationToken cancellationToken)
+    public static Task PumpUpstreamToDownstreamAsync(string channel, WebSocket source, WebSocket destination, NosebleedRelayMetrics? metrics, CancellationToken cancellationToken)
+        => GetUpstreamMode(channel) == NosebleedRelayMode.LatestOnly
+            ? PumpLatestOnlyAsync(source, destination, channel, metrics, cancellationToken)
+            : PumpOrderedAsync(source, destination, channel, metrics, cancellationToken);
+
+    public static Task PumpOrderedAsync(WebSocket source, WebSocket destination, CancellationToken cancellationToken)
+        => PumpOrderedAsync(source, destination, "unknown", metrics: null, cancellationToken);
+
+    public static async Task PumpOrderedAsync(WebSocket source, WebSocket destination, string channel, NosebleedRelayMetrics? metrics, CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested &&
                source.State == WebSocketState.Open &&
@@ -41,21 +47,26 @@ public static class NosebleedWebSocketRelay
                 break;
             }
 
+            metrics?.RecordReceived(channel, message.Payload.Length);
             await destination.SendAsync(
                 new ArraySegment<byte>(message.Payload),
                 message.MessageType,
                 true,
                 cancellationToken);
+            metrics?.RecordForwarded(channel, message.Payload.Length);
         }
     }
 
-    public static async Task PumpLatestOnlyAsync(WebSocket source, WebSocket destination, CancellationToken cancellationToken)
+    public static Task PumpLatestOnlyAsync(WebSocket source, WebSocket destination, CancellationToken cancellationToken)
+        => PumpLatestOnlyAsync(source, destination, "video", metrics: null, cancellationToken);
+
+    public static async Task PumpLatestOnlyAsync(WebSocket source, WebSocket destination, string channel, NosebleedRelayMetrics? metrics, CancellationToken cancellationToken)
     {
         var queue = Channel.CreateBounded<RelayMessage>(new BoundedChannelOptions(1)
         {
             SingleReader = true,
             SingleWriter = true,
-            FullMode = BoundedChannelFullMode.DropOldest
+            FullMode = BoundedChannelFullMode.Wait
         });
 
         RelayMessage? closeFrame = null;
@@ -75,8 +86,15 @@ public static class NosebleedWebSocketRelay
                         break;
                     }
 
+                    metrics?.RecordReceived(channel, message.Payload.Length);
                     while (!queue.Writer.TryWrite(message))
                     {
+                        if (queue.Reader.TryRead(out var dropped))
+                        {
+                            metrics?.RecordDropped(channel, dropped.Payload.Length);
+                            continue;
+                        }
+
                         if (!await queue.Writer.WaitToWriteAsync(cancellationToken))
                         {
                             return;
@@ -99,6 +117,7 @@ public static class NosebleedWebSocketRelay
                     message.MessageType,
                     true,
                     cancellationToken);
+                metrics?.RecordForwarded(channel, message.Payload.Length);
             }
         }, cancellationToken);
 

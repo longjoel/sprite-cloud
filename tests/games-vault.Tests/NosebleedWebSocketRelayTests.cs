@@ -38,8 +38,45 @@ public sealed class NosebleedWebSocketRelayTests
         await NosebleedWebSocketRelay.PumpLatestOnlyAsync(source, destination, cts.Token);
 
         var sent = destination.GetSentBinaryMessages();
-        Assert.DoesNotContain("v2", sent);
+        Assert.True(sent.Count <= 2, $"Expected at most one in-flight frame plus the newest pending frame, got: {string.Join(", ", sent)}");
         Assert.Equal("v3", sent[^1]);
+    }
+
+    [Fact]
+    public async Task PumpOrderedAsync_RecordsReceivedAndForwardedMetrics()
+    {
+        var source = FakeWebSocket.FromBinaryMessages("audio-frame");
+        var destination = new FakeWebSocket();
+        var metrics = new NosebleedRelayMetrics();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+        await NosebleedWebSocketRelay.PumpOrderedAsync(source, destination, "audio", metrics, cts.Token);
+
+        var snapshot = metrics.GetSnapshot("audio");
+        Assert.Equal(1, snapshot.MessagesReceived);
+        Assert.Equal(1, snapshot.MessagesForwarded);
+        Assert.Equal(0, snapshot.MessagesDropped);
+        Assert.Equal(11, snapshot.BytesReceived);
+        Assert.Equal(11, snapshot.BytesForwarded);
+        Assert.Equal(0, snapshot.BytesDropped);
+    }
+
+    [Fact]
+    public async Task PumpLatestOnlyAsync_RecordsDroppedMetricsForStaleVideo()
+    {
+        var source = FakeWebSocket.FromBinaryMessages("v1", "v2", "v3");
+        var destination = new FakeWebSocket(sendDelay: TimeSpan.FromMilliseconds(100));
+        var metrics = new NosebleedRelayMetrics();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+
+        await NosebleedWebSocketRelay.PumpLatestOnlyAsync(source, destination, "video", metrics, cts.Token);
+
+        var snapshot = metrics.GetSnapshot("video");
+        Assert.Equal(3, snapshot.MessagesReceived);
+        Assert.True(snapshot.MessagesDropped >= 1);
+        Assert.True(snapshot.BytesDropped >= 2);
+        Assert.True(snapshot.MessagesForwarded >= 1);
+        Assert.True(snapshot.BytesForwarded >= 2);
     }
 
     private sealed class FakeWebSocket : WebSocket

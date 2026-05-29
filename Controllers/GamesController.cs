@@ -34,6 +34,7 @@ public class GamesController(
     NosebleedSessionManager nosebleedSessions,
     NosebleedSeatManager nosebleedSeats,
     NosebleedTicketSigner nosebleedTickets,
+    NosebleedRelayMetrics nosebleedRelayMetrics,
     GamePlayTelemetryService gamePlayTelemetry,
     GamePlayRoomService roomService,
     CurrentProfileService currentProfile,
@@ -1229,8 +1230,8 @@ public class GamesController(
 
         using var downstream = await HttpContext.WebSockets.AcceptWebSocketAsync();
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, HttpContext.RequestAborted);
-        var clientToUpstream = NosebleedWebSocketRelay.PumpOrderedAsync(downstream, upstream, linkedCts.Token);
-        var upstreamToClient = NosebleedWebSocketRelay.PumpUpstreamToDownstreamAsync(channel, upstream, downstream, linkedCts.Token);
+        var clientToUpstream = NosebleedWebSocketRelay.PumpOrderedAsync(downstream, upstream, channel, nosebleedRelayMetrics, linkedCts.Token);
+        var upstreamToClient = NosebleedWebSocketRelay.PumpUpstreamToDownstreamAsync(channel, upstream, downstream, nosebleedRelayMetrics, linkedCts.Token);
         await Task.WhenAny(clientToUpstream, upstreamToClient);
         await linkedCts.CancelAsync();
 
