@@ -47,7 +47,9 @@ public sealed class GameFileStorage(IWebHostEnvironment env, IOptions<LibrarySto
         string systemName,
         string crc32,
         long sizeBytes,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? preferredFileName = null,
+        bool rejectOnNameCollision = false)
     {
         Directory.CreateDirectory(RomsRootPath);
 
@@ -55,12 +57,24 @@ public sealed class GameFileStorage(IWebHostEnvironment env, IOptions<LibrarySto
         var systemRoot = Path.Combine(RomsRootPath, systemFolder);
         Directory.CreateDirectory(systemRoot);
 
-        var original = TryGetOriginalFileName(displayName);
+        var original = string.IsNullOrWhiteSpace(preferredFileName)
+            ? TryGetOriginalFileName(displayName)
+            : preferredFileName;
         var fileName = BuildSafeFileName(original, crc32);
         var abs = Path.Combine(systemRoot, fileName);
 
         if (File.Exists(abs))
         {
+            if (await ExistingFileMatchesAsync(abs, crc32, sizeBytes, cancellationToken))
+            {
+                return Path.Combine("roms", systemFolder, fileName).Replace('\\', '/');
+            }
+
+            if (rejectOnNameCollision)
+            {
+                throw new IOException($"A different ROM is already stored at the canonical arcade filename '{fileName}' for system '{systemName}'.");
+            }
+
             // If this already exists, prefer a deterministic unique name so different ROMs with the same filename don't collide.
             fileName = AppendCrcSuffix(fileName, crc32);
             abs = Path.Combine(systemRoot, fileName);
@@ -102,6 +116,28 @@ public sealed class GameFileStorage(IWebHostEnvironment env, IOptions<LibrarySto
     {
         path = Path.GetFullPath(path);
         return path.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+    }
+
+    private static async Task<bool> ExistingFileMatchesAsync(
+        string existingPath,
+        string expectedCrc32,
+        long expectedSizeBytes,
+        CancellationToken cancellationToken)
+    {
+        var info = new FileInfo(existingPath);
+        if (!info.Exists)
+        {
+            return false;
+        }
+
+        if (expectedSizeBytes > 0 && info.Length != expectedSizeBytes)
+        {
+            return false;
+        }
+
+        await using var stream = File.OpenRead(existingPath);
+        var existingCrc32 = (await games_vault.Libretro.Crc32.ComputeAsync(stream, cancellationToken)).ToString("X8");
+        return string.Equals(existingCrc32, expectedCrc32, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string? TryGetExtension(string displayName)

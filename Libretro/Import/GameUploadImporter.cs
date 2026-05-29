@@ -99,7 +99,9 @@ public sealed class GameUploadImporter(
                     systemName: match.SystemName,
                     crc32: file.Crc32,
                     sizeBytes: file.SizeBytes,
-                    cancellationToken: cancellationToken);
+                    cancellationToken: cancellationToken,
+                    preferredFileName: ArcadeRomFileNameNormalizer.GetPreferredStoredFileName(file.DisplayName, match),
+                    rejectOnNameCollision: ArcadeRomFileNameNormalizer.RejectCollisionForStoredFileName(file.DisplayName, match));
             }
             catch (Exception ex)
             {
@@ -256,7 +258,7 @@ public sealed class GameUploadImporter(
 
             foreach (var item in group.Items)
             {
-                var name = item.File.DisplayName;
+                var name = ArcadeRomFileNameNormalizer.GetPreferredStoredFileName(item.File.DisplayName, item.Match);
                 if (name.Length > 260)
                 {
                     name = name[^260..];
@@ -401,6 +403,12 @@ public sealed class GameUploadImporter(
             return (file, arcadeZipEntry);
         }
 
+        var normalizedLookup = ArcadeRomFileNameNormalizer.TryNormalizeLookupFileName(file.DisplayName);
+        if (!string.IsNullOrWhiteSpace(normalizedLookup) && index.TryGetArcadeZipByFileName(normalizedLookup, out var normalizedArcadeZipEntry))
+        {
+            return (file, normalizedArcadeZipEntry);
+        }
+
         return (file, null);
     }
 
@@ -421,5 +429,5 @@ public sealed class GameUploadImporter(
         && !displayName.Contains(':', StringComparison.Ordinal);
 
     private static bool IsMameSystem(string systemName) =>
-        systemName.Contains("MAME", StringComparison.OrdinalIgnoreCase);
+        ArcadeRomFileNameNormalizer.IsArcadeSystem(systemName);
 }

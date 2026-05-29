@@ -156,6 +156,64 @@ public sealed class LibretroZipImportTests
         Assert.True(File.Exists(fileStorage.GetAbsolutePath(file.StoragePath!)));
     }
 
+    [Fact]
+    public async Task ImportFromStagedDirectoryAsync_normalizes_browser_duplicate_arcade_zip_suffixes()
+    {
+        var contentRoot = CreateTempDirectory();
+        var libraryRoot = CreateTempDirectory();
+        var stagingRoot = CreateTempDirectory();
+        var zipPath = Path.Combine(stagingRoot, "joust(1).zip");
+        var memberBytes = Enumerable.Range(0, 64).Select(i => (byte)(i * 3 % 251)).ToArray();
+        CreateZip(zipPath, ("3006-19.7b", memberBytes));
+
+        var memberCrc = await ComputeCrcAsync(Path.Combine(CreateExtractDirectory(zipPath), "3006-19.7b"));
+        CreateLibretroDatabaseWithoutOuterZipCrc(contentRoot, memberCrc, memberBytes.Length);
+
+        await using var fixture = await CreateFixtureAsync(contentRoot);
+        var environment = new FakeEnvironment(contentRoot);
+        var storageOptions = Options.Create(new LibraryStorageOptions { RootPath = libraryRoot });
+        var databaseOptions = Options.Create(new LibretroDatabaseOptions { RootPath = "libretro-db" });
+        var fileStorage = new GameFileStorage(environment, storageOptions);
+        var store = new LibretroDatabaseStore(environment, databaseOptions);
+        var parser = new LibretroDatParser();
+        var builder = new LibretroDatIndexBuilder(store, parser, LoggerFactory.Create(_ => { }).CreateLogger<LibretroDatIndexBuilder>());
+        var importer = new GameUploadImporter(
+            fixture.Db,
+            new UploadFileScanner(),
+            builder,
+            fileStorage,
+            LoggerFactory.Create(_ => { }).CreateLogger<GameUploadImporter>());
+
+        var job = new BackgroundJob
+        {
+            Command = "test",
+            CreatedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow,
+            Status = BackgroundJobStatus.Queued,
+            PayloadJson = "{}"
+        };
+        fixture.Db.BackgroundJobs.Add(job);
+        await fixture.Db.SaveChangesAsync();
+
+        var context = new BackgroundJobExecutionContext(
+            job,
+            fixture.Db,
+            new ServiceCollection().BuildServiceProvider(),
+            LoggerFactory.Create(_ => { }).CreateLogger("test"));
+
+        var result = await importer.ImportFromStagedDirectoryAsync(stagingRoot, context, CancellationToken.None);
+
+        Assert.Equal(2, result.TotalScannedFileCount);
+        Assert.Equal(1, result.TotalMatchedFileCount);
+
+        var game = await fixture.Db.Games.Include(x => x.Files).SingleAsync();
+        var file = Assert.Single(game.Files);
+        Assert.Equal("joust.zip", file.Name);
+        Assert.Equal("joust(1).zip", file.OriginalFileName);
+        Assert.Equal("roms/MAME 2003-Plus/joust.zip", file.StoragePath);
+        Assert.True(File.Exists(fileStorage.GetAbsolutePath(file.StoragePath!)));
+    }
+
     private static void CreateLibretroDatabase(string contentRoot, string outerCrc, long outerSize, string memberCrc, long memberSize)
     {
         var datDir = Path.Combine(contentRoot, "libretro-db", "dat");
