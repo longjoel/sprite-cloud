@@ -287,6 +287,16 @@
                 setStatus(`Connected as Player ${assignedPort + 1}. Sending input.`, "good");
                 startInputLoop();
             };
+            inputWs.onmessage = ev => {
+                try {
+                    const message = JSON.parse(ev.data);
+                    if (message?.type === "error" && message.message) {
+                        setStatus(message.message, "bad");
+                    }
+                } catch {
+                    // Ignore malformed/non-JSON runtime messages.
+                }
+            };
             inputWs.onerror = () => {
                 updateChip(chips.input, "Input error", "bad");
                 setStatus("Input socket error.", "bad");
