@@ -56,6 +56,31 @@ public sealed class LocalProfileService(
         return true;
     }
 
+    public async Task<bool> ChangePinAsync(int profileId, string? currentPin, string? newPin, CancellationToken ct)
+    {
+        if (!await VerifyPinAsync(profileId, currentPin, ct))
+        {
+            return false;
+        }
+
+        var normalizedNewPin = NormalizePin(newPin);
+        if (!IsValidPin(normalizedNewPin))
+        {
+            return false;
+        }
+
+        var profile = await db.UserProfiles.FirstOrDefaultAsync(x => x.Id == profileId && !x.IsArchived, ct);
+        if (profile is null)
+        {
+            return false;
+        }
+
+        profile.PinHash = HashPin(normalizedNewPin);
+        profile.UpdatedUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return true;
+    }
+
     public async Task<bool> VerifyPinAsync(int profileId, string? pin, CancellationToken ct)
     {
         var profile = await db.UserProfiles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == profileId && !x.IsArchived, ct);
@@ -116,18 +141,27 @@ public sealed class LocalProfileService(
         };
     }
 
+    private static string NormalizePin(string? pin) => (pin ?? string.Empty).Trim();
+
+    public static bool IsValidPin(string? pin)
+    {
+        var normalized = NormalizePin(pin);
+        return normalized.Length == 4 && normalized.All(char.IsDigit);
+    }
+
     private static string HashPin(string pin)
     {
+        var normalized = NormalizePin(pin);
         var salt = new byte[16];
         RandomNumberGenerator.Fill(salt);
-        var hash = KeyDerivation.Pbkdf2(pin, salt, KeyDerivationPrf.HMACSHA256, 100_000, 32);
+        var hash = KeyDerivation.Pbkdf2(normalized, salt, KeyDerivationPrf.HMACSHA256, 100_000, 32);
         return $"pbkdf2-sha256$100000${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";
     }
 
     private static bool VerifyPin(string? storedHash, string? suppliedPin)
     {
-        var pin = (suppliedPin ?? "").Trim();
-        if (pin.Length == 0)
+        var pin = NormalizePin(suppliedPin);
+        if (!IsValidPin(pin))
         {
             return false;
         }

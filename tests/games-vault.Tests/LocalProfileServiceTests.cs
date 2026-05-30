@@ -86,6 +86,36 @@ public sealed class LocalProfileServiceTests
         Assert.NotEqual(sessions[1].SessionNonce, sessions[2].SessionNonce);
     }
 
+    [Fact]
+    public async Task ChangePinAsync_UpdatesStoredPinAndRequiresNewPinForFutureSignIn()
+    {
+        await using var fixture = await CreateFixtureAsync();
+        var current = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
+        var service = new LocalProfileService(fixture.Db, current);
+        var profile = await service.CreateAsync("Joel", "#198754", CancellationToken.None);
+
+        var changed = await service.ChangePinAsync(profile.Id, LocalProfileService.DefaultPin, "1234", CancellationToken.None);
+
+        Assert.True(changed);
+        Assert.False(await service.SignInAsync(profile.Id, LocalProfileService.DefaultPin, CancellationToken.None));
+        Assert.True(await service.SignInAsync(profile.Id, "1234", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ChangePinAsync_ReturnsFalseWhenCurrentPinDoesNotMatch()
+    {
+        await using var fixture = await CreateFixtureAsync();
+        var current = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
+        var service = new LocalProfileService(fixture.Db, current);
+        var profile = await service.CreateAsync("Joel", "#198754", CancellationToken.None);
+
+        var changed = await service.ChangePinAsync(profile.Id, "9999", "1234", CancellationToken.None);
+
+        Assert.False(changed);
+        Assert.True(await service.SignInAsync(profile.Id, LocalProfileService.DefaultPin, CancellationToken.None));
+        Assert.False(await service.SignInAsync(profile.Id, "1234", CancellationToken.None));
+    }
+
     private static async Task<TestFixture> CreateFixtureAsync()
     {
         var connection = new SqliteConnection("Data Source=:memory:");
