@@ -645,6 +645,7 @@
         audio = Url.Action("NosebleedProxy", "Games", new { sessionId = Model.SessionId, channel = "audio" }),
         input = Url.Action("NosebleedProxy", "Games", new { sessionId = Model.SessionId, channel = "input" })
     },
+    webrtcSessionUrl = Url.Action("NosebleedWebRtcSession", "Games", new { sessionId = Model.SessionId }),
     assignedPort = Model.AssignedPort,
     isSpectator = Model.IsSpectator,
     sessionId = Model.SessionId,
