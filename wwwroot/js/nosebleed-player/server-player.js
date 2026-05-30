@@ -6,6 +6,7 @@
     const baseUrl = config.baseUrl;
     const token = config.token;
     const websocketUrls = config.websocketUrls || {};
+    const webrtcSessionUrl = config.webrtcSessionUrl;
     const assignedPort = config.assignedPort;
     const isSpectator = config.isSpectator;
     const sessionId = config.sessionId;
@@ -48,6 +49,11 @@
     const overlayStorageKey = "games-vault:nosebleed-overlays-enabled";
     const preferredGamepadIndex = Number.isInteger(assignedPort) ? assignedPort : null;
     const gamepadStorageKey = `games-vault:nosebleed-gamepad-index:${sessionId || "global"}:port:${assignedPort ?? "spectator"}`;
+    const RTC_CHUNK_MAGIC = 0x3143424e;
+    const RTC_CHUNK_HEADER_LEN = 12;
+    const RTC_CHUNK_TTL_MS = 1400;
+    const VP8_VIDEO_MAGIC = 0x3156424e;
+    const VP8_VIDEO_HEADER_LEN = 21;
     const touchControls = new Set();
     let layoutEditMode = false;
     let activeDrag = null;
@@ -56,6 +62,12 @@
     let videoWs = null;
     let inputWs = null;
     let audioWs = null;
+    let rtcPeer = null;
+    let rtcVideoDc = null;
+    let rtcVideoChunkMap = new Map();
+    let rtcVp8DecodeSupported = null;
+    let rtcVideoDecoder = null;
+    let rtcVideoDecoderReady = false;
     let inputSeq = 0;
     let inputTimer = 0;
     let keepAliveTimer = 0;
@@ -258,27 +270,31 @@
         return url.toString();
     }
 
-    function connect() {
+    async function connect() {
         closeSockets();
         setStatus("Connecting…");
         updateChip(chips.video, "Video connecting", "warn");
         updateChip(chips.input, isSpectator ? "Spectator" : "Input connecting", "warn");
         startHudTimers();
-        videoWs = new WebSocket(withToken("/ws/video"));
-        videoWs.binaryType = "arraybuffer";
-        videoWs.onopen = () => {
-            updateChip(chips.video, "Video live", "good");
-            setStatus("Video connected.", "good");
-        };
-        videoWs.onmessage = ev => queueVideoFrame(ev.data);
-        videoWs.onerror = () => {
-            updateChip(chips.video, "Video error", "bad");
-            setStatus("Video socket error.", "bad");
-        };
-        videoWs.onclose = () => {
-            updateChip(chips.video, "Video offline", "bad");
-            setStatus("Video disconnected.", "bad");
-        };
+
+        const videoConnected = isSpectator ? await connectWebRtcVideo() : false;
+        if (!videoConnected) {
+            videoWs = new WebSocket(withToken("/ws/video"));
+            videoWs.binaryType = "arraybuffer";
+            videoWs.onopen = () => {
+                updateChip(chips.video, "Video live", "good");
+                setStatus("Video connected (ws).", "good");
+            };
+            videoWs.onmessage = ev => queueVideoFrame(ev.data);
+            videoWs.onerror = () => {
+                updateChip(chips.video, "Video error", "bad");
+                setStatus("Video socket error.", "bad");
+            };
+            videoWs.onclose = () => {
+                updateChip(chips.video, "Video offline", "bad");
+                setStatus("Video disconnected.", "bad");
+            };
+        }
 
         if (!isSpectator && assignedPort !== null) {
             inputWs = new WebSocket(withToken("/ws/input"));
@@ -312,6 +328,52 @@
         startSeatKeepAlive();
     }
 
+    async function connectWebRtcVideo() {
+        if (typeof RTCPeerConnection === "undefined" || !webrtcSessionUrl) return false;
+        try {
+            rtcPeer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+            rtcVideoDc = rtcPeer.createDataChannel("video", { ordered: false, maxRetransmits: 0 });
+            rtcVideoDc.binaryType = "arraybuffer";
+            rtcVideoDc.onopen = () => {
+                updateChip(chips.video, "Video live (rtc)", "good");
+                setStatus("Video connected (webrtc).", "good");
+            };
+            rtcVideoDc.onmessage = ev => {
+                const payload = decodeRtcPayload(rtcVideoChunkMap, ev.data);
+                if (!payload) return;
+                const vp8 = decodeVp8VideoPacket(payload);
+                if (vp8 && decodeVp8WebCodecFrame(vp8)) {
+                    framesThisSecond += 1;
+                    return;
+                }
+                queueVideoFrame(payload);
+            };
+
+            const offer = await rtcPeer.createOffer();
+            await rtcPeer.setLocalDescription(offer);
+            await waitForIceGatheringComplete(rtcPeer);
+            if (!rtcPeer.localDescription) return false;
+
+            const requestedVideoMode = probeVp8WebCodecDecode() ? "vp8" : "raw";
+            const response = await fetch(new URL(webrtcSessionUrl, window.location.href).toString(), {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ type: rtcPeer.localDescription.type, sdp: rtcPeer.localDescription.sdp, video_mode: requestedVideoMode })
+            });
+            if (!response.ok) throw new Error(`webrtc signaling failed: ${response.status}`);
+            const answer = await response.json();
+            await rtcPeer.setRemoteDescription(answer);
+            return true;
+        } catch (err) {
+            console.warn("webrtc video setup failed, fallback to websocket", err);
+            try { rtcVideoDc?.close(); } catch { }
+            try { rtcPeer?.close(); } catch { }
+            rtcVideoDc = null;
+            rtcPeer = null;
+            return false;
+        }
+    }
+
     function closeSockets() {
         stopInputLoop();
         stopSeatKeepAlive();
@@ -328,6 +390,14 @@
         for (const ws of [videoWs, inputWs, audioWs]) {
             try { ws?.close(); } catch { }
         }
+        try { rtcVideoDc?.close(); } catch { }
+        try { rtcPeer?.close(); } catch { }
+        rtcVideoDc = null;
+        rtcPeer = null;
+        rtcVideoChunkMap.clear();
+        rtcVideoDecoderReady = false;
+        try { rtcVideoDecoder?.close(); } catch { }
+        rtcVideoDecoder = null;
         videoWs = inputWs = audioWs = null;
         audioEnabled = false;
         setAudioDisabledUi();
@@ -350,7 +420,12 @@
     function drawFrame(buffer) {
         const renderStartedAt = performance.now();
         const data = new DataView(buffer);
-        if (data.byteLength < 33 || magic(data, 0) !== "NBF0") return;
+        const sig = data.byteLength >= 4 ? magic(data, 0) : "";
+        if (sig === "NBJ0") {
+            drawJpegFrame(buffer, renderStartedAt);
+            return;
+        }
+        if (data.byteLength < 33 || sig !== "NBF0") return;
         const width = data.getUint32(20, true);
         const height = data.getUint32(24, true);
         const pitch = data.getUint32(28, true);
@@ -405,6 +480,30 @@
         framesThisSecond += 1;
         ctx.putImageData(image, 0, 0);
         videoRenderMs = performance.now() - renderStartedAt;
+    }
+
+    function drawJpegFrame(buffer, renderStartedAt) {
+        const data = new DataView(buffer);
+        if (data.byteLength < 16) return;
+        const width = data.getUint32(4, true);
+        const height = data.getUint32(8, true);
+        const payloadLen = data.getUint32(12, true);
+        const payloadOffset = 16;
+        if (data.byteLength < payloadOffset + payloadLen) return;
+        if (canvas.width !== width || canvas.height !== height) {
+            canvas.width = width;
+            canvas.height = height;
+            fitCanvasToShell();
+        }
+        const jpegSlice = buffer.slice(payloadOffset, payloadOffset + payloadLen);
+        createImageBitmap(new Blob([jpegSlice], { type: "image/jpeg" }))
+            .then(bitmap => {
+                framesThisSecond += 1;
+                ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+                bitmap.close();
+                videoRenderMs = performance.now() - renderStartedAt;
+            })
+            .catch(() => { });
     }
 
     function fitCanvasToShell() {
@@ -617,6 +716,172 @@
 
     function magic(view, offset) {
         return String.fromCharCode(view.getUint8(offset), view.getUint8(offset + 1), view.getUint8(offset + 2), view.getUint8(offset + 3));
+    }
+
+    function readU64LittleEndian(view, offset) {
+        if (typeof view.getBigUint64 === "function") return Number(view.getBigUint64(offset, true));
+        return view.getUint32(offset + 4, true) * 4294967296 + view.getUint32(offset, true);
+    }
+
+    function decodeRtcPayload(map, eventData) {
+        if (!(eventData instanceof ArrayBuffer)) return null;
+        const chunk = decodeRtcChunk(eventData);
+        if (!chunk) return null;
+        pruneRtcChunkMap(map);
+        let entry = map.get(chunk.messageId);
+        if (!entry) {
+            entry = {
+                totalChunks: chunk.totalChunks,
+                parts: new Array(chunk.totalChunks).fill(null),
+                received: 0,
+                totalBytes: 0,
+                createdAt: performance.now()
+            };
+            map.set(chunk.messageId, entry);
+        }
+        if (entry.totalChunks !== chunk.totalChunks) {
+            map.delete(chunk.messageId);
+            return null;
+        }
+        if (!entry.parts[chunk.chunkIndex]) {
+            entry.parts[chunk.chunkIndex] = chunk.payload;
+            entry.received += 1;
+            entry.totalBytes += chunk.payload.length;
+        }
+        if (entry.received !== entry.totalChunks) return null;
+        const out = new Uint8Array(entry.totalBytes);
+        let outOffset = 0;
+        for (const part of entry.parts) {
+            if (!part) {
+                map.delete(chunk.messageId);
+                return null;
+            }
+            out.set(part, outOffset);
+            outOffset += part.length;
+        }
+        map.delete(chunk.messageId);
+        return out.buffer;
+    }
+
+    function pruneRtcChunkMap(map) {
+        const now = performance.now();
+        for (const [messageId, entry] of map.entries()) {
+            if (now - entry.createdAt > RTC_CHUNK_TTL_MS) map.delete(messageId);
+        }
+    }
+
+    function decodeRtcChunk(buffer) {
+        const view = new DataView(buffer);
+        if (view.byteLength < RTC_CHUNK_HEADER_LEN) return null;
+        if (view.getUint32(0, true) !== RTC_CHUNK_MAGIC) return null;
+        const messageId = view.getUint32(4, true);
+        const chunkIndex = view.getUint16(8, true);
+        const totalChunks = view.getUint16(10, true);
+        if (totalChunks < 1 || chunkIndex >= totalChunks) return null;
+        return {
+            messageId,
+            chunkIndex,
+            totalChunks,
+            payload: new Uint8Array(buffer, RTC_CHUNK_HEADER_LEN, view.byteLength - RTC_CHUNK_HEADER_LEN).slice()
+        };
+    }
+
+    function decodeVp8VideoPacket(buffer) {
+        const view = new DataView(buffer);
+        if (view.byteLength < VP8_VIDEO_HEADER_LEN) return null;
+        if (view.getUint32(0, true) !== VP8_VIDEO_MAGIC) return null;
+        const ptsUs = readU64LittleEndian(view, 4);
+        const durationUs = view.getUint32(12, true);
+        const flags = view.getUint8(16);
+        const payloadLen = view.getUint32(17, true);
+        if (VP8_VIDEO_HEADER_LEN + payloadLen > view.byteLength) return null;
+        return {
+            ptsUs,
+            durationUs,
+            keyframe: (flags & 0x01) !== 0,
+            payload: new Uint8Array(buffer, VP8_VIDEO_HEADER_LEN, payloadLen)
+        };
+    }
+
+    function probeVp8WebCodecDecode() {
+        if (rtcVp8DecodeSupported !== null) return rtcVp8DecodeSupported;
+        if (typeof VideoDecoder === "undefined" || typeof EncodedVideoChunk === "undefined") {
+            rtcVp8DecodeSupported = false;
+            return false;
+        }
+        try {
+            const decoder = new VideoDecoder({ output: frame => frame.close(), error: () => { } });
+            decoder.configure({ codec: "vp8", optimizeForLatency: true, hardwareAcceleration: "prefer-hardware" });
+            decoder.close();
+            rtcVp8DecodeSupported = true;
+        } catch {
+            rtcVp8DecodeSupported = false;
+        }
+        return rtcVp8DecodeSupported;
+    }
+
+    function ensureRtcVideoDecoder() {
+        if (!probeVp8WebCodecDecode()) return false;
+        if (rtcVideoDecoderReady && rtcVideoDecoder) return true;
+        try {
+            rtcVideoDecoder = new VideoDecoder({
+                output: frame => {
+                    if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
+                        canvas.width = frame.displayWidth;
+                        canvas.height = frame.displayHeight;
+                        fitCanvasToShell();
+                    }
+                    ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
+                    videoRenderMs = 0;
+                    frame.close();
+                },
+                error: () => {
+                    rtcVideoDecoderReady = false;
+                }
+            });
+            rtcVideoDecoder.configure({ codec: "vp8", optimizeForLatency: true, hardwareAcceleration: "prefer-hardware" });
+            rtcVideoDecoderReady = true;
+            return true;
+        } catch {
+            rtcVideoDecoder = null;
+            rtcVideoDecoderReady = false;
+            return false;
+        }
+    }
+
+    function decodeVp8WebCodecFrame(packet) {
+        if (!ensureRtcVideoDecoder() || !rtcVideoDecoder) return false;
+        try {
+            const chunk = new EncodedVideoChunk({
+                type: packet.keyframe ? "key" : "delta",
+                timestamp: packet.ptsUs,
+                duration: packet.durationUs,
+                data: packet.payload
+            });
+            rtcVideoDecoder.decode(chunk);
+            return true;
+        } catch {
+            rtcVideoDecoderReady = false;
+            return false;
+        }
+    }
+
+    function waitForIceGatheringComplete(peer) {
+        if (peer.iceGatheringState === "complete") return Promise.resolve();
+        return new Promise(resolve => {
+            const timeout = window.setTimeout(() => {
+                peer.removeEventListener("icegatheringstatechange", onState);
+                resolve();
+            }, 1800);
+            const onState = () => {
+                if (peer.iceGatheringState === "complete") {
+                    window.clearTimeout(timeout);
+                    peer.removeEventListener("icegatheringstatechange", onState);
+                    resolve();
+                }
+            };
+            peer.addEventListener("icegatheringstatechange", onState);
+        });
     }
 
     function enterCssFullscreenFallback() {

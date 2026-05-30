@@ -38,7 +38,8 @@ public class GamesController(
     GamePlayTelemetryService gamePlayTelemetry,
     GamePlayRoomService roomService,
     CurrentProfileService currentProfile,
-    CurrentAccessService currentAccess) : Controller
+    CurrentAccessService currentAccess,
+    IHttpClientFactory httpClientFactory) : Controller
 {
     public async Task<IActionResult> Index(
         string? q,
@@ -1170,7 +1171,7 @@ public class GamesController(
 
         if (!IsAllowedWebSocketOrigin(Request))
         {
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden);
         }
 
         if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(channel) ||
@@ -1212,7 +1213,8 @@ public class GamesController(
             token = nosebleedTickets.CreateSpectatorToken(sessionId, viewerId);
         }
 
-        var target = BuildNosebleedWebSocketUri(session.BaseUrl, $"/ws/{channel}", token);
+        var path = channel == "video" ? "/ws/video?video_mode=jpeg" : $"/ws/{channel}";
+        var target = BuildNosebleedWebSocketUri(session.BaseUrl, path, token);
         if (target is null)
         {
             return StatusCode(StatusCodes.Status502BadGateway);
@@ -1230,8 +1232,10 @@ public class GamesController(
 
         using var downstream = await HttpContext.WebSockets.AcceptWebSocketAsync();
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, HttpContext.RequestAborted);
-        var clientToUpstream = NosebleedWebSocketRelay.PumpOrderedAsync(downstream, upstream, channel, nosebleedRelayMetrics, linkedCts.Token);
-        var upstreamToClient = NosebleedWebSocketRelay.PumpUpstreamToDownstreamAsync(channel, upstream, downstream, nosebleedRelayMetrics, linkedCts.Token);
+        var clientToUpstream = PumpWebSocketAsync(downstream, upstream, linkedCts.Token);
+        var upstreamToClient = channel == "video"
+            ? LatestVideoWebSocketRelay.PumpLatestAsync(upstream, downstream, linkedCts.Token)
+            : PumpWebSocketAsync(upstream, downstream, linkedCts.Token);
         await Task.WhenAny(clientToUpstream, upstreamToClient);
         await linkedCts.CancelAsync();
 
@@ -1247,6 +1251,85 @@ public class GamesController(
         }
 
         return new EmptyResult();
+    }
+
+    [HttpPost]
+    public async Task<IActionResult> NosebleedWebRtcSession(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (!IsAllowedWebSocketOrigin(Request))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        if (string.IsNullOrWhiteSpace(sessionId) ||
+            !Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var viewerIdRaw) ||
+            !Guid.TryParse(viewerIdRaw, out _))
+        {
+            return BadRequest();
+        }
+
+        var viewerId = viewerIdRaw!;
+
+        var session = nosebleedSessions.GetSessions()
+            .FirstOrDefault(x => string.Equals(x.SessionId, sessionId, StringComparison.OrdinalIgnoreCase));
+        if (session is null || session.HasExited)
+        {
+            await gamePlayTelemetry.FinishByExternalSessionAsync(sessionId, "process-exit", cancellationToken);
+            return NotFound();
+        }
+
+        var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow);
+        string? token;
+        if (await currentAccess.CanPlayAsync(cancellationToken) && seat.Kind == NosebleedSeatKind.Player && seat.Port is not null)
+        {
+            token = nosebleedTickets.CreatePlayerToken(sessionId, viewerId, seat.Port.Value);
+        }
+        else
+        {
+            token = nosebleedTickets.CreateSpectatorToken(sessionId, viewerId);
+        }
+
+        if (string.IsNullOrWhiteSpace(token) || !Uri.TryCreate(session.BaseUrl, UriKind.Absolute, out var baseUri))
+        {
+            return StatusCode(StatusCodes.Status502BadGateway);
+        }
+
+        var target = new UriBuilder(new Uri(baseUri, "/webrtc/session"))
+        {
+            Query = $"token={Uri.EscapeDataString(token)}"
+        };
+
+        var offerJson = await new StreamReader(Request.Body).ReadToEndAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(offerJson))
+        {
+            return BadRequest("Missing WebRTC offer payload.");
+        }
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, target.Uri)
+        {
+            Content = new StringContent(offerJson, System.Text.Encoding.UTF8, "application/json")
+        };
+
+        using var client = httpClientFactory.CreateClient();
+        HttpResponseMessage upstream;
+        try
+        {
+            upstream = await client.SendAsync(req, cancellationToken);
+        }
+        catch
+        {
+            return StatusCode(StatusCodes.Status502BadGateway);
+        }
+
+        await using var upstreamStream = await upstream.Content.ReadAsStreamAsync(cancellationToken);
+        using var sr = new StreamReader(upstreamStream);
+        var answerBody = await sr.ReadToEndAsync(cancellationToken);
+        if (!upstream.IsSuccessStatusCode)
+        {
+            return StatusCode((int)upstream.StatusCode, answerBody);
+        }
+
+        return Content(answerBody, "application/json");
     }
 
     [HttpPost]
@@ -1340,7 +1423,10 @@ public class GamesController(
         };
         if (!string.IsNullOrWhiteSpace(token))
         {
-            builder.Query = $"token={Uri.EscapeDataString(token)}";
+            var tokenParam = $"token={Uri.EscapeDataString(token)}";
+            builder.Query = string.IsNullOrWhiteSpace(builder.Query)
+                ? tokenParam
+                : $"{builder.Query.TrimStart('?')}&{tokenParam}";
         }
 
         return builder.Uri;
