@@ -9,6 +9,7 @@ public sealed class ProfileDetailsViewModel
     public int SessionCount { get; init; }
     public TimeSpan TotalPlayTime { get; init; }
     public string? LastPlayedGame { get; init; }
+    public ProfileChangePinViewModel ChangePin { get; init; } = new();
     public IReadOnlyList<ProfileTopGameViewModel> TopGames { get; init; } = [];
     public IReadOnlyList<ProfileRecentSessionViewModel> RecentSessions { get; init; } = [];
 }
