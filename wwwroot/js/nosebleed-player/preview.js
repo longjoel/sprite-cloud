@@ -18,9 +18,42 @@
         return String.fromCharCode(view.getUint8(offset), view.getUint8(offset + 1), view.getUint8(offset + 2), view.getUint8(offset + 3));
     }
 
+    function ensureCanvasSize(canvas, width, height) {
+        if (canvas.width !== width || canvas.height !== height) {
+            canvas.width = width;
+            canvas.height = height;
+        }
+    }
+
+    function drawJpegFrame(canvas, buffer) {
+        const data = new DataView(buffer);
+        if (data.byteLength < 16) return false;
+
+        const width = data.getUint32(4, true);
+        const height = data.getUint32(8, true);
+        const payloadLen = data.getUint32(12, true);
+        const offset = 16;
+        if (width <= 0 || height <= 0 || data.byteLength < offset + payloadLen) return false;
+
+        ensureCanvasSize(canvas, width, height);
+
+        const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
+        const jpegSlice = buffer.slice(offset, offset + payloadLen);
+        createImageBitmap(new Blob([jpegSlice], { type: "image/jpeg" }))
+            .then(bitmap => {
+                ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+                bitmap.close();
+            })
+            .catch(() => { });
+
+        return true;
+    }
+
     function renderFrame(canvas, buffer) {
         const data = new DataView(buffer);
-        if (data.byteLength < 37 || magic(data, 0) !== "NBF0") return false;
+        const sig = data.byteLength >= 4 ? magic(data, 0) : "";
+        if (sig === "NBJ0") return drawJpegFrame(canvas, buffer);
+        if (data.byteLength < 37 || sig !== "NBF0") return false;
 
         const width = data.getUint32(20, true);
         const height = data.getUint32(24, true);
@@ -30,10 +63,7 @@
         const offset = 37;
         if (width <= 0 || height <= 0 || data.byteLength < offset + payloadLen) return false;
 
-        if (canvas.width !== width || canvas.height !== height) {
-            canvas.width = width;
-            canvas.height = height;
-        }
+        ensureCanvasSize(canvas, width, height);
 
         const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
         const image = ctx.createImageData(width, height);

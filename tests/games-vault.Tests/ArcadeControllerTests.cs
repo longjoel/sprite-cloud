@@ -4,6 +4,7 @@ using games_vault.Data;
 using games_vault.Gameplay;
 using games_vault.Libretro.Import;
 using games_vault.Models;
+using games_vault.Models.ViewModels;
 using games_vault.Nosebleed;
 using games_vault.Profiles;
 using Microsoft.AspNetCore.Hosting;
@@ -22,6 +23,27 @@ namespace games_vault.Tests;
 
 public sealed class ArcadeControllerTests
 {
+    [Fact]
+    public async Task Join_UnlaunchedCabinetReturnsServerPlayerViewInsteadOfNotFound()
+    {
+        await using var fixture = await CreateFixtureAsync(adminAlways: false);
+        fixture.Cabinet.RuntimeSessionId = null;
+        fixture.Cabinet.LastError = null;
+        await fixture.Db.SaveChangesAsync();
+
+        var controller = fixture.CreateController();
+
+        var result = await controller.Join(fixture.Cabinet.Id, CancellationToken.None);
+
+        var view = Assert.IsType<ViewResult>(result);
+        Assert.Equal("~/Views/Games/PlayServer.cshtml", view.ViewName);
+        var model = Assert.IsType<ServerGamePlayViewModel>(view.Model);
+        Assert.Equal(fixture.Cabinet.GameId, model.Game.Id);
+        Assert.NotNull(model.File);
+        Assert.Equal(fixture.Cabinet.GameFileId, model.File!.Id);
+        Assert.False(string.IsNullOrWhiteSpace(model.Error));
+    }
+
     [Fact]
     public async Task RemoveCabinet_RemovesCabinetAndRedirectsToIndex()
     {
