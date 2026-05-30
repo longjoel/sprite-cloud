@@ -19,6 +19,37 @@
 
 <div class="row g-4">
     <div class="col-lg-5">
+        @if (Model.IsCurrent)
+        {
+            <div class="card mb-4" id="change-pin">
+                <div class="card-body">
+                    <h2 class="h5">Change PIN</h2>
+                    <p class="text-muted small">Use a 4-digit PIN for this player profile.</p>
+                    <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
+                    <form method="post" asp-action="ChangePin" autocomplete="off">
+                        @Html.AntiForgeryToken()
+                        <input asp-for="ChangePin.ProfileId" type="hidden" />
+                        <div class="mb-3">
+                            <label class="form-label" asp-for="ChangePin.CurrentPin">Current PIN</label>
+                            <input class="form-control" asp-for="ChangePin.CurrentPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" />
+                            <span class="text-danger" asp-validation-for="ChangePin.CurrentPin"></span>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" asp-for="ChangePin.NewPin">New PIN</label>
+                            <input class="form-control" asp-for="ChangePin.NewPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" />
+                            <span class="text-danger" asp-validation-for="ChangePin.NewPin"></span>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" asp-for="ChangePin.ConfirmNewPin">Confirm new PIN</label>
+                            <input class="form-control" asp-for="ChangePin.ConfirmNewPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" />
+                            <span class="text-danger" asp-validation-for="ChangePin.ConfirmNewPin"></span>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Update PIN</button>
+                    </form>
+                </div>
+            </div>
+        }
+
         <h2 class="h4">Top games</h2>
         @if (Model.TopGames.Count == 0)
         {
@@ -69,3 +100,7 @@
         }
     </div>
 </div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

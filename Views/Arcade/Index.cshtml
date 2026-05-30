@@ -126,6 +126,10 @@ else
                                         <input type="hidden" name="id" value="@cabinet.Id" />
                                         <button type="submit" class="btn btn-sm btn-outline-danger">Stop</button>
                                     </form>
+                                    <form asp-action="RemoveCabinet" method="post" asp-antiforgery="true">
+                                        <input type="hidden" name="id" value="@cabinet.Id" />
+                                        <button type="submit" class="btn btn-sm btn-danger">Remove</button>
+                                    </form>
                                 }
                             </div>
                         </div>
