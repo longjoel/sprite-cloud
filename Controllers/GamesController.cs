@@ -34,6 +34,7 @@ public class GamesController(
     NosebleedSessionManager nosebleedSessions,
     NosebleedSeatManager nosebleedSeats,
     NosebleedTicketSigner nosebleedTickets,
+    NosebleedRelayMetrics nosebleedRelayMetrics,
     GamePlayTelemetryService gamePlayTelemetry,
     GamePlayRoomService roomService,
     CurrentProfileService currentProfile,
@@ -1451,35 +1452,6 @@ public class GamesController(
         }
 
         return originUri.Port == requestPort;
-    }
-
-    private static async Task PumpWebSocketAsync(WebSocket source, WebSocket destination, CancellationToken cancellationToken)
-    {
-        var buffer = new byte[64 * 1024];
-        while (!cancellationToken.IsCancellationRequested &&
-               source.State == WebSocketState.Open &&
-               destination.State == WebSocketState.Open)
-        {
-            var result = await source.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
-            if (result.MessageType == WebSocketMessageType.Close)
-            {
-                if (destination.State == WebSocketState.Open || destination.State == WebSocketState.CloseReceived)
-                {
-                    await destination.CloseAsync(
-                        result.CloseStatus ?? WebSocketCloseStatus.NormalClosure,
-                        result.CloseStatusDescription,
-                        cancellationToken);
-                }
-
-                break;
-            }
-
-            await destination.SendAsync(
-                new ArraySegment<byte>(buffer, 0, result.Count),
-                result.MessageType,
-                result.EndOfMessage,
-                cancellationToken);
-        }
     }
 
     private string GetOrCreateNosebleedViewerId()
