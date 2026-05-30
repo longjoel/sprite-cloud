@@ -115,8 +115,58 @@ public sealed class ProfilesController(
 
     public async Task<IActionResult> Details(int id, CancellationToken cancellationToken = default)
     {
+        var model = await BuildDetailsViewModelAsync(id, null, cancellationToken);
+        if (model is null) return NotFound();
+        return View(model);
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ChangePin(ProfileChangePinViewModel model, CancellationToken cancellationToken = default)
+    {
+        var profile = await db.UserProfiles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == model.ProfileId && !x.IsArchived, cancellationToken);
+        if (profile is null)
+        {
+            return NotFound();
+        }
+
+        var current = await currentProfile.GetCurrentAsync(cancellationToken);
+        if (current?.Id != model.ProfileId)
+        {
+            return Forbid();
+        }
+
+        if (!ModelState.IsValid)
+        {
+            var invalidModel = await BuildDetailsViewModelAsync(model.ProfileId, model, cancellationToken);
+            return View(nameof(Details), invalidModel!);
+        }
+
+        if (!await localProfiles.ChangePinAsync(model.ProfileId, model.CurrentPin, model.NewPin, cancellationToken))
+        {
+            ModelState.AddModelError(string.Empty, "Current PIN was incorrect.");
+            var failedModel = await BuildDetailsViewModelAsync(model.ProfileId, model, cancellationToken);
+            return View(nameof(Details), failedModel!);
+        }
+
+        TempData["Message"] = "PIN updated.";
+        return RedirectToAction(nameof(Details), new { id = model.ProfileId });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult Clear()
+    {
+        currentProfile.ClearCurrent();
+        TempData["Message"] = "Returned to viewer mode.";
+        return RedirectToAction(nameof(Index));
+    }
+
+    private async Task<ProfileDetailsViewModel?> BuildDetailsViewModelAsync(int id, ProfileChangePinViewModel? changePinModel, CancellationToken cancellationToken)
+    {
         var profile = await db.UserProfiles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && !x.IsArchived, cancellationToken);
-        if (profile is null) return NotFound();
+        if (profile is null) return null;
+
         var current = await currentProfile.GetCurrentAsync(cancellationToken);
         var now = DateTime.UtcNow;
         var sessions = await db.GamePlaySessions.AsNoTracking()
@@ -141,7 +191,7 @@ public sealed class ProfilesController(
             TotalPlayTime = TimeSpan.FromSeconds(g.Sum(x => x.EndedUtc.HasValue ? x.DurationSeconds : (int)Math.Max(0, Math.Round((now - x.StartedUtc).TotalSeconds))))
         }).OrderByDescending(x => x.TotalPlayTime).Take(10).ToList();
 
-        return View(new ProfileDetailsViewModel
+        return new ProfileDetailsViewModel
         {
             Id = profile.Id,
             DisplayName = profile.DisplayName,
@@ -150,18 +200,10 @@ public sealed class ProfilesController(
             SessionCount = sessions.Count,
             TotalPlayTime = TimeSpan.FromSeconds(recent.Sum(x => (int)x.Duration.TotalSeconds)),
             LastPlayedGame = recent.FirstOrDefault()?.GameName,
+            ChangePin = changePinModel ?? new ProfileChangePinViewModel { ProfileId = profile.Id },
             RecentSessions = recent,
             TopGames = top
-        });
-    }
-
-    [HttpPost]
-    [ValidateAntiForgeryToken]
-    public IActionResult Clear()
-    {
-        currentProfile.ClearCurrent();
-        TempData["Message"] = "Returned to viewer mode.";
-        return RedirectToAction(nameof(Index));
+        };
     }
 
     private async Task<ProfileInvitesViewModel> BuildInvitesViewModelAsync(ProfileInviteCode? newInvite, CancellationToken ct)

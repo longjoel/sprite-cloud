@@ -61,11 +61,15 @@ else
                         }
                     </div>
                     <div class="card-footer bg-transparent">
-                        <form method="post" asp-action="SignIn" class="d-flex gap-2 align-items-center">
+                        <form method="post" asp-action="SignIn" class="d-flex gap-2 align-items-center flex-wrap">
                             @Html.AntiForgeryToken()
                             <input type="hidden" name="profileId" value="@profile.Id" />
                             <a class="btn btn-sm btn-outline-secondary" asp-action="Details" asp-route-id="@profile.Id">Details</a>
-                            <input class="form-control form-control-sm ms-auto" type="password" inputmode="numeric" pattern="[0-9]*" name="pin" placeholder="PIN" value="0000" aria-label="PIN for @profile.DisplayName" style="max-width:7rem" required />
+                            @if (profile.IsCurrent)
+                            {
+                                <a class="btn btn-sm btn-outline-primary" asp-action="Details" asp-route-id="@profile.Id" asp-fragment="change-pin">Change PIN</a>
+                            }
+                            <input class="form-control form-control-sm ms-auto" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" name="pin" placeholder="PIN" value="0000" aria-label="PIN for @profile.DisplayName" style="max-width:7rem" required />
                             <button class="btn btn-sm btn-outline-primary">Sign in</button>
                         </form>
                     </div>

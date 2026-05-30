@@ -208,6 +208,27 @@ public class ArcadeController(
         return RedirectToAction(nameof(Index));
     }
 
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> RemoveCabinet(int id, CancellationToken cancellationToken)
+    {
+        if (!await currentAccess.CanManageLibraryAsync(cancellationToken)) return Forbid();
+        var cabinet = await db.ArcadeCabinets.FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
+        if (cabinet is null) return NotFound();
+
+        var displayName = cabinet.DisplayName;
+        if (!string.IsNullOrWhiteSpace(cabinet.RuntimeSessionId))
+        {
+            nosebleedSessions.TryStop(cabinet.RuntimeSessionId, "arcade cabinet removed");
+            await gamePlayTelemetry.FinishByExternalSessionAsync(cabinet.RuntimeSessionId, "arcade cabinet removed", cancellationToken);
+        }
+
+        db.ArcadeCabinets.Remove(cabinet);
+        await db.SaveChangesAsync(cancellationToken);
+        TempData["Message"] = $"Removed {displayName} from the arcade.";
+        return RedirectToAction(nameof(Index));
+    }
+
     [HttpGet]
     public async Task<IActionResult> Join(int id, CancellationToken cancellationToken = default)
     {
