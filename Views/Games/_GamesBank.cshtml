@@ -13,17 +13,19 @@
     <div class="alert alert-info mb-0">
         @if (!string.IsNullOrWhiteSpace(q))
         {
-            <span>No games match "@q".</span>
+            <div class="fw-semibold mb-1">No games match "@q".</div>
+            <div>Try a different search, or switch to Add / import games to bring something new into the library.</div>
         }
         else
         {
-            <span>No games yet.</span>
+            <div class="fw-semibold mb-1">No games yet.</div>
+            <div>Use the Add / import tab to upload ROMs or pull them in from your sources.</div>
         }
     </div>
 }
 else
 {
-    <form id="games-bulk-form" asp-action="BulkDelete" method="post" class="mb-2">
+    <form id="games-bulk-form" asp-action="BulkDelete" method="post" class="mb-3">
         @Html.AntiForgeryToken()
         <input type="hidden" name="q" value="@q" />
         <input type="hidden" name="page" value="@currentPage" />
@@ -31,70 +33,67 @@ else
         <input type="hidden" name="batchId" value="@Model.BatchId" />
         <input type="hidden" name="returnUrl" value="@returnUrl" />
 
-        <div class="d-flex align-items-center justify-content-between">
-            <div class="d-flex align-items-center gap-2">
-                <button type="submit"
-                        class="btn btn-sm btn-outline-success"
-                        id="bulk-add-btn"
-                        formaction="/Games/AddSelectedToBatch"
-                        formmethod="post"
-                        disabled>
-                    @(Model.BatchId is null ? "Add selected (new batch)" : "Add selected to batch")
-                </button>
-                <button type="submit" class="btn btn-sm btn-outline-danger" id="bulk-delete-btn" disabled>Delete selected</button>
-                <span class="text-muted" id="bulk-selected-count"></span>
+        <div class="card border-0 bg-body-tertiary shadow-sm">
+            <div class="card-body py-2 px-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
+                <div class="d-flex align-items-center gap-3 flex-wrap">
+                    <label class="form-check mb-0 d-flex align-items-center gap-2">
+                        <input type="checkbox" class="form-check-input" id="select-all" />
+                        <span class="small text-muted">Select page</span>
+                    </label>
+                    <span class="text-muted small" id="bulk-selected-count"></span>
+                </div>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <button type="submit"
+                            class="btn btn-sm btn-outline-success"
+                            id="bulk-add-btn"
+                            formaction="/Games/AddSelectedToBatch"
+                            formmethod="post"
+                            disabled>
+                        @(Model.BatchId is null ? "Add selected (new batch)" : "Add selected to batch")
+                    </button>
+                    <button type="submit" class="btn btn-sm btn-outline-danger" id="bulk-delete-btn" disabled>Delete selected</button>
+                </div>
             </div>
         </div>
     </form>
 
-    <div class="table-responsive">
-        <table class="table table-striped align-middle">
-            <thead>
-                <tr>
-                    <th style="width: 2.5rem;">
-                        <input type="checkbox" class="form-check-input" id="select-all" />
-                    </th>
-                    <th>Name</th>
-                    <th>System</th>
-                    <th>Files</th>
-                    <th class="text-end" style="width: 1%; white-space: nowrap;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-            @foreach (var game in Model.Games)
-            {
-                    var detailsId = $"game-details-{game.Id}";
-                    var editId = $"game-edit-{game.Id}";
-                    var accordionId = $"game-accordion-{game.Id}";
-                    <tr class="game-row" data-game-id="@game.Id">
-                        <td>
-                            <input type="checkbox" class="form-check-input game-select" name="ids" value="@game.Id" />
-                        </td>
-                        <td>
-                            <button type="button"
-                                    class="btn btn-link p-0 text-decoration-none text-start"
-                                    data-bs-toggle="collapse"
-                                    data-bs-target="#@detailsId"
-                                    aria-controls="@detailsId"
-                                    aria-expanded="false">
-                                @game.Name
-                            </button>
-                        </td>
-                        <td>
-                            @game.SystemName
-                            @if (Model.MissingSystemFilesBySystem.TryGetValue(game.SystemName, out var missing) && missing.MissingCount > 0)
-                            {
-                                var sample = missing.SampleFiles is { Count: > 0 } ? string.Join(", ", missing.SampleFiles) : "";
-                                var more = missing.MissingCount > missing.SampleFiles.Count ? $" (+{missing.MissingCount - missing.SampleFiles.Count} more)" : "";
-                                <span class="text-danger ms-2" title="Missing system files: @sample@more">[MISSING]</span>
-                                @if (!string.IsNullOrWhiteSpace(sample))
-                                {
-                                    <span class="text-danger ms-1" title="Missing system files: @sample@more">@sample@more</span>
-                                }
-                            }
-                        </td>
-                        <td>@game.FileCount</td>
-                        <td class="text-end">
+    <div class="row row-cols-1 row-cols-xl-2 g-3">
+        @foreach (var game in Model.Games)
+        {
+            var detailsId = $"game-details-{game.Id}";
+            var editId = $"game-edit-{game.Id}";
+            var accordionId = $"game-accordion-{game.Id}";
+            var inBatch = batchGameIds.Contains(game.Id);
+            var missingInfo = Model.MissingSystemFilesBySystem.TryGetValue(game.SystemName, out var missing) ? missing : null;
+            var hasMissingSystemFiles = missingInfo is not null && missingInfo.MissingCount > 0;
+            var missingSample = hasMissingSystemFiles && missingInfo!.SampleFiles.Count > 0 ? string.Join(", ", missingInfo.SampleFiles) : "";
+            var missingMore = hasMissingSystemFiles && missingInfo!.MissingCount > missingInfo.SampleFiles.Count
+                ? $" (+{missingInfo.MissingCount - missingInfo.SampleFiles.Count} more)"
+                : "";
+
+            <div class="col">
+                <div class="card h-100 shadow-sm game-row" data-game-id="@game.Id">
+                    <div class="card-body d-flex flex-column gap-3">
+                        <div class="d-flex align-items-start justify-content-between gap-3">
+                            <div class="form-check mt-1">
+                                <input type="checkbox" class="form-check-input game-select" name="ids" value="@game.Id" id="game-select-@game.Id" />
+                            </div>
+                            <div class="flex-grow-1 min-w-0">
+                                <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                                    <h2 class="h5 mb-0 text-break">
+                                        <a class="link-body-emphasis text-decoration-none" asp-action="PlayServer" asp-route-id="@game.Id">@game.Name</a>
+                                    </h2>
+                                    @if (inBatch)
+                                    {
+                                        <span class="badge text-bg-success">In batch</span>
+                                    }
+                                    @if (hasMissingSystemFiles)
+                                    {
+                                        <span class="badge text-bg-danger" title="Missing system files: @missingSample@missingMore">Missing BIOS/system files</span>
+                                    }
+                                </div>
+                                <div class="text-muted small text-break">@game.SystemName</div>
+                            </div>
                             <div class="dropdown">
                                 <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
                                         type="button"
@@ -104,6 +103,12 @@ else
                                 </button>
                                 <ul class="dropdown-menu dropdown-menu-end">
                                     <li>
+                                        <a class="dropdown-item" asp-action="PlayServer" asp-route-id="@game.Id">Play server-side</a>
+                                    </li>
+                                    <li>
+                                        <a class="dropdown-item" asp-action="Play" asp-route-id="@game.Id">Play in browser</a>
+                                    </li>
+                                    <li>
                                         <button class="dropdown-item"
                                                 type="button"
                                                 data-bs-toggle="collapse"
@@ -112,12 +117,6 @@ else
                                                 aria-expanded="false">
                                             Details
                                         </button>
-                                    </li>
-                                    <li>
-                                        <a class="dropdown-item" asp-action="Play" asp-route-id="@game.Id" target="_blank">Play in browser</a>
-                                    </li>
-                                    <li>
-                                        <a class="dropdown-item" asp-action="PlayServer" asp-route-id="@game.Id" target="_blank">Play server-side</a>
                                     </li>
                                     <li>
                                         <button class="dropdown-item"
@@ -132,9 +131,9 @@ else
 
                                     <li><hr class="dropdown-divider" /></li>
 
-                                    @if (batchGameIds.Contains(game.Id))
+                                    @if (inBatch)
                                     {
-                                        <li><span class="dropdown-item-text text-muted">In batch</span></li>
+                                        <li><span class="dropdown-item-text text-muted">Already in batch</span></li>
                                     }
                                     else
                                     {
@@ -157,122 +156,144 @@ else
                                     </li>
                                 </ul>
                             </div>
-                        </td>
-                    </tr>
-                    <tr class="game-details-row" data-game-id="@game.Id">
-                        <td colspan="5" class="p-0">
-                            <div id="@accordionId">
-                                <div class="collapse" id="@detailsId" data-bs-parent="#@accordionId">
-                                    <div class="p-3 bg-body">
-                                        <div class="row g-3">
-                                            <div class="col-md-4">
-                                                <div class="fw-semibold">Created</div>
-                                                <div class="text-muted">@game.CreatedUtc.ToLocalTime().ToString("u")</div>
-                                            </div>
+                        </div>
+
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                            <div class="d-flex flex-wrap gap-2 text-muted small">
+                                <span class="badge rounded-pill text-bg-light">@game.FileCount file@(game.FileCount == 1 ? "" : "s")</span>
+                                <span class="badge rounded-pill text-bg-light">Added @game.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd")</span>
+                            </div>
+                            @if (hasMissingSystemFiles && !string.IsNullOrWhiteSpace(missingSample))
+                            {
+                                <div class="small text-danger text-end">Missing: @missingSample@missingMore</div>
+                            }
+                        </div>
+
+                        <div class="d-flex flex-wrap gap-2 mt-auto">
+                            <a class="btn btn-primary" asp-action="PlayServer" asp-route-id="@game.Id">Play server-side</a>
+                            <a class="btn btn-outline-secondary" asp-action="Play" asp-route-id="@game.Id">Browser</a>
+                            <a class="btn btn-outline-secondary" asp-action="Details" asp-route-id="@game.Id">Open details</a>
+                            <button class="btn btn-outline-secondary"
+                                    type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#@detailsId"
+                                    aria-controls="@detailsId"
+                                    aria-expanded="false">
+                                Quick details
+                            </button>
+                        </div>
+
+                        <div id="@accordionId" class="game-details-row" data-game-id="@game.Id">
+                            <div class="collapse" id="@detailsId" data-bs-parent="#@accordionId">
+                                <div class="border-top pt-3">
+                                    <div class="row g-3">
+                                        <div class="col-md-4">
+                                            <div class="fw-semibold">Created</div>
+                                            <div class="text-muted">@game.CreatedUtc.ToLocalTime().ToString("u")</div>
                                         </div>
-
-                                        <div class="mt-3 d-flex align-items-center justify-content-between">
-                                            <div class="fw-semibold">Files</div>
-                                            <div class="d-flex gap-2">
-                                                <a class="btn btn-sm btn-outline-secondary" asp-action="Details" asp-route-id="@game.Id">Open</a>
-                                                <button class="btn btn-sm btn-outline-secondary"
-                                                        type="button"
-                                                        data-bs-toggle="collapse"
-                                                        data-bs-target="#@editId"
-                                                        aria-controls="@editId"
-                                                        aria-expanded="false">
-                                                    Edit inline
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        @if (game.Files.Count == 0)
-                                        {
-                                            <div class="text-muted mt-2">No files.</div>
-                                        }
-                                        else
-                                        {
-                                            <div class="table-responsive mt-2">
-                                                <table class="table table-sm mb-0">
-                                                    <thead>
-                                                        <tr>
-                                                            <th>File name</th>
-                                                            <th>CRC32</th>
-                                                            <th class="text-end">Size</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                    @{
-                                                        var filesOrdered = game.Files.OrderBy(f => f.Name).ToList();
-                                                        var filesToShow = filesOrdered.Take(100).ToList();
-                                                    }
-                                                    @foreach (var file in filesToShow)
-                                                    {
-                                                        <tr>
-                                                            <td class="text-truncate" style="max-width: 40rem;">@file.Name</td>
-                                                            <td>@file.Crc32</td>
-                                                            <td class="text-end">@file.SizeBytes</td>
-                                                        </tr>
-                                                    }
-                                                    </tbody>
-                                                </table>
-                                            </div>
-
-                                            @if (filesOrdered.Count > 100)
-                                            {
-                                                <div class="text-muted mt-2">
-                                                    Showing first 100 of @filesOrdered.Count file(s). <a asp-action="Details" asp-route-id="@game.Id">View all</a>.
-                                                </div>
-                                            }
-                                        }
                                     </div>
-                                </div>
 
-                                <div class="collapse" id="@editId" data-bs-parent="#@accordionId">
-                                    <div class="p-3 bg-body border-top">
-                                        <div class="d-flex align-items-center justify-content-between mb-2">
-                                            <div class="fw-semibold">Edit game</div>
-                                            <a class="btn btn-sm btn-outline-secondary" asp-action="Edit" asp-route-id="@game.Id">Open full edit</a>
+                                    <div class="mt-3 d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                                        <div class="fw-semibold">Files</div>
+                                        <div class="d-flex gap-2">
+                                            <a class="btn btn-sm btn-outline-secondary" asp-action="Details" asp-route-id="@game.Id">Open</a>
+                                            <button class="btn btn-sm btn-outline-secondary"
+                                                    type="button"
+                                                    data-bs-toggle="collapse"
+                                                    data-bs-target="#@editId"
+                                                    aria-controls="@editId"
+                                                    aria-expanded="false">
+                                                Edit inline
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    @if (game.Files.Count == 0)
+                                    {
+                                        <div class="text-muted mt-2">No files.</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="table-responsive mt-2">
+                                            <table class="table table-sm mb-0 align-middle">
+                                                <thead>
+                                                    <tr>
+                                                        <th>File name</th>
+                                                        <th>CRC32</th>
+                                                        <th class="text-end">Size</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                @{
+                                                    var filesOrdered = game.Files.OrderBy(f => f.Name).ToList();
+                                                    var filesToShow = filesOrdered.Take(100).ToList();
+                                                }
+                                                @foreach (var file in filesToShow)
+                                                {
+                                                    <tr>
+                                                        <td class="text-truncate" style="max-width: 28rem;">@file.Name</td>
+                                                        <td>@file.Crc32</td>
+                                                        <td class="text-end">@file.SizeBytes</td>
+                                                    </tr>
+                                                }
+                                                </tbody>
+                                            </table>
                                         </div>
 
-                                        <form asp-action="Edit" method="post" class="row g-3">
-                                            @Html.AntiForgeryToken()
-                                            <input type="hidden" name="id" value="@game.Id" />
-                                            <input type="hidden" name="returnUrl" value="@returnUrl" />
-                                            <input type="hidden" name="Id" value="@game.Id" />
-
-                                            <div class="col-md-6">
-                                                <label class="form-label" for="game-name-@game.Id">Name</label>
-                                                <input class="form-control" id="game-name-@game.Id" name="Name" value="@game.Name" maxlength="200" />
+                                        @if (filesOrdered.Count > 100)
+                                        {
+                                            <div class="text-muted mt-2">
+                                                Showing first 100 of @filesOrdered.Count file(s). <a asp-action="Details" asp-route-id="@game.Id">View all</a>.
                                             </div>
-                                            <div class="col-md-6">
-                                                <label class="form-label" for="game-system-@game.Id">System</label>
-                                                <input class="form-control" id="game-system-@game.Id" name="SystemName" value="@game.SystemName" maxlength="100" />
-                                            </div>
-                                            <div class="col-md-6">
-                                                <div class="form-text">CRC/size are tracked per file, not per game.</div>
-                                            </div>
-
-                                            <div class="col-12 d-flex gap-2">
-                                                <button type="submit" class="btn btn-primary">Save</button>
-                                                <button type="button"
-                                                        class="btn btn-outline-secondary"
-                                                        data-bs-toggle="collapse"
-                                                        data-bs-target="#@editId"
-                                                        aria-controls="@editId"
-                                                        aria-expanded="true">
-                                                    Cancel
-                                                </button>
-                                            </div>
-                                        </form>
-                                    </div>
+                                        }
+                                    }
                                 </div>
                             </div>
-                        </td>
-                    </tr>
-                }
-            </tbody>
-        </table>
+
+                            <div class="collapse" id="@editId" data-bs-parent="#@accordionId">
+                                <div class="border-top pt-3">
+                                    <div class="d-flex align-items-center justify-content-between mb-2 gap-2 flex-wrap">
+                                        <div class="fw-semibold">Edit game</div>
+                                        <a class="btn btn-sm btn-outline-secondary" asp-action="Edit" asp-route-id="@game.Id">Open full edit</a>
+                                    </div>
+
+                                    <form asp-action="Edit" method="post" class="row g-3">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@game.Id" />
+                                        <input type="hidden" name="returnUrl" value="@returnUrl" />
+                                        <input type="hidden" name="Id" value="@game.Id" />
+
+                                        <div class="col-md-6">
+                                            <label class="form-label" for="game-name-@game.Id">Name</label>
+                                            <input class="form-control" id="game-name-@game.Id" name="Name" value="@game.Name" maxlength="200" />
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label" for="game-system-@game.Id">System</label>
+                                            <input class="form-control" id="game-system-@game.Id" name="SystemName" value="@game.SystemName" maxlength="100" />
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="form-text">CRC/size are tracked per file, not per game.</div>
+                                        </div>
+
+                                        <div class="col-12 d-flex gap-2 flex-wrap">
+                                            <button type="submit" class="btn btn-primary">Save</button>
+                                            <button type="button"
+                                                    class="btn btn-outline-secondary"
+                                                    data-bs-toggle="collapse"
+                                                    data-bs-target="#@editId"
+                                                    aria-controls="@editId"
+                                                    aria-expanded="true">
+                                                Cancel
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
     </div>
 
     @if (Model.PageCount > 1)

@@ -271,11 +271,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<UserProfile>(entity =>
         {
             entity.Property(x => x.DisplayName).HasMaxLength(80);
+            entity.Property(x => x.Username).HasMaxLength(32);
             entity.Property(x => x.AvatarKey).HasMaxLength(32);
             entity.Property(x => x.Color).HasMaxLength(20);
             entity.Property(x => x.PasskeyUserHandleBase64Url).HasMaxLength(128);
-            entity.Property(x => x.PinHash).HasMaxLength(256);
+            entity.Property(x => x.PasswordHash).HasMaxLength(256);
             entity.HasIndex(x => x.DisplayName);
+            entity.HasIndex(x => x.Username).IsUnique();
             entity.HasIndex(x => x.PasskeyUserHandleBase64Url).IsUnique();
         });
 

@@ -5,6 +5,7 @@
     if (Model.WebScanSessionId != Guid.Empty) initialTab = "web";
     else if (Model.NetworkScanSessionId != Guid.Empty) initialTab = "share";
     else if (Model.LocalScanSessionId != Guid.Empty) initialTab = "filesystem";
+    var inlineAddGame = ViewData["InlineAddGame"] as bool? == true;
 }
 
 @if (!Model.LibretroAvailable)
@@ -62,7 +63,14 @@
 
             <div class="d-flex gap-2">
                 <button type="submit" class="btn btn-primary" disabled="@(!Model.LibretroAvailable)">Save</button>
-                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                @if (inlineAddGame)
+                {
+                    <a class="btn btn-outline-secondary" asp-controller="Games" asp-action="Index">Back to browse</a>
+                }
+                else
+                {
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                }
             </div>
         </form>
     </div>

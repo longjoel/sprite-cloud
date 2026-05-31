@@ -4,7 +4,7 @@
 }
 
 <h1>Create player profile</h1>
-<p class="text-muted">Create a Games Vault profile from an admin invite link. New profiles start with PIN <code>0000</code>.</p>
+<p class="text-muted">Create a Games Vault profile from an admin invite link and choose the username/password the player will use to sign in.</p>
 
 <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
 
@@ -16,6 +16,22 @@
             <input class="form-control" asp-for="DisplayName" name="displayName" maxlength="80" required />
         </div>
         <div class="mb-3">
+            <label class="form-label" asp-for="Username"></label>
+            <input class="form-control" asp-for="Username" name="username" maxlength="32" autocapitalize="none" spellcheck="false" required />
+            <div class="form-text">Usernames are lowercase on save and can use letters, numbers, periods, underscores, and hyphens.</div>
+            <span class="text-danger" asp-validation-for="Username"></span>
+        </div>
+        <div class="mb-3">
+            <label class="form-label" asp-for="Password"></label>
+            <input class="form-control" asp-for="Password" name="password" type="password" minlength="8" required />
+            <span class="text-danger" asp-validation-for="Password"></span>
+        </div>
+        <div class="mb-3">
+            <label class="form-label" asp-for="ConfirmPassword"></label>
+            <input class="form-control" asp-for="ConfirmPassword" name="confirmPassword" type="password" minlength="8" required />
+            <span class="text-danger" asp-validation-for="ConfirmPassword"></span>
+        </div>
+        <div class="mb-3">
             <label class="form-label" asp-for="Color"></label>
             <input class="form-control form-control-color" asp-for="Color" name="color" type="color" value="#0d6efd" />
         </div>
@@ -23,9 +39,6 @@
             <label class="form-label" asp-for="InviteCode">Invite code</label>
             <input class="form-control" asp-for="InviteCode" name="inviteCode" maxlength="64" required />
             <div class="form-text">Use the invite link/code an admin generated. Each invite can create one profile.</div>
-        </div>
-        <div class="alert alert-warning small">
-            Starter PIN is <strong>0000</strong>. After creating the profile, sign in and use the profile details page to change it.
         </div>
         <button type="submit" class="btn btn-primary">Create profile</button>
         <a class="btn btn-outline-secondary" asp-action="Index">Cancel</a>

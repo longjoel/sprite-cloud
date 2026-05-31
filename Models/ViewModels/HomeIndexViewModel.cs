@@ -21,6 +21,10 @@ public sealed class HomeIndexViewModel
     public string? LastPlayedGame { get; set; }
     public IReadOnlyList<TopPlayedGameViewModel> TopPlayedGames { get; set; } = [];
     public IReadOnlyList<ActiveNosebleedSessionViewModel> ActiveNosebleedSessions { get; set; } = [];
+    public IReadOnlyList<ActiveNosebleedSessionViewModel> ActiveArcadeCabinets { get; set; } = [];
+    public IReadOnlyList<ActiveNosebleedSessionViewModel> ActiveLibrarySessions { get; set; } = [];
+    public IReadOnlyList<ActiveProfileSummaryViewModel> ActiveProfiles { get; set; } = [];
+    public IReadOnlyList<HomeRecentSessionViewModel> RecentSessions { get; set; } = [];
     public IReadOnlyList<NosebleedProcessSnapshot> OrphanNosebleedProcesses { get; set; } = [];
 
     public int NetworkSharesCount { get; set; }
@@ -62,6 +66,37 @@ public sealed class ActiveNosebleedSessionViewModel
     public string ContentPath { get; set; } = "";
     public int ProcessId { get; set; }
     public bool HasExited { get; set; }
+    public bool IsArcadeCabinet { get; set; }
+    public int? ArcadeCabinetId { get; set; }
+    public string? ArcadeCabinetName { get; set; }
+}
+
+public sealed class ActiveProfileSummaryViewModel
+{
+    public int ProfileId { get; set; }
+    public string DisplayName { get; set; } = "";
+    public string? Username { get; set; }
+    public string Color { get; set; } = "#0d6efd";
+    public bool IsAdmin { get; set; }
+    public bool IsCurrent { get; set; }
+    public DateTime LastSeenUtc { get; set; }
+    public string? CurrentGameName { get; set; }
+    public string? CurrentMode { get; set; }
+    public DateTime? CurrentSessionStartedUtc { get; set; }
+}
+
+public sealed class HomeRecentSessionViewModel
+{
+    public int GameId { get; set; }
+    public string GameName { get; set; } = "";
+    public string Mode { get; set; } = "";
+    public DateTime StartedUtc { get; set; }
+    public DateTime? EndedUtc { get; set; }
+    public TimeSpan Duration { get; set; }
+    public string? EndReason { get; set; }
+    public int? ProfileId { get; set; }
+    public string? ProfileName { get; set; }
+    public bool IsActive => EndedUtc is null;
 }
 
 public sealed class BackgroundJobSummary
