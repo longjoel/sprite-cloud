@@ -8,7 +8,7 @@ public sealed class NosebleedSeatManager(IOptions<NosebleedOptions> options)
     private readonly NosebleedOptions _options = options.Value ?? new NosebleedOptions();
     private readonly ConcurrentDictionary<string, SessionSeatState> _sessions = new(StringComparer.OrdinalIgnoreCase);
 
-    public NosebleedSeatAssignment Assign(string sessionId, string viewerId, DateTimeOffset now)
+    public NosebleedSeatAssignment Assign(string sessionId, string viewerId, DateTimeOffset now, bool allowPlayer = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(viewerId);
@@ -19,7 +19,7 @@ public sealed class NosebleedSeatManager(IOptions<NosebleedOptions> options)
             CleanupExpired(session.Seats, now);
 
             var existing = session.Seats.FirstOrDefault(s => string.Equals(s.ViewerId, viewerId, StringComparison.Ordinal));
-            if (existing is { Kind: NosebleedSeatKind.Player })
+            if (allowPlayer && existing is { Kind: NosebleedSeatKind.Player })
             {
                 session.Seats.Remove(existing);
                 var refreshed = existing with { ExpiresUtc = now.AddMinutes(SeatTtlMinutes()) };
@@ -27,8 +27,6 @@ public sealed class NosebleedSeatManager(IOptions<NosebleedOptions> options)
                 return refreshed;
             }
 
-            var maxPlayers = Math.Clamp(_options.MaxPlayersPerSession, 1, 4);
-            var freePort = FindFreePort(session.Seats, maxPlayers);
             var expiresUtc = now.AddMinutes(SeatTtlMinutes());
 
             if (existing is not null)
@@ -36,9 +34,19 @@ public sealed class NosebleedSeatManager(IOptions<NosebleedOptions> options)
                 session.Seats.Remove(existing);
             }
 
-            var assignment = freePort >= 0
-                ? new NosebleedSeatAssignment(NosebleedSeatKind.Player, viewerId, freePort, now, expiresUtc)
-                : new NosebleedSeatAssignment(NosebleedSeatKind.Spectator, viewerId, null, now, expiresUtc);
+            NosebleedSeatAssignment assignment;
+            if (!allowPlayer)
+            {
+                assignment = new NosebleedSeatAssignment(NosebleedSeatKind.Spectator, viewerId, null, now, expiresUtc);
+            }
+            else
+            {
+                var maxPlayers = Math.Clamp(_options.MaxPlayersPerSession, 1, 4);
+                var freePort = FindFreePort(session.Seats, maxPlayers);
+                assignment = freePort >= 0
+                    ? new NosebleedSeatAssignment(NosebleedSeatKind.Player, viewerId, freePort, now, expiresUtc)
+                    : new NosebleedSeatAssignment(NosebleedSeatKind.Spectator, viewerId, null, now, expiresUtc);
+            }
 
             session.Seats.Add(assignment);
             return assignment;

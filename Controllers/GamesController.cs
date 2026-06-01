@@ -1068,7 +1068,8 @@ public class GamesController(
             return NotFound();
         }
 
-        var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow);
+        var canPlay = await currentAccess.CanPlayAsync(cancellationToken);
+        var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow, allowPlayer: canPlay);
         await gamePlayTelemetry.TouchDurationAsync(sessionId, cancellationToken);
         return Json(new
         {
@@ -1195,11 +1196,12 @@ public class GamesController(
             return NotFound();
         }
 
-        var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow);
+        var canPlay = await currentAccess.CanPlayAsync(cancellationToken);
+        var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow, allowPlayer: canPlay);
         string? token;
         if (channel == "input")
         {
-            if (!await currentAccess.CanPlayAsync(cancellationToken) ||
+            if (!canPlay ||
                 seat.Kind != NosebleedSeatKind.Player ||
                 seat.Port is null)
             {
@@ -1278,9 +1280,10 @@ public class GamesController(
             return NotFound();
         }
 
-        var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow);
+        var canPlay = await currentAccess.CanPlayAsync(cancellationToken);
+        var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow, allowPlayer: canPlay);
         string? token;
-        if (await currentAccess.CanPlayAsync(cancellationToken) && seat.Kind == NosebleedSeatKind.Player && seat.Port is not null)
+        if (canPlay && seat.Kind == NosebleedSeatKind.Player && seat.Port is not null)
         {
             token = nosebleedTickets.CreatePlayerToken(sessionId, viewerId, seat.Port.Value);
         }
