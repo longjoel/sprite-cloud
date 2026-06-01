@@ -16,9 +16,10 @@ public sealed class ProfileSessionEnforcementMiddlewareTests
         var profile = new UserProfile
         {
             DisplayName = "Joel",
+            Username = "joel",
             Color = "#198754",
             PasskeyUserHandleBase64Url = "handle",
-            PinHash = "hash",
+            PasswordHash = "hash",
             CreatedUtc = DateTime.UtcNow,
             UpdatedUtc = DateTime.UtcNow
         };
@@ -56,9 +57,10 @@ public sealed class ProfileSessionEnforcementMiddlewareTests
         var profile = new UserProfile
         {
             DisplayName = "Joel",
+            Username = "joel",
             Color = "#198754",
             PasskeyUserHandleBase64Url = "handle",
-            PinHash = "hash",
+            PasswordHash = "hash",
             CreatedUtc = DateTime.UtcNow,
             UpdatedUtc = DateTime.UtcNow
         };

@@ -11,6 +11,7 @@ public sealed class ProfileSummaryViewModel
 {
     public int Id { get; init; }
     public string DisplayName { get; init; } = "";
+    public string? Username { get; init; }
     public string Color { get; init; } = "#0d6efd";
     public int SessionCount { get; init; }
     public TimeSpan TotalPlayTime { get; init; }

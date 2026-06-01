@@ -23,7 +23,7 @@ public sealed class ProfileInviteServiceTests
     }
 
     [Fact]
-    public async Task CreateWithInviteAsync_ConsumesInviteAndDefaultsPinTo0000()
+    public async Task CreateWithInviteAsync_ConsumesInviteAndStoresUsernameAndPassword()
     {
         await using var fixture = await CreateFixtureAsync();
         var current = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
@@ -31,13 +31,14 @@ public sealed class ProfileInviteServiceTests
         var profileService = new LocalProfileService(fixture.Db, current, inviteService);
         var invite = await inviteService.GenerateAsync(CancellationToken.None);
 
-        var profile = await profileService.CreateWithInviteAsync("  Joel  ", "not-a-color", invite.Code, CancellationToken.None);
+        var profile = await profileService.CreateWithInviteAsync("  Joel  ", "Joel.Player", "password123", "not-a-color", invite.Code, CancellationToken.None);
 
         Assert.Equal("Joel", profile.DisplayName);
+        Assert.Equal("joel.player", profile.Username);
         Assert.Equal("#0d6efd", profile.Color);
         Assert.True(profile.IsAdmin);
-        Assert.True(await profileService.VerifyPinAsync(profile.Id, "0000", CancellationToken.None));
-        Assert.False(await profileService.VerifyPinAsync(profile.Id, "1234", CancellationToken.None));
+        Assert.True(await profileService.VerifyPasswordAsync(profile.Id, "password123", CancellationToken.None));
+        Assert.False(await profileService.VerifyPasswordAsync(profile.Id, "wrong-password", CancellationToken.None));
         Assert.True((await fixture.Db.ProfileInviteCodes.SingleAsync()).IsUsed);
         Assert.Equal(profile.Id, (await fixture.Db.ProfileInviteCodes.SingleAsync()).UsedByProfileId);
         Assert.Contains($"{CurrentProfileService.CookieName}={profile.Id}", fixture.HttpContext.Response.Headers.SetCookie.ToString());
@@ -51,10 +52,10 @@ public sealed class ProfileInviteServiceTests
         var inviteService = new ProfileInviteService(fixture.Db);
         var profileService = new LocalProfileService(fixture.Db, current, inviteService);
         var invite = await inviteService.GenerateAsync(CancellationToken.None);
-        await profileService.CreateWithInviteAsync("First", "#198754", invite.Code, CancellationToken.None);
+        await profileService.CreateWithInviteAsync("First", "first", "password123", "#198754", invite.Code, CancellationToken.None);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => profileService.CreateWithInviteAsync("Second", "#dc3545", invite.Code, CancellationToken.None));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => profileService.CreateWithInviteAsync("Third", "#dc3545", "missing", CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => profileService.CreateWithInviteAsync("Second", "second", "password456", "#dc3545", invite.Code, CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => profileService.CreateWithInviteAsync("Third", "third", "password789", "#dc3545", "missing", CancellationToken.None));
     }
 
     private static async Task<TestFixture> CreateFixtureAsync()

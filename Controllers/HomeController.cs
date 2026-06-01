@@ -86,10 +86,83 @@ public class HomeController(
             playRowsQuery = playRowsQuery.Where(x => x.ProfileId == currentUserProfile.Id);
         }
         var playRows = await playRowsQuery
-            .Select(x => new { x.GameId, GameName = x.Game.Name, x.StartedUtc, x.EndedUtc, x.DurationSeconds })
+            .Select(x => new
+            {
+                x.GameId,
+                GameName = x.Game.Name,
+                x.StartedUtc,
+                x.EndedUtc,
+                x.DurationSeconds,
+                x.Mode,
+                x.EndReason,
+                x.ProfileId,
+                ProfileName = x.Profile != null ? x.Profile.DisplayName : null
+            })
             .ToListAsync(cancellationToken);
 
         var now = DateTime.UtcNow;
+        var activeProfileSessionById = playRows
+            .Where(x => x.EndedUtc is null && x.ProfileId.HasValue)
+            .GroupBy(x => x.ProfileId!.Value)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(x => x.StartedUtc).First());
+
+        var activeProfileRows = await db.ProfileAuthSessions
+            .AsNoTracking()
+            .Where(x => x.RevokedUtc == null && !x.Profile.IsArchived)
+            .OrderByDescending(x => x.LastSeenUtc)
+            .Select(x => new
+            {
+                x.ProfileId,
+                x.LastSeenUtc,
+                x.Profile.DisplayName,
+                x.Profile.Username,
+                x.Profile.Color,
+                x.Profile.IsAdmin
+            })
+            .Take(8)
+            .ToListAsync(cancellationToken);
+
+        var activeProfiles = activeProfileRows
+            .Select(x =>
+            {
+                activeProfileSessionById.TryGetValue(x.ProfileId, out var activeSession);
+                return new ActiveProfileSummaryViewModel
+                {
+                    ProfileId = x.ProfileId,
+                    DisplayName = x.DisplayName,
+                    Username = x.Username,
+                    Color = x.Color,
+                    IsAdmin = x.IsAdmin,
+                    IsCurrent = currentUserProfile?.Id == x.ProfileId,
+                    LastSeenUtc = x.LastSeenUtc,
+                    CurrentGameName = activeSession?.GameName,
+                    CurrentMode = activeSession?.Mode,
+                    CurrentSessionStartedUtc = activeSession?.StartedUtc
+                };
+            })
+            .ToList();
+
+        var recentSessions = playRows
+            .OrderByDescending(x => x.StartedUtc)
+            .Take(8)
+            .Select(x => new HomeRecentSessionViewModel
+            {
+                GameId = x.GameId,
+                GameName = x.GameName,
+                Mode = x.Mode,
+                StartedUtc = x.StartedUtc,
+                EndedUtc = x.EndedUtc,
+                Duration = TimeSpan.FromSeconds(Math.Max(0, x.EndedUtc.HasValue
+                    ? x.DurationSeconds
+                    : (int)Math.Round((now - x.StartedUtc).TotalSeconds, MidpointRounding.AwayFromZero))),
+                EndReason = x.EndReason,
+                ProfileId = x.ProfileId,
+                ProfileName = x.ProfileName
+            })
+            .ToList();
+
         var topPlayedGames = playRows
             .GroupBy(x => new { x.GameId, x.GameName })
             .Select(g => new TopPlayedGameViewModel
@@ -117,22 +190,42 @@ public class HomeController(
                 .Where(x => activeGameIds.Contains(x.Id))
                 .Select(x => new { x.Id, x.Name })
                 .ToDictionaryAsync(x => x.Id, x => x.Name, cancellationToken);
+        var arcadeSessionMap = await db.ArcadeCabinets
+            .AsNoTracking()
+            .Where(x => x.RuntimeSessionId != null)
+            .Select(x => new { x.Id, x.DisplayName, x.RuntimeSessionId })
+            .ToDictionaryAsync(x => x.RuntimeSessionId!, x => new { x.Id, x.DisplayName }, StringComparer.OrdinalIgnoreCase, cancellationToken);
         var activeSessionModels = activeSessions
-            .Select(x => new ActiveNosebleedSessionViewModel
+            .Select(x =>
             {
-                SessionId = x.SessionId,
-                GameId = x.GameId,
-                FileId = x.FileId,
-                GameName = activeGameNames.TryGetValue(x.GameId, out var name) ? name : $"Game #{x.GameId}",
-                Port = x.Port,
-                BaseUrl = x.BaseUrl,
-                StartedUtc = x.StartedUtc,
-                Runtime = x.Runtime,
-                CorePath = x.CorePath,
-                ContentPath = x.ContentPath,
-                ProcessId = x.ProcessId,
-                HasExited = x.HasExited
+                var isArcadeCabinet = arcadeSessionMap.TryGetValue(x.SessionId, out var arcadeCabinet);
+                return new ActiveNosebleedSessionViewModel
+                {
+                    SessionId = x.SessionId,
+                    GameId = x.GameId,
+                    FileId = x.FileId,
+                    GameName = activeGameNames.TryGetValue(x.GameId, out var name) ? name : $"Game #{x.GameId}",
+                    Port = x.Port,
+                    BaseUrl = x.BaseUrl,
+                    StartedUtc = x.StartedUtc,
+                    Runtime = x.Runtime,
+                    CorePath = x.CorePath,
+                    ContentPath = x.ContentPath,
+                    ProcessId = x.ProcessId,
+                    HasExited = x.HasExited,
+                    IsArcadeCabinet = isArcadeCabinet,
+                    ArcadeCabinetId = isArcadeCabinet ? arcadeCabinet!.Id : null,
+                    ArcadeCabinetName = isArcadeCabinet ? arcadeCabinet!.DisplayName : null
+                };
             })
+            .ToList();
+        var activeArcadeCabinets = activeSessionModels
+            .Where(x => x.IsArcadeCabinet)
+            .OrderBy(x => x.ArcadeCabinetName ?? x.GameName)
+            .ToList();
+        var activeLibrarySessions = activeSessionModels
+            .Where(x => !x.IsArcadeCabinet)
+            .OrderByDescending(x => x.StartedUtc)
             .ToList();
 
         var libretroInstalled = libretroStore.HasDatFiles();
@@ -161,6 +254,10 @@ public class HomeController(
             LastPlayedGame = lastPlayedGame,
             TopPlayedGames = topPlayedGames,
             ActiveNosebleedSessions = activeSessionModels,
+            ActiveArcadeCabinets = activeArcadeCabinets,
+            ActiveLibrarySessions = activeLibrarySessions,
+            ActiveProfiles = activeProfiles,
+            RecentSessions = recentSessions,
             OrphanNosebleedProcesses = orphanProcesses,
             SystemFilesCount = systemFilesCount,
             MissingSystemFilesCount = missingSystemFilesCount,

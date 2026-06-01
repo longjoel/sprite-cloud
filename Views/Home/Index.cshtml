@@ -32,6 +32,30 @@
         if (string.IsNullOrWhiteSpace(value)) return "—";
         return value.Length <= 18 ? value : value[..18] + "…";
     }
+
+    private static string FormatTimeAgo(DateTime utc)
+    {
+        var delta = DateTime.UtcNow - utc;
+        if (delta.TotalSeconds < 60) return "just now";
+        if (delta.TotalMinutes < 60) return $"{Math.Max(1, (int)delta.TotalMinutes)}m ago";
+        if (delta.TotalHours < 24) return $"{Math.Max(1, (int)delta.TotalHours)}h ago";
+        if (delta.TotalDays < 7) return $"{Math.Max(1, (int)delta.TotalDays)}d ago";
+        return utc.ToLocalTime().ToString("MMM d");
+    }
+
+    private static string FormatMode(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "Session";
+        return string.Join(' ', value.Split(['-', '_'], StringSplitOptions.RemoveEmptyEntries)
+            .Select(part => char.ToUpperInvariant(part[0]) + part[1..].ToLowerInvariant()));
+    }
+
+    private static string FormatSessionLabel(games_vault.Models.ViewModels.ActiveNosebleedSessionViewModel session)
+    {
+        return session.IsArcadeCabinet
+            ? $"Arcade cabinet · {session.ArcadeCabinetName ?? session.GameName}"
+            : "Library session";
+    }
 }
 
 @if (TempData["Message"] is string message)
@@ -67,11 +91,17 @@
     <div class="p-4 p-md-5 mb-4 rounded-3 bg-body-tertiary border">
         <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
             <div>
-                <div class="text-uppercase text-muted small fw-semibold mb-2">Active Nosebleed Sessions</div>
+                <div class="text-uppercase text-muted small fw-semibold mb-2">Active session overview</div>
                 <h2 class="display-6 mb-1">@Model.ActiveNosebleedSessions.Count active</h2>
-                <p class="text-muted mb-0">Server-side sessions currently managed by Games Vault.</p>
+                <p class="text-muted mb-0">
+                    @Model.ActiveArcadeCabinets.Count arcade cabinet@(Model.ActiveArcadeCabinets.Count == 1 ? "" : "s")
+                    and @Model.ActiveLibrarySessions.Count library session@(Model.ActiveLibrarySessions.Count == 1 ? "" : "s").
+                </p>
             </div>
-            <a class="btn btn-outline-secondary" asp-controller="Games" asp-action="Index">Start from a game</a>
+            <div class="d-flex gap-2 flex-wrap">
+                <a class="btn btn-outline-secondary" asp-controller="Arcade" asp-action="Index">Open arcade</a>
+                <a class="btn btn-outline-secondary" asp-controller="Games" asp-action="Index">Start from a game</a>
+            </div>
         </div>
 
         @if (Model.ActiveNosebleedSessions.Count == 0)
@@ -91,7 +121,7 @@
                             <div class="card-body">
                                 <div>
                                     <h3 class="h6 mb-1">@session.GameName</h3>
-                                    <div class="small text-muted">Runtime @FormatDuration(session.Runtime)</div>
+                                    <div class="small text-muted">@FormatSessionLabel(session) · runtime @FormatDuration(session.Runtime)</div>
                                 </div>
                                 <dl class="row small mt-3 mb-0">
                                     <dt class="col-4">Session</dt>
@@ -100,7 +130,14 @@
                                     <dd class="col-8">Games Vault preview relay</dd>
                                 </dl>
                                 <div class="d-flex gap-2 flex-wrap mt-3">
-                                    <a class="btn btn-sm btn-outline-primary" asp-controller="Games" asp-action="PlayServer" asp-route-id="@session.GameId">Open</a>
+                                    @if (session.IsArcadeCabinet && session.ArcadeCabinetId is not null)
+                                    {
+                                        <a class="btn btn-sm btn-outline-primary" asp-controller="Arcade" asp-action="Join" asp-route-id="@session.ArcadeCabinetId">Open cabinet</a>
+                                    }
+                                    else
+                                    {
+                                        <a class="btn btn-sm btn-outline-primary" asp-controller="Games" asp-action="PlayServer" asp-route-id="@session.GameId">Open</a>
+                                    }
                                     @if (canManageLibrary)
                                     {
                                         <form asp-action="StopNosebleedSession" method="post" asp-antiforgery="true">
@@ -148,6 +185,191 @@
         </div>
     </div>
 
+    <div class="row g-3 mb-4">
+        <div class="col-xl-6">
+            <div class="card h-100 border-primary-subtle">
+                <div class="card-header d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                    <span class="fw-semibold">Arcade activity</span>
+                    <span class="text-muted small">Persistent cabinets</span>
+                </div>
+                <div class="card-body">
+                    @if (Model.ActiveArcadeCabinets.Count == 0)
+                    {
+                        <div class="text-muted small mb-3">No arcade cabinets are running right now.</div>
+                        <a class="btn btn-sm btn-outline-primary" asp-controller="Arcade" asp-action="Index">Open arcade</a>
+                    }
+                    else
+                    {
+                        <div class="list-group list-group-flush mb-3">
+                            @foreach (var cabinet in Model.ActiveArcadeCabinets.Take(4))
+                            {
+                                <a class="list-group-item list-group-item-action px-0" asp-controller="Arcade" asp-action="Join" asp-route-id="@cabinet.ArcadeCabinetId">
+                                    <div class="d-flex justify-content-between gap-3 flex-wrap align-items-start">
+                                        <div>
+                                            <div class="fw-semibold">@(cabinet.ArcadeCabinetName ?? cabinet.GameName)</div>
+                                            <div class="small text-muted">@cabinet.GameName · runtime @FormatDuration(cabinet.Runtime)</div>
+                                        </div>
+                                        <span class="badge text-bg-primary">Arcade</span>
+                                    </div>
+                                </a>
+                            }
+                        </div>
+                        <a class="btn btn-sm btn-outline-primary" asp-controller="Arcade" asp-action="Index">Manage arcade</a>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-6">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                    <span class="fw-semibold">Library sessions</span>
+                    <span class="text-muted small">Started from the Games library</span>
+                </div>
+                <div class="card-body">
+                    @if (Model.ActiveLibrarySessions.Count == 0)
+                    {
+                        <div class="text-muted small mb-3">No ad-hoc library sessions are running right now.</div>
+                        <a class="btn btn-sm btn-outline-primary" asp-controller="Games" asp-action="Index">Browse games</a>
+                    }
+                    else
+                    {
+                        <div class="list-group list-group-flush mb-3">
+                            @foreach (var session in Model.ActiveLibrarySessions.Take(4))
+                            {
+                                <a class="list-group-item list-group-item-action px-0" asp-controller="Games" asp-action="PlayServer" asp-route-id="@session.GameId">
+                                    <div class="d-flex justify-content-between gap-3 flex-wrap align-items-start">
+                                        <div>
+                                            <div class="fw-semibold">@session.GameName</div>
+                                            <div class="small text-muted">Started @FormatTimeAgo(session.StartedUtc.UtcDateTime) · runtime @FormatDuration(session.Runtime)</div>
+                                        </div>
+                                        <span class="badge text-bg-light text-dark">Library</span>
+                                    </div>
+                                </a>
+                            }
+                        </div>
+                        <a class="btn btn-sm btn-outline-primary" asp-controller="Games" asp-action="Index">Browse games</a>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-xl-8">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                    <span class="fw-semibold">Recent sessions</span>
+                    <span class="text-muted small">@(Model.CurrentProfileId is null ? "Across the whole library" : "Recent activity for this profile")</span>
+                </div>
+                <div class="card-body p-0">
+                    @if (Model.RecentSessions.Count == 0)
+                    {
+                        <div class="text-muted small p-4">No recent sessions yet. Start a game to populate this activity feed.</div>
+                    }
+                    else
+                    {
+                        <div class="list-group list-group-flush">
+                            @foreach (var session in Model.RecentSessions)
+                            {
+                                <a class="list-group-item list-group-item-action px-4 py-3" asp-controller="Games" asp-action="Details" asp-route-id="@session.GameId">
+                                    <div class="d-flex justify-content-between gap-3 flex-wrap align-items-start">
+                                        <div>
+                                            <div class="d-flex gap-2 flex-wrap align-items-center">
+                                                <span class="fw-semibold">@session.GameName</span>
+                                                <span class="badge @(session.IsActive ? "text-bg-success" : "text-bg-light text-dark")">@(session.IsActive ? "Active now" : FormatMode(session.Mode))</span>
+                                                @if (!session.IsActive && !string.IsNullOrWhiteSpace(session.EndReason))
+                                                {
+                                                    <span class="badge text-bg-light text-dark">@session.EndReason</span>
+                                                }
+                                            </div>
+                                            <div class="small text-muted mt-1">
+                                                @if (Model.CurrentProfileId is null)
+                                                {
+                                                    <span>@(session.ProfileName ?? "Anonymous")</span>
+                                                    <span> · </span>
+                                                }
+                                                <span>@FormatMode(session.Mode)</span>
+                                                <span> · Started @FormatTimeAgo(session.StartedUtc)</span>
+                                            </div>
+                                        </div>
+                                        <div class="text-md-end">
+                                            <div class="fw-semibold">@FormatDuration(session.Duration)</div>
+                                            <div class="small text-muted">@(session.IsActive ? "Still playing" : session.EndedUtc?.ToLocalTime().ToString("g") ?? "Ended")</div>
+                                        </div>
+                                    </div>
+                                </a>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl-4">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                    <span class="fw-semibold">Active profiles</span>
+                    <span class="text-muted small">Signed in right now</span>
+                </div>
+                <div class="card-body p-0">
+                    @if (Model.ActiveProfiles.Count == 0)
+                    {
+                        <div class="text-muted small p-4">No profiles are signed in right now.</div>
+                    }
+                    else
+                    {
+                        <div class="list-group list-group-flush">
+                            @foreach (var profile in Model.ActiveProfiles)
+                            {
+                                <a class="list-group-item list-group-item-action px-4 py-3" asp-controller="Profiles" asp-action="Details" asp-route-id="@profile.ProfileId">
+                                    <div class="d-flex gap-3 align-items-start">
+                                        <div class="rounded-circle flex-shrink-0 border" style="width: 0.9rem; height: 0.9rem; background: @profile.Color;"></div>
+                                        <div class="flex-grow-1">
+                                            <div class="d-flex gap-2 flex-wrap align-items-center">
+                                                <span class="fw-semibold">@profile.DisplayName</span>
+                                                @if (profile.IsCurrent)
+                                                {
+                                                    <span class="badge text-bg-primary">You</span>
+                                                }
+                                                @if (profile.IsAdmin)
+                                                {
+                                                    <span class="badge text-bg-light text-dark">Admin</span>
+                                                }
+                                            </div>
+                                            <div class="small text-muted mt-1">
+                                                @if (!string.IsNullOrWhiteSpace(profile.Username))
+                                                {
+                                                    <span>@($"@{profile.Username}")</span>
+                                                    <span> · </span>
+                                                }
+                                                <span>Seen @FormatTimeAgo(profile.LastSeenUtc)</span>
+                                            </div>
+                                            @if (!string.IsNullOrWhiteSpace(profile.CurrentGameName))
+                                            {
+                                                <div class="small mt-2">
+                                                    <span class="fw-semibold">Playing:</span> @profile.CurrentGameName
+                                                    @if (!string.IsNullOrWhiteSpace(profile.CurrentMode))
+                                                    {
+                                                        <span class="text-muted"> · @FormatMode(profile.CurrentMode)</span>
+                                                    }
+                                                    @if (profile.CurrentSessionStartedUtc is not null)
+                                                    {
+                                                        <span class="text-muted"> · started @FormatTimeAgo(profile.CurrentSessionStartedUtc.Value)</span>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                </a>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="row g-3">
         <div class="col-xl-8">
             <div class="card mb-3">
@@ -176,9 +398,10 @@
                             @foreach (var session in Model.ActiveNosebleedSessions)
                             {
                                 <tr>
-                                    <td><span class="badge text-bg-success">Managed</span></td>
+                                    <td><span class="badge @(session.IsArcadeCabinet ? "text-bg-primary" : "text-bg-success")">@(session.IsArcadeCabinet ? "Arcade" : "Library")</span></td>
                                     <td>
                                         <div class="fw-semibold">@session.GameName</div>
+                                        <div class="small text-muted">@(session.IsArcadeCabinet ? session.ArcadeCabinetName ?? "Arcade cabinet" : "Games library launch")</div>
                                         <code class="small" title="@session.SessionId">@ShortId(session.SessionId)</code>
                                     </td>
                                     <td>@session.ProcessId</td>

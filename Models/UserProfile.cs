@@ -11,6 +11,9 @@ public sealed class UserProfile
     public string DisplayName { get; set; } = "";
 
     [StringLength(32)]
+    public string? Username { get; set; }
+
+    [StringLength(32)]
     public string? AvatarKey { get; set; }
 
     [StringLength(20)]
@@ -21,7 +24,7 @@ public sealed class UserProfile
     public string PasskeyUserHandleBase64Url { get; set; } = "";
 
     [StringLength(256)]
-    public string? PinHash { get; set; }
+    public string? PasswordHash { get; set; }
 
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 

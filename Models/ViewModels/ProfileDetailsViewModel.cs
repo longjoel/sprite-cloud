@@ -4,12 +4,13 @@ public sealed class ProfileDetailsViewModel
 {
     public int Id { get; init; }
     public string DisplayName { get; init; } = "";
+    public string? Username { get; init; }
     public string Color { get; init; } = "#0d6efd";
     public bool IsCurrent { get; init; }
     public int SessionCount { get; init; }
     public TimeSpan TotalPlayTime { get; init; }
     public string? LastPlayedGame { get; init; }
-    public ProfileChangePinViewModel ChangePin { get; init; } = new();
+    public ProfileChangePasswordViewModel ChangePassword { get; init; } = new();
     public IReadOnlyList<ProfileTopGameViewModel> TopGames { get; init; } = [];
     public IReadOnlyList<ProfileRecentSessionViewModel> RecentSessions { get; init; } = [];
 }

@@ -99,7 +99,8 @@ public sealed class GamePlayRoomService(
         }
 
         var now = DateTimeOffset.UtcNow;
-        var seat = nosebleedSeats.Assign(session.SessionId, viewerId, now);
+        var canPlay = await currentAccess.CanPlayAsync(ct);
+        var seat = nosebleedSeats.Assign(session.SessionId, viewerId, now, allowPlayer: canPlay);
 
         var profile = await currentProfile.GetCurrentAsync(ct);
         var participant = await db.GamePlayRoomParticipants.FirstOrDefaultAsync(x => x.RoomId == room.Id && x.ViewerId == viewerId, ct);
@@ -124,7 +125,7 @@ public sealed class GamePlayRoomService(
         room.LastActiveUtc = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
 
-        var token = seat.Kind == NosebleedSeatKind.Player && seat.Port is not null && await currentAccess.CanPlayAsync(ct)
+        var token = seat.Kind == NosebleedSeatKind.Player && seat.Port is not null && canPlay
             ? nosebleedTickets.CreatePlayerToken(session.SessionId, viewerId, seat.Port.Value)
             : nosebleedTickets.CreateSpectatorToken(session.SessionId, viewerId);
         token ??= nosebleedTickets.CreateSpectatorToken(session.SessionId, viewerId) ?? string.Empty;
