@@ -7,7 +7,7 @@
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
     <div>
         <h1 class="mb-1">Who's playing?</h1>
-        <p class="text-muted mb-0">Viewer mode can watch active games. Sign in with a profile PIN to play and track stats.</p>
+        <p class="text-muted mb-0">Viewer mode can watch active games. Sign in with a username and password to play and track stats.</p>
     </div>
     <div class="d-flex gap-2">
         @if (canManageLibrary)
@@ -21,6 +21,29 @@
 @if (TempData["Error"] is string error && !string.IsNullOrWhiteSpace(error))
 {
     <div class="alert alert-danger">@error</div>
+}
+
+@if (Model.Profiles.Count > 0)
+{
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="h5">Sign in</h2>
+            <form method="post" asp-action="SignIn" class="row g-3 align-items-end" autocomplete="off">
+                @Html.AntiForgeryToken()
+                <div class="col-md-4">
+                    <label class="form-label" for="username">Username</label>
+                    <input class="form-control" id="username" name="username" maxlength="32" autocapitalize="none" spellcheck="false" required />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label" for="password">Password</label>
+                    <input class="form-control" id="password" name="password" type="password" required />
+                </div>
+                <div class="col-md-4">
+                    <button class="btn btn-primary">Sign in</button>
+                </div>
+            </form>
+        </div>
+    </div>
 }
 
 @if (Model.Profiles.Count == 0)
@@ -43,6 +66,7 @@ else
                             <span class="rounded-circle d-inline-block" style="width:2.5rem;height:2.5rem;background:@profile.Color"></span>
                             <div>
                                 <h2 class="h5 mb-0">@profile.DisplayName</h2>
+                                <div class="small text-muted">@("@" + (profile.Username ?? "not set"))</div>
                                 @if (profile.IsCurrent)
                                 {
                                     <span class="badge text-bg-primary">Current</span>
@@ -60,18 +84,12 @@ else
                             <div class="small text-muted">Last played @profile.LastPlayedUtc.Value.ToLocalTime().ToString("g")</div>
                         }
                     </div>
-                    <div class="card-footer bg-transparent">
-                        <form method="post" asp-action="SignIn" class="d-flex gap-2 align-items-center flex-wrap">
-                            @Html.AntiForgeryToken()
-                            <input type="hidden" name="profileId" value="@profile.Id" />
-                            <a class="btn btn-sm btn-outline-secondary" asp-action="Details" asp-route-id="@profile.Id">Details</a>
-                            @if (profile.IsCurrent)
-                            {
-                                <a class="btn btn-sm btn-outline-primary" asp-action="Details" asp-route-id="@profile.Id" asp-fragment="change-pin">Change PIN</a>
-                            }
-                            <input class="form-control form-control-sm ms-auto" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" name="pin" placeholder="PIN" value="0000" aria-label="PIN for @profile.DisplayName" style="max-width:7rem" required />
-                            <button class="btn btn-sm btn-outline-primary">Sign in</button>
-                        </form>
+                    <div class="card-footer bg-transparent d-flex gap-2 flex-wrap">
+                        <a class="btn btn-sm btn-outline-secondary" asp-action="Details" asp-route-id="@profile.Id">Details</a>
+                        @if (profile.IsCurrent)
+                        {
+                            <a class="btn btn-sm btn-outline-primary" asp-action="Details" asp-route-id="@profile.Id" asp-fragment="change-password">Change password</a>
+                        }
                     </div>
                 </div>
             </div>

@@ -6,6 +6,8 @@
     var currentPage = Model.Page;
     var pageSize = Model.PageSize;
     var returnUrl = Context.Request.Path + Context.Request.QueryString;
+    var addTabActive = Model.OpenAddGameModal;
+    var browseTabActive = !addTabActive;
 
     var bankModel = new games_vault.Models.ViewModels.GamesBankViewModel
     {
@@ -25,60 +27,65 @@
     <div class="alert alert-success">@message</div>
 }
 
-<div class="d-flex align-items-center justify-content-between mb-3">
-    <h1 class="h3 mb-0">Games</h1>
-    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addGameModal">Add game</button>
-</div>
-
-<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
-    <form id="games-search-form" asp-action="Index" method="get" class="d-flex flex-wrap gap-2 align-items-center">
-        <input id="games-search" name="q" value="@q" class="form-control" placeholder="Search games…" autocomplete="off" />
-        <input type="hidden" name="page" value="@currentPage" />
-        <input type="hidden" name="batchId" value="@Model.BatchId" />
-        <select id="games-page-size" name="pageSize" class="form-select" style="width: 8rem;">
-            @foreach (var size in new[] { 10, 25, 50, 100 })
-            {
-                <option value="@size" selected="@(size == pageSize)">@size / page</option>
-            }
-        </select>
-        <button type="submit" class="btn btn-outline-secondary">Search</button>
-        @if (!string.IsNullOrWhiteSpace(q))
-        {
-            <a class="btn btn-outline-secondary" asp-action="Index" asp-route-pageSize="@pageSize" asp-route-batchId="@Model.BatchId">Clear</a>
-        }
-    </form>
-
-    <div class="text-muted" id="games-total-count">
-        @Model.TotalCount total
-    </div>
-</div>
-
-<div class="modal fade" id="addGameModal" tabindex="-1" aria-labelledby="addGameModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-xl modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2 class="modal-title h5 mb-0" id="addGameModalLabel">Add game</h2>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+<div class="mb-4">
+    <div class="games-shell-hero rounded-4 p-4 p-lg-5 mb-3 shadow-sm">
+        <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+            <div>
+                <div class="games-card-kicker mb-2">Playable library</div>
+                <h1 class="h2 mb-2">Games</h1>
+                <div class="text-muted">Browse your library, jump straight into a server-side session, or add/import new ROMs without leaving the page.</div>
             </div>
-            <div class="modal-body">
-                <partial name="_AddGameModalBody" model="Model.AddGame" />
+            <div class="games-surface-switch">
+                <a class="btn @(browseTabActive ? "btn-primary" : "btn-outline-primary")" asp-action="Index">Browse library</a>
+                <a class="btn @(addTabActive ? "btn-primary" : "btn-outline-primary")" asp-action="Index" asp-route-openAdd="true">Add / import games</a>
             </div>
         </div>
+
+        <div class="d-flex flex-wrap gap-2 text-muted small">
+            <span class="games-meta-chip">@Model.TotalCount game@(Model.TotalCount == 1 ? "" : "s")</span>
+            <span class="games-meta-chip">@pageSize per page</span>
+            @if (Model.BatchId is not null)
+            {
+                <span class="games-meta-chip">Batch ready · @Model.BatchTotalCount item@(Model.BatchTotalCount == 1 ? "" : "s")</span>
+            }
+        </div>
     </div>
-</div>
 
-@if (Model.OpenAddGameModal)
-{
-    <script>
-        document.addEventListener("DOMContentLoaded", function () {
-            var modalEl = document.getElementById("addGameModal");
-            if (!modalEl || !window.bootstrap || !window.bootstrap.Modal) return;
-            window.bootstrap.Modal.getOrCreateInstance(modalEl).show();
-        });
-    </script>
-}
+    <ul class="nav nav-tabs mb-3" id="games-page-tabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(browseTabActive ? "active" : "")" id="games-browse-tab" data-bs-toggle="tab" data-bs-target="#games-browse-pane" type="button" role="tab" aria-controls="games-browse-pane" aria-selected="@(browseTabActive ? "true" : "false")">Browse library</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link @(addTabActive ? "active" : "")" id="games-add-tab" data-bs-toggle="tab" data-bs-target="#games-add-pane" type="button" role="tab" aria-controls="games-add-pane" aria-selected="@(addTabActive ? "true" : "false")">Add / import games</button>
+        </li>
+    </ul>
 
-<div class="row g-3">
+    <div class="tab-content">
+        <div class="tab-pane fade @(browseTabActive ? "show active" : "")" id="games-browse-pane" role="tabpanel" aria-labelledby="games-browse-tab" tabindex="0">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+                <form id="games-search-form" asp-action="Index" method="get" class="d-flex flex-wrap gap-2 align-items-center">
+                    <input id="games-search" name="q" value="@q" class="form-control" placeholder="Search games, systems, or CRC…" autocomplete="off" />
+                    <input type="hidden" name="page" value="@currentPage" />
+                    <input type="hidden" name="batchId" value="@Model.BatchId" />
+                    <select id="games-page-size" name="pageSize" class="form-select" style="width: 8rem;">
+                        @foreach (var size in new[] { 10, 25, 50, 100 })
+                        {
+                            <option value="@size" selected="@(size == pageSize)">@size / page</option>
+                        }
+                    </select>
+                    <button type="submit" class="btn btn-outline-secondary">Search</button>
+                    @if (!string.IsNullOrWhiteSpace(q))
+                    {
+                        <a class="btn btn-outline-secondary" asp-action="Index" asp-route-pageSize="@pageSize" asp-route-batchId="@Model.BatchId">Clear</a>
+                    }
+                </form>
+
+                <div class="text-muted" id="games-total-count">
+                    @Model.TotalCount total
+                </div>
+            </div>
+
+            <div class="row g-3">
     <div class="col-lg-7 games-bank-column">
         <div id="games-bank-container">
             <partial name="_GamesBank" model="bankModel" />
@@ -86,7 +93,7 @@
     </div>
 
     <div class="col-lg-5 games-batch-column">
-        <div class="card">
+        <div class="card games-batch-panel shadow-sm border-0 bg-body-tertiary">
             <div class="card-body">
                 <div class="d-flex align-items-center justify-content-between mb-2">
                     <h2 class="h5 mb-0">Batch</h2>
@@ -323,12 +330,32 @@
         </div>
     </div>
 </div>
+        </div>
+
+        <div class="tab-pane fade @(addTabActive ? "show active" : "")" id="games-add-pane" role="tabpanel" aria-labelledby="games-add-tab" tabindex="0">
+            <div class="card border-0 shadow-sm">
+                <div class="card-body p-4">
+                    <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+                        <div>
+                            <h2 class="h5 mb-1">Add or import games</h2>
+                            <div class="text-muted">Upload ROMs directly, or pull from the web, a network share, or a local filesystem source using the existing import tools.</div>
+                        </div>
+                        <a class="btn btn-outline-secondary" asp-action="Index">Back to browse</a>
+                    </div>
+                    <partial name="_AddGameModalBody" model="Model.AddGame" view-data='new ViewDataDictionary(ViewData) { ["InlineAddGame"] = true }' />
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 
 @section Scripts {
     <script>
         (function () {
             var form = document.getElementById('games-search-form');
             var input = document.getElementById('games-search');
+            var browseTabButton = document.getElementById('games-browse-tab');
+            var addTabButton = document.getElementById('games-add-tab');
             var pageInput = form ? form.querySelector('input[name="page"]') : null;
             var batchIdInput = form ? form.querySelector('input[name="batchId"]') : null;
             var pageSize = document.getElementById('games-page-size');
@@ -352,6 +379,13 @@
                 if (params.pageSize) url.searchParams.set('pageSize', params.pageSize); else url.searchParams.delete('pageSize');
                 if (params.batchId) url.searchParams.set('batchId', params.batchId); else url.searchParams.delete('batchId');
                 window.history.replaceState({}, "", url.toString());
+            }
+
+            function setSurfaceInUrl(surface) {
+                var url = new URL(window.location.href);
+                if (surface === 'add') url.searchParams.set('openAdd', 'true');
+                else url.searchParams.delete('openAdd');
+                window.history.replaceState({}, '', url.toString());
             }
 
             function wireBulkSelection(root) {
@@ -474,6 +508,18 @@
                     url.searchParams.set('page', '1');
                     url.searchParams.set('batchPage', '1');
                     window.location.href = url.toString();
+                });
+            }
+
+            if (browseTabButton) {
+                browseTabButton.addEventListener('shown.bs.tab', function () {
+                    setSurfaceInUrl('browse');
+                });
+            }
+
+            if (addTabButton) {
+                addTabButton.addEventListener('shown.bs.tab', function () {
+                    setSurfaceInUrl('add');
                 });
             }
 
