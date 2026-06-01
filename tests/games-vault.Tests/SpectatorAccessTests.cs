@@ -251,7 +251,6 @@ public sealed class SpectatorAccessTests
                 SessionManager,
                 SeatManager,
                 _ticketSigner,
-                null!,
                 new GamePlayTelemetryService(Db),
                 roomService,
                 currentProfile,

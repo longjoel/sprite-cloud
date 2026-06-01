@@ -15,6 +15,8 @@
     const statusEl = document.getElementById("nosebleed-status");
     const shell = document.getElementById("server-player-shell");
     const canvas = document.getElementById("nosebleed-screen");
+    const rtcTrackVideo = document.getElementById("nosebleed-screen-video");
+    const rtcTrackAudio = document.getElementById("nosebleed-rtc-audio");
     const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
     const connectButton = document.getElementById("nosebleed-connect");
     const audioButton = document.getElementById("nosebleed-audio");
@@ -24,6 +26,8 @@
     const fullscreenButton = document.getElementById("nosebleed-fullscreen");
     const overlayToggleButton = document.getElementById("nosebleed-overlay-toggle");
     const touchToggleButton = document.getElementById("nosebleed-touch-toggle");
+    const videoTransportSelect = document.getElementById("nosebleed-video-transport");
+    const videoCompressionSelect = document.getElementById("nosebleed-video-compression");
     const gamepadSelect = document.getElementById("nosebleed-gamepad-select");
     const padTestToggle = document.getElementById("nosebleed-pad-test-toggle");
     const padTestPanel = document.getElementById("nosebleed-pad-test-panel");
@@ -47,6 +51,8 @@
     };
     const layoutStorageKey = `games-vault:nosebleed-control-layout:${touchLayoutName}`;
     const overlayStorageKey = "games-vault:nosebleed-overlays-enabled";
+    const videoTransportStorageKey = "games-vault:nosebleed-video-transport";
+    const videoCompressionStorageKey = "games-vault:nosebleed-video-compression";
     const preferredGamepadIndex = Number.isInteger(assignedPort) ? assignedPort : null;
     const gamepadStorageKey = `games-vault:nosebleed-gamepad-index:${sessionId || "global"}:port:${assignedPort ?? "spectator"}`;
     const RTC_CHUNK_MAGIC = 0x3143424e;
@@ -68,6 +74,11 @@
     let rtcVp8DecodeSupported = null;
     let rtcVideoDecoder = null;
     let rtcVideoDecoderReady = false;
+    let activeVideoTransport = "idle";
+    let selectedVideoTransport = playerHelpers?.normalizeVideoTransportPreference?.(localStorage.getItem(videoTransportStorageKey)) ?? "webrtc-track";
+    let selectedVideoCompression = playerHelpers?.normalizeVideoCompressionPreference?.(localStorage.getItem(videoCompressionStorageKey)) ?? "balanced";
+    let rtcTrackFrameCallbackActive = false;
+    let rtcTrackAudioReady = false;
     let inputSeq = 0;
     let inputTimer = 0;
     let keepAliveTimer = 0;
@@ -97,6 +108,7 @@
         document.documentElement.classList.toggle("games-vault-player-fullscreen", fullscreen);
         document.body?.classList.toggle("games-vault-player-fullscreen", fullscreen);
         fitCanvasToShell();
+        fitRtcTrackVideoToShell();
     }
 
     function setStatus(text, tone = "warn") {
@@ -111,6 +123,68 @@
         chip.classList.toggle("is-good", tone === "good");
         chip.classList.toggle("is-warn", tone === "warn");
         chip.classList.toggle("is-bad", tone === "bad");
+    }
+
+    function showRtcTrackVideo() {
+        if (!rtcTrackVideo) return;
+        rtcTrackVideo.classList.remove("d-none");
+        canvas.classList.add("d-none");
+    }
+
+    function hideRtcTrackVideo() {
+        rtcTrackFrameCallbackActive = false;
+        if (!rtcTrackVideo) {
+            canvas.classList.remove("d-none");
+            return;
+        }
+        try {
+            const stream = rtcTrackVideo.srcObject;
+            if (stream && typeof stream.getTracks === "function") {
+                for (const track of stream.getTracks()) {
+                    track.stop?.();
+                }
+            }
+        } catch { }
+        rtcTrackVideo.pause?.();
+        rtcTrackVideo.srcObject = null;
+        rtcTrackVideo.classList.add("d-none");
+        canvas.classList.remove("d-none");
+    }
+
+    function fitSurfaceToShell(surfaceWidth, surfaceHeight, element) {
+        if (!element || !surfaceWidth || !surfaceHeight) return;
+        const shellRect = shell.getBoundingClientRect();
+        const maxHeight = isFullscreenActive()
+            ? window.innerHeight
+            : Math.min(window.innerHeight * 0.70, Math.max(1, shellRect.width));
+        const availableWidth = Math.max(1, shellRect.width - 16);
+        const availableHeight = Math.max(1, maxHeight);
+        const size = playerHelpers?.calculateContainedSize?.(surfaceWidth, surfaceHeight, availableWidth, availableHeight)
+            || { width: availableWidth, height: availableHeight };
+        element.style.width = `${size.width}px`;
+        element.style.height = `${size.height}px`;
+    }
+
+    function fitRtcTrackVideoToShell() {
+        fitSurfaceToShell(rtcTrackVideo?.videoWidth || 0, rtcTrackVideo?.videoHeight || 0, rtcTrackVideo);
+    }
+
+    function scheduleRtcTrackFrameCallbacks() {
+        if (activeVideoTransport !== "webrtc-track" || !rtcTrackVideo?.requestVideoFrameCallback || rtcTrackFrameCallbackActive) {
+            return;
+        }
+        rtcTrackFrameCallbackActive = true;
+        rtcTrackVideo.requestVideoFrameCallback(function step() {
+            if (activeVideoTransport !== "webrtc-track" || !rtcTrackVideo) {
+                rtcTrackFrameCallbackActive = false;
+                return;
+            }
+            videoFramesReceived += 1;
+            framesThisSecond += 1;
+            videoRenderMs = 0;
+            fitRtcTrackVideoToShell();
+            rtcTrackVideo.requestVideoFrameCallback(step);
+        });
     }
 
     function startHudTimers() {
@@ -250,7 +324,7 @@
         padTestAxes.textContent = `Axes: ${pad.axes.map((axis, index) => `${index}:${axis.toFixed(2)}`).join("  ")}`;
     }
 
-    function withToken(path) {
+    function withToken(path, options = {}) {
         const proxyUrl = path === "/ws/video"
             ? websocketUrls.video
             : path === "/ws/audio"
@@ -260,12 +334,16 @@
                     : null;
         if (proxyUrl) {
             const url = new URL(proxyUrl, window.location.href);
+            if (options.videoMode) url.searchParams.set("videoMode", options.videoMode);
+            if (Number.isInteger(options.jpegQuality)) url.searchParams.set("jpegQuality", String(options.jpegQuality));
             url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
             return url.toString();
         }
         if (!baseUrl) throw new Error(`No WebSocket URL configured for ${path}`);
         const url = new URL(path, baseUrl);
         if (token) url.searchParams.set("token", token);
+        if (options.videoMode) url.searchParams.set("video_mode", options.videoMode);
+        if (Number.isInteger(options.jpegQuality)) url.searchParams.set("jpeg_quality", String(options.jpegQuality));
         url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
         return url.toString();
     }
@@ -277,9 +355,36 @@
         updateChip(chips.input, isSpectator ? "Spectator" : "Input connecting", "warn");
         startHudTimers();
 
-        const videoConnected = isSpectator ? await connectWebRtcVideo() : false;
+        const queryOverrides = (() => {
+            try {
+                const params = new URLSearchParams(window.location.search);
+                return {
+                    transport: params.get("videoTransport"),
+                    compression: params.get("videoCompression")
+                };
+            } catch {
+                return { transport: null, compression: null };
+            }
+        })();
+        selectedVideoTransport = playerHelpers?.normalizeVideoTransportPreference?.(queryOverrides.transport || selectedVideoTransport) ?? "webrtc-track";
+        selectedVideoCompression = playerHelpers?.normalizeVideoCompressionPreference?.(queryOverrides.compression || selectedVideoCompression) ?? "balanced";
+        syncVideoPreferenceControls();
+        const videoTransport = playerHelpers?.chooseVideoTransport?.({
+            rtcSupported: typeof RTCPeerConnection !== "undefined",
+            webrtcSessionUrl,
+            preferredTransport: selectedVideoTransport
+        }) ?? "websocket";
+        const videoConnected = videoTransport === "webrtc-track"
+            ? await connectWebRtcTrackVideo()
+            : videoTransport === "webrtc"
+                ? await connectWebRtcVideo()
+                : false;
         if (!videoConnected) {
-            videoWs = new WebSocket(withToken("/ws/video"));
+            activeVideoTransport = "websocket";
+            hideRtcTrackVideo();
+            const videoMode = playerHelpers?.compressionToWebSocketVideoMode?.(selectedVideoCompression) ?? "jpeg";
+            const jpegQuality = playerHelpers?.compressionToJpegQuality?.(selectedVideoCompression) ?? 70;
+            videoWs = new WebSocket(withToken("/ws/video", { videoMode, jpegQuality }));
             videoWs.binaryType = "arraybuffer";
             videoWs.onopen = () => {
                 updateChip(chips.video, "Video live", "good");
@@ -328,9 +433,70 @@
         startSeatKeepAlive();
     }
 
+    async function connectWebRtcTrackVideo() {
+        if (typeof RTCPeerConnection === "undefined" || !webrtcSessionUrl) return false;
+        try {
+            activeVideoTransport = "webrtc-track";
+            hideRtcTrackVideo();
+            rtcPeer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+            rtcPeer.addTransceiver("video", { direction: "recvonly" });
+            rtcPeer.addTransceiver("audio", { direction: "recvonly" });
+            rtcPeer.ontrack = event => {
+                const stream = event.streams?.[0] ?? new MediaStream([event.track]);
+                if (event.track.kind === "audio") {
+                    rtcTrackAudioReady = true;
+                    if (rtcTrackAudio && rtcTrackAudio.srcObject !== stream) {
+                        rtcTrackAudio.srcObject = stream;
+                    }
+                    if (audioEnabled && rtcTrackAudio) {
+                        rtcTrackAudio.muted = false;
+                        rtcTrackAudio.play?.().catch(() => { });
+                        setAudioEnabledUi();
+                        setStatus("Audio connected (webrtc track).", "good");
+                    }
+                    return;
+                }
+
+                if (!rtcTrackVideo) return;
+                if (rtcTrackVideo.srcObject !== stream) {
+                    rtcTrackVideo.srcObject = stream;
+                }
+                showRtcTrackVideo();
+                fitRtcTrackVideoToShell();
+                scheduleRtcTrackFrameCallbacks();
+                updateChip(chips.video, "Video live (track)", "good");
+                setStatus("Video connected (webrtc track).", "good");
+                rtcTrackVideo.play?.().catch(() => { });
+            };
+
+            const offer = await rtcPeer.createOffer();
+            await rtcPeer.setLocalDescription(offer);
+            await waitForIceGatheringComplete(rtcPeer);
+            if (!rtcPeer.localDescription) return false;
+
+            const response = await fetch(new URL(webrtcSessionUrl, window.location.href).toString(), {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ type: rtcPeer.localDescription.type, sdp: rtcPeer.localDescription.sdp, video_mode: "track-vp8" })
+            });
+            if (!response.ok) throw new Error(`webrtc signaling failed: ${response.status}`);
+            const answer = await response.json();
+            await rtcPeer.setRemoteDescription(answer);
+            return true;
+        } catch (err) {
+            console.warn("webrtc track video setup failed, fallback to websocket", err);
+            try { rtcPeer?.close(); } catch { }
+            rtcPeer = null;
+            activeVideoTransport = "idle";
+            hideRtcTrackVideo();
+            return false;
+        }
+    }
+
     async function connectWebRtcVideo() {
         if (typeof RTCPeerConnection === "undefined" || !webrtcSessionUrl) return false;
         try {
+            activeVideoTransport = "webrtc";
             rtcPeer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
             rtcVideoDc = rtcPeer.createDataChannel("video", { ordered: false, maxRetransmits: 0 });
             rtcVideoDc.binaryType = "arraybuffer";
@@ -370,6 +536,7 @@
             try { rtcPeer?.close(); } catch { }
             rtcVideoDc = null;
             rtcPeer = null;
+            activeVideoTransport = "idle";
             return false;
         }
     }
@@ -378,6 +545,8 @@
         stopInputLoop();
         stopSeatKeepAlive();
         stopHudTimers();
+        activeVideoTransport = "idle";
+        hideRtcTrackVideo();
         updateChip(chips.video, "Video idle", "warn");
         updateChip(chips.input, isSpectator ? "Spectator" : "Input idle", "warn");
         updateChip(chips.fps, "0 fps", "neutral");
@@ -394,13 +563,37 @@
         try { rtcPeer?.close(); } catch { }
         rtcVideoDc = null;
         rtcPeer = null;
+        rtcTrackFrameCallbackActive = false;
+        rtcTrackAudioReady = false;
         rtcVideoChunkMap.clear();
         rtcVideoDecoderReady = false;
         try { rtcVideoDecoder?.close(); } catch { }
         rtcVideoDecoder = null;
+        if (rtcTrackAudio) {
+            try { rtcTrackAudio.pause?.(); } catch { }
+            rtcTrackAudio.muted = true;
+            rtcTrackAudio.srcObject = null;
+        }
         videoWs = inputWs = audioWs = null;
         audioEnabled = false;
         setAudioDisabledUi();
+    }
+
+    function syncVideoPreferenceControls() {
+        if (videoTransportSelect) videoTransportSelect.value = selectedVideoTransport;
+        if (videoCompressionSelect) videoCompressionSelect.value = selectedVideoCompression;
+    }
+
+    function saveVideoPreferences() {
+        localStorage.setItem(videoTransportStorageKey, selectedVideoTransport);
+        localStorage.setItem(videoCompressionStorageKey, selectedVideoCompression);
+        syncVideoPreferenceControls();
+    }
+
+    function reconnectForVideoPreferenceChange(message) {
+        saveVideoPreferences();
+        setStatus(message, "good");
+        connect().catch(() => { });
     }
 
     function queueVideoFrame(buffer) {
@@ -507,17 +700,7 @@
     }
 
     function fitCanvasToShell() {
-        if (!canvas.width || !canvas.height) return;
-        const shellRect = shell.getBoundingClientRect();
-        const maxHeight = isFullscreenActive()
-            ? window.innerHeight
-            : Math.min(window.innerHeight * 0.70, Math.max(1, shellRect.width));
-        const availableWidth = Math.max(1, shellRect.width - 16);
-        const availableHeight = Math.max(1, maxHeight);
-        const size = playerHelpers?.calculateContainedSize?.(canvas.width, canvas.height, availableWidth, availableHeight)
-            || { width: availableWidth, height: availableHeight };
-        canvas.style.width = `${size.width}px`;
-        canvas.style.height = `${size.height}px`;
+        fitSurfaceToShell(canvas.width, canvas.height, canvas);
     }
 
     function startInputLoop() {
@@ -614,9 +797,18 @@
     }
 
     async function enableAudio() {
+        audioEnabled = true;
+        if (activeVideoTransport === "webrtc-track" && rtcTrackAudio) {
+            rtcTrackAudio.muted = false;
+            rtcTrackAudio.volume = 1;
+            try { await rtcTrackAudio.play?.(); } catch { }
+            setAudioEnabledUi();
+            setStatus(rtcTrackAudioReady ? "Audio connected (webrtc track)." : "Audio will start when the WebRTC track arrives.", "good");
+            return;
+        }
+
         audioCtx ??= new AudioContext({ latencyHint: "interactive" });
         await audioCtx.resume();
-        audioEnabled = true;
         audioStartTime = Math.max(audioCtx.currentTime, audioStartTime);
         if (audioWs && audioWs.readyState === WebSocket.OPEN) {
             setAudioEnabledUi();
@@ -637,10 +829,15 @@
     async function disableAudio() {
         audioEnabled = false;
         audioStartTime = 0;
+        playAudio.lastSequence = Number.NaN;
         if (audioWs) {
             try { audioWs.close(); } catch { }
         }
         audioWs = null;
+        if (rtcTrackAudio) {
+            rtcTrackAudio.muted = true;
+            try { rtcTrackAudio.pause?.(); } catch { }
+        }
         if (audioCtx?.state === "running") {
             try { await audioCtx.suspend(); } catch { }
         }
@@ -674,27 +871,50 @@
     function playAudio(buffer) {
         if (!audioCtx || !audioEnabled) return;
         const data = new DataView(buffer);
-        if (data.byteLength < 30 || magic(data, 0) !== "NBA0") return;
+        if (data.byteLength < 34 || magic(data, 0) !== "NBA0") return;
+        const sequence = readU64LittleEndian(data, 4);
+        const sentAtUs = readU64LittleEndian(data, 12);
         const sampleRate = data.getUint32(20, true);
         const channels = data.getUint8(24);
+        const sampleFormat = data.getUint8(25);
         const frameCount = data.getUint32(26, true);
         const payloadLen = data.getUint32(30, true);
         const offset = 34;
-        if (channels !== 2 || data.byteLength < offset + payloadLen) return;
-        const audioBuffer = audioCtx.createBuffer(2, frameCount, sampleRate);
-        const left = audioBuffer.getChannelData(0);
-        const right = audioBuffer.getChannelData(1);
-        for (let i = 0; i < frameCount; i++) {
-            left[i] = data.getInt16(offset + i * 4, true) / 32768;
-            right[i] = data.getInt16(offset + i * 4 + 2, true) / 32768;
+        if (sampleFormat !== 0 || channels < 1 || channels > 2 || sampleRate < 8_000 || sampleRate > 192_000) return;
+        if (data.byteLength < offset + payloadLen) return;
+        const bytesPerFrame = channels * 2;
+        if (payloadLen < frameCount * bytesPerFrame) return;
+
+        const audioBuffer = audioCtx.createBuffer(channels, frameCount, sampleRate);
+        for (let channelIndex = 0; channelIndex < channels; channelIndex++) {
+            const output = audioBuffer.getChannelData(channelIndex);
+            for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
+                const sampleOffset = offset + frameIndex * bytesPerFrame + channelIndex * 2;
+                output[frameIndex] = data.getInt16(sampleOffset, true) / 32768;
+            }
         }
+
+        const packetDuration = frameCount / sampleRate;
+        const targetLead = 0.03;
+        const maxLead = 0.18;
+        const currentTime = audioCtx.currentTime;
+        const queueLead = audioStartTime - currentTime;
+        const senderSkewSeconds = (Date.now() * 1000 - sentAtUs) / 1_000_000;
+        const sequenceGap = Number.isFinite(playAudio.lastSequence) ? sequence - playAudio.lastSequence : 1;
+        if (sequenceGap > 1 || queueLead < -0.02 || queueLead > maxLead || senderSkewSeconds > 0.5) {
+            audioStartTime = currentTime + targetLead;
+        } else {
+            audioStartTime = Math.max(currentTime + 0.005, audioStartTime);
+        }
+
         const src = audioCtx.createBufferSource();
         src.buffer = audioBuffer;
         src.connect(audioCtx.destination);
-        audioStartTime = Math.max(audioCtx.currentTime, audioStartTime);
         src.start(audioStartTime);
-        audioStartTime += frameCount / sampleRate;
+        audioStartTime += packetDuration;
+        playAudio.lastSequence = sequence;
     }
+    playAudio.lastSequence = Number.NaN;
 
     function setOverlayEnabled(enabled, persist = true) {
         overlaysEnabled = enabled;
@@ -1201,6 +1421,24 @@
         if (ev.code.startsWith("Arrow")) ev.preventDefault();
         if (wasPressed) sendInputImmediately();
     });
+    rtcTrackVideo?.addEventListener("loadedmetadata", () => {
+        fitRtcTrackVideoToShell();
+        scheduleRtcTrackFrameCallbacks();
+    });
+    rtcTrackVideo?.addEventListener("playing", () => {
+        fitRtcTrackVideoToShell();
+        scheduleRtcTrackFrameCallbacks();
+    });
+
+    videoTransportSelect?.addEventListener("change", () => {
+        selectedVideoTransport = playerHelpers?.normalizeVideoTransportPreference?.(videoTransportSelect.value) ?? "webrtc-track";
+        reconnectForVideoPreferenceChange(`Video transport set to ${selectedVideoTransport}. Reconnecting…`);
+    });
+    videoCompressionSelect?.addEventListener("change", () => {
+        selectedVideoCompression = playerHelpers?.normalizeVideoCompressionPreference?.(videoCompressionSelect.value) ?? "balanced";
+        reconnectForVideoPreferenceChange(`Video compression set to ${selectedVideoCompression}. Reconnecting…`);
+    });
+
     connectButton.addEventListener("click", connect);
     audioButton.addEventListener("click", toggleAudio);
     audioOverlayButton.addEventListener("click", ev => {
@@ -1241,6 +1479,7 @@
         if (padTestPanel?.classList.contains("d-none")) startPadTest();
         else hidePadTest();
     });
+    syncVideoPreferenceControls();
     connect();
     setOverlayEnabled(overlaysEnabled, false);
     setAudioDisabledUi();

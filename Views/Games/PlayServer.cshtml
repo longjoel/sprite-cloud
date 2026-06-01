@@ -516,6 +516,8 @@
 
             <div id="server-player-shell" class="server-player-shell bg-dark rounded p-2">
                 <canvas id="nosebleed-screen" class="rounded border border-secondary"></canvas>
+                <video id="nosebleed-screen-video" class="rounded border border-secondary d-none" autoplay playsinline muted></video>
+                <audio id="nosebleed-rtc-audio" class="d-none" autoplay playsinline muted></audio>
                 <div id="nosebleed-player-hud" class="player-hud" aria-live="polite">
                     <span id="nosebleed-video-chip" class="player-hud-chip is-warn"><span class="chip-dot" aria-hidden="true"></span><span class="chip-label">Video idle</span></span>
                     <span id="nosebleed-input-chip" class="player-hud-chip is-warn"><span class="chip-dot" aria-hidden="true"></span><span class="chip-label">@(Model.IsSpectator ? "Spectator" : "Input idle")</span></span>
@@ -587,6 +589,19 @@
                 <button id="nosebleed-audio" class="btn btn-outline-secondary" type="button">Enable audio</button>
                 <button id="nosebleed-fullscreen" class="btn btn-outline-secondary" type="button">Fullscreen</button>
                 <button id="nosebleed-overlay-toggle" class="btn btn-outline-secondary" type="button" aria-pressed="false">Hide overlay</button>
+                <label class="visually-hidden" for="nosebleed-video-transport">Video transport</label>
+                <select id="nosebleed-video-transport" class="form-select form-select-sm w-auto" aria-label="Video transport">
+                    <option value="webrtc-track">WebRTC track</option>
+                    <option value="webrtc">WebRTC data channel</option>
+                    <option value="websocket">WebSocket</option>
+                </select>
+                <label class="visually-hidden" for="nosebleed-video-compression">Video compression</label>
+                <select id="nosebleed-video-compression" class="form-select form-select-sm w-auto" aria-label="Video compression">
+                    <option value="raw">Raw frames</option>
+                    <option value="crisp">JPEG crisp</option>
+                    <option value="balanced">JPEG balanced</option>
+                    <option value="compact">JPEG compact</option>
+                </select>
                 @if (!Model.IsSpectator)
                 {
                     <button id="nosebleed-touch-toggle" class="btn btn-outline-secondary" type="button">Toggle @touchLayoutName controls</button>

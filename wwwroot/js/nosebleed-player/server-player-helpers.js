@@ -44,10 +44,64 @@
         return first ? first.index : null;
     }
 
+    const DEFAULT_VIDEO_TRANSPORT = 'webrtc-track';
+    const DEFAULT_VIDEO_COMPRESSION = 'balanced';
+
+    function normalizeVideoTransportPreference(value) {
+        return value === 'webrtc' || value === 'webrtc-track' || value === 'websocket'
+            ? value
+            : DEFAULT_VIDEO_TRANSPORT;
+    }
+
+    function normalizeVideoCompressionPreference(value) {
+        return value === 'raw' || value === 'crisp' || value === 'balanced' || value === 'compact'
+            ? value
+            : DEFAULT_VIDEO_COMPRESSION;
+    }
+
+    function chooseVideoTransport({ rtcSupported, webrtcSessionUrl, preferredTransport }) {
+        const normalizedPreference = normalizeVideoTransportPreference(preferredTransport);
+
+        if (normalizedPreference === 'websocket') {
+            return 'websocket';
+        }
+
+        if (normalizedPreference === 'webrtc' || normalizedPreference === 'webrtc-track') {
+            return rtcSupported && typeof webrtcSessionUrl === 'string' && webrtcSessionUrl.length > 0
+                ? normalizedPreference
+                : 'websocket';
+        }
+
+        return 'websocket';
+    }
+
+    function compressionToWebSocketVideoMode(compression) {
+        const normalized = normalizeVideoCompressionPreference(compression);
+        return normalized === 'raw' ? 'raw' : 'jpeg';
+    }
+
+    function compressionToJpegQuality(compression) {
+        switch (normalizeVideoCompressionPreference(compression)) {
+            case 'crisp':
+                return 82;
+            case 'compact':
+                return 55;
+            case 'balanced':
+                return 70;
+            default:
+                return null;
+        }
+    }
+
     return {
         calculateContainedSize,
         nextAudioEnabledState,
         nextOverlayEnabledState,
-        chooseInitialGamepadIndex
+        chooseInitialGamepadIndex,
+        normalizeVideoTransportPreference,
+        normalizeVideoCompressionPreference,
+        chooseVideoTransport,
+        compressionToWebSocketVideoMode,
+        compressionToJpegQuality
     };
 });
