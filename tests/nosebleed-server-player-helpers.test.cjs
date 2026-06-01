@@ -73,4 +73,54 @@ assert.equal(
   'an explicit per-seat saved selection should still be honored'
 );
 
+assert.equal(
+  helpers.chooseVideoTransport({ rtcSupported: true, webrtcSessionUrl: '/Games/NosebleedWebRtcSession?sessionId=abc' }),
+  'webrtc-track',
+  'the player should default to the new WebRTC media-track transport when signaling is available'
+);
+assert.equal(
+  helpers.chooseVideoTransport({ rtcSupported: true, webrtcSessionUrl: '/Games/NosebleedWebRtcSession?sessionId=abc', preferredTransport: 'webrtc' }),
+  'webrtc',
+  'an explicit WebRTC preference should still enable the legacy RTC data-channel path for A/B testing'
+);
+assert.equal(
+  helpers.chooseVideoTransport({ rtcSupported: true, webrtcSessionUrl: '/Games/NosebleedWebRtcSession?sessionId=abc', preferredTransport: 'webrtc-track' }),
+  'webrtc-track',
+  'an explicit WebRTC track preference should select the media-track transport path'
+);
+assert.equal(
+  helpers.chooseVideoTransport({ rtcSupported: true, webrtcSessionUrl: '/Games/NosebleedWebRtcSession?sessionId=abc', preferredTransport: 'websocket' }),
+  'websocket',
+  'an explicit websocket preference should stay on the proxy websocket path'
+);
+assert.equal(
+  helpers.chooseVideoTransport({ rtcSupported: false, webrtcSessionUrl: '/Games/NosebleedWebRtcSession?sessionId=abc', preferredTransport: 'webrtc-track' }),
+  'websocket',
+  'forcing WebRTC track mode should still fall back when the browser lacks RTCPeerConnection support'
+);
+assert.equal(
+  helpers.chooseVideoTransport({ rtcSupported: false, webrtcSessionUrl: '/Games/NosebleedWebRtcSession?sessionId=abc', preferredTransport: 'webrtc' }),
+  'websocket',
+  'forcing legacy WebRTC should still fall back when the browser lacks RTCPeerConnection support'
+);
+assert.equal(
+  helpers.chooseVideoTransport({ rtcSupported: false, webrtcSessionUrl: '/Games/NosebleedWebRtcSession?sessionId=abc' }),
+  'websocket',
+  'clients without RTCPeerConnection support should fall back to websocket video'
+);
+
+assert.equal(helpers.normalizeVideoTransportPreference('bogus'), 'webrtc-track');
+assert.equal(helpers.normalizeVideoCompressionPreference('bogus'), 'balanced');
+assert.equal(helpers.compressionToWebSocketVideoMode('raw'), 'raw');
+assert.equal(helpers.compressionToWebSocketVideoMode('compact'), 'jpeg');
+assert.equal(helpers.compressionToJpegQuality('crisp'), 82);
+assert.equal(helpers.compressionToJpegQuality('balanced'), 70);
+assert.equal(helpers.compressionToJpegQuality('compact'), 55);
+assert.equal(helpers.compressionToJpegQuality('raw'), null);
+assert.equal(
+  helpers.chooseVideoTransport({ rtcSupported: true, webrtcSessionUrl: '' }),
+  'websocket',
+  'missing signaling URLs should fall back to websocket video'
+);
+
 console.log('nosebleed server player helper tests passed');

@@ -34,7 +34,6 @@ public class GamesController(
     NosebleedSessionManager nosebleedSessions,
     NosebleedSeatManager nosebleedSeats,
     NosebleedTicketSigner nosebleedTickets,
-    NosebleedRelayMetrics nosebleedRelayMetrics,
     GamePlayTelemetryService gamePlayTelemetry,
     GamePlayRoomService roomService,
     CurrentProfileService currentProfile,
@@ -1163,7 +1162,7 @@ public class GamesController(
     }
 
     [HttpGet]
-    public async Task<IActionResult> NosebleedProxy(string sessionId, string channel, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> NosebleedProxy(string sessionId, string channel, string? videoMode = null, int? jpegQuality = null, CancellationToken cancellationToken = default)
     {
         if (!HttpContext.WebSockets.IsWebSocketRequest)
         {
@@ -1215,7 +1214,9 @@ public class GamesController(
             token = nosebleedTickets.CreateSpectatorToken(sessionId, viewerId);
         }
 
-        var path = channel == "video" ? "/ws/video?video_mode=jpeg" : $"/ws/{channel}";
+        var path = channel == "video"
+            ? BuildNosebleedVideoProxyPath(videoMode, jpegQuality)
+            : $"/ws/{channel}";
         var target = BuildNosebleedWebSocketUri(session.BaseUrl, path, token);
         if (target is null)
         {
@@ -1412,6 +1413,20 @@ public class GamesController(
     }
 
     private const string NosebleedViewerCookieName = "games_vault_nosebleed_viewer";
+
+    private static string BuildNosebleedVideoProxyPath(string? videoMode, int? jpegQuality)
+    {
+        var normalizedVideoMode = string.Equals(videoMode, "raw", StringComparison.OrdinalIgnoreCase)
+            ? "raw"
+            : "jpeg";
+        var query = new List<string> { $"video_mode={Uri.EscapeDataString(normalizedVideoMode)}" };
+        if (normalizedVideoMode == "jpeg" && jpegQuality is >= 25 and <= 95)
+        {
+            query.Add($"jpeg_quality={jpegQuality.Value}");
+        }
+
+        return $"/ws/video?{string.Join("&", query)}";
+    }
 
     private static Uri? BuildNosebleedWebSocketUri(string baseUrl, string path, string? token)
     {
