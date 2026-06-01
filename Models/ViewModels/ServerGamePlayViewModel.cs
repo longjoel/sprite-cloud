@@ -18,6 +18,7 @@ public sealed class ServerGamePlayViewModel
     public string? Error { get; init; }
     public int? CurrentRoomId { get; init; }
     public string? CurrentRoomCode { get; init; }
+    public bool ShowRoomControls { get; init; } = true;
     public bool CanChat { get; init; }
     public string? CurrentProfileDisplayName { get; init; }
     public IReadOnlyList<GamePlayRoomSummaryViewModel> ActiveRooms { get; init; } = [];

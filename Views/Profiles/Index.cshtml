@@ -2,71 +2,298 @@
 @{
     ViewData["Title"] = "Profiles";
     var canManageLibrary = ViewData["CanManageLibrary"] as bool? == true;
+    var isViewer = Model.CurrentProfileId is null;
+    var currentProfile = Model.CurrentProfileDashboard;
 }
 
-<div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
-    <div>
-        <h1 class="mb-1">Who's playing?</h1>
-        <p class="text-muted mb-0">Viewer mode can watch active games. Sign in with a username and password to play and track stats.</p>
-    </div>
-    <div class="d-flex gap-2">
-        @if (canManageLibrary)
+@functions {
+    private static string FormatAccessLabel(string accessMode)
+        => accessMode switch
         {
-            <a class="btn btn-outline-primary" asp-action="Invites">Invite links</a>
-        }
-        <a class="btn btn-primary" asp-action="Create">Create profile</a>
+            "Admin" => "Admin",
+            "Player" => "Player",
+            _ => "Viewer"
+        };
+}
+
+@if (TempData["Message"] is string message && !string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert alert-info alert-dismissible fade show" role="alert">
+        @message
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
     </div>
-</div>
+}
 
 @if (TempData["Error"] is string error && !string.IsNullOrWhiteSpace(error))
 {
     <div class="alert alert-danger">@error</div>
 }
 
-@if (Model.Profiles.Count > 0)
-{
-    <div class="card mb-4">
-        <div class="card-body">
-            <h2 class="h5">Sign in</h2>
-            <form method="post" asp-action="SignIn" class="row g-3 align-items-end" autocomplete="off">
-                @Html.AntiForgeryToken()
-                <div class="col-md-4">
-                    <label class="form-label" for="username">Username</label>
-                    <input class="form-control" id="username" name="username" maxlength="32" autocapitalize="none" spellcheck="false" required />
+<div class="row g-4 align-items-start">
+    <div class="col-xl-7">
+        <section id="profiles-hero" class="home-hero card border-0 shadow-sm overflow-hidden">
+            <div class="card-body p-4 p-lg-5">
+                <div class="text-uppercase text-primary-emphasis small fw-semibold mb-2">Profiles</div>
+                <h1 class="display-5 mb-3">@(isViewer ? "Sign in to play. Join with an invite." : "Your arcade identity is active.")</h1>
+                <p class="lead text-muted mb-4">@(isViewer
+                    ? "Viewers can browse and watch. Player profiles unlock game start, room chat, telemetry, and long-term arcade identity."
+                    : "You're already signed in, so this page focuses on your active profile, account controls, and the rest of the vault roster.")</p>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-sm-4">
+                        <div class="home-stat-tile rounded-4 border h-100 p-3">
+                            <div class="text-muted small text-uppercase fw-semibold">Current mode</div>
+                            <div class="h4 mb-1">@FormatAccessLabel(Model.AccessMode)</div>
+                            <div class="small text-muted">@(isViewer ? "Watching only" : "Signed in")</div>
+                        </div>
+                    </div>
+                    <div class="col-sm-4">
+                        <div class="home-stat-tile rounded-4 border h-100 p-3">
+                            <div class="text-muted small text-uppercase fw-semibold">Profiles</div>
+                            <div class="h4 mb-1">@Model.Profiles.Count</div>
+                            <div class="small text-muted">Available on this vault</div>
+                        </div>
+                    </div>
+                    <div class="col-sm-4">
+                        <div class="home-stat-tile rounded-4 border h-100 p-3">
+                            <div class="text-muted small text-uppercase fw-semibold">Invites</div>
+                            <div class="h4 mb-1">@(canManageLibrary ? "Admin" : "Needed")</div>
+                            <div class="small text-muted">Required for registration</div>
+                        </div>
+                    </div>
                 </div>
-                <div class="col-md-4">
-                    <label class="form-label" for="password">Password</label>
-                    <input class="form-control" id="password" name="password" type="password" required />
+
+                <div class="d-grid gap-3">
+                    <div id="profiles-viewer-card" class="card border-0 shadow-sm">
+                        <div class="card-body">
+                            <h2 class="h5">Viewer mode</h2>
+                            <p class="text-muted small mb-3">No profile selected? You can still watch active machines and browse the library.</p>
+                            <div class="d-flex gap-2 flex-wrap">
+                                <a class="btn btn-outline-secondary" asp-controller="Home" asp-action="Index">Continue as viewer</a>
+                                @if (Model.CurrentProfileId is not null)
+                                {
+                                    <form method="post" asp-action="Clear" class="d-inline">
+                                        @Html.AntiForgeryToken()
+                                        <button class="btn btn-outline-secondary">Return to viewer mode</button>
+                                    </form>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="profiles-why-sign-in-card" class="card border-0 shadow-sm">
+                        <div class="card-body">
+                            <h2 class="h5">Why sign in?</h2>
+                            <p class="text-muted small mb-0">Keep play history, claim a seat, chat in rooms, and eventually attach saves and high scores to your long-term arcade identity.</p>
+                        </div>
+                    </div>
                 </div>
-                <div class="col-md-4">
-                    <button class="btn btn-primary">Sign in</button>
-                </div>
-            </form>
+            </div>
+        </section>
+    </div>
+
+    <div class="col-xl-5">
+        <div class="d-grid gap-3">
+            @if (isViewer && Model.Profiles.Count > 0)
+            {
+                <section id="profiles-sign-in-card" class="card border-0 shadow-sm">
+                    <div class="card-body p-4">
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Sign in</div>
+                        <h2 class="h4 mb-3">Existing profile</h2>
+                        <form method="post" asp-action="SignIn" class="row g-3" autocomplete="off">
+                            @Html.AntiForgeryToken()
+                            <div class="col-12">
+                                <label class="form-label" for="username">Username</label>
+                                <input class="form-control form-control-lg" id="username" name="username" maxlength="32" autocapitalize="none" spellcheck="false" required />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="password">Password</label>
+                                <input class="form-control form-control-lg" id="password" name="password" type="password" required />
+                            </div>
+                            <div class="col-12 d-flex gap-2 flex-wrap">
+                                <button class="btn btn-primary">Sign in</button>
+                                <a class="btn btn-outline-secondary" asp-action="Create">Need an invite?</a>
+                                @if (canManageLibrary)
+                                {
+                                    <a class="btn btn-outline-secondary" asp-action="Invites">Invite links</a>
+                                }
+                            </div>
+                        </form>
+                    </div>
+                </section>
+            }
+            else if (currentProfile is not null)
+            {
+                <section id="profiles-current-profile-card" class="card border-0 shadow-sm">
+                    <div class="card-body p-4">
+                        <div class="d-flex align-items-center gap-3 mb-3">
+                            <span class="rounded-circle d-inline-block" style="width:3rem;height:3rem;background:@currentProfile.Color"></span>
+                            <div>
+                                <div class="text-uppercase text-muted small fw-semibold">Signed in</div>
+                                <h2 class="h4 mb-1">@currentProfile.DisplayName</h2>
+                                <div class="text-muted small">@("@" + (currentProfile.Username ?? "unknown")) · @FormatAccessLabel(Model.AccessMode) access</div>
+                            </div>
+                        </div>
+                        <div class="row g-3 mb-3">
+                            <div class="col-4">
+                                <div class="rounded-4 border h-100 p-3">
+                                    <div class="text-muted small text-uppercase fw-semibold">Play time</div>
+                                    <div class="h5 mb-0">@currentProfile.TotalPlayTime.TotalHours.ToString("0.0") h</div>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="rounded-4 border h-100 p-3">
+                                    <div class="text-muted small text-uppercase fw-semibold">Sessions</div>
+                                    <div class="h5 mb-0">@currentProfile.SessionCount</div>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="rounded-4 border h-100 p-3">
+                                    <div class="text-muted small text-uppercase fw-semibold">Last game</div>
+                                    <div class="small fw-semibold">@(currentProfile.LastPlayedGame ?? "None yet")</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="d-grid gap-2">
+                            <a class="btn btn-primary" asp-action="Details" asp-route-id="@currentProfile.Id">View full profile</a>
+                            <a class="btn btn-outline-primary" asp-action="Details" asp-route-id="@currentProfile.Id" asp-fragment="change-password">Change password</a>
+                            @if (canManageLibrary)
+                            {
+                                <a class="btn btn-outline-secondary" asp-action="Invites">Manage invites</a>
+                            }
+                            <form method="post" asp-action="Clear" class="d-grid">
+                                @Html.AntiForgeryToken()
+                                <button class="btn btn-outline-secondary">Return to viewer mode</button>
+                            </form>
+                        </div>
+                    </div>
+                </section>
+            }
+
+            @if (isViewer)
+            {
+                <section id="profiles-join-card" class="card border-0 shadow-sm">
+                    <div class="card-body p-4">
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Join</div>
+                        <h2 class="h4 mb-3">Create a player profile</h2>
+                        <p class="text-muted small mb-3">Use an admin-issued invite to register a new player with a display name, username, and password.</p>
+                        <div class="d-grid gap-2">
+                            <a class="btn btn-primary" asp-action="Create">Create profile</a>
+                            @if (canManageLibrary)
+                            {
+                                <a class="btn btn-outline-secondary" asp-action="Invites">Manage invites</a>
+                            }
+                        </div>
+                        <div class="small text-muted mt-3">Invite is required for registration, not for signing back in later.</div>
+                    </div>
+                </section>
+            }
         </div>
     </div>
+</div>
+
+@if (currentProfile is not null)
+{
+    <section id="profiles-dashboard" class="mt-4">
+        <div class="d-flex justify-content-between align-items-end gap-3 flex-wrap mb-3">
+            <div>
+                <div class="text-uppercase text-muted small fw-semibold mb-1">Your account</div>
+                <h2 class="h3 mb-1">Signed-in player dashboard</h2>
+                <div class="text-muted">Quick access to your recent play history and favorite games without leaving the profiles page.</div>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-lg-5">
+                <section id="profiles-dashboard-top-games" class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <h3 class="h5 mb-3">Top games</h3>
+                        @if (currentProfile.TopGames.Count == 0)
+                        {
+                            <p class="text-muted mb-0">No games played yet. Start a run to build your arcade history.</p>
+                        }
+                        else
+                        {
+                            <div class="list-group list-group-flush">
+                                @foreach (var game in currentProfile.TopGames)
+                                {
+                                    <a class="list-group-item px-0" asp-controller="Games" asp-action="Details" asp-route-id="@game.GameId">
+                                        <div class="fw-semibold">@game.GameName</div>
+                                        <div class="small text-muted">@game.TotalPlayTime.TotalHours.ToString("0.0") h · @game.SessionCount sessions</div>
+                                    </a>
+                                }
+                            </div>
+                        }
+                    </div>
+                </section>
+            </div>
+            <div class="col-lg-7">
+                <section id="profiles-dashboard-recent-sessions" class="card border-0 shadow-sm h-100">
+                    <div class="card-body">
+                        <h3 class="h5 mb-3">Recent sessions</h3>
+                        @if (currentProfile.RecentSessions.Count == 0)
+                        {
+                            <p class="text-muted mb-0">No sessions yet. Your latest play sessions will show up here.</p>
+                        }
+                        else
+                        {
+                            <div class="list-group list-group-flush">
+                                @foreach (var session in currentProfile.RecentSessions)
+                                {
+                                    <a class="list-group-item px-0" asp-controller="Games" asp-action="Details" asp-route-id="@session.GameId">
+                                        <div class="d-flex justify-content-between gap-3">
+                                            <div>
+                                                <div class="fw-semibold">@session.GameName</div>
+                                                <div class="small text-muted">@session.Mode · @session.StartedUtc.ToLocalTime().ToString("g")</div>
+                                            </div>
+                                            <div class="text-end small">@session.Duration.TotalMinutes.ToString("0") min</div>
+                                        </div>
+                                    </a>
+                                }
+                            </div>
+                        }
+                    </div>
+                </section>
+            </div>
+        </div>
+    </section>
 }
 
 @if (Model.Profiles.Count == 0)
 {
-    <div class="text-center py-5 border rounded bg-light">
-        <h2 class="h4">No profiles yet</h2>
-        <p class="text-muted">Ask an admin for an invite link to create the first player profile.</p>
-        <a class="btn btn-primary" asp-action="Create">Create profile</a>
+    <div class="card border-0 shadow-sm mt-4">
+        <div class="card-body text-center py-5">
+            <h2 class="h4">No profiles yet</h2>
+            <p class="text-muted">Ask an admin for an invite link to create the first player profile.</p>
+            <a class="btn btn-primary" asp-action="Create">Create profile</a>
+        </div>
     </div>
 }
 else
 {
-    <div class="row g-3">
-        @foreach (var profile in Model.Profiles)
-        {
-            <div class="col-md-6 col-xl-4">
-                <div class="card h-100 @(profile.IsCurrent ? "border-primary shadow-sm" : "")">
-                    <div class="card-body">
-                        <div class="d-flex align-items-center gap-3 mb-3">
-                            <span class="rounded-circle d-inline-block" style="width:2.5rem;height:2.5rem;background:@profile.Color"></span>
-                            <div>
-                                <h2 class="h5 mb-0">@profile.DisplayName</h2>
-                                <div class="small text-muted">@("@" + (profile.Username ?? "not set"))</div>
+    <section class="mt-4">
+        <div class="d-flex justify-content-between align-items-end gap-3 flex-wrap mb-3">
+            <div>
+                <div class="text-uppercase text-muted small fw-semibold mb-1">Available players</div>
+                <h2 class="h3 mb-1">Profiles on this vault</h2>
+                <div class="text-muted">Existing player identities, admin badges, and recent play totals.</div>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            @foreach (var profile in Model.Profiles)
+            {
+                <div class="col-md-6 col-xl-4">
+                    <div class="card h-100 border-0 shadow-sm @(profile.IsCurrent ? "border-primary-subtle" : string.Empty)">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center gap-3 mb-3">
+                                <span class="rounded-circle d-inline-block" style="width:2.75rem;height:2.75rem;background:@profile.Color"></span>
+                                <div>
+                                    <h3 class="h5 mb-0">@profile.DisplayName</h3>
+                                    <div class="small text-muted">@("@" + (profile.Username ?? "not set"))</div>
+                                </div>
+                            </div>
+                            <div class="d-flex gap-2 flex-wrap mb-3">
                                 @if (profile.IsCurrent)
                                 {
                                     <span class="badge text-bg-primary">Current</span>
@@ -76,31 +303,23 @@ else
                                     <span class="badge text-bg-dark">Admin</span>
                                 }
                             </div>
+                            <div class="small text-muted">@profile.SessionCount sessions</div>
+                            <div class="fw-semibold">@profile.TotalPlayTime.TotalHours.ToString("0.0") hours played</div>
+                            @if (profile.LastPlayedUtc is not null)
+                            {
+                                <div class="small text-muted">Last played @profile.LastPlayedUtc.Value.ToLocalTime().ToString("g")</div>
+                            }
                         </div>
-                        <div class="small text-muted">@profile.SessionCount sessions</div>
-                        <div class="fw-semibold">@profile.TotalPlayTime.TotalHours.ToString("0.0") hours played</div>
-                        @if (profile.LastPlayedUtc is not null)
-                        {
-                            <div class="small text-muted">Last played @profile.LastPlayedUtc.Value.ToLocalTime().ToString("g")</div>
-                        }
-                    </div>
-                    <div class="card-footer bg-transparent d-flex gap-2 flex-wrap">
-                        <a class="btn btn-sm btn-outline-secondary" asp-action="Details" asp-route-id="@profile.Id">Details</a>
-                        @if (profile.IsCurrent)
-                        {
-                            <a class="btn btn-sm btn-outline-primary" asp-action="Details" asp-route-id="@profile.Id" asp-fragment="change-password">Change password</a>
-                        }
+                        <div class="card-footer bg-transparent d-flex gap-2 flex-wrap">
+                            <a class="btn btn-sm btn-outline-secondary" asp-action="Details" asp-route-id="@profile.Id">Details</a>
+                            @if (profile.IsCurrent)
+                            {
+                                <a class="btn btn-sm btn-outline-primary" asp-action="Details" asp-route-id="@profile.Id" asp-fragment="change-password">Change password</a>
+                            }
+                        </div>
                     </div>
                 </div>
-            </div>
-        }
-    </div>
-}
-
-@if (Model.CurrentProfileId is not null)
-{
-    <form method="post" asp-action="Clear" class="mt-4">
-        @Html.AntiForgeryToken()
-        <button class="btn btn-outline-secondary">Return to viewer mode</button>
-    </form>
+            }
+        </div>
+    </section>
 }

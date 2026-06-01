@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Games Vault Home Mockup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0b1020;
+    color: #e7ecff;
+  }
+  a { color: inherit; text-decoration: none; }
+  .app-shell {
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at top left, rgba(84,120,255,.22), transparent 32%),
+      radial-gradient(circle at top right, rgba(74,222,128,.14), transparent 28%),
+      linear-gradient(180deg, #0b1020 0%, #0f172a 55%, #111827 100%);
+  }
+  .topbar {
+    max-width: 1380px;
+    margin: 0 auto;
+    padding: 18px 28px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+  }
+  .brand { font-weight: 800; letter-spacing: .02em; }
+  .brand small { color: #93a4d4; font-weight: 600; margin-left: 8px; }
+  .nav { display: flex; gap: 10px; flex-wrap: wrap; }
+  .nav-pill, .btn {
+    border: 1px solid rgba(148,163,184,.22);
+    border-radius: 999px;
+    padding: 10px 16px;
+    background: rgba(15,23,42,.6);
+    color: #dbe7ff;
+    font-size: 14px;
+  }
+  .btn.primary { background: linear-gradient(135deg, #4f7cff, #6f63ff); border-color: transparent; color: white; }
+  .btn.secondary { background: rgba(30,41,59,.84); }
+  .page {
+    max-width: 1380px;
+    margin: 0 auto;
+    padding: 10px 28px 36px;
+  }
+  .hero, .panel, .card, .tile, .sidebar-card, .list-row {
+    background: rgba(15,23,42,.72);
+    border: 1px solid rgba(148,163,184,.16);
+    box-shadow: 0 18px 40px rgba(0,0,0,.22);
+  }
+  .hero {
+    border-radius: 28px;
+    padding: 28px;
+  }
+  .eyebrow { color: #95a4d9; text-transform: uppercase; letter-spacing: .15em; font-size: 12px; font-weight: 800; }
+  h1, h2, h3, h4, p { margin-top: 0; }
+  h1 { font-size: 44px; line-height: 1.05; margin-bottom: 10px; }
+  h2 { font-size: 26px; margin-bottom: 12px; }
+  h3 { font-size: 18px; margin-bottom: 10px; }
+  p.muted, .muted { color: #9fb0d7; }
+  .hero-grid, .two-col, .three-col, .main-grid { display: grid; gap: 18px; }
+  .hero-grid { grid-template-columns: 1.2fr .9fr; align-items: stretch; }
+  .two-col { grid-template-columns: 1.3fr .9fr; }
+  .three-col { grid-template-columns: repeat(3, 1fr); }
+  .panel, .sidebar-card { border-radius: 22px; padding: 20px; }
+  .machine-strip, .library-strip, .stats-row { display: grid; gap: 14px; }
+  .machine-strip { grid-template-columns: repeat(3, 1fr); }
+  .library-strip { grid-template-columns: repeat(4, 1fr); }
+  .stats-row { grid-template-columns: repeat(4, 1fr); }
+  .card, .tile, .list-row { border-radius: 20px; padding: 18px; }
+  .thumb {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #1e293b, #334155 55%, #475569);
+    border: 1px solid rgba(255,255,255,.06);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #d6dcf7;
+    font-size: 14px;
+  }
+  .thumb.arcade { background: linear-gradient(135deg, #2b214b, #334155 45%, #0f766e); }
+  .thumb.library { background: linear-gradient(135deg, #10233d, #1e3a8a 52%, #2563eb); }
+  .thumb.player { background: linear-gradient(135deg, #000814, #0f172a 45%, #1d4ed8); }
+  .meta-row, .actions, .inline-list { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 11px; border-radius: 999px;
+    background: rgba(79,124,255,.16); color: #c9d7ff; font-size: 12px; font-weight: 700;
+    border: 1px solid rgba(79,124,255,.24);
+  }
+  .badge.alt { background: rgba(16,185,129,.14); border-color: rgba(16,185,129,.24); color: #c7f5e1; }
+  .badge.warn { background: rgba(251,191,36,.12); border-color: rgba(251,191,36,.24); color: #fde68a; }
+  .section-head {
+    display: flex; justify-content: space-between; align-items: end; gap: 12px; margin: 26px 0 14px;
+  }
+  .search, .input, .select {
+    width: 100%; border-radius: 16px; border: 1px solid rgba(148,163,184,.18);
+    padding: 14px 16px; background: rgba(2,6,23,.42); color: #eff6ff;
+  }
+  .form-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, 1fr); }
+  .form-grid .full { grid-column: 1 / -1; }
+  .field label { display: block; margin-bottom: 8px; color: #c6d3f5; font-weight: 700; font-size: 14px; }
+  .sidebar-stack, .stack { display: grid; gap: 14px; }
+  .chat-log {
+    border-radius: 18px; background: rgba(2,6,23,.44); padding: 14px; min-height: 280px;
+    display: grid; gap: 10px;
+  }
+  .chat-msg {
+    padding: 12px 13px; border-radius: 14px; background: rgba(30,41,59,.8); color: #dfe7ff;
+  }
+  .chat-msg.self { background: rgba(59,130,246,.2); }
+  .seat-row { display: grid; gap: 10px; grid-template-columns: repeat(4, 1fr); }
+  .seat {
+    border-radius: 16px; padding: 14px; background: rgba(15,23,42,.84); border: 1px solid rgba(148,163,184,.18);
+  }
+  .footer-actions { display: grid; gap: 12px; grid-template-columns: repeat(6, 1fr); }
+  .mini-stat { font-size: 13px; color: #aab8de; }
+  .list-table { display: grid; gap: 10px; }
+  .list-row { display: grid; grid-template-columns: 1.2fr .8fr .8fr auto; align-items: center; }
+  .small { font-size: 13px; }
+  .subtle { color: #7f8fb9; }
+  .divider { height: 1px; background: rgba(148,163,184,.14); margin: 18px 0; }
+  @media (max-width: 1100px) {
+    .hero-grid, .two-col, .three-col, .machine-strip, .library-strip, .stats-row, .seat-row, .footer-actions, .form-grid, .list-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+  <div class="app-shell">
+    <div class="topbar">
+      <div class="brand">Games Vault <small>mockup set</small></div>
+      <div class="nav">
+        <a class="nav-pill" href="index.html">All pages</a>
+        <a class="nav-pill" href="#">GitHub</a>
+        <a class="nav-pill" href="#">Viewer mode</a>
+      </div>
+    </div>
+    <div class="page">
+<div class="hero hero-grid">
+  <div>
+    <div class="eyebrow">Welcome back</div>
+    <h1>Your arcade floor and game library in one place.</h1>
+    <p class="muted">Watch cabinets already running, jump into a library session, or sign in with your player profile to take a seat.</p>
+    <div class="actions" style="margin-top:18px;">
+      <a class="btn primary" href="profiles.html">Sign in / join</a>
+      <a class="btn secondary" href="games-library.html">Browse games</a>
+      <a class="btn secondary" href="arcade.html">Open arcade</a>
+    </div>
+    <div class="stats-row" style="margin-top:20px;">
+      <div class="tile"><div class="mini-stat">Active machines</div><h3>5 live</h3><div class="subtle small">3 arcade · 2 library</div></div>
+      <div class="tile"><div class="mini-stat">Games</div><h3>842</h3><div class="subtle small">27 systems</div></div>
+      <div class="tile"><div class="mini-stat">Current mode</div><h3>Viewer</h3><div class="subtle small">Sign in to play</div></div>
+      <div class="tile"><div class="mini-stat">Profiles online</div><h3>4</h3><div class="subtle small">2 currently in-game</div></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="meta-row" style="justify-content:space-between; margin-bottom:10px;">
+      <span class="badge alt">Featured machine</span>
+      <span class="small subtle">Arcade cabinet</span>
+    </div>
+    <div class="thumb arcade">16:9 live cabinet preview</div>
+    <h3 style="margin-top:16px;">NBA Jam — Center Court Cabinet</h3>
+    <p class="muted small">Running for 1h 24m · 2 players seated · watchers can jump in immediately.</p>
+    <div class="actions"><a class="btn primary" href="player-session.html">Watch now</a><a class="btn secondary" href="arcade.html">View machine</a></div>
+  </div>
+</div>
+
+<div class="section-head"><div><div class="eyebrow">Live now</div><h2>Active machines</h2></div><a class="btn secondary" href="arcade.html">Open full arcade floor</a></div>
+<div class="machine-strip">
+  <div class="card"><div class="thumb arcade">Cabinet preview</div><h3>Marvel vs. Capcom 2</h3><p class="muted small">Arcade cabinet · 2 seats taken</p><div class="actions"><span class="badge alt">Running</span><a class="btn secondary" href="player-session.html">Watch</a></div></div>
+  <div class="card"><div class="thumb library">Library session</div><h3>Sonic 2</h3><p class="muted small">Library session · started 6m ago</p><div class="actions"><span class="badge">Player 1 open</span><a class="btn secondary" href="player-session.html">Join</a></div></div>
+  <div class="card"><div class="thumb arcade">Cabinet preview</div><h3>TMNT Cabinet</h3><p class="muted small">Free-play cabinet · 4-player room</p><div class="actions"><span class="badge alt">Running</span><a class="btn secondary" href="player-session.html">Watch</a></div></div>
+</div>
+
+<div class="section-head"><div><div class="eyebrow">Playable library</div><h2>Games library</h2></div><a class="btn secondary" href="games-library.html">See full library</a></div>
+<div class="panel">
+  <div class="two-col">
+    <div>
+      <input class="search" value="Search games, systems, or romsets…" />
+      <div class="library-strip" style="margin-top:16px;">
+        <div class="card"><div class="thumb library">Cover art</div><h3>Chrono Trigger</h3><p class="muted small">SNES</p><a class="btn secondary" href="player-session.html">Play server-side</a></div>
+        <div class="card"><div class="thumb library">Cover art</div><h3>Crazy Taxi</h3><p class="muted small">Dreamcast</p><a class="btn secondary" href="player-session.html">Play server-side</a></div>
+        <div class="card"><div class="thumb library">Cover art</div><h3>Metal Slug X</h3><p class="muted small">Arcade</p><a class="btn secondary" href="player-session.html">Play server-side</a></div>
+        <div class="card"><div class="thumb library">Cover art</div><h3>GoldenEye 007</h3><p class="muted small">Nintendo 64</p><a class="btn secondary" href="player-session.html">Play server-side</a></div>
+      </div>
+    </div>
+    <div class="sidebar-stack">
+      <div class="sidebar-card">
+        <div class="eyebrow">Current profile</div>
+        <h3>Viewer mode</h3>
+        <p class="muted small">You can browse and watch live sessions. Sign in to start games, take a seat, and keep play history.</p>
+        <a class="btn primary" href="profiles.html">Choose a profile</a>
+      </div>
+      <div class="sidebar-card">
+        <div class="eyebrow">Admin</div>
+        <h3>Workspace shortcut</h3>
+        <p class="muted small">If you're an admin, jump into import tools, cabinet setup, invites, and operations.</p>
+        <a class="btn secondary" href="admin.html">Open admin workspace</a>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+  </div>
+</body>
+</html>

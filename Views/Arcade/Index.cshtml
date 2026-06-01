@@ -77,7 +77,12 @@ else
             @foreach (var cabinet in Model.Cabinets)
             {
                 <div class="col-md-6 col-xl-4">
-                    <div class="card h-100 shadow-sm @(cabinet.IsRunning ? "border-success" : "")" @(cabinet.IsRunning ? $"data-nosebleed-preview-card data-preview-url=\"{Url.Action("NosebleedPreviewVideo", "Home", new { sessionId = cabinet.RuntimeSessionId })}\"" : "")>
+                    <div class="card h-100 shadow-sm @(cabinet.IsRunning ? "border-success" : "")"
+                         @if (cabinet.IsRunning)
+                         {
+                             @:data-nosebleed-preview-card
+                             @:data-preview-url="@Url.Action("NosebleedPreviewVideo", "Home", new { sessionId = cabinet.RuntimeSessionId })"
+                         }>
                         <div class="ratio ratio-16x9 bg-dark rounded-top overflow-hidden d-flex align-items-center justify-content-center">
                             @if (cabinet.IsRunning)
                             {
@@ -111,7 +116,14 @@ else
                                 <div class="alert alert-warning small py-2">@cabinet.LastError</div>
                             }
                             <div class="d-flex gap-2 flex-wrap mt-auto">
-                                <a class="btn btn-sm btn-primary" asp-action="Join" asp-route-id="@cabinet.Id">@(Model.CanPlay ? "Join" : "Watch")</a>
+                                @if (cabinet.IsRunning && !string.IsNullOrWhiteSpace(cabinet.RuntimeSessionId))
+                                {
+                                    <a class="btn btn-sm btn-primary" href="@Url.RouteUrl("ArcadeSession", new { sessionId = cabinet.RuntimeSessionId })">@(Model.CanPlay ? "Join" : "Watch")</a>
+                                }
+                                else
+                                {
+                                    <a class="btn btn-sm btn-primary" asp-action="Join" asp-route-id="@cabinet.Id">@(Model.CanPlay ? "Join" : "Watch")</a>
+                                }
                                 @if (Model.CanManage)
                                 {
                                     <form asp-action="StartCabinet" method="post" asp-antiforgery="true">
