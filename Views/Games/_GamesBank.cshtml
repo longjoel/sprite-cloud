@@ -64,35 +64,60 @@ else
             var editId = $"game-edit-{game.Id}";
             var accordionId = $"game-accordion-{game.Id}";
             var inBatch = batchGameIds.Contains(game.Id);
-            var missingInfo = Model.MissingSystemFilesBySystem.TryGetValue(game.SystemName, out var missing) ? missing : null;
+            var systemName = game.SystemName ?? "Unknown system";
+            var missingInfo = Model.MissingSystemFilesBySystem.TryGetValue(systemName, out var missing) ? missing : null;
             var hasMissingSystemFiles = missingInfo is not null && missingInfo.MissingCount > 0;
             var missingSample = hasMissingSystemFiles && missingInfo!.SampleFiles.Count > 0 ? string.Join(", ", missingInfo.SampleFiles) : "";
             var missingMore = hasMissingSystemFiles && missingInfo!.MissingCount > missingInfo.SampleFiles.Count
                 ? $" (+{missingInfo.MissingCount - missingInfo.SampleFiles.Count} more)"
                 : "";
 
+            var artSeed = new string((systemName ?? string.Empty)
+                .Split([' ', '-', '_', '/'], StringSplitOptions.RemoveEmptyEntries)
+                .Select(part => char.ToUpperInvariant(part[0]))
+                .Take(3)
+                .ToArray());
+            if (string.IsNullOrWhiteSpace(artSeed))
+            {
+                artSeed = "ROM";
+            }
+
             <div class="col">
-                <div class="card h-100 shadow-sm game-row" data-game-id="@game.Id">
+                <div class="card games-card h-100 shadow-sm game-row" data-game-id="@game.Id">
                     <div class="card-body d-flex flex-column gap-3">
                         <div class="d-flex align-items-start justify-content-between gap-3">
-                            <div class="form-check mt-1">
-                                <input type="checkbox" class="form-check-input game-select" name="ids" value="@game.Id" id="game-select-@game.Id" />
-                            </div>
-                            <div class="flex-grow-1 min-w-0">
-                                <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-                                    <h2 class="h5 mb-0 text-break">
-                                        <a class="link-body-emphasis text-decoration-none" asp-action="PlayServer" asp-route-id="@game.Id">@game.Name</a>
-                                    </h2>
-                                    @if (inBatch)
+                            <div class="d-flex gap-3 flex-grow-1 min-w-0">
+                                <div class="form-check mt-1">
+                                    <input type="checkbox" class="form-check-input game-select" name="ids" value="@game.Id" id="game-select-@game.Id" />
+                                </div>
+                                <div class="games-card-art">
+                                    <div class="games-card-art-initials">@artSeed</div>
+                                    <div class="games-card-art-caption">@game.FileCount file@(game.FileCount == 1 ? "" : "s")</div>
+                                </div>
+                                <div class="flex-grow-1 min-w-0">
+                                    <div class="games-card-kicker mb-2">@systemName</div>
+                                    <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                                        <h2 class="h4 mb-0 text-break">
+                                            <a class="link-body-emphasis text-decoration-none" asp-action="PlayServer" asp-route-id="@game.Id">@game.Name</a>
+                                        </h2>
+                                        @if (inBatch)
+                                        {
+                                            <span class="badge text-bg-success">In batch</span>
+                                        }
+                                        @if (hasMissingSystemFiles)
+                                        {
+                                            <span class="badge text-bg-danger" title="Missing system files: @missingSample@missingMore">Missing BIOS/system files</span>
+                                        }
+                                    </div>
+                                    <div class="d-flex flex-wrap gap-2 mt-3">
+                                        <span class="games-meta-chip">Added @game.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd")</span>
+                                        <span class="games-meta-chip">@game.FileCount file@(game.FileCount == 1 ? "" : "s")</span>
+                                    </div>
+                                    @if (hasMissingSystemFiles && !string.IsNullOrWhiteSpace(missingSample))
                                     {
-                                        <span class="badge text-bg-success">In batch</span>
-                                    }
-                                    @if (hasMissingSystemFiles)
-                                    {
-                                        <span class="badge text-bg-danger" title="Missing system files: @missingSample@missingMore">Missing BIOS/system files</span>
+                                        <div class="small text-danger mt-3">Missing: @missingSample@missingMore</div>
                                     }
                                 </div>
-                                <div class="text-muted small text-break">@game.SystemName</div>
                             </div>
                             <div class="dropdown">
                                 <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
@@ -158,18 +183,7 @@ else
                             </div>
                         </div>
 
-                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
-                            <div class="d-flex flex-wrap gap-2 text-muted small">
-                                <span class="badge rounded-pill text-bg-light">@game.FileCount file@(game.FileCount == 1 ? "" : "s")</span>
-                                <span class="badge rounded-pill text-bg-light">Added @game.CreatedUtc.ToLocalTime().ToString("yyyy-MM-dd")</span>
-                            </div>
-                            @if (hasMissingSystemFiles && !string.IsNullOrWhiteSpace(missingSample))
-                            {
-                                <div class="small text-danger text-end">Missing: @missingSample@missingMore</div>
-                            }
-                        </div>
-
-                        <div class="d-flex flex-wrap gap-2 mt-auto">
+                        <div class="games-primary-actions d-flex flex-wrap gap-2 mt-auto">
                             <a class="btn btn-primary" asp-action="PlayServer" asp-route-id="@game.Id">Play server-side</a>
                             <a class="btn btn-outline-secondary" asp-action="Play" asp-route-id="@game.Id">Browser</a>
                             <a class="btn btn-outline-secondary" asp-action="Details" asp-route-id="@game.Id">Open details</a>
