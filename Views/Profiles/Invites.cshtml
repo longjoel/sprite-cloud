@@ -6,7 +6,7 @@
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
     <div>
         <h1 class="mb-1">Profile invite links</h1>
-        <p class="text-muted mb-0">Generate one-time links for creating player profiles. New profiles start with PIN <code>0000</code>.</p>
+        <p class="text-muted mb-0">Generate one-time links for creating player profiles. Each invite lets the player choose a username and password during signup.</p>
     </div>
     <form method="post" asp-action="GenerateInvite">
         @Html.AntiForgeryToken()

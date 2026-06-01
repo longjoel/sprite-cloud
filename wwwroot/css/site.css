@@ -21,11 +21,25 @@ body {
   margin-bottom: 60px;
 }
 
-/*
- * The Games page has an action dropdown in the left-column table next to the
- * Batch card. Without an explicit stacking order, the right column/card can be
- * painted above an open dropdown, making the menu look buried or clipped.
- */
+.games-shell-hero {
+  background: linear-gradient(135deg, rgba(13, 110, 253, 0.08), rgba(111, 66, 193, 0.10));
+  border: 1px solid rgba(13, 110, 253, 0.12);
+}
+
+.games-surface-switch {
+  display: inline-flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.375rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(13, 110, 253, 0.10);
+}
+
+.games-surface-switch .btn {
+  border-radius: 999px;
+}
+
 .games-bank-column {
   position: relative;
   z-index: 2;
@@ -38,6 +52,69 @@ body {
 
 .games-bank-column .dropdown-menu {
   z-index: 1080;
+}
+
+.games-batch-panel {
+  position: sticky;
+  top: 1rem;
+}
+
+.games-card {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.games-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 1rem 2rem rgba(15, 23, 42, 0.08) !important;
+  border-color: rgba(13, 110, 253, 0.18);
+}
+
+.games-card-art {
+  width: 5rem;
+  min-width: 5rem;
+  height: 6.5rem;
+  border-radius: 1rem;
+  background: linear-gradient(160deg, rgba(13, 110, 253, 0.16), rgba(111, 66, 193, 0.18));
+  border: 1px solid rgba(13, 110, 253, 0.12);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0.75rem;
+}
+
+.games-card-art-initials {
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--bs-emphasis-color);
+}
+
+.games-card-art-caption {
+  font-size: 0.72rem;
+  color: var(--bs-secondary-color);
+  margin-top: 0.35rem;
+}
+
+.games-card-kicker {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bs-secondary-color);
+}
+
+.games-meta-chip {
+  border-radius: 999px;
+  background: var(--bs-tertiary-bg);
+  color: var(--bs-secondary-color);
+  padding: 0.35rem 0.65rem;
+  font-size: 0.78rem;
+}
+
+.games-primary-actions .btn {
+  min-width: 9rem;
 }
 
 /* When a table action menu is open, let it escape Bootstrap's responsive table

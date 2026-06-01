@@ -32,6 +32,7 @@ public sealed class ProfilesController(
                 {
                     Id = p.Id,
                     DisplayName = p.DisplayName,
+                    Username = p.Username,
                     Color = p.Color,
                     IsCurrent = current?.Id == p.Id,
                     IsAdmin = p.IsAdmin,
@@ -59,8 +60,8 @@ public sealed class ProfilesController(
 
         try
         {
-            var profile = await localProfiles.CreateWithInviteAsync(model.DisplayName, model.Color, model.InviteCode, cancellationToken);
-            TempData["Message"] = $"Created profile for {profile.DisplayName}. The starter PIN is 0000.";
+            var profile = await localProfiles.CreateWithInviteAsync(model.DisplayName, model.Username, model.Password, model.Color, model.InviteCode, cancellationToken);
+            TempData["Message"] = $"Created profile for {profile.DisplayName}. You are now signed in as @{profile.Username}.";
             return RedirectToAction(nameof(Details), new { id = profile.Id });
         }
         catch (ArgumentException ex)
@@ -77,15 +78,15 @@ public sealed class ProfilesController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> SignIn(int profileId, string pin, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> SignIn(string username, string password, CancellationToken cancellationToken = default)
     {
-        if (await localProfiles.SignInAsync(profileId, pin, cancellationToken))
+        if (await localProfiles.SignInAsync(username, password, cancellationToken))
         {
             TempData["Message"] = "Profile selected.";
             return RedirectToAction(nameof(Index));
         }
 
-        TempData["Error"] = "Invalid PIN.";
+        TempData["Error"] = "Invalid username or password.";
         return RedirectToAction(nameof(Index));
     }
 
@@ -122,7 +123,7 @@ public sealed class ProfilesController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> ChangePin(ProfileChangePinViewModel model, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> ChangePassword(ProfileChangePasswordViewModel model, CancellationToken cancellationToken = default)
     {
         var profile = await db.UserProfiles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == model.ProfileId && !x.IsArchived, cancellationToken);
         if (profile is null)
@@ -142,14 +143,14 @@ public sealed class ProfilesController(
             return View(nameof(Details), invalidModel!);
         }
 
-        if (!await localProfiles.ChangePinAsync(model.ProfileId, model.CurrentPin, model.NewPin, cancellationToken))
+        if (!await localProfiles.ChangePasswordAsync(model.ProfileId, model.CurrentPassword, model.NewPassword, cancellationToken))
         {
-            ModelState.AddModelError(string.Empty, "Current PIN was incorrect.");
+            ModelState.AddModelError(string.Empty, "Current password was incorrect.");
             var failedModel = await BuildDetailsViewModelAsync(model.ProfileId, model, cancellationToken);
             return View(nameof(Details), failedModel!);
         }
 
-        TempData["Message"] = "PIN updated.";
+        TempData["Message"] = "Password updated.";
         return RedirectToAction(nameof(Details), new { id = model.ProfileId });
     }
 
@@ -162,7 +163,7 @@ public sealed class ProfilesController(
         return RedirectToAction(nameof(Index));
     }
 
-    private async Task<ProfileDetailsViewModel?> BuildDetailsViewModelAsync(int id, ProfileChangePinViewModel? changePinModel, CancellationToken cancellationToken)
+    private async Task<ProfileDetailsViewModel?> BuildDetailsViewModelAsync(int id, ProfileChangePasswordViewModel? changePasswordModel, CancellationToken cancellationToken)
     {
         var profile = await db.UserProfiles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && !x.IsArchived, cancellationToken);
         if (profile is null) return null;
@@ -195,12 +196,13 @@ public sealed class ProfilesController(
         {
             Id = profile.Id,
             DisplayName = profile.DisplayName,
+            Username = profile.Username,
             Color = profile.Color,
             IsCurrent = current?.Id == profile.Id,
             SessionCount = sessions.Count,
             TotalPlayTime = TimeSpan.FromSeconds(recent.Sum(x => (int)x.Duration.TotalSeconds)),
             LastPlayedGame = recent.FirstOrDefault()?.GameName,
-            ChangePin = changePinModel ?? new ProfileChangePinViewModel { ProfileId = profile.Id },
+            ChangePassword = changePasswordModel ?? new ProfileChangePasswordViewModel { ProfileId = profile.Id },
             RecentSessions = recent,
             TopGames = top
         };

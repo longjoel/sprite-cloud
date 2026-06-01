@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Cryptography.KeyDerivation;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 
 namespace games_vault.Profiles;
 
@@ -13,11 +14,11 @@ public sealed class LocalProfileService(
     ProfileInviteService? invites = null,
     ProfileAuthSessionService? authSessions = null)
 {
-    public const string DefaultPin = "0000";
+    private static readonly Regex UsernameRegex = new("^[a-z0-9._-]{3,32}$", RegexOptions.Compiled);
 
-    public async Task<UserProfile> CreateAsync(string displayName, string? color, CancellationToken ct)
+    public async Task<UserProfile> CreateAsync(string displayName, string username, string password, string? color, CancellationToken ct)
     {
-        var profile = await BuildProfileAsync(displayName, color, ct);
+        var profile = await BuildProfileAsync(displayName, username, password, color, ct);
         db.UserProfiles.Add(profile);
         await db.SaveChangesAsync(ct);
         var authSession = await CreateAuthSessionAsync(profile.Id, ct);
@@ -25,7 +26,7 @@ public sealed class LocalProfileService(
         return profile;
     }
 
-    public async Task<UserProfile> CreateWithInviteAsync(string displayName, string? color, string? inviteCode, CancellationToken ct)
+    public async Task<UserProfile> CreateWithInviteAsync(string displayName, string username, string password, string? color, string? inviteCode, CancellationToken ct)
     {
         if (invites is null)
         {
@@ -33,7 +34,7 @@ public sealed class LocalProfileService(
         }
 
         ProfileInviteService.NormalizeCode(inviteCode);
-        var profile = await BuildProfileAsync(displayName, color, ct);
+        var profile = await BuildProfileAsync(displayName, username, password, color, ct);
         db.UserProfiles.Add(profile);
         await db.SaveChangesAsync(ct);
 
@@ -44,27 +45,30 @@ public sealed class LocalProfileService(
         return profile;
     }
 
-    public async Task<bool> SignInAsync(int profileId, string? pin, CancellationToken ct)
+    public async Task<bool> SignInAsync(string? username, string? password, CancellationToken ct)
     {
-        if (!await VerifyPinAsync(profileId, pin, ct))
+        var normalizedUsername = NormalizeUsername(username);
+        var profile = await db.UserProfiles
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Username == normalizedUsername && !x.IsArchived, ct);
+        if (profile is null || !VerifyPassword(profile.PasswordHash, password))
         {
             return false;
         }
 
-        var authSession = await CreateAuthSessionAsync(profileId, ct);
-        currentProfile.SetCurrent(profileId, authSession.SessionNonce);
+        var authSession = await CreateAuthSessionAsync(profile.Id, ct);
+        currentProfile.SetCurrent(profile.Id, authSession.SessionNonce);
         return true;
     }
 
-    public async Task<bool> ChangePinAsync(int profileId, string? currentPin, string? newPin, CancellationToken ct)
+    public async Task<bool> ChangePasswordAsync(int profileId, string? currentPassword, string? newPassword, CancellationToken ct)
     {
-        if (!await VerifyPinAsync(profileId, currentPin, ct))
+        if (!await VerifyPasswordAsync(profileId, currentPassword, ct))
         {
             return false;
         }
 
-        var normalizedNewPin = NormalizePin(newPin);
-        if (!IsValidPin(normalizedNewPin))
+        if (!IsValidPassword(newPassword))
         {
             return false;
         }
@@ -75,13 +79,13 @@ public sealed class LocalProfileService(
             return false;
         }
 
-        profile.PinHash = HashPin(normalizedNewPin);
+        profile.PasswordHash = HashPassword(newPassword!);
         profile.UpdatedUtc = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
         return true;
     }
 
-    public async Task<bool> VerifyPinAsync(int profileId, string? pin, CancellationToken ct)
+    public async Task<bool> VerifyPasswordAsync(int profileId, string? password, CancellationToken ct)
     {
         var profile = await db.UserProfiles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == profileId && !x.IsArchived, ct);
         if (profile is null)
@@ -89,8 +93,28 @@ public sealed class LocalProfileService(
             return false;
         }
 
-        return VerifyPin(profile.PinHash, pin);
+        return VerifyPassword(profile.PasswordHash, password);
     }
+
+    public static string NormalizeUsername(string? username)
+    {
+        var normalized = string.IsNullOrWhiteSpace(username)
+            ? throw new ArgumentException("Username is required.", nameof(username))
+            : username.Trim().ToLowerInvariant();
+
+        if (!UsernameRegex.IsMatch(normalized))
+        {
+            throw new ArgumentException("Username must be 3-32 characters using only letters, numbers, periods, underscores, or hyphens.", nameof(username));
+        }
+
+        return normalized;
+    }
+
+    public static bool IsValidPassword(string? password)
+        => !string.IsNullOrEmpty(password) && password.Length >= 8 && password.Length <= 256;
+
+    private static bool HasSuppliedPassword(string? password)
+        => !string.IsNullOrEmpty(password) && password.Length <= 256;
 
     private async Task<ProfileAuthSession> CreateAuthSessionAsync(int profileId, CancellationToken ct)
     {
@@ -120,10 +144,21 @@ public sealed class LocalProfileService(
         return authSession;
     }
 
-    private async Task<UserProfile> BuildProfileAsync(string displayName, string? color, CancellationToken ct)
+    private async Task<UserProfile> BuildProfileAsync(string displayName, string username, string password, string? color, CancellationToken ct)
     {
         var normalizedName = PasskeyService.NormalizeDisplayName(displayName);
         var normalizedColor = PasskeyService.NormalizeColor(color);
+        var normalizedUsername = NormalizeUsername(username);
+        if (!IsValidPassword(password))
+        {
+            throw new ArgumentException("Password must be at least 8 characters.", nameof(password));
+        }
+
+        if (await db.UserProfiles.AnyAsync(x => x.Username == normalizedUsername, ct))
+        {
+            throw new InvalidOperationException("That username is already taken.");
+        }
+
         var now = DateTime.UtcNow;
         var isFirstProfile = !await db.UserProfiles.AnyAsync(ct);
         var userHandle = new byte[32];
@@ -132,43 +167,29 @@ public sealed class LocalProfileService(
         return new UserProfile
         {
             DisplayName = normalizedName,
+            Username = normalizedUsername,
             Color = normalizedColor,
             PasskeyUserHandleBase64Url = WebEncoders.Base64UrlEncode(userHandle),
-            PinHash = HashPin(DefaultPin),
+            PasswordHash = HashPassword(password),
             IsAdmin = isFirstProfile,
             CreatedUtc = now,
             UpdatedUtc = now
         };
     }
 
-    private static string NormalizePin(string? pin) => (pin ?? string.Empty).Trim();
-
-    public static bool IsValidPin(string? pin)
+    private static string HashPassword(string password)
     {
-        var normalized = NormalizePin(pin);
-        return normalized.Length == 4 && normalized.All(char.IsDigit);
-    }
-
-    private static string HashPin(string pin)
-    {
-        var normalized = NormalizePin(pin);
         var salt = new byte[16];
         RandomNumberGenerator.Fill(salt);
-        var hash = KeyDerivation.Pbkdf2(normalized, salt, KeyDerivationPrf.HMACSHA256, 100_000, 32);
+        var hash = KeyDerivation.Pbkdf2(password, salt, KeyDerivationPrf.HMACSHA256, 100_000, 32);
         return $"pbkdf2-sha256$100000${Convert.ToBase64String(salt)}${Convert.ToBase64String(hash)}";
     }
 
-    private static bool VerifyPin(string? storedHash, string? suppliedPin)
+    private static bool VerifyPassword(string? storedHash, string? suppliedPassword)
     {
-        var pin = NormalizePin(suppliedPin);
-        if (!IsValidPin(pin))
+        if (!HasSuppliedPassword(suppliedPassword) || string.IsNullOrWhiteSpace(storedHash))
         {
             return false;
-        }
-
-        if (string.IsNullOrWhiteSpace(storedHash))
-        {
-            return pin == DefaultPin;
         }
 
         var parts = storedHash.Split('$');
@@ -179,7 +200,7 @@ public sealed class LocalProfileService(
 
         var salt = Convert.FromBase64String(parts[2]);
         var expected = Convert.FromBase64String(parts[3]);
-        var actual = KeyDerivation.Pbkdf2(pin, salt, KeyDerivationPrf.HMACSHA256, iterations, expected.Length);
+        var actual = KeyDerivation.Pbkdf2(suppliedPassword!, salt, KeyDerivationPrf.HMACSHA256, iterations, expected.Length);
         return CryptographicOperations.FixedTimeEquals(actual, expected);
     }
 }
