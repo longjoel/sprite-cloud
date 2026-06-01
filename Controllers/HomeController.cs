@@ -65,6 +65,9 @@ public class HomeController(
             cancellationToken);
 
         var currentUserProfile = await currentProfile.GetCurrentAsync(cancellationToken);
+        var accessMode = await currentAccess.GetAccessModeAsync(cancellationToken);
+        var canPlay = accessMode is AccessMode.Player or AccessMode.Admin;
+        var canManageLibrary = accessMode is AccessMode.Admin;
         var telemetryStats = await gamePlayTelemetry.GetDashboardStatsAsync(currentUserProfile?.Id, cancellationToken);
         var globalTelemetryStats = currentUserProfile is null
             ? telemetryStats
@@ -190,6 +193,21 @@ public class HomeController(
                 .Where(x => activeGameIds.Contains(x.Id))
                 .Select(x => new { x.Id, x.Name })
                 .ToDictionaryAsync(x => x.Id, x => x.Name, cancellationToken);
+        var libraryPreviewGames = await db.Games
+            .AsNoTracking()
+            .OrderByDescending(x => x.CreatedUtc)
+            .ThenBy(x => x.Name)
+            .Take(8)
+            .Select(x => new HomeLibraryPreviewGameViewModel
+            {
+                GameId = x.Id,
+                GameName = x.Name,
+                SystemName = x.SystemName,
+                Genre = x.Genre,
+                NumberOfPlayers = x.NumberOfPlayers,
+                IsRunningNow = activeGameIds.Contains(x.Id)
+            })
+            .ToListAsync(cancellationToken);
         var arcadeSessionMap = await db.ArcadeCabinets
             .AsNoTracking()
             .Where(x => x.RuntimeSessionId != null)
@@ -227,6 +245,9 @@ public class HomeController(
             .Where(x => !x.IsArcadeCabinet)
             .OrderByDescending(x => x.StartedUtc)
             .ToList();
+        var featuredSession = activeArcadeCabinets.FirstOrDefault()
+            ?? activeLibrarySessions.FirstOrDefault()
+            ?? activeSessionModels.FirstOrDefault();
 
         var libretroInstalled = libretroStore.HasDatFiles();
         int? missingSystemFilesCount = null;
@@ -243,6 +264,9 @@ public class HomeController(
             ShowDashboard = telemetryStats.TotalSessions > 0 || activeSessionModels.Count > 0 || gamesCount > 0,
             CurrentProfileId = currentUserProfile?.Id,
             CurrentProfileName = currentUserProfile?.DisplayName,
+            AccessMode = accessMode.ToString(),
+            CanPlay = canPlay,
+            CanManageLibrary = canManageLibrary,
             GlobalTotalPlayTime = TimeSpan.FromSeconds(globalTelemetryStats.TotalDurationSeconds),
             GlobalPlaySessionCount = globalTelemetryStats.TotalSessions,
             GamesCount = gamesCount,
@@ -252,6 +276,8 @@ public class HomeController(
             TotalPlayTime = TimeSpan.FromSeconds(telemetryStats.TotalDurationSeconds),
             PlaySessionCount = telemetryStats.TotalSessions,
             LastPlayedGame = lastPlayedGame,
+            FeaturedSession = featuredSession,
+            LibraryPreviewGames = libraryPreviewGames,
             TopPlayedGames = topPlayedGames,
             ActiveNosebleedSessions = activeSessionModels,
             ActiveArcadeCabinets = activeArcadeCabinets,

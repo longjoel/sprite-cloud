@@ -21,6 +21,28 @@ body {
   margin-bottom: 60px;
 }
 
+.home-hero {
+  background: linear-gradient(135deg, rgba(13, 110, 253, 0.08), rgba(111, 66, 193, 0.10));
+}
+
+.home-feature-card,
+.home-stat-tile,
+.home-library-card {
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.home-library-card {
+  display: flex;
+  flex-direction: column;
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.home-library-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 1rem 2rem rgba(15, 23, 42, 0.08);
+  border-color: rgba(13, 110, 253, 0.18);
+}
+
 .games-shell-hero {
   background: linear-gradient(135deg, rgba(13, 110, 253, 0.08), rgba(111, 66, 193, 0.10));
   border: 1px solid rgba(13, 110, 253, 0.12);
@@ -118,16 +140,11 @@ body {
 }
 
 /* When a table action menu is open, let it escape Bootstrap's responsive table
-   overflow box instead of clipping the menu to the table area. */
-.table-responsive:has(.dropdown-menu.show) {
-  overflow: visible;
-}
-
-.form-floating > .form-control-plaintext::placeholder, .form-floating > .form-control::placeholder {
-  color: var(--bs-secondary-color);
-  text-align: end;
-}
-
-.form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
-  text-align: start;
+   clipping rather than being cut off at the row boundary. */
+.table-responsive.table-actions-overflow,
+.table-responsive.table-actions-overflow .table,
+.table-responsive.table-actions-overflow tbody,
+.table-responsive.table-actions-overflow tr,
+.table-responsive.table-actions-overflow td {
+  overflow: visible !important;
 }

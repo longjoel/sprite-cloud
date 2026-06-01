@@ -20,41 +20,36 @@
                 </button>
                 <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
                     <ul class="navbar-nav flex-grow-1">
-                        @{ var canManageLibrary = ViewData["CanManageLibrary"] as bool? == true; }
+                        @{
+                            var canManageLibrary = ViewData["CanManageLibrary"] as bool? == true;
+                            var isSignedIn = ViewData["CurrentProfileId"] is int;
+                        }
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-controller="Home" asp-action="Index">Home</a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Profiles" asp-action="Index">Profiles</a>
-                        </li>
-                        <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-controller="Arcade" asp-action="Index">Arcade</a>
                         </li>
+                        @if (isSignedIn)
+                        {
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-controller="Games" asp-action="Index">Games</a>
                         </li>
+                        }
                         @if (canManageLibrary)
                         {
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="GameFiles" asp-action="Index">Game Files</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="SystemFiles" asp-action="Index">System Files</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="SystemCoreMappings" asp-action="Index">Core Mappings</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Profiles" asp-action="Invites">Profile Invites</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Sources" asp-action="Index">Sources</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Jobs" asp-action="Index">Jobs</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-controller="Downloads" asp-action="Index">Downloads</a>
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle text-dark" href="#" id="admin-nav-dropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">Admin</a>
+                            <ul class="dropdown-menu" aria-labelledby="admin-nav-dropdown">
+                                <li><a class="dropdown-item" asp-area="" asp-controller="Profiles" asp-action="Index">Profiles</a></li>
+                                <li><a class="dropdown-item" asp-area="" asp-controller="GameFiles" asp-action="Index">Game Files</a></li>
+                                <li><a class="dropdown-item" asp-area="" asp-controller="SystemFiles" asp-action="Index">System Files</a></li>
+                                <li><a class="dropdown-item" asp-area="" asp-controller="SystemCoreMappings" asp-action="Index">Core Mappings</a></li>
+                                <li><a class="dropdown-item" asp-area="" asp-controller="Profiles" asp-action="Invites">Profile Invites</a></li>
+                                <li><a class="dropdown-item" asp-area="" asp-controller="Sources" asp-action="Index">Sources</a></li>
+                                <li><a class="dropdown-item" asp-area="" asp-controller="Jobs" asp-action="Index">Jobs</a></li>
+                                <li><a class="dropdown-item" asp-area="" asp-controller="Downloads" asp-action="Index">Downloads</a></li>
+                            </ul>
                         </li>
                         }
                     </ul>

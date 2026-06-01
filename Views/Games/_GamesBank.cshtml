@@ -2,10 +2,8 @@
 
 @{
     var q = Model.Query;
-    var currentPage = Model.Page;
     var pageSize = Model.PageSize;
     var returnUrl = (string?)ViewData["ReturnUrl"] ?? (Context.Request.Path + Context.Request.QueryString);
-    var batchGameIds = new HashSet<int>(Model.BatchGameIds);
 }
 
 @if (Model.Games.Count == 0)
@@ -25,45 +23,12 @@
 }
 else
 {
-    <form id="games-bulk-form" asp-action="BulkDelete" method="post" class="mb-3">
-        @Html.AntiForgeryToken()
-        <input type="hidden" name="q" value="@q" />
-        <input type="hidden" name="page" value="@currentPage" />
-        <input type="hidden" name="pageSize" value="@pageSize" />
-        <input type="hidden" name="batchId" value="@Model.BatchId" />
-        <input type="hidden" name="returnUrl" value="@returnUrl" />
-
-        <div class="card border-0 bg-body-tertiary shadow-sm">
-            <div class="card-body py-2 px-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
-                <div class="d-flex align-items-center gap-3 flex-wrap">
-                    <label class="form-check mb-0 d-flex align-items-center gap-2">
-                        <input type="checkbox" class="form-check-input" id="select-all" />
-                        <span class="small text-muted">Select page</span>
-                    </label>
-                    <span class="text-muted small" id="bulk-selected-count"></span>
-                </div>
-                <div class="d-flex align-items-center gap-2 flex-wrap">
-                    <button type="submit"
-                            class="btn btn-sm btn-outline-success"
-                            id="bulk-add-btn"
-                            formaction="/Games/AddSelectedToBatch"
-                            formmethod="post"
-                            disabled>
-                        @(Model.BatchId is null ? "Add selected (new batch)" : "Add selected to batch")
-                    </button>
-                    <button type="submit" class="btn btn-sm btn-outline-danger" id="bulk-delete-btn" disabled>Delete selected</button>
-                </div>
-            </div>
-        </div>
-    </form>
-
     <div class="row row-cols-1 row-cols-xl-2 g-3">
         @foreach (var game in Model.Games)
         {
             var detailsId = $"game-details-{game.Id}";
             var editId = $"game-edit-{game.Id}";
             var accordionId = $"game-accordion-{game.Id}";
-            var inBatch = batchGameIds.Contains(game.Id);
             var systemName = game.SystemName ?? "Unknown system";
             var missingInfo = Model.MissingSystemFilesBySystem.TryGetValue(systemName, out var missing) ? missing : null;
             var hasMissingSystemFiles = missingInfo is not null && missingInfo.MissingCount > 0;
@@ -87,9 +52,6 @@ else
                     <div class="card-body d-flex flex-column gap-3">
                         <div class="d-flex align-items-start justify-content-between gap-3">
                             <div class="d-flex gap-3 flex-grow-1 min-w-0">
-                                <div class="form-check mt-1">
-                                    <input type="checkbox" class="form-check-input game-select" name="ids" value="@game.Id" id="game-select-@game.Id" />
-                                </div>
                                 <div class="games-card-art">
                                     <div class="games-card-art-initials">@artSeed</div>
                                     <div class="games-card-art-caption">@game.FileCount file@(game.FileCount == 1 ? "" : "s")</div>
@@ -100,10 +62,6 @@ else
                                         <h2 class="h4 mb-0 text-break">
                                             <a class="link-body-emphasis text-decoration-none" asp-action="PlayServer" asp-route-id="@game.Id">@game.Name</a>
                                         </h2>
-                                        @if (inBatch)
-                                        {
-                                            <span class="badge text-bg-success">In batch</span>
-                                        }
                                         @if (hasMissingSystemFiles)
                                         {
                                             <span class="badge text-bg-danger" title="Missing system files: @missingSample@missingMore">Missing BIOS/system files</span>
@@ -153,27 +111,6 @@ else
                                             Edit inline
                                         </button>
                                     </li>
-
-                                    <li><hr class="dropdown-divider" /></li>
-
-                                    @if (inBatch)
-                                    {
-                                        <li><span class="dropdown-item-text text-muted">Already in batch</span></li>
-                                    }
-                                    else
-                                    {
-                                        <li>
-                                            <form asp-action="AddToBatch" method="post" class="m-0">
-                                                @Html.AntiForgeryToken()
-                                                <input type="hidden" name="id" value="@game.Id" />
-                                                <input type="hidden" name="batchId" value="@Model.BatchId" />
-                                                <input type="hidden" name="returnUrl" value="@returnUrl" />
-                                                <button type="submit" class="dropdown-item">
-                                                    @(Model.BatchId is null ? "Add (new batch)" : "Add to batch")
-                                                </button>
-                                            </form>
-                                        </li>
-                                    }
 
                                     <li><hr class="dropdown-divider" /></li>
                                     <li>
@@ -323,8 +260,7 @@ else
                        asp-action="Index"
                        asp-route-q="@q"
                        asp-route-page="@(Model.Page - 1)"
-                       asp-route-pageSize="@pageSize"
-                       asp-route-batchId="@Model.BatchId">Previous</a>
+                       asp-route-pageSize="@pageSize">Previous</a>
                 </li>
 
                 @for (var p = start; p <= end; p++)
@@ -334,8 +270,7 @@ else
                            asp-action="Index"
                            asp-route-q="@q"
                            asp-route-page="@p"
-                           asp-route-pageSize="@pageSize"
-                           asp-route-batchId="@Model.BatchId">@p</a>
+                           asp-route-pageSize="@pageSize">@p</a>
                     </li>
                 }
 
@@ -344,8 +279,7 @@ else
                        asp-action="Index"
                        asp-route-q="@q"
                        asp-route-page="@(Model.Page + 1)"
-                       asp-route-pageSize="@pageSize"
-                       asp-route-batchId="@Model.BatchId">Next</a>
+                       asp-route-pageSize="@pageSize">Next</a>
                 </li>
             </ul>
         </nav>

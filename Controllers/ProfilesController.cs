@@ -14,17 +14,28 @@ public sealed class ProfilesController(
     LocalProfileService localProfiles,
     ProfileInviteService invites) : Controller
 {
+    private sealed record ProfileSessionRow(
+        int? ProfileId,
+        int GameId,
+        string GameName,
+        string Mode,
+        DateTime StartedUtc,
+        DateTime? EndedUtc,
+        int DurationSeconds,
+        string? EndReason);
+
     public async Task<IActionResult> Index(CancellationToken cancellationToken = default)
     {
         var current = await currentProfile.GetCurrentAsync(cancellationToken);
         var mode = await currentAccess.GetAccessModeAsync(cancellationToken);
         var now = DateTime.UtcNow;
         var profiles = await db.UserProfiles.AsNoTracking().Where(x => !x.IsArchived).OrderBy(x => x.DisplayName).ToListAsync(cancellationToken);
-        var rows = await db.GamePlaySessions.AsNoTracking().Where(x => x.ProfileId != null).Select(x => new { x.ProfileId, x.StartedUtc, x.EndedUtc, x.DurationSeconds }).ToListAsync(cancellationToken);
+        var rows = await db.GamePlaySessions.AsNoTracking().Where(x => x.ProfileId != null).Select(x => new ProfileSessionRow(x.ProfileId, x.GameId, x.Game.Name, x.Mode, x.StartedUtc, x.EndedUtc, x.DurationSeconds, x.EndReason)).ToListAsync(cancellationToken);
         return View(new ProfilesIndexViewModel
         {
             CurrentProfileId = current?.Id,
             AccessMode = mode.ToString(),
+            CurrentProfileDashboard = current is null ? null : BuildCurrentProfileDashboard(current, rows, now),
             Profiles = profiles.Select(p =>
             {
                 var mine = rows.Where(x => x.ProfileId == p.Id).ToList();
@@ -203,6 +214,42 @@ public sealed class ProfilesController(
             TotalPlayTime = TimeSpan.FromSeconds(recent.Sum(x => (int)x.Duration.TotalSeconds)),
             LastPlayedGame = recent.FirstOrDefault()?.GameName,
             ChangePassword = changePasswordModel ?? new ProfileChangePasswordViewModel { ProfileId = profile.Id },
+            RecentSessions = recent,
+            TopGames = top
+        };
+    }
+
+    private static CurrentProfileDashboardViewModel BuildCurrentProfileDashboard(UserProfile profile, IEnumerable<ProfileSessionRow> rows, DateTime now)
+    {
+        var sessions = rows.Where(x => x.ProfileId == profile.Id).OrderByDescending(x => x.StartedUtc).ToList();
+        var recent = sessions.Take(5).Select(x => new ProfileRecentSessionViewModel
+        {
+            GameId = x.GameId,
+            GameName = x.GameName,
+            Mode = x.Mode,
+            StartedUtc = x.StartedUtc,
+            EndedUtc = x.EndedUtc,
+            EndReason = x.EndReason,
+            Duration = TimeSpan.FromSeconds(x.EndedUtc.HasValue ? x.DurationSeconds : (int)Math.Max(0, Math.Round((now - x.StartedUtc).TotalSeconds)))
+        }).ToList();
+        var top = sessions.GroupBy(x => new { x.GameId, x.GameName }).Select(g => new ProfileTopGameViewModel
+        {
+            GameId = g.Key.GameId,
+            GameName = g.Key.GameName,
+            SessionCount = g.Count(),
+            TotalPlayTime = TimeSpan.FromSeconds(g.Sum(x => x.EndedUtc.HasValue ? x.DurationSeconds : (int)Math.Max(0, Math.Round((now - x.StartedUtc).TotalSeconds))))
+        }).OrderByDescending(x => x.TotalPlayTime).Take(3).ToList();
+
+        return new CurrentProfileDashboardViewModel
+        {
+            Id = profile.Id,
+            DisplayName = profile.DisplayName,
+            Username = profile.Username,
+            Color = profile.Color,
+            IsAdmin = profile.IsAdmin,
+            SessionCount = sessions.Count,
+            TotalPlayTime = TimeSpan.FromSeconds(sessions.Sum(x => x.EndedUtc.HasValue ? x.DurationSeconds : (int)Math.Max(0, Math.Round((now - x.StartedUtc).TotalSeconds)))),
+            LastPlayedGame = recent.FirstOrDefault()?.GameName,
             RecentSessions = recent,
             TopGames = top
         };
