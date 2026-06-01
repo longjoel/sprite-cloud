@@ -246,8 +246,60 @@ public class ArcadeController(
                 Game = cabinet.Game,
                 File = cabinet.GameFile,
                 PlayerEnabled = (nosebleedOptions.Value ?? new NosebleedOptions()).Enabled,
+                ShowRoomControls = false,
                 Error = cabinet.LastError ?? "Cabinet is not running yet."
             });
+        }
+
+        return RedirectToRoute("ArcadeSession", new { sessionId = session.Id });
+    }
+
+    [HttpGet("/Arcade/{sessionId:regex(^games-vault-.+$)}", Name = "ArcadeSession")]
+    public async Task<IActionResult> OpenSession(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return NotFound();
+        }
+
+        var cabinet = await db.ArcadeCabinets
+            .Include(x => x.Arcade)
+            .Include(x => x.Game)
+            .Include(x => x.GameFile)
+            .FirstOrDefaultAsync(
+                x => x.RuntimeSessionId == sessionId && x.IsEnabled && x.Arcade.IsEnabled,
+                cancellationToken);
+        if (cabinet is null)
+        {
+            return NotFound();
+        }
+
+        var session = nosebleedSessions.GetSessions()
+            .FirstOrDefault(x => string.Equals(x.SessionId, sessionId, StringComparison.OrdinalIgnoreCase) && !x.HasExited);
+        if (session is null)
+        {
+            return NotFound();
+        }
+
+        var liveSession = new NosebleedSession(
+            session.SessionId,
+            session.GameId,
+            session.FileId,
+            session.Port,
+            session.BaseUrl,
+            string.Empty,
+            session.StartedUtc,
+            session.CorePath,
+            session.ContentPath);
+
+        return await BuildCabinetSessionViewAsync(cabinet, liveSession, cancellationToken);
+    }
+
+    private async Task<IActionResult> BuildCabinetSessionViewAsync(ArcadeCabinet cabinet, NosebleedSession session, CancellationToken cancellationToken)
+    {
+        if (cabinet.GameFile is null && cabinet.GameFileId is not null)
+        {
+            cabinet.GameFile = await db.GameFiles.FirstOrDefaultAsync(x => x.Id == cabinet.GameFileId.Value, cancellationToken);
         }
 
         var viewerId = GetOrCreateNosebleedViewerId();
@@ -277,6 +329,7 @@ public class ArcadeController(
             SeatExpiresUtc = seat?.ExpiresUtc,
             CorePath = session.CorePath,
             ContentPath = session.ContentPath,
+            ShowRoomControls = false,
             LeaveSessionReturnUrl = Url.Action(nameof(Index), "Arcade")
         });
     }

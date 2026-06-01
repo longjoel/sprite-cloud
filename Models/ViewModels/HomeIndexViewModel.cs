@@ -8,6 +8,9 @@ public sealed class HomeIndexViewModel
     public bool ShowDashboard { get; set; }
     public int? CurrentProfileId { get; set; }
     public string? CurrentProfileName { get; set; }
+    public string AccessMode { get; set; } = "Viewer";
+    public bool CanPlay { get; set; }
+    public bool CanManageLibrary { get; set; }
     public TimeSpan GlobalTotalPlayTime { get; set; }
     public int GlobalPlaySessionCount { get; set; }
 
@@ -19,6 +22,8 @@ public sealed class HomeIndexViewModel
     public TimeSpan TotalPlayTime { get; set; }
     public int PlaySessionCount { get; set; }
     public string? LastPlayedGame { get; set; }
+    public ActiveNosebleedSessionViewModel? FeaturedSession { get; set; }
+    public IReadOnlyList<HomeLibraryPreviewGameViewModel> LibraryPreviewGames { get; set; } = [];
     public IReadOnlyList<TopPlayedGameViewModel> TopPlayedGames { get; set; } = [];
     public IReadOnlyList<ActiveNosebleedSessionViewModel> ActiveNosebleedSessions { get; set; } = [];
     public IReadOnlyList<ActiveNosebleedSessionViewModel> ActiveArcadeCabinets { get; set; } = [];
@@ -97,6 +102,16 @@ public sealed class HomeRecentSessionViewModel
     public int? ProfileId { get; set; }
     public string? ProfileName { get; set; }
     public bool IsActive => EndedUtc is null;
+}
+
+public sealed class HomeLibraryPreviewGameViewModel
+{
+    public int GameId { get; set; }
+    public string GameName { get; set; } = "";
+    public string SystemName { get; set; } = "";
+    public string? Genre { get; set; }
+    public int? NumberOfPlayers { get; set; }
+    public bool IsRunningNow { get; set; }
 }
 
 public sealed class BackgroundJobSummary

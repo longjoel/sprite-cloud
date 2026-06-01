@@ -7,9 +7,13 @@ using games_vault.Models;
 using games_vault.Models.ViewModels;
 using games_vault.Nosebleed;
 using games_vault.Profiles;
+using System.Diagnostics;
+using System.Reflection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Abstractions;
+using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -42,6 +46,77 @@ public sealed class ArcadeControllerTests
         Assert.NotNull(model.File);
         Assert.Equal(fixture.Cabinet.GameFileId, model.File!.Id);
         Assert.False(string.IsNullOrWhiteSpace(model.Error));
+    }
+
+    [Fact]
+    public async Task Join_RunningCabinetRedirectsToCanonicalSessionGuidRoute()
+    {
+        await using var fixture = await CreateFixtureAsync(adminAlways: false);
+        var session = new NosebleedSession(
+            "games-vault-1-1-1234567890abcdef1234567890abcdef",
+            fixture.Cabinet.GameId,
+            fixture.Cabinet.GameFileId!.Value,
+            8099,
+            "http://vault:8099",
+            "",
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            "/cores/fbneo_libretro.so",
+            "/roms/metalslug.zip");
+        fixture.Cabinet.RuntimeSessionId = session.Id;
+        await fixture.Db.SaveChangesAsync();
+        SeedManagedSession(fixture.SessionManager, $"arcade-cabinet:{fixture.Cabinet.Id}", session);
+
+        var controller = fixture.CreateController();
+
+        var result = await controller.Join(fixture.Cabinet.Id, CancellationToken.None);
+
+        var redirect = Assert.IsType<RedirectToRouteResult>(result);
+        Assert.Equal("ArcadeSession", redirect.RouteName);
+        Assert.NotNull(redirect.RouteValues);
+        Assert.Equal(session.Id, redirect.RouteValues!["sessionId"]);
+    }
+
+    [Fact]
+    public async Task OpenSession_RunningCabinetReturnsPlayerViewUsingSessionGuid()
+    {
+        await using var fixture = await CreateFixtureAsync(adminAlways: false);
+        var session = new NosebleedSession(
+            "games-vault-1-1-fedcba0987654321fedcba0987654321",
+            fixture.Cabinet.GameId,
+            fixture.Cabinet.GameFileId!.Value,
+            8100,
+            "http://vault:8100",
+            "",
+            DateTimeOffset.UtcNow.AddMinutes(-3),
+            "/cores/fbneo_libretro.so",
+            "/roms/metalslug.zip");
+        fixture.Cabinet.RuntimeSessionId = session.Id;
+        await fixture.Db.SaveChangesAsync();
+        SeedManagedSession(fixture.SessionManager, $"arcade-cabinet:{fixture.Cabinet.Id}", session);
+
+        var controller = fixture.CreateController();
+
+        var result = await controller.OpenSession(session.Id, CancellationToken.None);
+
+        var view = Assert.IsType<ViewResult>(result);
+        Assert.Equal("~/Views/Games/PlayServer.cshtml", view.ViewName);
+        var model = Assert.IsType<ServerGamePlayViewModel>(view.Model);
+        Assert.Equal(session.Id, model.SessionId);
+        Assert.Equal("http://vault:8100", model.BaseUrl);
+        Assert.Null(model.CurrentRoomCode);
+        Assert.False(model.ShowRoomControls);
+        Assert.Equal("/Arcade", model.LeaveSessionReturnUrl);
+    }
+
+    [Fact]
+    public async Task OpenSession_UnknownRuntimeSessionIdReturnsNotFound()
+    {
+        await using var fixture = await CreateFixtureAsync(adminAlways: false);
+        var controller = fixture.CreateController();
+
+        var result = await controller.OpenSession("games-vault-1-1-missing", CancellationToken.None);
+
+        Assert.IsType<NotFoundResult>(result);
     }
 
     [Fact]
@@ -107,8 +182,20 @@ public sealed class ArcadeControllerTests
                 ["Access:AdminAlways"] = adminAlways ? "true" : "false"
             })
             .Build();
+        var nosebleedOptions = Options.Create(new NosebleedOptions
+        {
+            Enabled = false,
+            RequireAuth = false,
+            AuthSecretPath = Path.Combine(Path.GetTempPath(), $"nosebleed-test-{Guid.NewGuid():N}.secret")
+        });
+        var sessionManager = new NosebleedSessionManager(
+            nosebleedOptions,
+            new TestServiceScopeFactory(),
+            new NosebleedTicketSigner(nosebleedOptions, NullLogger<NosebleedTicketSigner>.Instance),
+            new TestHttpClientFactory(),
+            NullLogger<NosebleedSessionManager>.Instance);
 
-        return new TestFixture(connection, db, cabinet, accessor, config);
+        return new TestFixture(connection, db, cabinet, accessor, config, nosebleedOptions, sessionManager);
     }
 
     private sealed class TestHttpContextAccessor(HttpContext httpContext) : IHttpContextAccessor
@@ -121,7 +208,9 @@ public sealed class ArcadeControllerTests
         AppDbContext Db,
         ArcadeCabinet Cabinet,
         IHttpContextAccessor HttpContextAccessor,
-        IConfiguration Configuration) : IAsyncDisposable
+        IConfiguration Configuration,
+        IOptions<NosebleedOptions> NosebleedOptions,
+        NosebleedSessionManager SessionManager) : IAsyncDisposable
     {
         public ArcadeController CreateController()
         {
@@ -130,32 +219,21 @@ public sealed class ArcadeControllerTests
             var fileResolver = new ArcadeGameFileResolver(Db, fileStorage);
             var currentProfile = new CurrentProfileService(Db, HttpContextAccessor);
             var currentAccess = new CurrentAccessService(currentProfile, Configuration, HttpContextAccessor);
-            var nosebleedOptions = Options.Create(new NosebleedOptions
-            {
-                Enabled = false,
-                RequireAuth = false,
-                AuthSecretPath = Path.Combine(Path.GetTempPath(), $"nosebleed-test-{Guid.NewGuid():N}.secret")
-            });
-            var sessionManager = new NosebleedSessionManager(
-                nosebleedOptions,
-                new TestServiceScopeFactory(),
-                new NosebleedTicketSigner(nosebleedOptions, NullLogger<NosebleedTicketSigner>.Instance),
-                new TestHttpClientFactory(),
-                NullLogger<NosebleedSessionManager>.Instance);
 
             return new ArcadeController(
                 Db,
                 fileResolver,
-                sessionManager,
-                new NosebleedSeatManager(nosebleedOptions),
-                new NosebleedTicketSigner(nosebleedOptions, NullLogger<NosebleedTicketSigner>.Instance),
+                SessionManager,
+                new NosebleedSeatManager(NosebleedOptions),
+                new NosebleedTicketSigner(NosebleedOptions, NullLogger<NosebleedTicketSigner>.Instance),
                 new GamePlayTelemetryService(Db),
                 currentProfile,
                 currentAccess,
-                nosebleedOptions)
+                NosebleedOptions)
             {
                 ControllerContext = new ControllerContext { HttpContext = HttpContextAccessor.HttpContext! },
-                TempData = new TempDataDictionary(HttpContextAccessor.HttpContext!, new TestTempDataProvider())
+                TempData = new TempDataDictionary(HttpContextAccessor.HttpContext!, new TestTempDataProvider()),
+                Url = new TestUrlHelper()
             };
         }
 
@@ -171,9 +249,9 @@ public sealed class ArcadeControllerTests
         public string EnvironmentName { get; set; } = "Testing";
         public string ApplicationName { get; set; } = "games-vault.Tests";
         public string WebRootPath { get; set; } = contentRootPath;
-        public IFileProvider WebRootFileProvider { get; set; } = new Microsoft.Extensions.FileProviders.NullFileProvider();
+        public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
         public string ContentRootPath { get; set; } = contentRootPath;
-        public IFileProvider ContentRootFileProvider { get; set; } = new Microsoft.Extensions.FileProviders.NullFileProvider();
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 
     private sealed class TestHttpClientFactory : IHttpClientFactory
@@ -201,5 +279,54 @@ public sealed class ArcadeControllerTests
         public void SaveTempData(HttpContext context, IDictionary<string, object> values)
         {
         }
+    }
+
+    private sealed class TestUrlHelper : IUrlHelper
+    {
+        public ActionContext ActionContext { get; } = new(new DefaultHttpContext(), new Microsoft.AspNetCore.Routing.RouteData(), new ActionDescriptor());
+
+        public string? Action(UrlActionContext actionContext)
+        {
+            if (string.Equals(actionContext.Action, nameof(ArcadeController.Index), StringComparison.OrdinalIgnoreCase)
+                && string.Equals(actionContext.Controller, "Arcade", StringComparison.OrdinalIgnoreCase))
+            {
+                return "/Arcade";
+            }
+
+            return null;
+        }
+
+        public string? Content(string? contentPath) => contentPath;
+
+        public bool IsLocalUrl(string? url) => true;
+
+        public string? Link(string? routeName, object? values) => null;
+
+        public string? RouteUrl(UrlRouteContext routeContext) => null;
+    }
+
+    private static void SeedManagedSession(NosebleedSessionManager manager, string key, NosebleedSession session)
+    {
+        var sessionsField = typeof(NosebleedSessionManager).GetField("_sessions", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(sessionsField);
+        var sessions = sessionsField!.GetValue(manager);
+        Assert.NotNull(sessions);
+
+        var managedSessionType = typeof(NosebleedSessionManager).GetNestedType("ManagedSession", BindingFlags.NonPublic);
+        Assert.NotNull(managedSessionType);
+        var managedSession = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(managedSessionType!);
+        Assert.NotNull(managedSession);
+
+        var sessionField = managedSessionType!.GetField("<Session>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+        var processField = managedSessionType.GetField("<Process>k__BackingField", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(sessionField);
+        Assert.NotNull(processField);
+        sessionField!.SetValue(managedSession, session);
+        processField!.SetValue(managedSession, Process.GetCurrentProcess());
+
+        var tryAdd = sessions!.GetType().GetMethod("TryAdd");
+        Assert.NotNull(tryAdd);
+        var added = tryAdd!.Invoke(sessions, [key, managedSession]);
+        Assert.True(added is true);
     }
 }
