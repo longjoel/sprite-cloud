@@ -49,7 +49,7 @@ public sealed class ArcadeControllerTests
     }
 
     [Fact]
-    public async Task Join_RunningCabinetRedirectsToCanonicalSessionGuidRoute()
+    public async Task Join_RunningCabinetRedirectsToCanonicalRoomCodeRoute()
     {
         await using var fixture = await CreateFixtureAsync(adminAlways: false);
         var session = new NosebleedSession(
@@ -71,13 +71,13 @@ public sealed class ArcadeControllerTests
         var result = await controller.Join(fixture.Cabinet.Id, CancellationToken.None);
 
         var redirect = Assert.IsType<RedirectToRouteResult>(result);
-        Assert.Equal("ArcadeSession", redirect.RouteName);
+        Assert.Equal("ArcadeRoom", redirect.RouteName);
         Assert.NotNull(redirect.RouteValues);
-        Assert.Equal(session.Id, redirect.RouteValues!["sessionId"]);
+        Assert.True(redirect.RouteValues!["code"] is string code && code.Length == 4);
     }
 
     [Fact]
-    public async Task OpenSession_RunningCabinetReturnsPlayerViewUsingSessionGuid()
+    public async Task OpenSession_RunningCabinetRedirectsToCanonicalRoomCodeRoute()
     {
         await using var fixture = await CreateFixtureAsync(adminAlways: false);
         var session = new NosebleedSession(
@@ -92,31 +92,41 @@ public sealed class ArcadeControllerTests
             "/roms/metalslug.zip");
         fixture.Cabinet.RuntimeSessionId = session.Id;
         await fixture.Db.SaveChangesAsync();
+        fixture.Db.GamePlayRooms.Add(new GamePlayRoom
+        {
+            Code = "AQBG",
+            GameId = fixture.Cabinet.GameId,
+            GameFileId = fixture.Cabinet.GameFileId!.Value,
+            NosebleedSessionId = session.Id,
+            Status = GamePlayRoomStatus.Active,
+            CreatedUtc = DateTime.UtcNow,
+            LastActiveUtc = DateTime.UtcNow,
+            IsArcadeBound = true,
+            ArcadeCabinetId = fixture.Cabinet.Id
+        });
+        await fixture.Db.SaveChangesAsync();
         SeedManagedSession(fixture.SessionManager, $"arcade-cabinet:{fixture.Cabinet.Id}", session);
 
         var controller = fixture.CreateController();
 
         var result = await controller.OpenSession(session.Id, CancellationToken.None);
 
-        var view = Assert.IsType<ViewResult>(result);
-        Assert.Equal("~/Views/Games/PlayServer.cshtml", view.ViewName);
-        var model = Assert.IsType<ServerGamePlayViewModel>(view.Model);
-        Assert.Equal(session.Id, model.SessionId);
-        Assert.Equal("http://vault:8100", model.BaseUrl);
-        Assert.Null(model.CurrentRoomCode);
-        Assert.False(model.ShowRoomControls);
-        Assert.Equal("/Arcade", model.LeaveSessionReturnUrl);
+        var redirect = Assert.IsType<RedirectToRouteResult>(result);
+        Assert.Equal("ArcadeRoom", redirect.RouteName);
+        Assert.NotNull(redirect.RouteValues);
+        Assert.Equal("AQBG", redirect.RouteValues!["code"]);
     }
 
     [Fact]
-    public async Task OpenSession_UnknownRuntimeSessionIdReturnsNotFound()
+    public async Task OpenSession_UnknownRuntimeSessionIdRedirectsToArcadeIndex()
     {
         await using var fixture = await CreateFixtureAsync(adminAlways: false);
         var controller = fixture.CreateController();
 
         var result = await controller.OpenSession("games-vault-1-1-missing", CancellationToken.None);
 
-        Assert.IsType<NotFoundResult>(result);
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal(nameof(ArcadeController.Index), redirect.ActionName);
     }
 
     [Fact]
@@ -140,14 +150,72 @@ public sealed class ArcadeControllerTests
         var result = await controller.Join(fixture.Cabinet.Id, CancellationToken.None);
 
         var redirect = Assert.IsType<RedirectToRouteResult>(result);
-        Assert.Equal("ArcadeSession", redirect.RouteName);
+        Assert.Equal("ArcadeRoom", redirect.RouteName);
         Assert.NotNull(redirect.RouteValues);
-        Assert.Equal(session.Id, redirect.RouteValues!["sessionId"]);
+        Assert.True(redirect.RouteValues!["code"] is string code && code.Length == 4);
 
         fixture.Db.ChangeTracker.Clear();
         var persisted = await fixture.Db.ArcadeCabinets.AsNoTracking().SingleAsync(x => x.Id == fixture.Cabinet.Id);
         Assert.Equal(session.Id, persisted.RuntimeSessionId);
         Assert.Equal(fixture.Cabinet.GameFileId, persisted.GameFileId);
+    }
+
+    [Fact]
+    public async Task OpenRoom_ReusesPersistentArcadeRoomCodeAfterSessionChurn()
+    {
+        await using var fixture = await CreateFixtureAsync(adminAlways: false);
+        var staleSessionId = "games-vault-1-1-stale000000000000000000000000";
+        var currentSession = new NosebleedSession(
+            "games-vault-1-1-fedcba0987654321fedcba0987654321",
+            fixture.Cabinet.GameId,
+            fixture.Cabinet.GameFileId!.Value,
+            8100,
+            "http://vault:8100",
+            "",
+            DateTimeOffset.UtcNow.AddMinutes(-3),
+            "/cores/fbneo_libretro.so",
+            "/roms/metalslug.zip");
+        fixture.Cabinet.RuntimeSessionId = currentSession.Id;
+        await fixture.Db.SaveChangesAsync();
+        fixture.Db.GamePlayRooms.Add(new GamePlayRoom
+        {
+            Code = "AQBG",
+            GameId = fixture.Cabinet.GameId,
+            GameFileId = fixture.Cabinet.GameFileId!.Value,
+            NosebleedSessionId = staleSessionId,
+            Status = GamePlayRoomStatus.Closed,
+            CreatedUtc = DateTime.UtcNow.AddMinutes(-10),
+            LastActiveUtc = DateTime.UtcNow.AddMinutes(-5),
+            ClosedUtc = DateTime.UtcNow.AddMinutes(-4),
+            IsArcadeBound = true,
+            ArcadeCabinetId = fixture.Cabinet.Id
+        });
+        await fixture.Db.SaveChangesAsync();
+        SeedManagedSession(fixture.SessionManager, $"arcade-cabinet:{fixture.Cabinet.Id}", currentSession);
+
+        var controller = fixture.CreateController();
+
+        var result = await controller.OpenRoom("AQBG", CancellationToken.None);
+
+        var view = Assert.IsType<ViewResult>(result);
+        Assert.Equal("~/Views/Games/PlayServer.cshtml", view.ViewName);
+        var model = Assert.IsType<ServerGamePlayViewModel>(view.Model);
+        Assert.Equal(currentSession.Id, model.SessionId);
+        Assert.Equal("http://vault:8100", model.BaseUrl);
+        Assert.NotNull(model.CurrentRoomId);
+        Assert.Equal("AQBG", model.CurrentRoomCode);
+        Assert.True(model.IsArcadeRoom);
+        Assert.False(model.ShowRoomControls);
+        Assert.Equal("/Arcade", model.LeaveSessionReturnUrl);
+        Assert.True(model.IsSpectator);
+        Assert.False(model.CanChat);
+
+        fixture.Db.ChangeTracker.Clear();
+        var persistedRoom = await fixture.Db.GamePlayRooms.AsNoTracking().SingleAsync(x => x.ArcadeCabinetId == fixture.Cabinet.Id);
+        Assert.Equal(GamePlayRoomStatus.Active, persistedRoom.Status);
+        Assert.Null(persistedRoom.ClosedUtc);
+        Assert.Equal(currentSession.Id, persistedRoom.NosebleedSessionId);
+        Assert.Equal("AQBG", persistedRoom.Code);
     }
 
     [Fact]
@@ -285,14 +353,22 @@ public sealed class ArcadeControllerTests
             var fileResolver = new ArcadeGameFileResolver(Db, fileStorage);
             var currentProfile = new CurrentProfileService(Db, HttpContextAccessor);
             var currentAccess = new CurrentAccessService(currentProfile, Configuration, HttpContextAccessor, Db);
+            var roomService = new GamePlayRoomService(
+                Db,
+                new RoomCodeGenerator(),
+                SessionManager,
+                new NosebleedSeatManager(NosebleedOptions),
+                new NosebleedTicketSigner(NosebleedOptions, NullLogger<NosebleedTicketSigner>.Instance),
+                currentAccess,
+                currentProfile,
+                new ProfileShareLinkService(Db, new LocalProfileService(Db, currentProfile)));
 
             return new ArcadeController(
                 Db,
                 fileResolver,
                 SessionManager,
-                new NosebleedSeatManager(NosebleedOptions),
-                new NosebleedTicketSigner(NosebleedOptions, NullLogger<NosebleedTicketSigner>.Instance),
                 new GamePlayTelemetryService(Db),
+                roomService,
                 currentProfile,
                 currentAccess,
                 NosebleedOptions)

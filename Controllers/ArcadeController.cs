@@ -15,9 +15,8 @@ public class ArcadeController(
     AppDbContext db,
     ArcadeGameFileResolver fileResolver,
     NosebleedSessionManager nosebleedSessions,
-    NosebleedSeatManager nosebleedSeats,
-    NosebleedTicketSigner nosebleedTickets,
     GamePlayTelemetryService gamePlayTelemetry,
+    GamePlayRoomService roomService,
     CurrentProfileService currentProfile,
     CurrentAccessService currentAccess,
     IOptions<NosebleedOptions> nosebleedOptions) : Controller
@@ -251,7 +250,20 @@ public class ArcadeController(
             });
         }
 
-        return RedirectToRoute("ArcadeSession", new { sessionId = session.Id });
+        var join = await roomService.JoinArcadeCabinetAsync(cabinet, session, GetOrCreateNosebleedViewerId(), cancellationToken);
+        if (!join.Success || join.Room is null)
+        {
+            return View("~/Views/Games/PlayServer.cshtml", new ServerGamePlayViewModel
+            {
+                Game = cabinet.Game,
+                File = cabinet.GameFile,
+                PlayerEnabled = (nosebleedOptions.Value ?? new NosebleedOptions()).Enabled,
+                ShowRoomControls = false,
+                Error = join.Error ?? "Cabinet session is unavailable right now."
+            });
+        }
+
+        return RedirectToRoute("ArcadeRoom", new { code = join.Room.Code });
     }
 
     [HttpGet("/Arcade/{sessionId:regex(^games-vault-.+$)}", Name = "ArcadeSession")]
@@ -259,7 +271,8 @@ public class ArcadeController(
     {
         if (string.IsNullOrWhiteSpace(sessionId))
         {
-            return NotFound();
+            TempData["Message"] = "That arcade session link is missing its session id.";
+            return RedirectToAction(nameof(Index));
         }
 
         var cabinet = await db.ArcadeCabinets
@@ -271,28 +284,101 @@ public class ArcadeController(
                 cancellationToken);
         if (cabinet is null)
         {
-            return NotFound();
+            TempData["Message"] = "That arcade session link is stale. Open the cabinet again from the arcade floor.";
+            return RedirectToAction(nameof(Index));
         }
 
-        var session = nosebleedSessions.GetSessions()
+        var sessionSnapshot = nosebleedSessions.GetSessions()
             .FirstOrDefault(x => string.Equals(x.SessionId, sessionId, StringComparison.OrdinalIgnoreCase) && !x.HasExited);
-        if (session is null)
+        NosebleedSession liveSession;
+        if (sessionSnapshot is null)
         {
-            return NotFound();
+            var restartedSession = await EnsureCabinetRunningAsync(cabinet, cancellationToken);
+            if (restartedSession is null)
+            {
+                return View("~/Views/Games/PlayServer.cshtml", new ServerGamePlayViewModel
+                {
+                    Game = cabinet.Game,
+                    File = cabinet.GameFile,
+                    PlayerEnabled = (nosebleedOptions.Value ?? new NosebleedOptions()).Enabled,
+                    ShowRoomControls = false,
+                    Error = cabinet.LastError ?? "Cabinet is not running right now."
+                });
+            }
+
+            liveSession = restartedSession;
+        }
+        else
+        {
+            liveSession = new NosebleedSession(
+                sessionSnapshot.SessionId,
+                sessionSnapshot.GameId,
+                sessionSnapshot.FileId,
+                sessionSnapshot.Port,
+                sessionSnapshot.BaseUrl,
+                string.Empty,
+                sessionSnapshot.StartedUtc,
+                sessionSnapshot.CorePath,
+                sessionSnapshot.ContentPath);
         }
 
-        var liveSession = new NosebleedSession(
-            session.SessionId,
-            session.GameId,
-            session.FileId,
-            session.Port,
-            session.BaseUrl,
-            string.Empty,
-            session.StartedUtc,
-            session.CorePath,
-            session.ContentPath);
+        var roomCode = await db.GamePlayRooms
+            .AsNoTracking()
+            .Where(x => x.NosebleedSessionId == sessionId && x.Status == GamePlayRoomStatus.Active && x.ArcadeCabinetId == cabinet.Id)
+            .Select(x => x.Code)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (!string.IsNullOrWhiteSpace(roomCode))
+        {
+            return RedirectToRoute("ArcadeRoom", new { code = roomCode });
+        }
 
         return await BuildCabinetSessionViewAsync(cabinet, liveSession, cancellationToken);
+    }
+
+    [HttpGet("/Arcade/Room/{code}", Name = "ArcadeRoom")]
+    public async Task<IActionResult> OpenRoom(string code, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            TempData["Message"] = "That arcade room link is missing its room code.";
+            return RedirectToAction(nameof(Index));
+        }
+
+        var room = await db.GamePlayRooms
+            .AsNoTracking()
+            .Include(x => x.ArcadeCabinet)!
+                .ThenInclude(x => x!.Arcade)
+            .Include(x => x.ArcadeCabinet)!
+                .ThenInclude(x => x!.Game)
+            .Include(x => x.ArcadeCabinet)!
+                .ThenInclude(x => x!.GameFile)
+            .FirstOrDefaultAsync(
+                x => x.Code == code.ToUpperInvariant()
+                    && x.ArcadeCabinetId != null
+                    && x.ArcadeCabinet != null
+                    && x.ArcadeCabinet.IsEnabled
+                    && x.ArcadeCabinet.Arcade.IsEnabled,
+                cancellationToken);
+        if (room?.ArcadeCabinet is null)
+        {
+            TempData["Message"] = "That arcade room link is stale. Open the cabinet again from the arcade floor.";
+            return RedirectToAction(nameof(Index));
+        }
+
+        var session = await EnsureCabinetRunningAsync(room.ArcadeCabinet, cancellationToken);
+        if (session is null)
+        {
+            return View("~/Views/Games/PlayServer.cshtml", new ServerGamePlayViewModel
+            {
+                Game = room.ArcadeCabinet.Game,
+                File = room.ArcadeCabinet.GameFile,
+                PlayerEnabled = (nosebleedOptions.Value ?? new NosebleedOptions()).Enabled,
+                ShowRoomControls = false,
+                Error = room.ArcadeCabinet.LastError ?? "Cabinet is not running right now."
+            });
+        }
+
+        return await BuildCabinetSessionViewAsync(room.ArcadeCabinet, session, cancellationToken);
     }
 
     private async Task<IActionResult> BuildCabinetSessionViewAsync(ArcadeCabinet cabinet, NosebleedSession session, CancellationToken cancellationToken)
@@ -303,15 +389,22 @@ public class ArcadeController(
         }
 
         var viewerId = GetOrCreateNosebleedViewerId();
-        var canPlay = await currentAccess.CanPlayAsync(cancellationToken);
-        var seat = canPlay ? nosebleedSeats.Assign(session.Id, viewerId, DateTimeOffset.UtcNow) : null;
-        var token = canPlay && seat?.Kind == NosebleedSeatKind.Player && seat.Port is not null
-            ? nosebleedTickets.CreatePlayerToken(session.Id, viewerId, seat.Port.Value)
-            : nosebleedTickets.CreateSpectatorToken(session.Id, viewerId);
-
-        if (canPlay)
+        var join = await roomService.JoinArcadeCabinetAsync(cabinet, session, viewerId, cancellationToken);
+        if (!join.Success || join.Room is null || join.Session is null)
         {
-            var profile = await currentProfile.GetCurrentAsync(cancellationToken);
+            return View("~/Views/Games/PlayServer.cshtml", new ServerGamePlayViewModel
+            {
+                Game = cabinet.Game,
+                File = cabinet.GameFile,
+                PlayerEnabled = (nosebleedOptions.Value ?? new NosebleedOptions()).Enabled,
+                ShowRoomControls = false,
+                Error = join.Error ?? "Cabinet session is unavailable right now."
+            });
+        }
+
+        var profile = await currentProfile.GetCurrentAsync(cancellationToken);
+        if (join.Seat?.Kind == NosebleedSeatKind.Player)
+        {
             await gamePlayTelemetry.StartAsync(cabinet.GameId, cabinet.GameFileId, "arcade-free-play", session.Id, profile?.Id, cancellationToken);
         }
 
@@ -320,16 +413,21 @@ public class ArcadeController(
             Game = cabinet.Game,
             File = cabinet.GameFile,
             PlayerEnabled = (nosebleedOptions.Value ?? new NosebleedOptions()).Enabled,
-            BaseUrl = session.BaseUrl,
-            Token = token,
-            SessionId = session.Id,
-            AssignedPort = seat?.Port,
-            PlayerNumber = seat?.PlayerNumber,
-            IsSpectator = !canPlay || seat?.Kind == NosebleedSeatKind.Spectator,
-            SeatExpiresUtc = seat?.ExpiresUtc,
-            CorePath = session.CorePath,
-            ContentPath = session.ContentPath,
+            BaseUrl = join.Session.BaseUrl,
+            Token = join.Token,
+            SessionId = join.Session.Id,
+            AssignedPort = join.Seat?.Port,
+            PlayerNumber = join.Seat?.PlayerNumber,
+            IsSpectator = join.Seat?.Kind != NosebleedSeatKind.Player,
+            SeatExpiresUtc = join.Seat?.ExpiresUtc,
+            CorePath = join.Session.CorePath,
+            ContentPath = join.Session.ContentPath,
+            CurrentRoomId = join.Room.Id,
+            CurrentRoomCode = join.Room.Code,
+            IsArcadeRoom = true,
             ShowRoomControls = false,
+            CanChat = await currentAccess.CanChatAsync(cancellationToken),
+            CurrentProfileDisplayName = profile?.DisplayName,
             LeaveSessionReturnUrl = Url.Action(nameof(Index), "Arcade")
         });
     }
