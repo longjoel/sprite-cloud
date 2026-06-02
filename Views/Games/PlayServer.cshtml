@@ -23,19 +23,11 @@
     var hasLiveSession = string.IsNullOrWhiteSpace(Model.Error) && !string.IsNullOrWhiteSpace(Model.BaseUrl);
     var sessionTitle = game.Name;
     ViewData["Title"] = sessionTitle;
-    var sessionStateLabel = Model.IsSpectator
-        ? "Watching"
-        : Model.PlayerNumber is int playerNumber
-            ? $"Player {playerNumber}"
-            : "Ready";
 }
 
-<div class="playserver-hero d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
+<div class="playserver-hero mb-4">
     <div>
         <h1 class="h2 mb-1">@sessionTitle</h1>
-    </div>
-    <div class="d-flex flex-wrap gap-2 align-items-center justify-content-end">
-        <span class="badge text-bg-success-subtle border border-success-subtle">@sessionStateLabel</span>
     </div>
 </div>
 
@@ -478,9 +470,41 @@
                     align-items: start;
                 }
 
+                .playserver-control-group {
+                    display: grid;
+                    gap: .45rem;
+                }
+
+                .playserver-control-group-title {
+                    font-size: .75rem;
+                    font-weight: 700;
+                    letter-spacing: .04em;
+                    text-transform: uppercase;
+                    color: var(--bs-secondary-color);
+                }
+
+                .playserver-view-mode-buttons {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: .5rem;
+                }
+
+                .playserver-view-mode-buttons .btn {
+                    flex: 1 1 0;
+                    min-width: 0;
+                }
+
                 .playserver-chat-log {
                     max-height: 18rem;
                     overflow-y: auto;
+                }
+
+                .playserver-live-grid.view-mode-theater {
+                    grid-template-columns: minmax(0, 1fr);
+                }
+
+                .playserver-live-grid.view-mode-theater .playserver-sidebar-column {
+                    max-width: min(100%, 70rem);
                 }
 
                 @@media (max-width: 991.98px) {
@@ -584,65 +608,8 @@
                     <div class="border rounded px-3 py-2 small text-muted bg-body" data-seat-placeholder="true">Loading seats…</div>
                 </div>
             </div>
+        </div>
 
-            <div class="playserver-utility-strip mt-3">
-                <div class="playserver-utility-actions">
-                    <button id="nosebleed-audio" class="btn btn-outline-secondary" type="button">Enable audio</button>
-                    <button id="nosebleed-fullscreen" class="btn btn-outline-secondary" type="button">Fullscreen</button>
-                    @if (!Model.IsSpectator && !string.IsNullOrWhiteSpace(Model.SessionId))
-                    {
-                        <form asp-controller="Games" asp-action="LeaveServerSession" method="post" class="d-inline-flex">
-                            <input type="hidden" name="sessionId" value="@Model.SessionId" />
-                            @if (!string.IsNullOrWhiteSpace(Model.LeaveSessionReturnUrl))
-                            {
-                                <input type="hidden" name="returnUrl" value="@Model.LeaveSessionReturnUrl" />
-                            }
-                            <button type="submit" class="btn btn-outline-warning">Leave seat</button>
-                        </form>
-                    }
-                </div>
-                <div id="nosebleed-status" class="small text-muted">Ready.</div>
-            </div>
-
-            <details class="playserver-advanced-controls mt-3">
-                <summary>Player controls</summary>
-                <div class="playserver-advanced-controls-body mt-3">
-                    <button id="nosebleed-connect" class="btn btn-primary" type="button">Reconnect stream</button>
-                    <button id="nosebleed-overlay-toggle" class="btn btn-outline-secondary" type="button" aria-pressed="false">Hide overlay</button>
-                    @if (!Model.IsSpectator)
-                    {
-                        <button id="nosebleed-touch-toggle" class="btn btn-outline-secondary" type="button">Toggle @touchLayoutName controls</button>
-                        <label class="visually-hidden" for="nosebleed-gamepad-select">Hardware gamepad</label>
-                        <select id="nosebleed-gamepad-select" class="form-select form-select-sm" aria-label="Hardware gamepad">
-                            <option value="">Auto / keyboard</option>
-                        </select>
-                        <button id="nosebleed-pad-test-toggle" class="btn btn-outline-secondary" type="button" aria-expanded="false" aria-controls="nosebleed-pad-test-panel">Pad test</button>
-                    }
-                    <label class="visually-hidden" for="nosebleed-video-transport">Video transport</label>
-                    <select id="nosebleed-video-transport" class="form-select form-select-sm" aria-label="Video transport">
-                        <option value="webrtc-track">WebRTC track</option>
-                        <option value="webrtc">WebRTC data channel</option>
-                        <option value="websocket">WebSocket</option>
-                    </select>
-                    <label class="visually-hidden" for="nosebleed-video-compression">Video compression</label>
-                    <select id="nosebleed-video-compression" class="form-select form-select-sm" aria-label="Video compression">
-                        <option value="raw">Raw frames</option>
-                        <option value="crisp">JPEG crisp</option>
-                        <option value="balanced">JPEG balanced</option>
-                        <option value="compact">JPEG compact</option>
-                    </select>
-                </div>
-            </details>
-            @if (!Model.IsSpectator)
-            {
-                <div id="nosebleed-pad-test-panel" class="border rounded bg-body-tertiary p-2 mt-2 small d-none">
-                    <div class="fw-semibold mb-1">Hardware gamepad tester</div>
-                    <div id="nosebleed-pad-test-summary" class="text-muted">No hardware gamepad detected yet.</div>
-                    <div id="nosebleed-pad-test-buttons" class="mt-1 text-break"></div>
-                    <div id="nosebleed-pad-test-axes" class="mt-1 font-monospace text-muted"></div>
-                </div>
-            }
-                </div>
                 <aside class="playserver-sidebar-column">
                     <div class="border rounded-4 p-3 bg-body-tertiary mb-3" id="playserver-roster-card">
                         <ul class="list-unstyled mb-0 small" id="room-presence-players">
@@ -671,6 +638,77 @@
                             </form>
                         }
                     </div>
+                    <details class="playserver-advanced-controls mb-3" open>
+                        <summary>Player controls</summary>
+                        <div class="small text-muted mt-3" id="nosebleed-status">Ready.</div>
+                        <div class="playserver-advanced-controls-body mt-3">
+                            <div class="playserver-control-group">
+                                <div class="playserver-control-group-title">View</div>
+                                <div class="playserver-view-mode-buttons">
+                                    <button id="nosebleed-view-windowed" class="btn btn-outline-secondary" type="button">Windowed</button>
+                                    <button id="nosebleed-view-theater" class="btn btn-outline-secondary" type="button">Theater</button>
+                                    <button id="nosebleed-fullscreen" class="btn btn-outline-secondary" type="button">Full screen</button>
+                                </div>
+                            </div>
+                            <div class="playserver-control-group">
+                                <div class="playserver-control-group-title">Playback</div>
+                                <button id="nosebleed-audio" class="btn btn-outline-secondary" type="button">Enable audio</button>
+                                <button id="nosebleed-connect" class="btn btn-primary" type="button">Reconnect stream</button>
+                                <button id="nosebleed-overlay-toggle" class="btn btn-outline-secondary" type="button" aria-pressed="false">Hide overlay</button>
+                            </div>
+                            @if (!Model.IsSpectator)
+                            {
+                                <div class="playserver-control-group">
+                                    <div class="playserver-control-group-title">Input</div>
+                                    <button id="nosebleed-touch-toggle" class="btn btn-outline-secondary" type="button">Toggle @touchLayoutName controls</button>
+                                    <label class="visually-hidden" for="nosebleed-gamepad-select">Hardware gamepad</label>
+                                    <select id="nosebleed-gamepad-select" class="form-select form-select-sm" aria-label="Hardware gamepad">
+                                        <option value="">Auto / keyboard</option>
+                                    </select>
+                                    <button id="nosebleed-pad-test-toggle" class="btn btn-outline-secondary" type="button" aria-expanded="false" aria-controls="nosebleed-pad-test-panel">Pad test</button>
+                                </div>
+                            }
+                            <div class="playserver-control-group">
+                                <div class="playserver-control-group-title">Stream</div>
+                                <label class="visually-hidden" for="nosebleed-video-transport">Video transport</label>
+                                <select id="nosebleed-video-transport" class="form-select form-select-sm" aria-label="Video transport">
+                                    <option value="webrtc-track">WebRTC track</option>
+                                    <option value="webrtc">WebRTC data channel</option>
+                                    <option value="websocket">WebSocket</option>
+                                </select>
+                                <label class="visually-hidden" for="nosebleed-video-compression">Video compression</label>
+                                <select id="nosebleed-video-compression" class="form-select form-select-sm" aria-label="Video compression">
+                                    <option value="raw">Raw frames</option>
+                                    <option value="crisp">JPEG crisp</option>
+                                    <option value="balanced">JPEG balanced</option>
+                                    <option value="compact">JPEG compact</option>
+                                </select>
+                            </div>
+                            @if (!Model.IsSpectator && !string.IsNullOrWhiteSpace(Model.SessionId))
+                            {
+                                <div class="playserver-control-group">
+                                    <div class="playserver-control-group-title">Seat</div>
+                                    <form asp-controller="Games" asp-action="LeaveServerSession" method="post" class="d-grid">
+                                        <input type="hidden" name="sessionId" value="@Model.SessionId" />
+                                        @if (!string.IsNullOrWhiteSpace(Model.LeaveSessionReturnUrl))
+                                        {
+                                            <input type="hidden" name="returnUrl" value="@Model.LeaveSessionReturnUrl" />
+                                        }
+                                        <button type="submit" class="btn btn-outline-warning">Leave seat</button>
+                                    </form>
+                                </div>
+                            }
+                        </div>
+                    </details>
+                    @if (!Model.IsSpectator)
+                    {
+                        <div id="nosebleed-pad-test-panel" class="border rounded bg-body-tertiary p-2 mb-3 small d-none">
+                            <div class="fw-semibold mb-1">Hardware gamepad tester</div>
+                            <div id="nosebleed-pad-test-summary" class="text-muted">No hardware gamepad detected yet.</div>
+                            <div id="nosebleed-pad-test-buttons" class="mt-1 text-break"></div>
+                            <div id="nosebleed-pad-test-axes" class="mt-1 font-monospace text-muted"></div>
+                        </div>
+                    }
                     @if (Model.CurrentRoomId is not null && Model.CanCreateShareLinks)
                     {
                         <details class="border rounded-4 p-3 bg-body-tertiary" id="playserver-share-card">
