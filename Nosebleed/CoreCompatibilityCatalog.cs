@@ -12,6 +12,7 @@ public static class CoreCompatibilityCatalog
     [
         new("Nintendo - Nintendo Entertainment System", "fceumm_libretro.so", "fceumm"),
         new("Nintendo - Super Nintendo Entertainment System", "snes9x_libretro.so", "snes9x"),
+        new("Nintendo - Nintendo 64", "mupen64plus_next_libretro.so"),
         new("Nintendo - Game Boy", "gambatte_libretro.so", "gambatte"),
         new("Nintendo - Game Boy Color", "gambatte_libretro.so", "gambatte"),
         new("Nintendo - Game Boy Advance", "mgba_libretro.so", "mgba"),

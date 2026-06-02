@@ -13,7 +13,8 @@ public sealed class GamePlayRoomService(
     NosebleedSeatManager nosebleedSeats,
     NosebleedTicketSigner nosebleedTickets,
     CurrentAccessService currentAccess,
-    CurrentProfileService currentProfile)
+    CurrentProfileService currentProfile,
+    ProfileShareLinkService shareLinks)
 {
     public async Task<IReadOnlyList<GamePlayRoom>> ListActiveRoomsForGameAsync(int gameId, CancellationToken ct)
     {
@@ -88,6 +89,27 @@ public sealed class GamePlayRoomService(
             return RoomJoinResult.Fail("No active room found for that code.");
         }
 
+        return await JoinRoomAsync(room, viewerId, ct, allowPlayerOverride: null);
+    }
+
+    public async Task<RoomJoinResult> JoinByShareTokenAsync(string rawToken, string viewerId, CancellationToken ct)
+    {
+        var redeemed = await shareLinks.RedeemAsync(rawToken, ct);
+        var room = await db.GamePlayRooms
+            .Include(x => x.Game)
+            .Include(x => x.GameFile)
+            .FirstOrDefaultAsync(x => x.Id == redeemed.ShareLink.RoomId && x.Status == GamePlayRoomStatus.Active, ct);
+
+        if (room is null)
+        {
+            return RoomJoinResult.Fail("That room is no longer active.");
+        }
+
+        return await JoinRoomAsync(room, viewerId, ct, allowPlayerOverride: redeemed.ShareLink.GrantMode == RoomShareGrantMode.Player);
+    }
+
+    private async Task<RoomJoinResult> JoinRoomAsync(GamePlayRoom room, string viewerId, CancellationToken ct, bool? allowPlayerOverride)
+    {
         nosebleedSessions.Cleanup();
         var session = nosebleedSessions.GetSessions().FirstOrDefault(x => x.SessionId == room.NosebleedSessionId && !x.HasExited);
         if (session is null)
@@ -99,7 +121,7 @@ public sealed class GamePlayRoomService(
         }
 
         var now = DateTimeOffset.UtcNow;
-        var canPlay = await currentAccess.CanPlayAsync(ct);
+        var canPlay = allowPlayerOverride ?? await currentAccess.CanPlayRoomAsync(room.Id, ct);
         var seat = nosebleedSeats.Assign(session.SessionId, viewerId, now, allowPlayer: canPlay);
 
         var profile = await currentProfile.GetCurrentAsync(ct);
@@ -172,9 +194,9 @@ public sealed class GamePlayRoomService(
 
     public async Task<RoomChatPostResult> AddChatMessageAsync(int roomId, string? rawMessage, CancellationToken ct)
     {
-        if (!await currentAccess.CanPlayAsync(ct))
+        if (!await currentAccess.CanChatAsync(ct))
         {
-            return RoomChatPostResult.Fail("Sign in with a player profile to chat.");
+            return RoomChatPostResult.Fail("Sign in with a profile to chat.");
         }
 
         var messageText = NormalizeChatMessage(rawMessage);
@@ -197,7 +219,7 @@ public sealed class GamePlayRoomService(
         var profile = await currentProfile.GetCurrentAsync(ct);
         if (profile is null)
         {
-            return RoomChatPostResult.Fail("Sign in with a player profile to chat.");
+            return RoomChatPostResult.Fail("Sign in with a profile to chat.");
         }
 
         var chatMessage = new GamePlayRoomChatMessage
