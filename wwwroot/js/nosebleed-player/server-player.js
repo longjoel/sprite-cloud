@@ -21,12 +21,18 @@
     const connectButton = document.getElementById("nosebleed-connect");
     const audioButton = document.getElementById("nosebleed-audio");
     const audioOverlayButton = document.getElementById("nosebleed-audio-overlay");
+    const volumeSlider = document.getElementById("nosebleed-volume");
     const layoutLockButton = document.getElementById("nosebleed-layout-lock");
     const layoutResetButton = document.getElementById("nosebleed-layout-reset");
     const fullscreenButton = document.getElementById("nosebleed-fullscreen");
     const viewWindowedButton = document.getElementById("nosebleed-view-windowed");
     const viewTheaterButton = document.getElementById("nosebleed-view-theater");
     const overlayToggleButton = document.getElementById("nosebleed-overlay-toggle");
+    const playerChrome = document.getElementById("nosebleed-player-chrome");
+    const playerPrompt = document.getElementById("nosebleed-player-prompt");
+    const playerEvents = document.getElementById("nosebleed-player-events");
+    const playerHealth = document.getElementById("nosebleed-player-health");
+    const playerHealthText = document.getElementById("nosebleed-player-health-text");
     const touchToggleButton = document.getElementById("nosebleed-touch-toggle");
     const videoTransportSelect = document.getElementById("nosebleed-video-transport");
     const videoCompressionSelect = document.getElementById("nosebleed-video-compression");
@@ -56,6 +62,7 @@
     const viewModeStorageKey = "games-vault:nosebleed-view-mode";
     const videoTransportStorageKey = "games-vault:nosebleed-video-transport";
     const videoCompressionStorageKey = "games-vault:nosebleed-video-compression";
+    const volumeStorageKey = "games-vault:nosebleed-volume";
     const preferredGamepadIndex = Number.isInteger(assignedPort) ? assignedPort : null;
     const gamepadStorageKey = `games-vault:nosebleed-gamepad-index:${sessionId || "global"}:port:${assignedPort ?? "spectator"}`;
     const RTC_CHUNK_MAGIC = 0x3143424e;
@@ -97,9 +104,14 @@
     let padTestTimer = 0;
     let gamepadPollTimer = 0;
     let audioCtx = null;
+    let audioGainNode = null;
     let audioStartTime = 0;
     let audioEnabled = false;
-    let overlaysEnabled = localStorage.getItem(overlayStorageKey) !== "0";
+    let audioVolume = Math.min(1, Math.max(0, Number.parseFloat(localStorage.getItem(volumeStorageKey) || "1") || 1));
+    let overlaysEnabled = true;
+    let playerChromeTimer = 0;
+    let playerPromptTimer = 0;
+    const playerEventTimers = new WeakMap();
     const keys = new Set();
 
     function isFullscreenActive() {
@@ -150,8 +162,73 @@
         fitRtcTrackVideoToShell();
     }
 
+    function setPlayerChromeVisible(visible) {
+        shell.classList.toggle("player-chrome-hidden", !visible || !overlaysEnabled);
+    }
+
+    function wakePlayerChrome(timeoutMs = 2200) {
+        if (!overlaysEnabled) {
+            setPlayerChromeVisible(false);
+            return;
+        }
+        setPlayerChromeVisible(true);
+        if (layoutEditMode) {
+            return;
+        }
+        if (playerChromeTimer) {
+            window.clearTimeout(playerChromeTimer);
+        }
+        playerChromeTimer = window.setTimeout(() => {
+            if (!layoutEditMode) {
+                setPlayerChromeVisible(false);
+            }
+        }, timeoutMs);
+    }
+
+    function showTransientPlayerPrompt(text, timeoutMs = 1500) {
+        if (!playerPrompt) {
+            return;
+        }
+        playerPrompt.textContent = text;
+        playerPrompt.classList.add("show");
+        wakePlayerChrome(Math.max(timeoutMs + 300, 2200));
+        if (playerPromptTimer) {
+            window.clearTimeout(playerPromptTimer);
+        }
+        playerPromptTimer = window.setTimeout(() => playerPrompt.classList.remove("show"), timeoutMs);
+    }
+
+    function showTransientPlayerEvent(message, tone = "warn", timeoutMs = 2600, title = null) {
+        if (!playerEvents) {
+            return;
+        }
+        const eventEl = document.createElement("div");
+        eventEl.className = `player-event is-${tone}`;
+        eventEl.innerHTML = `<span class="player-event-title">${title || (tone === "bad" ? "Connection issue" : tone === "good" ? "Recovered" : "Room update")}</span><span class="player-event-body">${message}</span>`;
+        playerEvents.appendChild(eventEl);
+        requestAnimationFrame(() => eventEl.classList.add("show"));
+        wakePlayerChrome(Math.max(timeoutMs + 400, 2400));
+        const cleanup = window.setTimeout(() => {
+            eventEl.classList.remove("show");
+            window.setTimeout(() => eventEl.remove(), 220);
+        }, timeoutMs);
+        playerEventTimers.set(eventEl, cleanup);
+    }
+
+    function setPlayerHealth(label, tone = "warn") {
+        if (playerHealthText) {
+            playerHealthText.textContent = label;
+        }
+        if (playerHealth) {
+            playerHealth.classList.toggle("is-warn", tone === "warn");
+            playerHealth.classList.toggle("is-bad", tone === "bad");
+        }
+    }
+
     function setStatus(text, tone = "warn") {
-        statusEl.textContent = text;
+        if (statusEl) {
+            statusEl.textContent = text;
+        }
         updateChip(chips.status, text.replace(/[.…]+$/u, ""), tone);
     }
 
@@ -393,6 +470,8 @@
     async function connect() {
         closeSockets();
         setStatus("Connecting…");
+        setPlayerHealth("Connecting…", "warn");
+        wakePlayerChrome(3200);
         updateChip(chips.video, "Video connecting", "warn");
         updateChip(chips.input, isSpectator ? "Spectator" : "Input connecting", "warn");
         startHudTimers();
@@ -431,15 +510,20 @@
             videoWs.onopen = () => {
                 updateChip(chips.video, "Video live", "good");
                 setStatus("Video connected (ws).", "good");
+                setPlayerHealth(isSpectator ? "Watching live" : "Controller live", "good");
             };
             videoWs.onmessage = ev => queueVideoFrame(ev.data);
             videoWs.onerror = () => {
                 updateChip(chips.video, "Video error", "bad");
                 setStatus("Video socket error.", "bad");
+                setPlayerHealth("Video error", "bad");
+                showTransientPlayerEvent("Video socket error.", "bad", 3200);
             };
             videoWs.onclose = () => {
                 updateChip(chips.video, "Video offline", "bad");
                 setStatus("Video disconnected.", "bad");
+                setPlayerHealth("Video offline", "bad");
+                showTransientPlayerEvent("Video stream disconnected.", "bad", 3200);
             };
         }
 
@@ -448,6 +532,8 @@
             inputWs.onopen = () => {
                 updateChip(chips.input, `P${assignedPort + 1} input`, "good");
                 setStatus(`Connected as Player ${assignedPort + 1}. Sending input.`, "good");
+                setPlayerHealth(`Controller live · P${assignedPort + 1}`, "good");
+                showTransientPlayerEvent(`Controller live again on seat ${assignedPort + 1}.`, "good", 2200, "Recovered");
                 startInputLoop();
             };
             inputWs.onmessage = ev => {
@@ -455,6 +541,7 @@
                     const message = JSON.parse(ev.data);
                     if (message?.type === "error" && message.message) {
                         setStatus(message.message, "bad");
+                        showTransientPlayerEvent(message.message, "bad", 3200);
                     }
                 } catch {
                     // Ignore malformed/non-JSON runtime messages.
@@ -463,14 +550,20 @@
             inputWs.onerror = () => {
                 updateChip(chips.input, "Input error", "bad");
                 setStatus("Input socket error.", "bad");
+                setPlayerHealth("Controller error", "bad");
+                showTransientPlayerEvent("Controller socket error.", "bad", 3200, "Connection issue");
             };
             inputWs.onclose = () => {
                 updateChip(chips.input, "Input offline", "bad");
+                setStatus("Controller socket disconnected.", "bad");
+                setPlayerHealth("Controller offline", "bad");
+                showTransientPlayerEvent("Controller socket disconnected.", "bad", 3200, "Connection issue");
                 stopInputLoop();
             };
         } else {
             updateChip(chips.input, "Spectator", "warn");
             setStatus("Connected as spectator. Input disabled.", "warn");
+            setPlayerHealth("Watching live", "warn");
         }
         startSeatKeepAlive();
     }
@@ -492,6 +585,7 @@
                     }
                     if (audioEnabled && rtcTrackAudio) {
                         rtcTrackAudio.muted = false;
+                        applyAudioVolume(false);
                         rtcTrackAudio.play?.().catch(() => { });
                         setAudioEnabledUi();
                         setStatus("Audio connected (webrtc track).", "good");
@@ -635,6 +729,7 @@
     function reconnectForVideoPreferenceChange(message) {
         saveVideoPreferences();
         setStatus(message, "good");
+        showTransientPlayerEvent(message, "good", 2400, "Stream updated");
         connect().catch(() => { });
     }
 
@@ -840,20 +935,26 @@
 
     async function enableAudio() {
         audioEnabled = true;
+        wakePlayerChrome(2600);
         if (activeVideoTransport === "webrtc-track" && rtcTrackAudio) {
             rtcTrackAudio.muted = false;
-            rtcTrackAudio.volume = 1;
+            applyAudioVolume(false);
             try { await rtcTrackAudio.play?.(); } catch { }
             setAudioEnabledUi();
             setStatus(rtcTrackAudioReady ? "Audio connected (webrtc track)." : "Audio will start when the WebRTC track arrives.", "good");
+            showTransientPlayerPrompt("Audio enabled");
             return;
         }
 
         audioCtx ??= new AudioContext({ latencyHint: "interactive" });
+        audioGainNode ??= audioCtx.createGain();
+        audioGainNode.connect(audioCtx.destination);
+        applyAudioVolume(false);
         await audioCtx.resume();
         audioStartTime = Math.max(audioCtx.currentTime, audioStartTime);
         if (audioWs && audioWs.readyState === WebSocket.OPEN) {
             setAudioEnabledUi();
+            showTransientPlayerPrompt("Audio enabled");
             return;
         }
         audioWs = new WebSocket(withToken("/ws/audio"));
@@ -861,10 +962,14 @@
         audioWs.onopen = () => {
             setAudioEnabledUi();
             setStatus("Audio connected.");
+            showTransientPlayerPrompt("Audio enabled");
         };
         audioWs.onmessage = ev => playAudio(ev.data);
         audioWs.onclose = () => {
-            if (audioEnabled) setStatus("Audio disconnected.", "warn");
+            if (audioEnabled) {
+                setStatus("Audio disconnected.", "warn");
+                showTransientPlayerEvent("Audio stream disconnected.", "warn", 2800, "Playback update");
+            }
         };
     }
 
@@ -885,6 +990,8 @@
         }
         setAudioDisabledUi();
         setStatus("Audio muted.", "good");
+        wakePlayerChrome(2400);
+        showTransientPlayerPrompt("Audio muted");
     }
 
     async function toggleAudio() {
@@ -892,22 +999,57 @@
         else await disableAudio();
     }
 
+    function applyAudioVolume(persist = true) {
+        const normalized = Math.min(1, Math.max(0, Number.isFinite(audioVolume) ? audioVolume : 1));
+        audioVolume = normalized;
+        if (rtcTrackAudio) {
+            rtcTrackAudio.volume = normalized;
+        }
+        if (audioGainNode) {
+            audioGainNode.gain.value = normalized;
+        }
+        if (volumeSlider) {
+            volumeSlider.value = String(Math.round(normalized * 100));
+        }
+        if (persist) {
+            localStorage.setItem(volumeStorageKey, String(normalized));
+        }
+    }
+
+    function syncOverlayAudioUi(enabled) {
+        if (!audioOverlayButton) {
+            return;
+        }
+        audioOverlayButton.classList.toggle("is-on", enabled);
+        audioOverlayButton.classList.toggle("is-muted", !enabled);
+        audioOverlayButton.setAttribute("aria-label", enabled ? "Mute sound" : "Enable sound");
+        audioOverlayButton.setAttribute("title", enabled ? "Mute sound" : "Enable sound");
+        const labelEl = audioOverlayButton.querySelector(".player-control-label");
+        if (labelEl) {
+            labelEl.textContent = enabled ? "Mute" : "Sound";
+        }
+    }
+
     function setAudioEnabledUi() {
-        audioButton.textContent = "Mute audio";
-        audioButton.classList.remove("btn-outline-secondary");
-        audioButton.classList.add("btn-success");
-        audioOverlayButton.textContent = "Sound on";
-        audioOverlayButton.classList.add("is-on");
-        audioOverlayButton.setAttribute("aria-label", "Mute sound");
+        if (audioButton) {
+            audioButton.textContent = "Mute audio";
+            audioButton.classList.remove("btn-outline-secondary");
+            audioButton.classList.add("btn-success");
+            audioButton.classList.add("primary");
+        }
+        syncOverlayAudioUi(true);
+        applyAudioVolume(false);
     }
 
     function setAudioDisabledUi() {
-        audioButton.textContent = "Enable audio";
-        audioButton.classList.add("btn-outline-secondary");
-        audioButton.classList.remove("btn-success");
-        audioOverlayButton.textContent = "Sound";
-        audioOverlayButton.classList.remove("is-on");
-        audioOverlayButton.setAttribute("aria-label", "Enable sound");
+        if (audioButton) {
+            audioButton.textContent = "Enable audio";
+            audioButton.classList.add("btn-outline-secondary");
+            audioButton.classList.remove("btn-success");
+            audioButton.classList.remove("primary");
+        }
+        syncOverlayAudioUi(false);
+        applyAudioVolume(false);
     }
 
     function playAudio(buffer) {
@@ -951,7 +1093,7 @@
 
         const src = audioCtx.createBufferSource();
         src.buffer = audioBuffer;
-        src.connect(audioCtx.destination);
+        src.connect(audioGainNode ?? audioCtx.destination);
         src.start(audioStartTime);
         audioStartTime += packetDuration;
         playAudio.lastSequence = sequence;
@@ -961,19 +1103,23 @@
     function setOverlayEnabled(enabled, persist = true) {
         overlaysEnabled = enabled;
         shell.classList.toggle("overlays-hidden", !enabled);
-        overlayToggleButton.textContent = enabled ? "Hide overlay" : "Show overlay";
-        overlayToggleButton.setAttribute("aria-pressed", String(!enabled));
-        if (persist) localStorage.setItem(overlayStorageKey, enabled ? "1" : "0");
+        if (overlayToggleButton) {
+            overlayToggleButton.textContent = enabled ? "Hide overlay" : "Show overlay";
+            overlayToggleButton.setAttribute("aria-pressed", String(!enabled));
+        }
+        if (persist) localStorage.removeItem(overlayStorageKey);
         if (!enabled) {
             setLayoutEditMode(false);
             releaseAllTouchButtons();
         }
+        wakePlayerChrome(enabled ? 2400 : 0);
     }
 
     function toggleOverlay() {
         const next = playerHelpers?.nextOverlayEnabledState?.(overlaysEnabled) ?? !overlaysEnabled;
         setOverlayEnabled(next);
         setStatus(next ? "Overlay visible." : "Overlay hidden for kiosk mode.", "good");
+        showTransientPlayerPrompt(next ? "Overlay on" : "Overlay off");
     }
 
     function magic(view, offset) {
@@ -1274,6 +1420,8 @@
         layoutLockButton.textContent = enabled ? "Save layout" : "Unlock layout";
         layoutLockButton.setAttribute("aria-label", enabled ? "Save control layout" : "Unlock control layout");
         setStatus(enabled ? "Layout unlocked. Drag the controls, then tap Save layout." : "Layout locked.");
+        wakePlayerChrome(enabled ? 10_000 : 2400);
+        showTransientPlayerPrompt(enabled ? "Layout edit mode" : "Layout locked");
     }
 
     function applySavedLayout() {
@@ -1300,6 +1448,7 @@
         localStorage.setItem(layoutStorageKey, JSON.stringify(layout));
         setLayoutEditMode(false);
         setStatus("Control layout saved on this device.");
+        showTransientPlayerEvent("Custom control layout saved on this device.", "good", 2400, "Controls updated");
     }
 
     function resetLayout() {
@@ -1314,6 +1463,7 @@
         }
         setLayoutEditMode(false);
         setStatus("Control layout reset to defaults.", "good");
+        showTransientPlayerPrompt("Controls reset");
     }
 
     function positionControl(control, leftPct, topPct) {
@@ -1426,6 +1576,11 @@
 
     window.addEventListener("blur", releaseAllTouchButtons);
     window.addEventListener("resize", fitCanvasToShell);
+    window.addEventListener("pointermove", () => wakePlayerChrome());
+    window.addEventListener("focus", () => wakePlayerChrome(2400));
+    window.addEventListener("mousemove", () => wakePlayerChrome());
+    shell.addEventListener("pointerdown", () => wakePlayerChrome(2800));
+    shell.addEventListener("touchstart", () => wakePlayerChrome(2800), { passive: true });
     window.addEventListener("gamepadconnected", () => {
         updatePadChip();
         updatePadTestPanel();
@@ -1481,13 +1636,19 @@
         reconnectForVideoPreferenceChange(`Video compression set to ${selectedVideoCompression}. Reconnecting…`);
     });
 
-    connectButton.addEventListener("click", connect);
+    connectButton?.addEventListener("click", () => {
+        wakePlayerChrome(3200);
+        showTransientPlayerPrompt("Reconnecting…", 1700);
+        connect();
+    });
     viewWindowedButton?.addEventListener("click", () => {
         if (isFullscreenActive()) {
             toggleFullscreen();
         }
         applyViewMode("windowed");
         setStatus("Windowed view enabled.", "good");
+        wakePlayerChrome(2600);
+        showTransientPlayerPrompt("Windowed view");
     });
     viewTheaterButton?.addEventListener("click", () => {
         if (isFullscreenActive()) {
@@ -1495,14 +1656,21 @@
         }
         applyViewMode("theater");
         setStatus("Theater view enabled.", "good");
+        wakePlayerChrome(2600);
+        showTransientPlayerPrompt("Theater view");
     });
-    audioButton.addEventListener("click", toggleAudio);
+    audioButton?.addEventListener("click", toggleAudio);
     audioOverlayButton.addEventListener("click", ev => {
         if (layoutEditMode) {
             ev.preventDefault();
             return;
         }
         toggleAudio();
+    });
+    volumeSlider?.addEventListener("input", () => {
+        audioVolume = Number.parseFloat(volumeSlider.value) / 100;
+        applyAudioVolume();
+        wakePlayerChrome(2600);
     });
     overlayToggleButton?.addEventListener("click", toggleOverlay);
     layoutLockButton.addEventListener("click", () => {
@@ -1513,7 +1681,11 @@
         ev.preventDefault();
         resetLayout();
     });
-    fullscreenButton.addEventListener("click", toggleFullscreen);
+    fullscreenButton.addEventListener("click", () => {
+        wakePlayerChrome(2600);
+        showTransientPlayerPrompt(isFullscreenActive() ? "Leaving full screen" : "Full screen");
+        toggleFullscreen();
+    });
     touchToggleButton?.addEventListener("click", () => {
         touchGamepad?.classList.toggle("force-visible");
         touchGamepad?.classList.toggle("is-visible");
@@ -1537,8 +1709,9 @@
     });
     syncVideoPreferenceControls();
     applyViewMode(preferredViewMode, false);
+    applyAudioVolume(false);
     connect();
-    setOverlayEnabled(overlaysEnabled, false);
+    setOverlayEnabled(true, false);
     setAudioDisabledUi();
     startGamepadPolling();
     updatePadChip();
