@@ -30,4 +30,38 @@ public sealed class PlayServerViewMarkupTests
         Assert.Contains("id=\"nosebleed-rtc-audio\"", content);
         Assert.Contains("<audio id=\"nosebleed-rtc-audio\" class=\"d-none\" autoplay playsinline muted></audio>", content);
     }
+
+    [Fact]
+    public void RoomPresencePanel_Exposes_Seat_And_Roster_Containers()
+    {
+        var content = ReadPlayServerView();
+
+        Assert.Contains("id=\"playserver-session-grid\"", content);
+        Assert.Contains("id=\"room-seat-strip\"", content);
+        Assert.Contains("id=\"playserver-roster-card\"", content);
+        Assert.Contains("id=\"room-presence-watchers\"", content);
+        Assert.Contains("<div class=\"fw-semibold\">Seats</div>", content);
+    }
+
+    [Fact]
+    public void PlayerSurface_Hides_Advanced_Controls_Behind_Details_And_Utility_Row()
+    {
+        var content = ReadPlayServerView();
+
+        Assert.Contains("class=\"playserver-utility-strip mt-3\"", content);
+        Assert.Contains("class=\"playserver-advanced-controls mt-3\"", content);
+        Assert.Contains(">Player controls</summary>", content);
+        Assert.Contains("id=\"room-chat-panel\"", content);
+    }
+
+    [Fact]
+    public void Hero_Uses_Room_Title_Without_ServerSide_Label()
+    {
+        var content = ReadPlayServerView();
+
+        Assert.Contains("ViewData[\"Title\"] = sessionTitle;", content);
+        Assert.Contains("asp-route=\"PlayServerRoom\"", content);
+        Assert.DoesNotContain("Server-side session", content);
+        Assert.DoesNotContain("Server-side player is not ready", content);
+    }
 }

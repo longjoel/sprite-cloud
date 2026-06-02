@@ -1,7 +1,6 @@
 @model games_vault.Models.ViewModels.ServerGamePlayViewModel
 
 @{
-    ViewData["Title"] = "Play server-side";
     var game = Model.Game;
     var systemName = game.SystemName ?? string.Empty;
     var isGameGear = systemName.Equals("Sega - Game Gear", StringComparison.OrdinalIgnoreCase)
@@ -21,17 +20,24 @@
             : isArcade
                 ? "Arcade 4-Button"
                 : "Generic Retropad";
+    var hasLiveSession = string.IsNullOrWhiteSpace(Model.Error) && !string.IsNullOrWhiteSpace(Model.BaseUrl);
+    var sessionTitle = !string.IsNullOrWhiteSpace(Model.CurrentRoomCode)
+        ? $"{game.Name} · Room {Model.CurrentRoomCode}"
+        : game.Name;
+    ViewData["Title"] = sessionTitle;
+    var sessionStateLabel = Model.IsSpectator
+        ? "Watching"
+        : Model.PlayerNumber is int playerNumber
+            ? $"Player {playerNumber}"
+            : "Ready";
 }
 
-<div class="d-flex align-items-center justify-content-between mb-3">
+<div class="playserver-hero d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
     <div>
-        <h1 class="h3 mb-1">Play server-side</h1>
-        <div class="text-muted">@game.Name (@game.SystemName)</div>
+        <h1 class="h2 mb-1">@sessionTitle</h1>
     </div>
-    <div class="d-flex gap-2">
-        <a class="btn btn-outline-secondary" asp-action="Play" asp-route-id="@game.Id">Play in browser</a>
-        <a class="btn btn-outline-secondary" asp-action="Details" asp-route-id="@game.Id">Details</a>
-        <a class="btn btn-outline-secondary" asp-action="Index">Back</a>
+    <div class="d-flex flex-wrap gap-2 align-items-center justify-content-end">
+        <span class="badge text-bg-success-subtle border border-success-subtle">@sessionStateLabel</span>
     </div>
 </div>
 
@@ -58,7 +64,10 @@
                     @foreach (var room in Model.ActiveRooms)
                     {
                         var isCurrent = string.Equals(Model.CurrentRoomCode, room.Code, StringComparison.OrdinalIgnoreCase);
-                        <span class="badge @(isCurrent ? "bg-success" : "bg-secondary")">@room.Code</span>
+                        <a class="badge text-decoration-none @(isCurrent ? "bg-success" : "bg-secondary")"
+                           asp-route="PlayServerRoom"
+                           asp-route-id="@game.Id"
+                           asp-route-code="@room.Code">@room.Code</a>
                     }
                 }
             </div>
@@ -78,7 +87,7 @@
 @if (!string.IsNullOrWhiteSpace(Model.Error))
 {
     <div class="alert alert-warning">
-        <div class="fw-semibold mb-1">Server-side player is not ready</div>
+        <div class="fw-semibold mb-1">Player is not ready</div>
         <div>@Model.Error</div>
         <div class="mt-2 text-muted small">
             Expected setup: Nosebleed binary installed, native libretro core mapped for this system, and ROM readable from local storage.
@@ -86,111 +95,12 @@
     </div>
 }
 
-<div class="card">
-    <div class="card-body">
-        <div class="fw-semibold mb-2">Nosebleed player</div>
-        <div class="text-muted mb-3">
-            ROM: <code>@(Model.File?.Name ?? "(none)")</code>
-            @if (!string.IsNullOrWhiteSpace(Model.BaseUrl))
-            {
-                <span> · Session: <code>@Model.SessionId</code>
-                    @if (!string.IsNullOrWhiteSpace(Model.CurrentRoomCode))
-                    {
-                        <text> · Room: <code>@Model.CurrentRoomCode</code></text>
-                    }
-                    · WebSockets: <code>proxied through Games Vault</code>
-                </span>
-                @if (Model.IsSpectator)
-                {
-                    <span> · <span class="badge bg-secondary">Spectator</span></span>
-                }
-                else if (Model.AssignedPort is not null)
-                {
-                    <span> · <span class="badge bg-success">Player @Model.PlayerNumber</span></span>
-                }
-            }
-        </div>
-
-        @if (Model.CurrentRoomId is not null && !string.IsNullOrWhiteSpace(Model.SessionId))
+<div class="card playserver-session-surface">
+    <div class="card-body p-lg-4">
+        @if (hasLiveSession)
         {
-            @if (Model.CanCreateShareLinks)
-            {
-                <div class="border rounded p-3 mb-3 bg-body-tertiary">
-                    <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-2">
-                        <div>
-                            <div class="fw-semibold">Share this room</div>
-                            <div class="text-muted small">Create one-time links for a friend to join this exact room.</div>
-                        </div>
-                    </div>
-                    <div class="d-flex flex-wrap gap-2 mb-2">
-                        <form asp-action="CreateRoomShareLink" method="post" asp-antiforgery="true" class="d-inline">
-                            <input type="hidden" name="roomId" value="@Model.CurrentRoomId" />
-                            <input type="hidden" name="grantMode" value="Spectator" />
-                            <button type="submit" class="btn btn-outline-secondary btn-sm">Create spectator link</button>
-                        </form>
-                        <form asp-action="CreateRoomShareLink" method="post" asp-antiforgery="true" class="d-inline">
-                            <input type="hidden" name="roomId" value="@Model.CurrentRoomId" />
-                            <input type="hidden" name="grantMode" value="Player" />
-                            <button type="submit" class="btn btn-outline-primary btn-sm">Create player link</button>
-                        </form>
-                    </div>
-                    @if (!string.IsNullOrWhiteSpace(Model.GeneratedShareLink))
-                    {
-                        <div class="small">
-                            <div class="fw-semibold mb-1">Latest @(string.IsNullOrWhiteSpace(Model.GeneratedShareGrantMode) ? "share" : Model.GeneratedShareGrantMode.ToLowerInvariant()) link</div>
-                            <code class="user-select-all">@Model.GeneratedShareLink</code>
-                        </div>
-                    }
-                </div>
-            }
-
-            <div class="border rounded p-3 mb-3 bg-body-tertiary" id="room-presence-panel">
-                <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-2">
-                    <div>
-                        <div class="fw-semibold">Room presence</div>
-                        <div class="text-muted small">Live roster for room <code>@Model.CurrentRoomCode</code>.</div>
-                    </div>
-                    <div class="small text-muted" id="room-presence-summary">Loading presence…</div>
-                </div>
-                <ul class="list-unstyled mb-0 small" id="room-presence-players">
-                    <li class="text-muted">Loading players…</li>
-                </ul>
-            </div>
-
-            <div class="border rounded p-3 mb-3 bg-body-tertiary" id="room-chat-panel">
-                <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-2">
-                    <div>
-                        <div class="fw-semibold">Room chat</div>
-                        <div class="text-muted small">
-                            @if (Model.CanChat)
-                            {
-                                <span>Signed in as <span class="fw-semibold">@(string.IsNullOrWhiteSpace(Model.CurrentProfileDisplayName) ? "Player" : Model.CurrentProfileDisplayName)</span>.</span>
-                            }
-                            else
-                            {
-                                <span>Watching only. Sign in with a profile to chat.</span>
-                            }
-                        </div>
-                    </div>
-                    <div class="small text-muted" id="room-chat-status">Loading chat…</div>
-                </div>
-                <div class="border rounded bg-body p-2 mb-2" style="max-height: 14rem; overflow-y: auto;" id="room-chat-log">
-                    <ul class="list-unstyled mb-0 small" id="room-chat-messages">
-                        <li class="text-muted">Loading messages…</li>
-                    </ul>
-                </div>
-                @if (Model.CanChat)
-                {
-                    <form asp-action="RoomChat" asp-route-roomId="@Model.CurrentRoomId" method="post" asp-antiforgery="true" id="room-chat-form" class="d-flex gap-2">
-                        <input class="form-control" type="text" name="message" maxlength="280" autocomplete="off" placeholder="Say something to the room…" required />
-                        <button type="submit" class="btn btn-outline-primary text-nowrap">Send</button>
-                    </form>
-                }
-            </div>
-        }
-
-        @if (string.IsNullOrWhiteSpace(Model.Error) && !string.IsNullOrWhiteSpace(Model.BaseUrl))
-        {
+            <div id="playserver-session-grid" class="playserver-live-grid">
+                <div class="playserver-main-column">
             <style>
                 .server-player-shell {
                     position: relative;
@@ -540,6 +450,86 @@
                     display: none !important;
                 }
 
+                .playserver-session-surface {
+                    border-radius: 1.5rem;
+                    overflow: hidden;
+                }
+
+                .playserver-live-grid {
+                    display: grid;
+                    gap: 1.25rem;
+                    grid-template-columns: minmax(0, 1.5fr) minmax(18rem, .9fr);
+                    align-items: start;
+                }
+
+                .playserver-main-column,
+                .playserver-sidebar-column {
+                    min-width: 0;
+                }
+
+                .playserver-seat-strip {
+                    display: grid;
+                    grid-template-columns: repeat(4, minmax(0, 1fr));
+                    gap: .75rem;
+                }
+
+                .playserver-utility-strip {
+                    display: flex;
+                    flex-wrap: wrap;
+                    justify-content: space-between;
+                    align-items: center;
+                    gap: .75rem;
+                }
+
+                .playserver-utility-actions {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: .75rem;
+                    align-items: center;
+                }
+
+                .playserver-advanced-controls {
+                    border: 1px solid var(--bs-border-color);
+                    border-radius: 1rem;
+                    background: var(--bs-tertiary-bg);
+                    padding: .85rem 1rem;
+                }
+
+                .playserver-advanced-controls > summary {
+                    cursor: pointer;
+                    font-weight: 600;
+                    user-select: none;
+                }
+
+                .playserver-advanced-controls-body {
+                    display: grid;
+                    gap: .75rem;
+                    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+                    align-items: start;
+                }
+
+                .playserver-chat-log {
+                    max-height: 18rem;
+                    overflow-y: auto;
+                }
+
+                @@media (max-width: 991.98px) {
+                    .playserver-live-grid {
+                        grid-template-columns: 1fr;
+                    }
+
+                    .playserver-seat-strip {
+                        grid-template-columns: repeat(2, minmax(0, 1fr));
+                    }
+                }
+
+                @@media (max-width: 575.98px) {
+                    .playserver-seat-strip,
+                    .playserver-advanced-controls-body {
+                        grid-template-columns: 1fr;
+                    }
+                }
+
                 @@media (hover: hover) and (pointer: fine) {
                     .touch-gamepad:not(.force-visible) { display: none !important; }
                 }
@@ -615,46 +605,64 @@
                 <button id="nosebleed-layout-reset" class="player-overlay-action layout-reset-action" type="button" aria-label="Reset control layout">Reset</button>
                 <button id="nosebleed-audio-overlay" class="player-overlay-action" type="button" data-control-group="sound" aria-label="Enable sound">Sound</button>
             </div>
-            <div class="d-flex gap-2 align-items-center mt-3 flex-wrap">
-                <button id="nosebleed-connect" class="btn btn-primary" type="button">Connect</button>
-                <button id="nosebleed-audio" class="btn btn-outline-secondary" type="button">Enable audio</button>
-                <button id="nosebleed-fullscreen" class="btn btn-outline-secondary" type="button">Fullscreen</button>
-                <button id="nosebleed-overlay-toggle" class="btn btn-outline-secondary" type="button" aria-pressed="false">Hide overlay</button>
-                <label class="visually-hidden" for="nosebleed-video-transport">Video transport</label>
-                <select id="nosebleed-video-transport" class="form-select form-select-sm w-auto" aria-label="Video transport">
-                    <option value="webrtc-track">WebRTC track</option>
-                    <option value="webrtc">WebRTC data channel</option>
-                    <option value="websocket">WebSocket</option>
-                </select>
-                <label class="visually-hidden" for="nosebleed-video-compression">Video compression</label>
-                <select id="nosebleed-video-compression" class="form-select form-select-sm w-auto" aria-label="Video compression">
-                    <option value="raw">Raw frames</option>
-                    <option value="crisp">JPEG crisp</option>
-                    <option value="balanced">JPEG balanced</option>
-                    <option value="compact">JPEG compact</option>
-                </select>
-                @if (!Model.IsSpectator)
-                {
-                    <button id="nosebleed-touch-toggle" class="btn btn-outline-secondary" type="button">Toggle @touchLayoutName controls</button>
-                    <label class="visually-hidden" for="nosebleed-gamepad-select">Hardware gamepad</label>
-                    <select id="nosebleed-gamepad-select" class="form-select form-select-sm w-auto" aria-label="Hardware gamepad">
-                        <option value="">Keyboard / first gamepad</option>
-                    </select>
-                    <button id="nosebleed-pad-test-toggle" class="btn btn-outline-secondary" type="button" aria-expanded="false" aria-controls="nosebleed-pad-test-panel">Pad test</button>
-                }
-                @if (!Model.IsSpectator && !string.IsNullOrWhiteSpace(Model.SessionId))
-                {
-                    <form asp-controller="Games" asp-action="LeaveServerSession" method="post" class="d-inline">
-                        <input type="hidden" name="sessionId" value="@Model.SessionId" />
-                        @if (!string.IsNullOrWhiteSpace(Model.LeaveSessionReturnUrl))
-                        {
-                            <input type="hidden" name="returnUrl" value="@Model.LeaveSessionReturnUrl" />
-                        }
-                        <button type="submit" class="btn btn-outline-warning">Leave seat</button>
-                    </form>
-                }
-                <span id="nosebleed-status" class="text-muted">Ready.</span>
+            <div class="playserver-seat-panel border rounded-4 p-3 mt-3 bg-body-tertiary" id="room-presence-panel">
+                <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-2">
+                    <div class="fw-semibold">Seats</div>
+                    <div class="small text-muted" id="room-presence-summary">Loading presence…</div>
+                </div>
+                <div class="playserver-seat-strip" id="room-seat-strip">
+                    <div class="border rounded px-3 py-2 small text-muted bg-body" data-seat-placeholder="true">Loading seats…</div>
+                </div>
             </div>
+
+            <div class="playserver-utility-strip mt-3">
+                <div class="playserver-utility-actions">
+                    <button id="nosebleed-audio" class="btn btn-outline-secondary" type="button">Enable audio</button>
+                    <button id="nosebleed-fullscreen" class="btn btn-outline-secondary" type="button">Fullscreen</button>
+                    @if (!Model.IsSpectator && !string.IsNullOrWhiteSpace(Model.SessionId))
+                    {
+                        <form asp-controller="Games" asp-action="LeaveServerSession" method="post" class="d-inline-flex">
+                            <input type="hidden" name="sessionId" value="@Model.SessionId" />
+                            @if (!string.IsNullOrWhiteSpace(Model.LeaveSessionReturnUrl))
+                            {
+                                <input type="hidden" name="returnUrl" value="@Model.LeaveSessionReturnUrl" />
+                            }
+                            <button type="submit" class="btn btn-outline-warning">Leave seat</button>
+                        </form>
+                    }
+                </div>
+                <div id="nosebleed-status" class="small text-muted">Ready.</div>
+            </div>
+
+            <details class="playserver-advanced-controls mt-3">
+                <summary>Player controls</summary>
+                <div class="playserver-advanced-controls-body mt-3">
+                    <button id="nosebleed-connect" class="btn btn-primary" type="button">Reconnect stream</button>
+                    <button id="nosebleed-overlay-toggle" class="btn btn-outline-secondary" type="button" aria-pressed="false">Hide overlay</button>
+                    @if (!Model.IsSpectator)
+                    {
+                        <button id="nosebleed-touch-toggle" class="btn btn-outline-secondary" type="button">Toggle @touchLayoutName controls</button>
+                        <label class="visually-hidden" for="nosebleed-gamepad-select">Hardware gamepad</label>
+                        <select id="nosebleed-gamepad-select" class="form-select form-select-sm" aria-label="Hardware gamepad">
+                            <option value="">Auto / keyboard</option>
+                        </select>
+                        <button id="nosebleed-pad-test-toggle" class="btn btn-outline-secondary" type="button" aria-expanded="false" aria-controls="nosebleed-pad-test-panel">Pad test</button>
+                    }
+                    <label class="visually-hidden" for="nosebleed-video-transport">Video transport</label>
+                    <select id="nosebleed-video-transport" class="form-select form-select-sm" aria-label="Video transport">
+                        <option value="webrtc-track">WebRTC track</option>
+                        <option value="webrtc">WebRTC data channel</option>
+                        <option value="websocket">WebSocket</option>
+                    </select>
+                    <label class="visually-hidden" for="nosebleed-video-compression">Video compression</label>
+                    <select id="nosebleed-video-compression" class="form-select form-select-sm" aria-label="Video compression">
+                        <option value="raw">Raw frames</option>
+                        <option value="crisp">JPEG crisp</option>
+                        <option value="balanced">JPEG balanced</option>
+                        <option value="compact">JPEG compact</option>
+                    </select>
+                </div>
+            </details>
             @if (!Model.IsSpectator)
             {
                 <div id="nosebleed-pad-test-panel" class="border rounded bg-body-tertiary p-2 mt-2 small d-none">
@@ -664,19 +672,57 @@
                     <div id="nosebleed-pad-test-axes" class="mt-1 font-monospace text-muted"></div>
                 </div>
             }
-            <div class="text-muted small mt-2">
-                @if (Model.IsSpectator)
-                {
-                    <span>You are watching as a spectator. Video and audio are available, but input is disabled until a player slot frees up.</span>
-                }
-                else if (Model.PlayerNumber is not null)
-                {
-                    <span>You are Player @Model.PlayerNumber. The on-screen controls are using the @touchLayoutName layout; keyboard and hardware gamepad input still work too.@if (isArcade) { <text> Arcade shortcuts: C inserts coin, R resets the machine.</text> }</span>
-                }
-                else
-                {
-                    <span>Keyboard: arrows/D-pad, Z=A, X=B, Enter=Start, Shift=Select. Browser gamepads are forwarded to your assigned controller slot.</span>
-                }
+                </div>
+                <aside class="playserver-sidebar-column">
+                    <div class="border rounded-4 p-3 bg-body-tertiary mb-3" id="playserver-roster-card">
+                        <ul class="list-unstyled mb-0 small" id="room-presence-players">
+                            <li class="text-muted">Loading players…</li>
+                        </ul>
+                        <ul class="list-unstyled mb-0 mt-2 small" id="room-presence-watchers"></ul>
+                    </div>
+                    <div class="border rounded-4 p-3 bg-body-tertiary mb-3" id="room-chat-panel">
+                        <div class="d-flex flex-wrap justify-content-end gap-2 align-items-start mb-2">
+                            <div class="small text-muted" id="room-chat-status">Loading chat…</div>
+                        </div>
+                        <div class="border rounded bg-body p-2 mb-2 playserver-chat-log" id="room-chat-log">
+                            <ul class="list-unstyled mb-0 small" id="room-chat-messages">
+                                <li class="text-muted">Loading messages…</li>
+                            </ul>
+                        </div>
+                        @if (Model.CanChat)
+                        {
+                            <form asp-action="RoomChat" asp-route-roomId="@Model.CurrentRoomId" method="post" asp-antiforgery="true" id="room-chat-form" class="d-flex gap-2 align-items-start flex-column flex-sm-row">
+                                <input class="form-control" type="text" name="message" maxlength="280" autocomplete="off" placeholder="Say something to the room…" required />
+                                <button type="submit" class="btn btn-primary text-nowrap">Send</button>
+                            </form>
+                        }
+                    </div>
+                    @if (Model.CurrentRoomId is not null && Model.CanCreateShareLinks)
+                    {
+                        <details class="border rounded-4 p-3 bg-body-tertiary" id="playserver-share-card">
+                            <summary>Share room</summary>
+                            <div class="d-grid gap-2 mt-3 mb-2">
+                                <form asp-action="CreateRoomShareLink" method="post" asp-antiforgery="true">
+                                    <input type="hidden" name="roomId" value="@Model.CurrentRoomId" />
+                                    <input type="hidden" name="grantMode" value="Spectator" />
+                                    <button type="submit" class="btn btn-outline-secondary w-100">Create spectator link</button>
+                                </form>
+                                <form asp-action="CreateRoomShareLink" method="post" asp-antiforgery="true">
+                                    <input type="hidden" name="roomId" value="@Model.CurrentRoomId" />
+                                    <input type="hidden" name="grantMode" value="Player" />
+                                    <button type="submit" class="btn btn-outline-primary w-100">Create player link</button>
+                                </form>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(Model.GeneratedShareLink))
+                            {
+                                <div class="small mt-2">
+                                    <code class="user-select-all">@Model.GeneratedShareLink</code>
+                                </div>
+                            }
+                        </details>
+                    }
+                </aside>
+
             </div>
         }
         else
@@ -729,6 +775,8 @@
 
     const presenceSummaryEl = document.getElementById('room-presence-summary');
     const presencePlayersEl = document.getElementById('room-presence-players');
+    const presenceWatchersEl = document.getElementById('room-presence-watchers');
+    const seatStripEl = document.getElementById('room-seat-strip');
     const chatStatusEl = document.getElementById('room-chat-status');
     const chatMessagesEl = document.getElementById('room-chat-messages');
     const chatLogEl = document.getElementById('room-chat-log');
@@ -751,27 +799,81 @@
         el.appendChild(item);
     };
 
+    const buildSeatCard = (playerNumber, occupant, statusText, tone) => {
+        const card = document.createElement('div');
+        card.className = `border rounded px-3 py-2 small bg-body ${tone}`.trim();
+        card.style.minWidth = '9rem';
+
+        const seatLabel = document.createElement('div');
+        seatLabel.className = 'text-uppercase text-muted fw-semibold';
+        seatLabel.textContent = `Player ${playerNumber}`;
+
+        const occupantEl = document.createElement('div');
+        occupantEl.className = 'fw-semibold';
+        occupantEl.textContent = occupant;
+
+        const statusEl = document.createElement('div');
+        statusEl.className = 'text-muted';
+        statusEl.textContent = statusText;
+
+        card.appendChild(seatLabel);
+        card.appendChild(occupantEl);
+        card.appendChild(statusEl);
+        return card;
+    };
+
     const renderPresence = (payload) => {
         if (!presenceSummaryEl || !presencePlayersEl) {
             return;
         }
 
         const players = Array.isArray(payload.players) ? payload.players : [];
+        const watchers = Array.isArray(payload.watchers) ? payload.watchers : [];
         presenceSummaryEl.textContent = `${payload.totalConnected ?? 0} connected · ${payload.watcherCount ?? 0} watching`;
         clearChildren(presencePlayersEl);
+        clearChildren(presenceWatchersEl);
+        clearChildren(seatStripEl);
+
         if (players.length === 0) {
             appendMutedListItem(presencePlayersEl, 'No players connected right now.');
-            return;
+        } else {
+            for (const player of players) {
+                const item = document.createElement('li');
+                const label = document.createElement('span');
+                label.className = 'fw-semibold';
+                label.textContent = `P${player.playerNumber}`;
+                item.appendChild(label);
+                item.append(` — ${player.displayName ?? 'Viewer'}${Number.isInteger(player.port) ? ` · Input ${player.port + 1}` : ''}`);
+                presencePlayersEl.appendChild(item);
+            }
         }
 
-        for (const player of players) {
-            const item = document.createElement('li');
-            const label = document.createElement('span');
-            label.className = 'fw-semibold';
-            label.textContent = `P${player.playerNumber}`;
-            item.appendChild(label);
-            item.append(` — ${player.displayName ?? 'Viewer'}`);
-            presencePlayersEl.appendChild(item);
+        if (watchers.length === 0) {
+            if (presenceWatchersEl) {
+                presenceWatchersEl.classList.add('d-none');
+            }
+        } else {
+            presenceWatchersEl?.classList.remove('d-none');
+            for (const watcher of watchers) {
+                const item = document.createElement('li');
+                item.className = 'text-muted';
+                item.textContent = watcher.displayName ?? 'Viewer';
+                presenceWatchersEl.appendChild(item);
+            }
+        }
+
+        if (seatStripEl) {
+            const playersByNumber = new Map(players
+                .filter((player) => Number.isInteger(player.playerNumber))
+                .map((player) => [player.playerNumber, player]));
+            for (let playerNumber = 1; playerNumber <= 4; playerNumber += 1) {
+                const player = playersByNumber.get(playerNumber);
+                if (player) {
+                    seatStripEl.appendChild(buildSeatCard(playerNumber, player.displayName ?? 'Viewer', `Input ${Number.isInteger(player.port) ? player.port + 1 : playerNumber}`, 'border-success-subtle'));
+                } else {
+                    seatStripEl.appendChild(buildSeatCard(playerNumber, 'Open seat', 'Waiting for a player', ''));
+                }
+            }
         }
     };
 
@@ -830,7 +932,15 @@
             if (presenceSummaryEl && presencePlayersEl) {
                 presenceSummaryEl.textContent = 'Presence unavailable right now.';
                 clearChildren(presencePlayersEl);
+                clearChildren(presenceWatchersEl);
+                clearChildren(seatStripEl);
                 appendMutedListItem(presencePlayersEl, 'Could not load presence.');
+                if (seatStripEl) {
+                    const placeholder = document.createElement('div');
+                    placeholder.className = 'border rounded px-3 py-2 small text-muted bg-body';
+                    placeholder.textContent = 'Seat map unavailable.';
+                    seatStripEl.appendChild(placeholder);
+                }
             }
         }
     };

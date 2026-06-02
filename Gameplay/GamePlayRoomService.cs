@@ -108,12 +108,139 @@ public sealed class GamePlayRoomService(
         return await JoinRoomAsync(room, viewerId, ct, allowPlayerOverride: redeemed.ShareLink.GrantMode == RoomShareGrantMode.Player);
     }
 
+    public async Task<RoomJoinResult> JoinArcadeCabinetAsync(ArcadeCabinet cabinet, NosebleedSession session, string viewerId, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(cabinet);
+        ArgumentNullException.ThrowIfNull(session);
+
+        var room = await db.GamePlayRooms
+            .Include(x => x.Game)
+            .Include(x => x.GameFile)
+            .Where(x => x.ArcadeCabinetId == cabinet.Id)
+            .OrderBy(x => x.CreatedUtc)
+            .ThenBy(x => x.Id)
+            .FirstOrDefaultAsync(ct);
+
+        var gameFileId = cabinet.GameFileId ?? session.FileId;
+
+        var duplicateRooms = room is null
+            ? []
+            : await db.GamePlayRooms
+                .Where(x => x.ArcadeCabinetId == cabinet.Id && x.Id != room.Id && x.Status == GamePlayRoomStatus.Active)
+                .ToListAsync(ct);
+
+        if (room is null)
+        {
+            var profile = await currentProfile.GetCurrentAsync(ct);
+            room = new GamePlayRoom
+            {
+                Code = await GenerateUniqueCodeAsync(ct),
+                GameId = cabinet.GameId,
+                GameFileId = gameFileId,
+                CreatedByProfileId = profile?.Id,
+                Status = GamePlayRoomStatus.Active,
+                CreatedUtc = DateTime.UtcNow,
+                LastActiveUtc = DateTime.UtcNow,
+                IsArcadeBound = true,
+                ArcadeCabinetId = cabinet.Id,
+                NosebleedSessionId = session.Id
+            };
+
+            db.GamePlayRooms.Add(room);
+            await db.SaveChangesAsync(ct);
+
+            room.Game = cabinet.Game;
+            if (cabinet.GameFile is not null)
+            {
+                room.GameFile = cabinet.GameFile;
+            }
+        }
+        else
+        {
+            room.GameId = cabinet.GameId;
+            room.GameFileId = gameFileId;
+            room.IsArcadeBound = true;
+            room.ArcadeCabinetId = cabinet.Id;
+            room.Status = GamePlayRoomStatus.Active;
+            room.ClosedUtc = null;
+            room.NosebleedSessionId = session.Id;
+            room.LastActiveUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+        }
+
+        if (duplicateRooms.Count > 0)
+        {
+            foreach (var duplicateRoom in duplicateRooms)
+            {
+                duplicateRoom.Status = GamePlayRoomStatus.Closed;
+                duplicateRoom.ClosedUtc = DateTime.UtcNow;
+            }
+
+            await db.SaveChangesAsync(ct);
+        }
+
+        return await JoinRoomAsync(room, viewerId, ct, allowPlayerOverride: null);
+    }
+
+    public async Task TouchRoomParticipantSessionAsync(int roomId, string viewerId, NosebleedSeatAssignment seat, CancellationToken ct)
+    {
+        var participant = await db.GamePlayRoomParticipants.FirstOrDefaultAsync(x => x.RoomId == roomId && x.ViewerId == viewerId, ct);
+        if (participant is null)
+        {
+            return;
+        }
+
+        participant.Role = seat.Kind == NosebleedSeatKind.Player ? GamePlayRoomParticipantRole.Player : GamePlayRoomParticipantRole.Spectator;
+        participant.Port = seat.Port;
+        participant.IsConnected = true;
+        participant.LastSeenUtc = DateTime.UtcNow;
+
+        var room = await db.GamePlayRooms.FirstOrDefaultAsync(x => x.Id == roomId, ct);
+        if (room is not null)
+        {
+            room.LastActiveUtc = DateTime.UtcNow;
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task DisconnectRoomParticipantSessionAsync(string sessionId, string viewerId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(viewerId))
+        {
+            return;
+        }
+
+        var room = await db.GamePlayRooms.FirstOrDefaultAsync(
+            x => x.NosebleedSessionId == sessionId && x.Status == GamePlayRoomStatus.Active,
+            ct);
+        if (room is null)
+        {
+            return;
+        }
+
+        var participant = await db.GamePlayRoomParticipants.FirstOrDefaultAsync(x => x.RoomId == room.Id && x.ViewerId == viewerId, ct);
+        if (participant is null)
+        {
+            return;
+        }
+
+        participant.IsConnected = false;
+        participant.LastSeenUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+    }
+
     private async Task<RoomJoinResult> JoinRoomAsync(GamePlayRoom room, string viewerId, CancellationToken ct, bool? allowPlayerOverride)
     {
         nosebleedSessions.Cleanup();
         var session = nosebleedSessions.GetSessions().FirstOrDefault(x => x.SessionId == room.NosebleedSessionId && !x.HasExited);
         if (session is null)
         {
+            if (room.ArcadeCabinetId is not null)
+            {
+                return RoomJoinResult.Fail("That arcade room is waking back up. Try the room again in a moment.");
+            }
+
             room.Status = GamePlayRoomStatus.Closed;
             room.ClosedUtc = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
@@ -125,27 +252,7 @@ public sealed class GamePlayRoomService(
         var seat = nosebleedSeats.Assign(session.SessionId, viewerId, now, allowPlayer: canPlay);
 
         var profile = await currentProfile.GetCurrentAsync(ct);
-        var participant = await db.GamePlayRoomParticipants.FirstOrDefaultAsync(x => x.RoomId == room.Id && x.ViewerId == viewerId, ct);
-        if (participant is null)
-        {
-            participant = new GamePlayRoomParticipant
-            {
-                RoomId = room.Id,
-                ViewerId = viewerId,
-                JoinedUtc = DateTime.UtcNow
-            };
-            db.GamePlayRoomParticipants.Add(participant);
-        }
-
-        participant.ProfileId = profile?.Id;
-        participant.DisplayNameSnapshot = profile?.DisplayName;
-        participant.Role = seat.Kind == NosebleedSeatKind.Player ? GamePlayRoomParticipantRole.Player : GamePlayRoomParticipantRole.Spectator;
-        participant.Port = seat.Port;
-        participant.IsConnected = true;
-        participant.LastSeenUtc = DateTime.UtcNow;
-
-        room.LastActiveUtc = DateTime.UtcNow;
-        await db.SaveChangesAsync(ct);
+        await UpsertParticipantAsync(room, viewerId, profile, seat, ct);
 
         var token = seat.Kind == NosebleedSeatKind.Player && seat.Port is not null && canPlay
             ? nosebleedTickets.CreatePlayerToken(session.SessionId, viewerId, seat.Port.Value)
@@ -258,8 +365,20 @@ public sealed class GamePlayRoomService(
             })
             .ToList();
 
-        var watcherCount = assignments.Count(x => x.Kind == NosebleedSeatKind.Spectator);
-        return new RoomPresenceSnapshot(players, watcherCount, assignments.Count);
+        var watcherNames = assignments
+            .Where(x => x.Kind == NosebleedSeatKind.Spectator)
+            .Select(x =>
+            {
+                participantsByViewer.TryGetValue(x.ViewerId, out var participant);
+                return string.IsNullOrWhiteSpace(participant?.DisplayNameSnapshot)
+                    ? "Viewer"
+                    : participant.DisplayNameSnapshot!.Trim();
+            })
+            .OrderBy(x => x, StringComparer.OrdinalIgnoreCase)
+            .Select(x => new RoomPresenceWatcher(x))
+            .ToList();
+
+        return new RoomPresenceSnapshot(players, watcherNames, watcherNames.Count, assignments.Count);
     }
 
     public static RoomChatSnapshot BuildChatSnapshot(IReadOnlyList<GamePlayRoomChatMessage> messages)
@@ -286,5 +405,35 @@ public sealed class GamePlayRoomService(
             .Replace("\r", " ", StringComparison.Ordinal)
             .Replace("\n", " ", StringComparison.Ordinal)
             .Trim();
+    }
+
+    private async Task UpsertParticipantAsync(
+        GamePlayRoom room,
+        string viewerId,
+        UserProfile? profile,
+        NosebleedSeatAssignment seat,
+        CancellationToken ct)
+    {
+        var participant = await db.GamePlayRoomParticipants.FirstOrDefaultAsync(x => x.RoomId == room.Id && x.ViewerId == viewerId, ct);
+        if (participant is null)
+        {
+            participant = new GamePlayRoomParticipant
+            {
+                RoomId = room.Id,
+                ViewerId = viewerId,
+                JoinedUtc = DateTime.UtcNow
+            };
+            db.GamePlayRoomParticipants.Add(participant);
+        }
+
+        participant.ProfileId = profile?.Id;
+        participant.DisplayNameSnapshot = profile?.DisplayName;
+        participant.Role = seat.Kind == NosebleedSeatKind.Player ? GamePlayRoomParticipantRole.Player : GamePlayRoomParticipantRole.Spectator;
+        participant.Port = seat.Port;
+        participant.IsConnected = true;
+        participant.LastSeenUtc = DateTime.UtcNow;
+
+        room.LastActiveUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
     }
 }
