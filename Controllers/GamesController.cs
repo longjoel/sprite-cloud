@@ -937,7 +937,7 @@ public class GamesController(
             return RedirectToAction(nameof(PlayServer), new { id });
         }
 
-        return RedirectToAction(nameof(PlayServer), new { id, code = created.Room.Code });
+        return RedirectToRoute("PlayServerRoom", new { id, code = created.Room.Code });
     }
 
     [HttpPost]
@@ -955,10 +955,10 @@ public class GamesController(
         if (!joined.Success || joined.Room is null)
         {
             TempData["Message"] = joined.Error ?? "Unable to join that room.";
-            return RedirectToAction(nameof(PlayServer), new { id });
+            return RedirectToRoute("PlayServerRoom", new { id });
         }
 
-        return RedirectToAction(nameof(PlayServer), new { id, code = joined.Room.Code });
+        return RedirectToRoute("PlayServerRoom", new { id, code = joined.Room.Code });
     }
 
     [HttpPost]
@@ -982,18 +982,25 @@ public class GamesController(
         }
 
         var created = await shareLinkService.CreateAsync(room.Id, profile.Id, grantMode, cancellationToken);
-        TempData["GeneratedShareLink"] = Url.Action(
-            nameof(PlayServer),
-            "Games",
-            new { id = room.GameId, share = created.RawToken },
+        TempData["GeneratedShareLink"] = Url.RouteUrl(
+            "PlayServerRoom",
+            new { id = room.GameId, code = room.Code, share = created.RawToken },
             Request.Scheme);
         TempData["GeneratedShareGrantMode"] = grantMode.ToString();
-        return RedirectToAction(nameof(PlayServer), new { id = room.GameId, code = room.Code });
+        return RedirectToRoute("PlayServerRoom", new { id = room.GameId, code = room.Code });
     }
 
-    [HttpGet]
+    [HttpGet("/Games/PlayServer/{id:int}/{code?}", Name = "PlayServerRoom")]
     public async Task<IActionResult> PlayServer(int id, string? code = null, string? share = null, CancellationToken cancellationToken = default)
     {
+        var hasRouteCode = RouteData.Values.TryGetValue("code", out var routeCodeValue)
+            && routeCodeValue is string routeCode
+            && !string.IsNullOrWhiteSpace(routeCode);
+        if (!string.IsNullOrWhiteSpace(code) && !hasRouteCode && string.IsNullOrWhiteSpace(share))
+        {
+            return RedirectToRoute("PlayServerRoom", new { id, code });
+        }
+
         var game = await db.Games
             .AsNoTracking()
             .Include(g => g.Files)
@@ -1105,6 +1112,7 @@ public class GamesController(
             Error = error,
             CurrentRoomId = currentRoomId,
             CurrentRoomCode = currentRoomCode,
+            IsArcadeRoom = false,
             CanChat = canChat,
             CurrentProfileDisplayName = currentSignedInProfile?.DisplayName,
             ActiveRooms = activeRoomSummaries,
@@ -1133,6 +1141,16 @@ public class GamesController(
 
         var canPlay = await currentAccess.CanPlaySessionAsync(sessionId, cancellationToken);
         var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow, allowPlayer: canPlay);
+        var roomId = await db.GamePlayRooms
+            .AsNoTracking()
+            .Where(x => x.NosebleedSessionId == sessionId && x.Status == GamePlayRoomStatus.Active)
+            .Select(x => (int?)x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (roomId is int id)
+        {
+            await roomService.TouchRoomParticipantSessionAsync(id, viewerId, seat, cancellationToken);
+        }
+
         await gamePlayTelemetry.TouchDurationAsync(sessionId, cancellationToken);
         return Json(new
         {
@@ -1167,6 +1185,7 @@ public class GamesController(
         return Json(new
         {
             players = snapshot.Players.Select(x => new { displayName = x.DisplayName, playerNumber = x.PlayerNumber, port = x.Port }),
+            watchers = snapshot.Watchers.Select(x => new { displayName = x.DisplayName }),
             watcherCount = snapshot.WatcherCount,
             totalConnected = snapshot.TotalConnected
         });
@@ -1407,6 +1426,7 @@ public class GamesController(
         if (Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var viewerId))
         {
             nosebleedSeats.Release(sessionId, viewerId);
+            _ = roomService.DisconnectRoomParticipantSessionAsync(sessionId, viewerId, HttpContext.RequestAborted);
         }
 
         if (!string.IsNullOrWhiteSpace(returnUrl) && Url.IsLocalUrl(returnUrl))

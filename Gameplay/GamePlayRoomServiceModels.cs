@@ -17,7 +17,13 @@ public sealed record RoomJoinResult(bool Success, GamePlayRoom? Room, NosebleedS
 
 public sealed record RoomPresencePlayer(string DisplayName, int PlayerNumber, int? Port);
 
-public sealed record RoomPresenceSnapshot(IReadOnlyList<RoomPresencePlayer> Players, int WatcherCount, int TotalConnected);
+public sealed record RoomPresenceWatcher(string DisplayName);
+
+public sealed record RoomPresenceSnapshot(
+    IReadOnlyList<RoomPresencePlayer> Players,
+    IReadOnlyList<RoomPresenceWatcher> Watchers,
+    int WatcherCount,
+    int TotalConnected);
 
 public sealed record RoomChatMessageSnapshot(string DisplayName, string Message, DateTime CreatedUtc);
 

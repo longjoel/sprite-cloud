@@ -30,6 +30,8 @@ public sealed class GamePlayRoomPresenceTests
         Assert.Equal("Alice", snapshot.Players[1].DisplayName);
         Assert.Equal(2, snapshot.Players[1].PlayerNumber);
         Assert.Equal(1, snapshot.WatcherCount);
+        Assert.Single(snapshot.Watchers);
+        Assert.Equal("Viewer", snapshot.Watchers[0].DisplayName);
         Assert.Equal(3, snapshot.TotalConnected);
     }
 }
