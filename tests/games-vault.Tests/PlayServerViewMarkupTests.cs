@@ -10,16 +10,19 @@ public sealed class PlayServerViewMarkupTests
     }
 
     [Fact]
-    public void PlayerToolbar_Exposes_Transport_And_Compression_Pickers()
+    public void PlayerSurface_Uses_AutoConnect_Without_Stream_Settings_Panel()
     {
         var content = ReadPlayServerView();
 
-        Assert.Contains("id=\"nosebleed-video-transport\"", content);
-        Assert.Contains("<option value=\"webrtc-track\">WebRTC track</option>", content);
-        Assert.Contains("<option value=\"websocket\">WebSocket</option>", content);
-        Assert.Contains("id=\"nosebleed-video-compression\"", content);
-        Assert.Contains("<option value=\"balanced\">JPEG balanced</option>", content);
-        Assert.Contains("<option value=\"compact\">JPEG compact</option>", content);
+        Assert.DoesNotContain("class=\"playserver-advanced-controls mb-3\" open", content);
+        Assert.DoesNotContain(">Stream settings</summary>", content);
+        Assert.DoesNotContain("id=\"nosebleed-status\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-video-transport\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-video-compression\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-touch-toggle\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-gamepad-select\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-pad-test-toggle\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-pad-test-panel\"", content);
     }
 
     [Fact]
@@ -41,35 +44,59 @@ public sealed class PlayServerViewMarkupTests
         Assert.Contains("id=\"playserver-roster-card\"", content);
         Assert.Contains("id=\"room-presence-watchers\"", content);
         Assert.Contains("<div class=\"fw-semibold\">Seats</div>", content);
+        Assert.Contains(">Leave seat</button>", content);
     }
 
     [Fact]
-    public void PlayerSurface_Hides_Advanced_Controls_Behind_Details_Beneath_Chat()
+    public void PlayerSurface_Exposes_Trimmed_InPlayer_Chrome_For_Primary_Actions()
     {
         var content = ReadPlayServerView();
 
-        Assert.Contains("class=\"playserver-advanced-controls mb-3\" open", content);
-        Assert.Contains(">Player controls</summary>", content);
-        Assert.Contains("id=\"room-chat-panel\"", content);
-        Assert.Contains("id=\"nosebleed-status\"", content);
-
-        var chatIndex = content.IndexOf("id=\"room-chat-panel\"", StringComparison.Ordinal);
-        var controlsIndex = content.IndexOf("class=\"playserver-advanced-controls mb-3\" open", StringComparison.Ordinal);
-        Assert.True(chatIndex >= 0 && controlsIndex > chatIndex, "Player controls should appear beneath the chat panel.");
-    }
-
-    [Fact]
-    public void PlayerControls_Expose_ViewMode_Audio_And_FullScreen_Actions()
-    {
-        var content = ReadPlayServerView();
-
+        Assert.Contains("id=\"nosebleed-player-chrome\"", content);
+        Assert.Contains("id=\"nosebleed-player-bottom-bar\"", content);
+        Assert.Contains("id=\"nosebleed-player-prompt\"", content);
         Assert.Contains("id=\"nosebleed-view-windowed\"", content);
         Assert.Contains("id=\"nosebleed-view-theater\"", content);
         Assert.Contains("id=\"nosebleed-fullscreen\"", content);
-        Assert.Contains(">Full screen</button>", content);
-        Assert.Contains("id=\"nosebleed-audio\"", content);
-        Assert.Contains("<div class=\"playserver-control-group-title\">View</div>", content);
-        Assert.Contains("<div class=\"playserver-control-group-title\">Playback</div>", content);
+        Assert.Contains("aria-label=\"Windowed view\"", content);
+        Assert.Contains("aria-label=\"Theater view\"", content);
+        Assert.Contains("id=\"nosebleed-audio-overlay\"", content);
+        Assert.Contains("id=\"nosebleed-volume\"", content);
+        Assert.Contains("id=\"nosebleed-player-health\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-audio\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-connect\"", content);
+    }
+
+    [Fact]
+    public void Desktop_Player_View_Hides_Layout_Edit_Buttons_And_Uses_Icon_Chrome()
+    {
+        var content = ReadPlayServerView();
+
+        Assert.Contains("@@media (hover: hover) and (pointer: fine)", content);
+        Assert.Contains(".layout-lock-action,", content);
+        Assert.Contains(".layout-reset-action", content);
+        Assert.Contains("justify-content: flex-end;", content);
+        Assert.Contains("class=\"player-control-icon\"", content);
+        Assert.Contains("<svg viewBox=\"0 0 24 24\"", content);
+        Assert.Contains("class=\"player-volume-slider\"", content);
+        Assert.Contains("title=\"Windowed view\"", content);
+        Assert.Contains("title=\"Theater view\"", content);
+        Assert.Contains("title=\"Full screen\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-audio-overlay\" class=\"btn btn-outline-secondary d-none\"", content);
+    }
+
+    [Fact]
+    public void PlayerSurface_Does_Not_Render_Debug_Hud_Or_Topline_Chrome()
+    {
+        var content = ReadPlayServerView();
+
+        Assert.DoesNotContain("id=\"nosebleed-player-room-meta\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-player-events\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-video-chip\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-input-chip\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-pad-chip\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-fps-chip\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-status-chip\"", content);
     }
 
     [Fact]
@@ -90,6 +117,15 @@ public sealed class PlayServerViewMarkupTests
         Assert.DoesNotContain("Room ", content);
         Assert.DoesNotContain("Server-side session", content);
         Assert.DoesNotContain("Server-side player is not ready", content);
+    }
+
+    [Fact]
+    public void RoomChat_Form_Posts_To_Explicit_Games_RoomChat_Endpoint()
+    {
+        var content = ReadPlayServerView();
+
+        Assert.Contains("action=\"@Url.Action(\"RoomChat\", \"Games\", new { roomId = Model.CurrentRoomId })\"", content);
+        Assert.DoesNotContain("<form asp-action=\"RoomChat\"", content);
     }
 
     [Fact]

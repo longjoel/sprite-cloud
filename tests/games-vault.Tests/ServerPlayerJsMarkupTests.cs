@@ -31,4 +31,41 @@ public sealed class ServerPlayerJsMarkupTests
         Assert.Contains("Full screen", content);
         Assert.Contains("syncViewModeButtons", content);
     }
+
+    [Fact]
+    public void ServerPlayerJs_Implements_Transient_Player_Chrome_Visibility()
+    {
+        var content = ReadServerPlayerJs();
+
+        Assert.Contains("function wakePlayerChrome", content);
+        Assert.Contains("function setPlayerChromeVisible", content);
+        Assert.Contains("player-chrome-hidden", content);
+        Assert.Contains("window.addEventListener(\"pointermove\"", content);
+        Assert.Contains("window.addEventListener(\"focus\"", content);
+    }
+
+    [Fact]
+    public void ServerPlayerJs_Maps_Status_Changes_Into_Player_Events_And_Prompts()
+    {
+        var content = ReadServerPlayerJs();
+
+        Assert.Contains("function showTransientPlayerEvent", content);
+        Assert.Contains("function showTransientPlayerPrompt", content);
+        Assert.Contains("Controller socket disconnected", content);
+        Assert.Contains("Controller live again", content);
+        Assert.Contains("Audio enabled", content);
+    }
+
+    [Fact]
+    public void ServerPlayerJs_Defaults_Overlay_On_And_Manages_Overlay_Audio_Volume()
+    {
+        var content = ReadServerPlayerJs();
+
+        Assert.Contains("const volumeStorageKey = \"games-vault:nosebleed-volume\"", content);
+        Assert.Contains("function applyAudioVolume", content);
+        Assert.Contains("function syncOverlayAudioUi", content);
+        Assert.Contains("audioGainNode", content);
+        Assert.Contains("volumeSlider?.addEventListener(\"input\"", content);
+        Assert.Contains("setOverlayEnabled(true, false);", content);
+    }
 }
