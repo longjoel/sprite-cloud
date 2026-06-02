@@ -24,6 +24,8 @@
     const layoutLockButton = document.getElementById("nosebleed-layout-lock");
     const layoutResetButton = document.getElementById("nosebleed-layout-reset");
     const fullscreenButton = document.getElementById("nosebleed-fullscreen");
+    const viewWindowedButton = document.getElementById("nosebleed-view-windowed");
+    const viewTheaterButton = document.getElementById("nosebleed-view-theater");
     const overlayToggleButton = document.getElementById("nosebleed-overlay-toggle");
     const touchToggleButton = document.getElementById("nosebleed-touch-toggle");
     const videoTransportSelect = document.getElementById("nosebleed-video-transport");
@@ -51,6 +53,7 @@
     };
     const layoutStorageKey = `games-vault:nosebleed-control-layout:${touchLayoutName}`;
     const overlayStorageKey = "games-vault:nosebleed-overlays-enabled";
+    const viewModeStorageKey = "games-vault:nosebleed-view-mode";
     const videoTransportStorageKey = "games-vault:nosebleed-video-transport";
     const videoCompressionStorageKey = "games-vault:nosebleed-video-compression";
     const preferredGamepadIndex = Number.isInteger(assignedPort) ? assignedPort : null;
@@ -90,6 +93,7 @@
     let videoFramesDropped = 0;
     let videoRenderMs = 0;
     let selectedGamepadIndex = null;
+    let preferredViewMode = normalizeViewMode(localStorage.getItem(viewModeStorageKey));
     let padTestTimer = 0;
     let gamepadPollTimer = 0;
     let audioCtx = null;
@@ -102,11 +106,46 @@
         return document.fullscreenElement === shell || document.webkitFullscreenElement === shell || shell.classList.contains("is-ios-fullscreen");
     }
 
+    function normalizeViewMode(mode) {
+        return mode === "theater" ? "theater" : "windowed";
+    }
+
+    function syncViewModeButtons() {
+        const fullscreen = isFullscreenActive();
+        const setButtonState = (button, active) => {
+            if (!button) {
+                return;
+            }
+
+            button.classList.toggle("btn-primary", active);
+            button.classList.toggle("btn-outline-secondary", !active);
+            button.setAttribute("aria-pressed", String(active));
+        };
+
+        setButtonState(viewWindowedButton, !fullscreen && preferredViewMode === "windowed");
+        setButtonState(viewTheaterButton, !fullscreen && preferredViewMode === "theater");
+        setButtonState(fullscreenButton, fullscreen);
+    }
+
+    function applyViewMode(mode, persist = true) {
+        preferredViewMode = normalizeViewMode(mode);
+        document.getElementById("playserver-session-grid")?.classList.toggle("view-mode-theater", preferredViewMode === "theater");
+        if (persist) {
+            localStorage.setItem(viewModeStorageKey, preferredViewMode);
+        }
+        syncViewModeButtons();
+        fitCanvasToShell();
+        fitRtcTrackVideoToShell();
+    }
+
     function syncFullscreenUi() {
         const fullscreen = isFullscreenActive();
-        fullscreenButton.textContent = fullscreen ? "Exit fullscreen" : "Fullscreen";
+        if (fullscreenButton) {
+            fullscreenButton.textContent = fullscreen ? "Exit full screen" : "Full screen";
+        }
         document.documentElement.classList.toggle("games-vault-player-fullscreen", fullscreen);
         document.body?.classList.toggle("games-vault-player-fullscreen", fullscreen);
+        syncViewModeButtons();
         fitCanvasToShell();
         fitRtcTrackVideoToShell();
     }
@@ -154,9 +193,12 @@
     function fitSurfaceToShell(surfaceWidth, surfaceHeight, element) {
         if (!element || !surfaceWidth || !surfaceHeight) return;
         const shellRect = shell.getBoundingClientRect();
+        const theaterMode = preferredViewMode === "theater" && !isFullscreenActive();
         const maxHeight = isFullscreenActive()
             ? window.innerHeight
-            : Math.min(window.innerHeight * 0.70, Math.max(1, shellRect.width));
+            : theaterMode
+                ? Math.min(window.innerHeight * 0.82, Math.max(1, shellRect.width * 0.85))
+                : Math.min(window.innerHeight * 0.70, Math.max(1, shellRect.width));
         const availableWidth = Math.max(1, shellRect.width - 16);
         const availableHeight = Math.max(1, maxHeight);
         const size = playerHelpers?.calculateContainedSize?.(surfaceWidth, surfaceHeight, availableWidth, availableHeight)
@@ -1440,6 +1482,20 @@
     });
 
     connectButton.addEventListener("click", connect);
+    viewWindowedButton?.addEventListener("click", () => {
+        if (isFullscreenActive()) {
+            toggleFullscreen();
+        }
+        applyViewMode("windowed");
+        setStatus("Windowed view enabled.", "good");
+    });
+    viewTheaterButton?.addEventListener("click", () => {
+        if (isFullscreenActive()) {
+            toggleFullscreen();
+        }
+        applyViewMode("theater");
+        setStatus("Theater view enabled.", "good");
+    });
     audioButton.addEventListener("click", toggleAudio);
     audioOverlayButton.addEventListener("click", ev => {
         if (layoutEditMode) {
@@ -1480,6 +1536,7 @@
         else hidePadTest();
     });
     syncVideoPreferenceControls();
+    applyViewMode(preferredViewMode, false);
     connect();
     setOverlayEnabled(overlaysEnabled, false);
     setAudioDisabledUi();
