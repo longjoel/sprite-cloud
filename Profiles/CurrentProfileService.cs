@@ -9,6 +9,7 @@ public sealed class CurrentProfileService(AppDbContext db, IHttpContextAccessor 
 {
     public const string CookieName = "gv.profile";
     public const string SessionCookieName = "gv.profile_session";
+    public static readonly TimeSpan CookieLifetime = TimeSpan.FromDays(365);
     private const string ClearedRequestStateKey = "gv.current-profile.cleared";
     private const string RequestProfileIdKey = "gv.current-profile.id";
     private const string RequestSessionNonceKey = "gv.current-profile.session";
@@ -22,6 +23,7 @@ public sealed class CurrentProfileService(AppDbContext db, IHttpContextAccessor 
 
         return await db.UserProfiles
             .AsNoTracking()
+            .Include(x => x.ParentProfile)
             .FirstOrDefaultAsync(x => x.Id == profileId && !x.IsArchived, ct);
     }
 
@@ -82,19 +84,29 @@ public sealed class CurrentProfileService(AppDbContext db, IHttpContextAccessor 
     public void SetCurrent(int profileId, string sessionNonce)
     {
         var http = httpContextAccessor.HttpContext ?? throw new InvalidOperationException("No active HTTP context.");
-        var cookieOptions = new CookieOptions
-        {
-            HttpOnly = true,
-            SameSite = SameSiteMode.Lax,
-            IsEssential = true,
-            Expires = DateTimeOffset.UtcNow.AddYears(1)
-        };
 
         http.Items[ClearedRequestStateKey] = false;
         http.Items[RequestProfileIdKey] = profileId;
         http.Items[RequestSessionNonceKey] = sessionNonce;
-        http.Response.Cookies.Append(CookieName, profileId.ToString(CultureInfo.InvariantCulture), cookieOptions);
-        http.Response.Cookies.Append(SessionCookieName, sessionNonce, cookieOptions);
+        WriteCurrentCookies(http, profileId, sessionNonce);
+    }
+
+    public void RefreshCurrent(int profileId, string sessionNonce)
+    {
+        var http = httpContextAccessor.HttpContext;
+        if (http is null)
+        {
+            return;
+        }
+
+        if (http.Items.TryGetValue(ClearedRequestStateKey, out var cleared) && cleared is true)
+        {
+            return;
+        }
+
+        http.Items[RequestProfileIdKey] = profileId;
+        http.Items[RequestSessionNonceKey] = sessionNonce;
+        WriteCurrentCookies(http, profileId, sessionNonce);
     }
 
     public void ClearCurrent()
@@ -110,5 +122,25 @@ public sealed class CurrentProfileService(AppDbContext db, IHttpContextAccessor 
         http.Items.Remove(RequestSessionNonceKey);
         http.Response.Cookies.Delete(CookieName);
         http.Response.Cookies.Delete(SessionCookieName);
+    }
+
+    private static void WriteCurrentCookies(HttpContext http, int profileId, string sessionNonce)
+    {
+        var cookieOptions = new CookieOptions
+        {
+            HttpOnly = true,
+            SameSite = SameSiteMode.Lax,
+            IsEssential = true,
+            MaxAge = CookieLifetime,
+            Expires = DateTimeOffset.UtcNow.Add(CookieLifetime)
+        };
+
+        if (http.Request.IsHttps)
+        {
+            cookieOptions.Secure = true;
+        }
+
+        http.Response.Cookies.Append(CookieName, profileId.ToString(CultureInfo.InvariantCulture), cookieOptions);
+        http.Response.Cookies.Append(SessionCookieName, sessionNonce, cookieOptions);
     }
 }

@@ -22,7 +22,6 @@ public sealed class SystemCoreMappingRow
     public string SystemName { get; init; } = "";
     public int GameCount { get; init; }
     public string? NativeCoreFileName { get; init; }
-    public string? WebPlayerCoreKey { get; init; }
     public bool IsEnabled { get; init; } = true;
     public bool IsAutoMapped { get; init; }
     public bool HasNativeCoreMapping { get; init; }

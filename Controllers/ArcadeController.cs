@@ -423,11 +423,12 @@ public class ArcadeController(
             CorePath = join.Session.CorePath,
             ContentPath = join.Session.ContentPath,
             CurrentRoomId = join.Room.Id,
-            CurrentRoomCode = join.Room.Code,
             IsArcadeRoom = true,
             ShowRoomControls = false,
             CanChat = await currentAccess.CanChatAsync(cancellationToken),
             CurrentProfileDisplayName = profile?.DisplayName,
+            CurrentProfileIsEphemeralGuest = profile?.IsEphemeral == true && profile.ParentProfileId is not null,
+            CurrentProfileParentDisplayName = profile?.ParentProfile?.DisplayName,
             LeaveSessionReturnUrl = Url.Action(nameof(Index), "Arcade")
         });
     }

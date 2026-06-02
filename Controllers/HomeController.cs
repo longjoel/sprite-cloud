@@ -20,8 +20,6 @@ namespace games_vault.Controllers;
 public class HomeController(
     AppDbContext db,
     LibretroDatabaseStore libretroStore,
-    WebPlayerAssetLocator webPlayerLocator,
-    IOptions<WebPlayerOptions> webPlayerOptions,
     SystemDatIndexProvider systemDat,
     SystemFileStorage systemFileStorage,
     IInternalJobsClient internalJobs,
@@ -38,12 +36,6 @@ public class HomeController(
         var latestLibretroSync = await db.BackgroundJobs
             .AsNoTracking()
             .Where(x => x.Command == "libretro.sync")
-            .OrderByDescending(x => x.Id)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        var latestWebPlayerInstall = await db.BackgroundJobs
-            .AsNoTracking()
-            .Where(x => x.Command == "webplayer.install")
             .OrderByDescending(x => x.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -213,6 +205,11 @@ public class HomeController(
             .Where(x => x.RuntimeSessionId != null)
             .Select(x => new { x.Id, x.DisplayName, x.RuntimeSessionId })
             .ToDictionaryAsync(x => x.RuntimeSessionId!, x => new { x.Id, x.DisplayName }, StringComparer.OrdinalIgnoreCase, cancellationToken);
+        var roomCodeMap = await db.GamePlayRooms
+            .AsNoTracking()
+            .Where(x => x.Status == GamePlayRoomStatus.Active && x.NosebleedSessionId != null)
+            .Select(x => new { x.NosebleedSessionId, x.Code })
+            .ToDictionaryAsync(x => x.NosebleedSessionId!, x => x.Code, StringComparer.OrdinalIgnoreCase, cancellationToken);
         var activeSessionModels = activeSessions
             .Select(x =>
             {
@@ -233,7 +230,8 @@ public class HomeController(
                     HasExited = x.HasExited,
                     IsArcadeCabinet = isArcadeCabinet,
                     ArcadeCabinetId = isArcadeCabinet ? arcadeCabinet!.Id : null,
-                    ArcadeCabinetName = isArcadeCabinet ? arcadeCabinet!.DisplayName : null
+                    ArcadeCabinetName = isArcadeCabinet ? arcadeCabinet!.DisplayName : null,
+                    RoomCode = roomCodeMap.TryGetValue(x.SessionId, out var roomCode) ? roomCode : null
                 };
             })
             .ToList();
@@ -256,8 +254,6 @@ public class HomeController(
             var idx = systemDat.Get();
             missingSystemFilesCount = idx.ByPath.Values.Count(x => !System.IO.File.Exists(systemFileStorage.GetAbsoluteSystemPath(x.RelativePath)));
         }
-
-        var webOpts = webPlayerOptions.Value ?? new WebPlayerOptions();
 
         return View(new HomeIndexViewModel
         {
@@ -293,11 +289,7 @@ public class HomeController(
             WebSourcesCount = webSourcesCount,
 
             LibretroDatabaseInstalled = libretroInstalled,
-            WebPlayerEnabled = webOpts.Enabled,
-            WebPlayerInstalled = webPlayerLocator.IsInstalled(),
-            WebPlayerBasePath = webPlayerLocator.BasePath,
-            LatestLibretroSyncJob = BackgroundJobSummary.From(latestLibretroSync),
-            LatestWebPlayerInstallJob = BackgroundJobSummary.From(latestWebPlayerInstall)
+            LatestLibretroSyncJob = BackgroundJobSummary.From(latestLibretroSync)
         });
     }
 
@@ -436,21 +428,6 @@ public class HomeController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> StartWebPlayerInstall(bool force = false, CancellationToken cancellationToken = default)
-    {
-        if (!await currentAccess.IsAdminAsync(cancellationToken))
-        {
-            TempData["Message"] = "Admin profile required to queue setup jobs.";
-            return RedirectToAction("Index", "Profiles");
-        }
-
-        var jobId = await internalJobs.EnqueueWebPlayerInstallAsync(force, cancellationToken);
-        TempData["Message"] = force ? $"Queued forced web player install job #{jobId}." : $"Queued web player install job #{jobId}.";
-        return RedirectToAction("Details", "Jobs", new { id = jobId });
-    }
-
-    [HttpPost]
-    [ValidateAntiForgeryToken]
     public async Task<IActionResult> StartInstallAll(CancellationToken cancellationToken = default)
     {
         if (!await currentAccess.IsAdminAsync(cancellationToken))
@@ -460,8 +437,7 @@ public class HomeController(
         }
 
         var libretroJobId = await internalJobs.EnqueueLibretroSyncAsync(force: false, cancellationToken);
-        var webPlayerJobId = await internalJobs.EnqueueWebPlayerInstallAsync(force: false, cancellationToken);
-        TempData["Message"] = $"Queued install jobs: libretro sync #{libretroJobId}, web player install #{webPlayerJobId}.";
+        TempData["Message"] = $"Queued setup job: libretro sync #{libretroJobId}.";
         return RedirectToAction("Index", "Jobs");
     }
 

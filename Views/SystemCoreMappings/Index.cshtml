@@ -114,12 +114,7 @@ else
                     </select>
                     <div class="form-text">For server-side gameplay via Nosebleed.</div>
                 </div>
-                <div class="col-md-3">
-                    <label class="form-label">Web player core key</label>
-                    <input class="form-control" name="webPlayerCoreKey" value="@row.WebPlayerCoreKey" placeholder="e.g. genesis_plus_gx" />
-                    <div class="form-text">Optional for browser player follow-up.</div>
-                </div>
-                <div class="col-md-2">
+                <div class="col-md-5">
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="checkbox" name="isEnabled" value="true" checked="@row.IsEnabled" id="enabled-@row.Id-@row.SystemName.GetHashCode()" />
                         <label class="form-check-label" for="enabled-@row.Id-@row.SystemName.GetHashCode()">Enabled</label>

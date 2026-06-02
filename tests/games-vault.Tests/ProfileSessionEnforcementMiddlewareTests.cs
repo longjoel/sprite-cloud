@@ -94,6 +94,48 @@ public sealed class ProfileSessionEnforcementMiddlewareTests
         Assert.Null(profileSeenDownstream);
     }
 
+    [Fact]
+    public async Task InvokeAsync_RefreshesPersistentCookiesWhenSessionIsValid()
+    {
+        await using var fixture = await CreateFixtureAsync();
+        var profile = new UserProfile
+        {
+            DisplayName = "Joel",
+            Username = "joel",
+            Color = "#198754",
+            PasskeyUserHandleBase64Url = "handle",
+            PasswordHash = "hash",
+            CreatedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow
+        };
+        fixture.Db.UserProfiles.Add(profile);
+        await fixture.Db.SaveChangesAsync();
+
+        fixture.Db.ProfileAuthSessions.Add(new ProfileAuthSession
+        {
+            ProfileId = profile.Id,
+            SessionNonce = "valid-session",
+            LastSeenUtc = DateTime.UtcNow
+        });
+        await fixture.Db.SaveChangesAsync();
+
+        fixture.HttpContext.Request.Headers.Cookie =
+            $"{CurrentProfileService.CookieName}={profile.Id}; {CurrentProfileService.SessionCookieName}=valid-session";
+
+        var middleware = new ProfileSessionEnforcementMiddleware(_ => Task.CompletedTask);
+
+        await middleware.InvokeAsync(
+            fixture.HttpContext,
+            new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor),
+            new ProfileAuthSessionService(fixture.Db, fixture.HttpContextAccessor));
+
+        var setCookie = fixture.HttpContext.Response.Headers.SetCookie.ToString();
+        Assert.Contains($"{CurrentProfileService.CookieName}={profile.Id}", setCookie);
+        Assert.Contains($"{CurrentProfileService.SessionCookieName}=valid-session", setCookie);
+        Assert.Contains("expires=", setCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("max-age=31536000", setCookie, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static async Task<TestFixture> CreateFixtureAsync()
     {
         var connection = new SqliteConnection("Data Source=:memory:");
