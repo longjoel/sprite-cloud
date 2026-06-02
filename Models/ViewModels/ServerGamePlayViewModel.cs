@@ -17,13 +17,28 @@ public sealed class ServerGamePlayViewModel
     public string? LeaveSessionReturnUrl { get; init; }
     public string? Error { get; init; }
     public int? CurrentRoomId { get; init; }
-    public string? CurrentRoomCode { get; init; }
     public bool IsArcadeRoom { get; init; }
     public bool ShowRoomControls { get; init; } = true;
     public bool CanChat { get; init; }
     public string? CurrentProfileDisplayName { get; init; }
+    public bool CurrentProfileIsEphemeralGuest { get; init; }
+    public string? CurrentProfileParentDisplayName { get; init; }
     public bool CanCreateShareLinks { get; init; }
     public string? GeneratedShareLink { get; init; }
     public string? GeneratedShareGrantMode { get; init; }
-    public IReadOnlyList<GamePlayRoomSummaryViewModel> ActiveRooms { get; init; } = [];
+
+    public string? ChatIdentityLabel
+    {
+        get
+        {
+            if (!CurrentProfileIsEphemeralGuest)
+            {
+                return null;
+            }
+
+            return string.IsNullOrWhiteSpace(CurrentProfileParentDisplayName)
+                ? "Chatting as guest"
+                : $"Chatting as guest of {CurrentProfileParentDisplayName.Trim()}";
+        }
+    }
 }

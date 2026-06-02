@@ -61,7 +61,7 @@
                             }
                             else
                             {
-                                <span>Viewer mode</span>
+                                <span>Sign in</span>
                             }
                         </a>
                     </div>
@@ -77,6 +77,24 @@
             }
             @RenderBody()
         </main>
+    </div>
+
+    <div id="site-warning-banner" class="site-warning-banner" role="region" aria-label="Site warning" hidden>
+        <div class="container">
+            <div class="site-warning-banner__body shadow-lg rounded-4 border border-warning-subtle bg-dark text-light p-3 p-lg-4">
+                <div class="d-flex flex-column flex-lg-row gap-3 align-items-lg-center justify-content-between">
+                    <div>
+                        <div class="text-uppercase small fw-semibold text-warning mb-2">Warning / cookie notice</div>
+                        <div class="fw-semibold mb-2">This site may be dangerous, stores cookies on your computer, may track basic metrics, and probably causes cancer in the state of California.</div>
+                        <div class="small text-light-emphasis">By continuing, you acknowledge the risks, the cookies, the metrics, and the general arcade gremlin energy of this vault.</div>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2 justify-content-lg-end">
+                        <button type="button" id="site-warning-accept" class="btn btn-warning text-dark fw-semibold">Acknowledge the danger</button>
+                        <button type="button" id="site-warning-dismiss" class="btn btn-outline-light">Dismiss for now</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <footer class="border-top footer text-muted">

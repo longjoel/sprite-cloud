@@ -21,6 +21,34 @@ body {
   margin-bottom: 60px;
 }
 
+.site-warning-banner {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1200;
+  padding: 0 0 1rem;
+}
+
+.site-warning-banner[hidden] {
+  display: none !important;
+}
+
+.site-warning-banner__body {
+  backdrop-filter: blur(10px);
+  background: linear-gradient(135deg, rgba(24, 24, 27, 0.95), rgba(60, 18, 18, 0.96));
+}
+
+body.site-warning-visible {
+  padding-bottom: 12rem;
+}
+
+@media (max-width: 767.98px) {
+  body.site-warning-visible {
+    padding-bottom: 16rem;
+  }
+}
+
 .home-hero {
   background: linear-gradient(135deg, rgba(13, 110, 253, 0.08), rgba(111, 66, 193, 0.10));
 }

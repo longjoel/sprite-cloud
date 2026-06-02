@@ -3,8 +3,51 @@
 
 // Write your JavaScript code.
 (function () {
+    var warningBannerKey = "gv.siteWarningAcknowledged";
+
     function removeAll(selector) {
         Array.prototype.slice.call(document.querySelectorAll(selector)).forEach(function (el) { el.remove(); });
+    }
+
+    function initializeSiteWarningBanner() {
+        var banner = document.getElementById("site-warning-banner");
+        if (!banner) {
+            return;
+        }
+
+        var acceptButton = document.getElementById("site-warning-accept");
+        var dismissButton = document.getElementById("site-warning-dismiss");
+        var storage = null;
+
+        try {
+            storage = window.localStorage;
+        } catch (error) {
+            storage = null;
+        }
+
+        function setVisible(visible) {
+            banner.hidden = !visible;
+            document.body.classList.toggle("site-warning-visible", visible);
+        }
+
+        function acknowledge() {
+            if (storage) {
+                storage.setItem(warningBannerKey, "1");
+            }
+
+            setVisible(false);
+        }
+
+        var alreadyAcknowledged = storage && storage.getItem(warningBannerKey) === "1";
+        setVisible(!alreadyAcknowledged);
+
+        if (acceptButton) {
+            acceptButton.addEventListener("click", acknowledge);
+        }
+
+        if (dismissButton) {
+            dismissButton.addEventListener("click", acknowledge);
+        }
     }
 
     function cleanupStaleBackdrops() {
@@ -33,10 +76,12 @@
 
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", function () {
+            initializeSiteWarningBanner();
             cleanupStaleBackdrops();
             setInterval(cleanupStaleBackdrops, 1000);
         });
     } else {
+        initializeSiteWarningBanner();
         cleanupStaleBackdrops();
         setInterval(cleanupStaleBackdrops, 1000);
     }

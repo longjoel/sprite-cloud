@@ -28,8 +28,6 @@ public class GamesController(
     IInternalJobsClient internalJobs,
     games_vault.EverDrive.EverDriveGbFirmwareService everDriveFw,
     GameFileStorage fileStorage,
-    IWebHostEnvironment env,
-    IOptions<WebPlayerOptions> webPlayerOptions,
     IOptions<NosebleedOptions> nosebleedOptions,
     NosebleedSessionManager nosebleedSessions,
     NosebleedSeatManager nosebleedSeats,
@@ -785,14 +783,10 @@ public class GamesController(
         int id,
         int filePage = 1,
         int filePageSize = 50,
-        int playerPage = 1,
-        int playerPageSize = 50,
         CancellationToken cancellationToken = default)
     {
         filePage = Math.Max(1, filePage);
         filePageSize = Math.Clamp(filePageSize, 10, 100);
-        playerPage = Math.Max(1, playerPage);
-        playerPageSize = Math.Clamp(playerPageSize, 10, 100);
 
         var game = await db.Games
             .AsNoTracking()
@@ -814,91 +808,13 @@ public class GamesController(
             .Take(filePageSize)
             .ToListAsync(cancellationToken);
 
-        var playerQuery = db.GamePlayerFiles
-            .AsNoTracking()
-            .Where(f => f.GameId == game.Id);
-
-        var playerTotal = await playerQuery.CountAsync(cancellationToken);
-        var playerPageCount = playerPageSize <= 0 ? 0 : (int)Math.Ceiling(playerTotal / (double)playerPageSize);
-        playerPage = Math.Min(playerPage, Math.Max(1, playerPageCount));
-
-        var playerFiles = await playerQuery
-            .OrderByDescending(f => f.UpdatedUtc)
-            .ThenBy(f => f.Kind)
-            .ThenBy(f => f.Key)
-            .ThenBy(f => f.FileName)
-            .Skip((playerPage - 1) * playerPageSize)
-            .Take(playerPageSize)
-            .ToListAsync(cancellationToken);
-
         return View(new games_vault.Models.ViewModels.GameDetailsViewModel
         {
             Game = game,
             Files = files,
             FilePage = filePage,
             FilePageSize = filePageSize,
-            FileTotalCount = totalCount,
-            PlayerFiles = playerFiles,
-            PlayerFilePage = playerPage,
-            PlayerFilePageSize = playerPageSize,
-            PlayerFileTotalCount = playerTotal
-        });
-    }
-
-    public async Task<IActionResult> Play(int id, CancellationToken cancellationToken = default)
-    {
-        var game = await db.Games
-            .AsNoTracking()
-            .Include(g => g.Files)
-            .FirstOrDefaultAsync(g => g.Id == id, cancellationToken);
-
-        if (game is null)
-        {
-            return NotFound();
-        }
-
-        var opts = webPlayerOptions.Value ?? new WebPlayerOptions();
-        var basePath = string.IsNullOrWhiteSpace(opts.BasePath) ? "/webplayer" : opts.BasePath.TrimEnd('/');
-        if (!basePath.StartsWith("/", StringComparison.Ordinal))
-        {
-            basePath = "/" + basePath;
-        }
-
-        var file = game.Files.FirstOrDefault(f => !string.IsNullOrWhiteSpace(f.StoragePath) || !string.IsNullOrWhiteSpace(f.ExternalPath));
-        var romUrl = file is null ? null : (Url.Action(nameof(Rom), new { id = file.Id }) ?? $"/Games/Rom/{file.Id}");
-
-        var coreKey = ResolveWebPlayerCoreKey(opts, game, file);
-
-        var assetsPresent = IsWebPlayerAssetsPresent(opts, env);
-
-        string? error = null;
-        if (!opts.Enabled)
-        {
-            error = "Web player is disabled. Enable it in appsettings under 'WebPlayer:Enabled'.";
-        }
-        else if (file is null)
-        {
-            error = "No stored or linked ROM file found for this game.";
-        }
-        else if (string.IsNullOrWhiteSpace(coreKey))
-        {
-            error = $"No web-player core mapping found for '{game.SystemName}'. Configure 'WebPlayer:SystemCores' in appsettings.";
-        }
-        else if (!assetsPresent)
-        {
-            error = $"Web player assets not found under '{basePath}'.";
-        }
-
-        return View(new GamePlayViewModel
-        {
-            Game = game,
-            File = file,
-            PlayerEnabled = opts.Enabled,
-            PlayerBasePath = basePath,
-            PlayerAssetsPresent = assetsPresent,
-            CoreKey = coreKey,
-            RomUrl = romUrl,
-            Error = error
+            FileTotalCount = totalCount
         });
     }
 
@@ -938,27 +854,6 @@ public class GamesController(
         }
 
         return RedirectToRoute("PlayServerRoom", new { id, code = created.Room.Code });
-    }
-
-    [HttpPost]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> JoinRoomByCode(int id, string? code, CancellationToken cancellationToken = default)
-    {
-        var game = await db.Games.AsNoTracking().FirstOrDefaultAsync(g => g.Id == id, cancellationToken);
-        if (game is null)
-        {
-            return NotFound();
-        }
-
-        var viewerId = GetOrCreateNosebleedViewerId();
-        var joined = await roomService.JoinByCodeAsync(code ?? string.Empty, viewerId, cancellationToken);
-        if (!joined.Success || joined.Room is null)
-        {
-            TempData["Message"] = joined.Error ?? "Unable to join that room.";
-            return RedirectToRoute("PlayServerRoom", new { id });
-        }
-
-        return RedirectToRoute("PlayServerRoom", new { id, code = joined.Room.Code });
     }
 
     [HttpPost]
@@ -1013,17 +908,6 @@ public class GamesController(
 
         var opts = nosebleedOptions.Value ?? new NosebleedOptions();
         var file = game.Files.FirstOrDefault(f => !string.IsNullOrWhiteSpace(f.StoragePath) || !string.IsNullOrWhiteSpace(f.ExternalPath));
-        var activeRooms = await roomService.ListActiveRoomsForGameAsync(game.Id, cancellationToken);
-        var activeRoomSummaries = activeRooms
-            .Select(x => new GamePlayRoomSummaryViewModel
-            {
-                Id = x.Id,
-                Code = x.Code,
-                SessionId = x.NosebleedSessionId,
-                CreatedByProfileId = x.CreatedByProfileId,
-                LastActiveUtc = DateTime.SpecifyKind(x.LastActiveUtc, DateTimeKind.Utc)
-            })
-            .ToList();
         var currentSignedInProfile = await currentProfile.GetCurrentAsync(cancellationToken);
         var canChat = await currentAccess.CanChatAsync(cancellationToken);
 
@@ -1033,7 +917,6 @@ public class GamesController(
         string? token = null;
         string? contentPath = null;
         int? currentRoomId = null;
-        string? currentRoomCode = null;
 
         if (!opts.Enabled)
         {
@@ -1053,7 +936,6 @@ public class GamesController(
                 {
                     currentSignedInProfile = await currentProfile.GetCurrentAsync(cancellationToken);
                     currentRoomId = joinResult.Room.Id;
-                    currentRoomCode = joinResult.Room.Code;
                     session = joinResult.Session;
                     seat = joinResult.Seat;
                     token = joinResult.Token;
@@ -1061,12 +943,14 @@ public class GamesController(
                 }
                 else
                 {
-                    error = joinResult.Error ?? "Unable to redeem the requested share link.";
+                    TempData["Message"] = joinResult.Error ?? "Unable to redeem the requested share link.";
+                    return RedirectToAction(nameof(Index));
                 }
             }
             catch (InvalidOperationException ex)
             {
-                error = ex.Message;
+                TempData["Message"] = ex.Message;
+                return RedirectToAction(nameof(Index));
             }
         }
         else if (!string.IsNullOrWhiteSpace(code))
@@ -1076,7 +960,6 @@ public class GamesController(
             if (joinResult.Success && joinResult.Room is not null && joinResult.Session is not null)
             {
                 currentRoomId = joinResult.Room.Id;
-                currentRoomCode = joinResult.Room.Code;
                 session = joinResult.Session;
                 seat = joinResult.Seat;
                 token = joinResult.Token;
@@ -1084,16 +967,46 @@ public class GamesController(
             }
             else
             {
-                error = joinResult.Error ?? "Unable to join the requested room.";
+                TempData["Message"] = joinResult.Error ?? "Unable to join the requested room.";
+                return RedirectToAction(nameof(Index));
             }
         }
         else
         {
-            error = "Create a new room or join by session code to start server-side play.";
+            if (await currentAccess.CanPlayAsync(cancellationToken) && file is not null)
+            {
+                contentPath = await ResolveGameFileAbsolutePathAsync(file, cancellationToken);
+                if (string.IsNullOrWhiteSpace(contentPath))
+                {
+                    error = "ROM file could not be resolved to an allowed local filesystem path.";
+                }
+                else
+                {
+                    var created = await roomService.CreateRoomAsync(game.Id, file.Id, game.SystemName, contentPath, cancellationToken);
+                    if (created.Success && created.Room is not null)
+                    {
+                        return RedirectToRoute("PlayServerRoom", new { id, code = created.Room.Code });
+                    }
+
+                    error = created.Error ?? "Failed to create a room for this game.";
+                }
+            }
+            else
+            {
+                error = "Create a new session from this game page to start server-side play.";
+            }
         }
 
-        var canCreateShareLinks = currentSignedInProfile is not null &&
-            (currentSignedInProfile.IsAdmin || activeRooms.Any(x => x.Id == currentRoomId && x.CreatedByProfileId == currentSignedInProfile.Id));
+        var canCreateShareLinks = false;
+        if (currentRoomId is int roomId && currentSignedInProfile is not null)
+        {
+            var roomOwnerId = await db.GamePlayRooms
+                .AsNoTracking()
+                .Where(x => x.Id == roomId && x.Status == GamePlayRoomStatus.Active)
+                .Select(x => x.CreatedByProfileId)
+                .FirstOrDefaultAsync(cancellationToken);
+            canCreateShareLinks = currentSignedInProfile.IsAdmin || roomOwnerId == currentSignedInProfile.Id;
+        }
 
         return View(new ServerGamePlayViewModel
         {
@@ -1111,11 +1024,11 @@ public class GamesController(
             ContentPath = session?.ContentPath ?? contentPath,
             Error = error,
             CurrentRoomId = currentRoomId,
-            CurrentRoomCode = currentRoomCode,
             IsArcadeRoom = false,
             CanChat = canChat,
             CurrentProfileDisplayName = currentSignedInProfile?.DisplayName,
-            ActiveRooms = activeRoomSummaries,
+            CurrentProfileIsEphemeralGuest = currentSignedInProfile?.IsEphemeral == true && currentSignedInProfile.ParentProfileId is not null,
+            CurrentProfileParentDisplayName = currentSignedInProfile?.ParentProfile?.DisplayName,
             CanCreateShareLinks = canCreateShareLinks,
             GeneratedShareLink = TempData["GeneratedShareLink"] as string,
             GeneratedShareGrantMode = TempData["GeneratedShareGrantMode"] as string
@@ -1640,52 +1553,6 @@ public class GamesController(
         });
 
         return allowed ? full : null;
-    }
-
-    private static bool IsWebPlayerAssetsPresent(WebPlayerOptions options, IWebHostEnvironment env)
-    {
-        var basePath = string.IsNullOrWhiteSpace(options.BasePath) ? "/webplayer" : options.BasePath.TrimEnd('/');
-        basePath = basePath.TrimStart('/');
-        if (string.IsNullOrWhiteSpace(env.WebRootPath))
-        {
-            return false;
-        }
-
-        var root = Path.GetFullPath(env.WebRootPath);
-        var indexPath = Path.Combine(root, basePath, "index.html");
-        return System.IO.File.Exists(indexPath);
-    }
-
-    private static string? ResolveWebPlayerCoreKey(WebPlayerOptions options, Game game, GameFile? file)
-    {
-        if (options.SystemCores.TryGetValue(game.SystemName, out var mapped) && !string.IsNullOrWhiteSpace(mapped))
-        {
-            return mapped.Trim();
-        }
-
-        var name = file?.Name ?? "";
-        var ext = Path.GetExtension(name);
-        if (string.IsNullOrWhiteSpace(ext))
-        {
-            return null;
-        }
-
-        // Minimal fallback mapping (best-effort). Prefer explicit SystemCores config.
-        var lower = ext.ToLowerInvariant();
-        return lower switch
-        {
-            ".nes" => "fceumm",
-            ".gb" => "gambatte",
-            ".gbc" => "gambatte",
-            ".gba" => "mgba",
-            ".sfc" => "snes9x",
-            ".smc" => "snes9x",
-            ".gen" => "genesis_plus_gx",
-            ".md" => "genesis_plus_gx",
-            ".sms" => "genesis_plus_gx",
-            ".gg" => "genesis_plus_gx",
-            _ => null
-        };
     }
 
     [HttpGet]

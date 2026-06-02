@@ -170,7 +170,7 @@ public sealed class ProfilesController(
     public IActionResult Clear()
     {
         currentProfile.ClearCurrent();
-        TempData["Message"] = "Returned to viewer mode.";
+        TempData["Message"] = "Signed out.";
         return RedirectToAction(nameof(Index));
     }
 

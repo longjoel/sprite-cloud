@@ -41,12 +41,7 @@ public sealed class HomeIndexViewModel
 
     public bool LibretroDatabaseInstalled { get; set; }
 
-    public bool WebPlayerEnabled { get; set; }
-    public bool WebPlayerInstalled { get; set; }
-    public string WebPlayerBasePath { get; set; } = "/webplayer";
-
     public BackgroundJobSummary? LatestLibretroSyncJob { get; set; }
-    public BackgroundJobSummary? LatestWebPlayerInstallJob { get; set; }
 }
 
 public sealed class TopPlayedGameViewModel
@@ -74,6 +69,7 @@ public sealed class ActiveNosebleedSessionViewModel
     public bool IsArcadeCabinet { get; set; }
     public int? ArcadeCabinetId { get; set; }
     public string? ArcadeCabinetName { get; set; }
+    public string? RoomCode { get; set; }
 }
 
 public sealed class ActiveProfileSummaryViewModel

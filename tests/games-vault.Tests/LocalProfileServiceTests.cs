@@ -54,8 +54,11 @@ public sealed class LocalProfileServiceTests
         var signedIn = await service.SignInAsync("JOEL", "password123", CancellationToken.None);
 
         Assert.True(signedIn);
-        Assert.Contains($"{CurrentProfileService.CookieName}={profile.Id}", fixture.HttpContext.Response.Headers.SetCookie.ToString());
-        Assert.Contains(CurrentProfileService.SessionCookieName, fixture.HttpContext.Response.Headers.SetCookie.ToString());
+        var setCookie = fixture.HttpContext.Response.Headers.SetCookie.ToString();
+        Assert.Contains($"{CurrentProfileService.CookieName}={profile.Id}", setCookie);
+        Assert.Contains(CurrentProfileService.SessionCookieName, setCookie);
+        Assert.Contains("expires=", setCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("max-age=31536000", setCookie, StringComparison.OrdinalIgnoreCase);
 
         var authSession = await fixture.Db.ProfileAuthSessions.SingleAsync(x => x.ProfileId == profile.Id && x.RevokedUtc == null);
         Assert.Equal(profile.Id, authSession.ProfileId);

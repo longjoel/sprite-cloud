@@ -45,16 +45,14 @@ public sealed class GamesIndexViewMarkupTests
     }
 
     [Fact]
-    public void GamesViews_Remove_BatchFeatureMarkup()
+    public void GamesViews_Remove_BrowserPlayActions()
     {
-        var indexContent = ReadGamesIndexView();
+        var detailsContent = File.ReadAllText(Path.Combine(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../")), "Views", "Games", "Details.cshtml")).Replace("\r\n", "\n");
         var bankContent = ReadGamesBankView();
 
-        Assert.DoesNotContain("games-batch-column", indexContent);
-        Assert.DoesNotContain("wireBulkSelection", indexContent);
-        Assert.DoesNotContain("id=\"games-bulk-form\"", bankContent);
-        Assert.DoesNotContain("Add to batch", bankContent);
-        Assert.DoesNotContain("In batch", bankContent);
-        Assert.DoesNotContain("Select page", bankContent);
+        Assert.DoesNotContain("asp-action=\"Play\"", detailsContent);
+        Assert.DoesNotContain("Play in browser", detailsContent);
+        Assert.DoesNotContain("asp-action=\"Play\"", bankContent);
+        Assert.DoesNotContain(">Browser<", bankContent);
     }
 }

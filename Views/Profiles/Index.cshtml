@@ -44,7 +44,7 @@
                         <div class="home-stat-tile rounded-4 border h-100 p-3">
                             <div class="text-muted small text-uppercase fw-semibold">Current mode</div>
                             <div class="h4 mb-1">@FormatAccessLabel(Model.AccessMode)</div>
-                            <div class="small text-muted">@(isViewer ? "Watching only" : "Signed in")</div>
+                            <div class="small text-muted">@(isViewer ? "Sign in required for play" : "Signed in")</div>
                         </div>
                     </div>
                     <div class="col-sm-4">
@@ -64,17 +64,17 @@
                 </div>
 
                 <div class="d-grid gap-3">
-                    <div id="profiles-viewer-card" class="card border-0 shadow-sm">
+                    <div id="profiles-sign-in-required-card" class="card border-0 shadow-sm">
                         <div class="card-body">
-                            <h2 class="h5">Viewer mode</h2>
-                            <p class="text-muted small mb-3">No profile selected? You can still watch active machines and browse the library.</p>
+                            <h2 class="h5">Sign in to play</h2>
+                            <p class="text-muted small mb-3">You can still watch active machines and browse the library before signing in, but game start and room participation stay behind a player profile.</p>
                             <div class="d-flex gap-2 flex-wrap">
-                                <a class="btn btn-outline-secondary" asp-controller="Home" asp-action="Index">Continue as viewer</a>
+                                <a class="btn btn-outline-secondary" asp-controller="Home" asp-action="Index">Browse first</a>
                                 @if (Model.CurrentProfileId is not null)
                                 {
                                     <form method="post" asp-action="Clear" class="d-inline">
                                         @Html.AntiForgeryToken()
-                                        <button class="btn btn-outline-secondary">Return to viewer mode</button>
+                                        <button class="btn btn-outline-secondary">Sign out</button>
                                     </form>
                                 }
                             </div>
@@ -117,6 +117,9 @@
                                 {
                                     <a class="btn btn-outline-secondary" asp-action="Invites">Invite links</a>
                                 }
+                            </div>
+                            <div class="col-12">
+                                <div class="form-text">Sign-in uses persistent cookies on this device, so you should not need to log in every visit.</div>
                             </div>
                         </form>
                     </div>
@@ -163,7 +166,7 @@
                             }
                             <form method="post" asp-action="Clear" class="d-grid">
                                 @Html.AntiForgeryToken()
-                                <button class="btn btn-outline-secondary">Return to viewer mode</button>
+                                <button class="btn btn-outline-secondary">Sign out</button>
                             </form>
                         </div>
                     </div>

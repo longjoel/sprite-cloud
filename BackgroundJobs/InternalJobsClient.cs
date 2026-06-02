@@ -18,7 +18,6 @@ public interface IInternalJobsClient
     Task<int> EnqueueNetworkShareCopyAsync(int networkShareId, string fullPath, CancellationToken cancellationToken = default);
     Task<int> EnqueueEverDriveGbImageAsync(int batchId, string firmwareUrl, string firmwareLabel, CancellationToken cancellationToken = default);
     Task<int> EnqueueEverDriveGbZipAsync(int batchId, string firmwareUrl, string firmwareLabel, CancellationToken cancellationToken = default);
-    Task<int> EnqueueWebPlayerInstallAsync(bool force = false, CancellationToken cancellationToken = default);
 
     Task<int> EnqueueSystemFilesImportFromLocalFolderAsync(int localFolderId, string? query, bool overwrite, int maxFiles, bool onlyMissing = false, CancellationToken cancellationToken = default);
     Task<int> EnqueueSystemFilesImportFromNetworkShareAsync(int networkShareId, string? query, bool overwrite, int maxFiles, bool onlyMissing = false, CancellationToken cancellationToken = default);
@@ -64,9 +63,6 @@ public sealed class InternalJobsClient(IBackgroundJobClient jobs) : IInternalJob
 
     public Task<int> EnqueueEverDriveGbZipAsync(int batchId, string firmwareUrl, string firmwareLabel, CancellationToken cancellationToken = default) =>
         jobs.EnqueueAsync("everdrivegb.zip", new EverDriveGbExportPayload(batchId, firmwareUrl, firmwareLabel), cancellationToken: cancellationToken);
-
-    public Task<int> EnqueueWebPlayerInstallAsync(bool force = false, CancellationToken cancellationToken = default) =>
-        jobs.EnqueueAsync("webplayer.install", new WebPlayerInstallPayload(force), cancellationToken: cancellationToken);
 
     public Task<int> EnqueueSystemFilesImportFromLocalFolderAsync(int localFolderId, string? query, bool overwrite, int maxFiles, bool onlyMissing = false, CancellationToken cancellationToken = default) =>
         jobs.EnqueueAsync("systemfiles.local", new SystemFilesImportFromLocalFolderPayload(localFolderId, query, overwrite, maxFiles, onlyMissing), cancellationToken: cancellationToken);
