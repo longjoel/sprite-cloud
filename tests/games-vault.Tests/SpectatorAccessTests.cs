@@ -7,6 +7,7 @@ using games_vault.Controllers;
 using games_vault.Data;
 using games_vault.Gameplay;
 using games_vault.Models;
+using games_vault.Models.ViewModels;
 using games_vault.Nosebleed;
 using games_vault.Profiles;
 using games_vault.Web;
@@ -101,6 +102,269 @@ public sealed class SpectatorAccessTests
     }
 
     [Fact]
+    public async Task CreateRoomAsync_ReusesExistingStandaloneRoomForSameProfileAndGame()
+    {
+        await using var fixture = await SpectatorFixture.CreateAsync();
+        var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
+        var localProfiles = new LocalProfileService(fixture.Db, currentProfile);
+        var profile = await localProfiles.CreateAsync("Player One", "player-one", "password123", "#198754", CancellationToken.None);
+        currentProfile.SetCurrent(profile.Id, "session-nonce-1");
+        fixture.Room.CreatedByProfileId = profile.Id;
+        await fixture.Db.SaveChangesAsync();
+
+        var roomService = fixture.CreateRoomService();
+        var created = await roomService.CreateRoomAsync(
+            fixture.Game.Id,
+            fixture.File.Id,
+            fixture.Game.SystemName,
+            fixture.File.ExternalPath!,
+            CancellationToken.None);
+
+        Assert.True(created.Success);
+        Assert.NotNull(created.Room);
+        Assert.Equal(fixture.Room.Id, created.Room!.Id);
+        Assert.Equal(fixture.Room.Code, created.Room.Code);
+        Assert.Equal(fixture.Session.Id, created.Session!.Id);
+        Assert.Equal(1, await fixture.Db.GamePlayRooms.CountAsync());
+    }
+
+    [Fact]
+    public async Task CreateRoomAsync_ClosesOtherStandaloneRoomsOwnedByProfile()
+    {
+        await using var fixture = await SpectatorFixture.CreateAsync();
+        var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
+        var localProfiles = new LocalProfileService(fixture.Db, currentProfile);
+        var profile = await localProfiles.CreateAsync("Player One", "player-one", "password123", "#198754", CancellationToken.None);
+        currentProfile.SetCurrent(profile.Id, "session-nonce-1");
+        fixture.Room.CreatedByProfileId = profile.Id;
+
+        var otherGame = new Game { Name = "Other Game", SystemName = fixture.Game.SystemName, SizeBytes = 1 };
+        var otherFile = new GameFile { Game = otherGame, Name = "other.bin", SizeBytes = 1, ExternalPath = fixture.File.ExternalPath };
+        fixture.Db.Games.Add(otherGame);
+        fixture.Db.GameFiles.Add(otherFile);
+        await fixture.Db.SaveChangesAsync();
+
+        var otherSessionId = "games-vault-other-session";
+        var otherRoom = new GamePlayRoom
+        {
+            Code = "WXYZ",
+            GameId = otherGame.Id,
+            GameFileId = otherFile.Id,
+            CreatedByProfileId = profile.Id,
+            Status = GamePlayRoomStatus.Active,
+            CreatedUtc = DateTime.UtcNow,
+            LastActiveUtc = DateTime.UtcNow,
+            NosebleedSessionId = otherSessionId
+        };
+        fixture.Db.GamePlayRooms.Add(otherRoom);
+        await fixture.Db.SaveChangesAsync();
+
+        SeedSession(fixture.SessionManager, new NosebleedSession(
+            otherSessionId,
+            otherGame.Id,
+            otherFile.Id,
+            18124,
+            "http://127.0.0.1:18124",
+            null,
+            DateTimeOffset.UtcNow,
+            "/tmp/fake-core.so",
+            fixture.File.ExternalPath!),
+            StartLongRunningProcess());
+
+        var roomService = fixture.CreateRoomService();
+        var created = await roomService.CreateRoomAsync(
+            fixture.Game.Id,
+            fixture.File.Id,
+            fixture.Game.SystemName,
+            fixture.File.ExternalPath!,
+            CancellationToken.None);
+
+        Assert.True(created.Success);
+        Assert.Equal(fixture.Room.Id, created.Room!.Id);
+
+        fixture.Db.ChangeTracker.Clear();
+        var persistedOtherRoom = await fixture.Db.GamePlayRooms.AsNoTracking().SingleAsync(x => x.Id == otherRoom.Id);
+        Assert.Equal(GamePlayRoomStatus.Closed, persistedOtherRoom.Status);
+        Assert.NotNull(persistedOtherRoom.ClosedUtc);
+        Assert.DoesNotContain(fixture.SessionManager.GetSessions(), x => x.SessionId == otherSessionId);
+    }
+
+    [Fact]
+    public async Task DisconnectRoomParticipantSessionAsync_ClosesStandaloneRoomWhenNoPlayersRemain()
+    {
+        await using var fixture = await SpectatorFixture.CreateAsync();
+        var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
+        var localProfiles = new LocalProfileService(fixture.Db, currentProfile);
+        var profile = await localProfiles.CreateAsync("Player One", "player-one", "password123", "#198754", CancellationToken.None);
+        currentProfile.SetCurrent(profile.Id, "session-nonce-1");
+        fixture.Room.CreatedByProfileId = profile.Id;
+        await fixture.Db.SaveChangesAsync();
+
+        var roomService = fixture.CreateRoomService();
+        var joined = await roomService.JoinByCodeAsync(fixture.Room.Code, fixture.ViewerId, CancellationToken.None);
+        Assert.True(joined.Success);
+        Assert.Equal(NosebleedSeatKind.Player, joined.Seat!.Kind);
+
+        fixture.SeatManager.Release(fixture.Session.Id, fixture.ViewerId);
+        await roomService.DisconnectRoomParticipantSessionAsync(fixture.Session.Id, fixture.ViewerId, CancellationToken.None);
+
+        fixture.Db.ChangeTracker.Clear();
+        var room = await fixture.Db.GamePlayRooms.AsNoTracking().SingleAsync(x => x.Id == fixture.Room.Id);
+        Assert.Equal(GamePlayRoomStatus.Closed, room.Status);
+        Assert.NotNull(room.ClosedUtc);
+        Assert.Empty(fixture.SessionManager.GetSessions());
+    }
+
+    [Fact]
+    public async Task DisconnectRoomParticipantSessionAsync_RemovesRoomChatWhenStandaloneRoomCloses()
+    {
+        await using var fixture = await SpectatorFixture.CreateAsync();
+        var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
+        var localProfiles = new LocalProfileService(fixture.Db, currentProfile);
+        var profile = await localProfiles.CreateAsync("Player One", "player-one", "password123", "#198754", CancellationToken.None);
+        currentProfile.SetCurrent(profile.Id, "session-nonce-1");
+        fixture.Room.CreatedByProfileId = profile.Id;
+        await fixture.Db.SaveChangesAsync();
+
+        fixture.Db.GamePlayRoomChatMessages.Add(new GamePlayRoomChatMessage
+        {
+            RoomId = fixture.Room.Id,
+            ProfileId = profile.Id,
+            DisplayNameSnapshot = profile.DisplayName,
+            Message = "bye room"
+        });
+        await fixture.Db.SaveChangesAsync();
+
+        var roomService = fixture.CreateRoomService();
+        var joined = await roomService.JoinByCodeAsync(fixture.Room.Code, fixture.ViewerId, CancellationToken.None);
+        Assert.True(joined.Success);
+        Assert.Equal(NosebleedSeatKind.Player, joined.Seat!.Kind);
+
+        fixture.SeatManager.Release(fixture.Session.Id, fixture.ViewerId);
+        await roomService.DisconnectRoomParticipantSessionAsync(fixture.Session.Id, fixture.ViewerId, CancellationToken.None);
+
+        fixture.Db.ChangeTracker.Clear();
+        Assert.Empty(await fixture.Db.GamePlayRoomChatMessages.AsNoTracking().Where(x => x.RoomId == fixture.Room.Id).ToListAsync());
+    }
+
+    [Fact]
+    public async Task PlayServer_RedirectsSignedInPlayerToTheirExistingStandaloneRoom()
+    {
+        await using var fixture = await SpectatorFixture.CreateAsync();
+        var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
+        var localProfiles = new LocalProfileService(fixture.Db, currentProfile);
+        var profile = await localProfiles.CreateAsync("Player One", "player-one", "password123", "#198754", CancellationToken.None);
+        currentProfile.SetCurrent(profile.Id, "session-nonce-1");
+        fixture.Room.CreatedByProfileId = profile.Id;
+        await fixture.Db.SaveChangesAsync();
+
+        var roomService = fixture.CreateRoomService();
+        var joined = await roomService.JoinByCodeAsync(fixture.Room.Code, fixture.ViewerId, CancellationToken.None);
+        Assert.True(joined.Success);
+        Assert.Equal(NosebleedSeatKind.Player, joined.Seat!.Kind);
+
+        var controller = fixture.CreateGamesController();
+        controller.ControllerContext.RouteData = new Microsoft.AspNetCore.Routing.RouteData();
+        var result = await controller.PlayServer(fixture.Game.Id, cancellationToken: CancellationToken.None);
+
+        var redirect = Assert.IsType<RedirectToRouteResult>(result);
+        Assert.Equal("PlayServerRoom", redirect.RouteName);
+        Assert.NotNull(redirect.RouteValues);
+        Assert.Equal(fixture.Game.Id, redirect.RouteValues!["id"]);
+        Assert.Equal(fixture.Room.Code, redirect.RouteValues["code"]);
+    }
+
+    [Fact]
+    public async Task PlayServer_WithFreshStandaloneRoomCode_JoinsRoomBeforePlayerlessCleanupRuns()
+    {
+        await using var fixture = await SpectatorFixture.CreateAsync();
+        var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
+        var localProfiles = new LocalProfileService(fixture.Db, currentProfile);
+        var profile = await localProfiles.CreateAsync("Player One", "player-one", "password123", "#198754", CancellationToken.None);
+        currentProfile.SetCurrent(profile.Id, "session-nonce-1");
+        fixture.Room.CreatedByProfileId = profile.Id;
+        await fixture.Db.SaveChangesAsync();
+
+        var controller = fixture.CreateGamesController();
+        controller.ControllerContext.RouteData = new Microsoft.AspNetCore.Routing.RouteData();
+        controller.ControllerContext.RouteData.Values["code"] = fixture.Room.Code;
+        var result = await controller.PlayServer(fixture.Game.Id, fixture.Room.Code, cancellationToken: CancellationToken.None);
+
+        var view = Assert.IsType<ViewResult>(result);
+        var model = Assert.IsType<ServerGamePlayViewModel>(view.Model);
+        Assert.Null(model.Error);
+        Assert.Equal(fixture.Session.Id, model.SessionId);
+        Assert.Equal(1, model.PlayerNumber);
+        Assert.False(model.IsSpectator);
+
+        fixture.Db.ChangeTracker.Clear();
+        var room = await fixture.Db.GamePlayRooms.AsNoTracking().SingleAsync(x => x.Id == fixture.Room.Id);
+        Assert.Equal(GamePlayRoomStatus.Active, room.Status);
+
+        var participant = await fixture.Db.GamePlayRoomParticipants.AsNoTracking().SingleAsync(x => x.RoomId == fixture.Room.Id && x.ViewerId == fixture.ViewerId);
+        Assert.Equal(GamePlayRoomParticipantRole.Player, participant.Role);
+        Assert.True(participant.IsConnected);
+    }
+
+    [Fact]
+    public async Task JoinByCodeAsync_RejoiningSameRoomFromNewViewerId_DoesNotConsumeSecondPlayerSeat()
+    {
+        await using var fixture = await SpectatorFixture.CreateAsync();
+        var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
+        var localProfiles = new LocalProfileService(fixture.Db, currentProfile);
+        var profile = await localProfiles.CreateAsync("Player One", "player-one", "password123", "#198754", CancellationToken.None);
+        currentProfile.SetCurrent(profile.Id, "session-nonce-1");
+        fixture.Room.CreatedByProfileId = profile.Id;
+        await fixture.Db.SaveChangesAsync();
+
+        var roomService = fixture.CreateRoomService();
+        var firstJoin = await roomService.JoinByCodeAsync(fixture.Room.Code, fixture.ViewerId, CancellationToken.None);
+        Assert.True(firstJoin.Success);
+        Assert.Equal(NosebleedSeatKind.Player, firstJoin.Seat!.Kind);
+        Assert.Equal(0, firstJoin.Seat.Port);
+
+        var secondViewerId = Guid.NewGuid().ToString("N");
+        fixture.HttpContext.Request.Headers.Cookie = $"games_vault_nosebleed_viewer={secondViewerId}";
+        var secondJoin = await roomService.JoinByCodeAsync(fixture.Room.Code, secondViewerId, CancellationToken.None);
+
+        Assert.True(secondJoin.Success);
+        Assert.Equal(NosebleedSeatKind.Player, secondJoin.Seat!.Kind);
+        Assert.Equal(0, secondJoin.Seat.Port);
+        Assert.Equal(1, secondJoin.Seat.PlayerNumber);
+
+        var assignments = fixture.SeatManager.GetAssignments(fixture.Session.Id, DateTimeOffset.UtcNow);
+        var players = assignments.Where(x => x.Kind == NosebleedSeatKind.Player).ToList();
+        Assert.Single(players);
+        Assert.Equal(secondViewerId, players[0].ViewerId);
+        Assert.Equal(0, players[0].Port);
+
+        fixture.Db.ChangeTracker.Clear();
+        var participants = await fixture.Db.GamePlayRoomParticipants
+            .AsNoTracking()
+            .Where(x => x.RoomId == fixture.Room.Id && x.ProfileId == profile.Id)
+            .OrderBy(x => x.ViewerId)
+            .ToListAsync();
+        Assert.Equal(2, participants.Count);
+        Assert.False(participants.Single(x => x.ViewerId == fixture.ViewerId).IsConnected);
+        Assert.True(participants.Single(x => x.ViewerId == secondViewerId).IsConnected);
+    }
+
+    [Fact]
+    public async Task PlayServer_WithMissingRoomCode_RedirectsBackToGamesIndex()
+    {
+        await using var fixture = await SpectatorFixture.CreateAsync();
+
+        var controller = fixture.CreateGamesController();
+        controller.ControllerContext.RouteData = new Microsoft.AspNetCore.Routing.RouteData();
+        controller.ControllerContext.RouteData.Values["code"] = "ZZZZ";
+        var result = await controller.PlayServer(fixture.Game.Id, "ZZZZ", cancellationToken: CancellationToken.None);
+
+        var redirect = Assert.IsType<RedirectToActionResult>(result);
+        Assert.Equal(nameof(GamesController.Index), redirect.ActionName);
+        Assert.Equal("No active room found for that code.", controller.TempData["Message"]);
+    }
+
+    [Fact]
     public async Task JoinByShareTokenAsync_ReturnsPlayerSeatForEphemeralGuestWhenPlayerLinkIsRedeemed()
     {
         await using var fixture = await SpectatorFixture.CreateAsync();
@@ -126,6 +390,76 @@ public sealed class SpectatorAccessTests
         var guest = await fixture.Db.UserProfiles.SingleAsync(x => x.Id == participant.ProfileId);
         Assert.True(guest.IsEphemeral);
         Assert.Equal(host.Id, guest.ParentProfileId);
+    }
+
+    [Fact]
+    public async Task PlayServer_ShareLinkGuestShowsChatIdentityLabel()
+    {
+        await using var fixture = await SpectatorFixture.CreateAsync();
+        var localProfiles = new LocalProfileService(fixture.Db, new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor));
+        var host = await localProfiles.CreateAsync("Joel", "joel", "password123", "#198754", CancellationToken.None);
+        fixture.Room.CreatedByProfileId = host.Id;
+        await fixture.Db.SaveChangesAsync();
+        var shareLinks = fixture.CreateShareLinkService();
+        var created = await shareLinks.CreateAsync(fixture.Room.Id, host.Id, RoomShareGrantMode.Player, CancellationToken.None);
+        fixture.HttpContext.Response.Headers.Clear();
+
+        var roomService = fixture.CreateRoomService();
+        var joined = await roomService.JoinByShareTokenAsync(created.RawToken, fixture.ViewerId, CancellationToken.None);
+        Assert.True(joined.Success);
+
+        var controller = fixture.CreateGamesController();
+        controller.ControllerContext.RouteData = new Microsoft.AspNetCore.Routing.RouteData();
+        controller.ControllerContext.RouteData.Values["code"] = fixture.Room.Code;
+
+        var result = await controller.PlayServer(fixture.Game.Id, fixture.Room.Code, cancellationToken: CancellationToken.None);
+
+        var view = Assert.IsType<ViewResult>(result);
+        var model = Assert.IsType<ServerGamePlayViewModel>(view.Model);
+        Assert.Equal("Chatting as guest of Joel", model.ChatIdentityLabel);
+    }
+
+    private static Process StartLongRunningProcess()
+    {
+        var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = "/bin/sh",
+                ArgumentList = { "-lc", "sleep 300" },
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            }
+        };
+
+        if (!process.Start())
+        {
+            throw new InvalidOperationException("Failed to start test session process.");
+        }
+
+        return process;
+    }
+
+    private static void SeedSession(NosebleedSessionManager manager, NosebleedSession session, Process process)
+    {
+        var field = typeof(NosebleedSessionManager).GetField("_sessions", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Could not find NosebleedSessionManager._sessions field.");
+        var dictionary = field.GetValue(manager)
+            ?? throw new InvalidOperationException("Could not read NosebleedSessionManager._sessions value.");
+
+        var managedSessionType = typeof(NosebleedSessionManager).GetNestedType("ManagedSession", BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Could not find ManagedSession nested type.");
+        var managedSession = Activator.CreateInstance(managedSessionType, session, process)
+            ?? throw new InvalidOperationException("Could not construct ManagedSession.");
+
+        var tryAdd = dictionary.GetType().GetMethod("TryAdd")
+            ?? throw new InvalidOperationException("Could not find ConcurrentDictionary.TryAdd.");
+        var added = (bool)(tryAdd.Invoke(dictionary, new object[] { session.Id, managedSession }) ?? false);
+        if (!added)
+        {
+            throw new InvalidOperationException("Failed to seed active Nosebleed session into manager.");
+        }
     }
 
     private sealed class SpectatorFixture : IAsyncDisposable
@@ -190,10 +524,21 @@ public sealed class SpectatorAccessTests
             var db = new AppDbContext(options);
             await db.Database.EnsureCreatedAsync();
 
+            var tempRoot = Path.Combine(Path.GetTempPath(), "games-vault-spectator-tests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempRoot);
+            var romPath = Path.Combine(tempRoot, "viewer-test.bin");
+            await System.IO.File.WriteAllTextAsync(romPath, "fake-rom");
+
             var game = new Game { Name = "Viewer Test Game", SystemName = "Sega - Mega Drive - Genesis", SizeBytes = 1 };
-            var file = new GameFile { Game = game, Name = "viewer-test.bin", SizeBytes = 1, ExternalPath = "/tmp/viewer-test.bin" };
+            var file = new GameFile { Game = game, Name = "viewer-test.bin", SizeBytes = 1, ExternalPath = romPath };
             db.Games.Add(game);
             db.GameFiles.Add(file);
+            db.LocalFolders.Add(new LocalFolder
+            {
+                Name = "Viewer Test ROM Root",
+                RootPath = tempRoot,
+                Enabled = true
+            });
             await db.SaveChangesAsync();
 
             var room = new GamePlayRoom
@@ -307,8 +652,6 @@ public sealed class SpectatorAccessTests
                 null!,
                 null!,
                 null!,
-                new FakeEnvironment(Path.GetTempPath()),
-                Options.Create(new WebPlayerOptions()),
                 _nosebleedOptions,
                 SessionManager,
                 SeatManager,

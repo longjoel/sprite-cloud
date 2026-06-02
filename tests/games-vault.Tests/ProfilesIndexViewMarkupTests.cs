@@ -10,13 +10,15 @@ public sealed class ProfilesIndexViewMarkupTests
     }
 
     [Fact]
-    public void ProfilesView_DefinesHeroAndViewerCards()
+    public void ProfilesView_DefinesHeroAndSignInCards()
     {
         var content = ReadProfilesView();
 
         Assert.Contains("id=\"profiles-hero\"", content);
-        Assert.Contains("id=\"profiles-viewer-card\"", content);
+        Assert.Contains("id=\"profiles-sign-in-required-card\"", content);
         Assert.Contains("id=\"profiles-why-sign-in-card\"", content);
+        Assert.Contains(">Sign in to play<", content);
+        Assert.Contains(">Browse first<", content);
     }
 
     [Fact]
@@ -27,6 +29,7 @@ public sealed class ProfilesIndexViewMarkupTests
         Assert.Contains("@if (isViewer && Model.Profiles.Count > 0)", content);
         Assert.Contains("id=\"profiles-sign-in-card\"", content);
         Assert.Contains(">Existing profile<", content);
+        Assert.Contains("persistent cookies on this device", content);
     }
 
     [Fact]
@@ -36,7 +39,7 @@ public sealed class ProfilesIndexViewMarkupTests
 
         Assert.Contains("id=\"profiles-current-profile-card\"", content);
         Assert.Contains(">View full profile<", content);
-        Assert.Contains(">Return to viewer mode<", content);
+        Assert.Contains(">Sign out<", content);
     }
 
     [Fact]

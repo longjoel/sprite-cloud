@@ -53,4 +53,17 @@ public sealed class LayoutNavigationMarkupTests
         Assert.Contains("asp-controller=\"Home\" asp-action=\"Index\">Home</a>", content);
         Assert.Contains("asp-controller=\"Arcade\" asp-action=\"Index\">Arcade</a>", content);
     }
+
+    [Fact]
+    public void Layout_DefinesSiteWarningCookieBanner()
+    {
+        var content = ReadLayout();
+
+        Assert.Contains("id=\"site-warning-banner\"", content);
+        Assert.Contains("Warning / cookie notice", content);
+        Assert.Contains("stores cookies on your computer", content);
+        Assert.Contains("causes cancer in the state of California", content);
+        Assert.Contains("id=\"site-warning-accept\"", content);
+        Assert.Contains("id=\"site-warning-dismiss\"", content);
+    }
 }

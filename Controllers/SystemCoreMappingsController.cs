@@ -40,7 +40,6 @@ public sealed class SystemCoreMappingsController(
                 SystemName = system.SystemName,
                 GameCount = system.GameCount,
                 NativeCoreFileName = system.NativeCoreFileName,
-                WebPlayerCoreKey = mapping?.WebPlayerCoreKey,
                 IsEnabled = mapping?.IsEnabled ?? system.IsEnabled,
                 IsAutoMapped = mapping?.IsAutoMapped ?? false,
                 HasNativeCoreMapping = system.HasNativeCoreMapping,
@@ -55,7 +54,6 @@ public sealed class SystemCoreMappingsController(
                 Id = extra.Id,
                 SystemName = extra.SystemName,
                 NativeCoreFileName = extra.NativeCoreFileName,
-                WebPlayerCoreKey = extra.WebPlayerCoreKey,
                 IsEnabled = extra.IsEnabled,
                 IsAutoMapped = extra.IsAutoMapped,
                 HasNativeCoreMapping = extra.IsEnabled && !string.IsNullOrWhiteSpace(extra.NativeCoreFileName),
@@ -77,7 +75,7 @@ public sealed class SystemCoreMappingsController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Save(string systemName, string? nativeCoreFileName, string? webPlayerCoreKey, bool isEnabled = true, string? notes = null, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> Save(string systemName, string? nativeCoreFileName, bool isEnabled = true, string? notes = null, CancellationToken cancellationToken = default)
     {
         if (!await currentAccess.IsAdminAsync(cancellationToken))
         {
@@ -87,7 +85,6 @@ public sealed class SystemCoreMappingsController(
 
         systemName = (systemName ?? "").Trim();
         nativeCoreFileName = string.IsNullOrWhiteSpace(nativeCoreFileName) ? null : nativeCoreFileName.Trim();
-        webPlayerCoreKey = string.IsNullOrWhiteSpace(webPlayerCoreKey) ? null : webPlayerCoreKey.Trim();
         notes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
 
         if (string.IsNullOrWhiteSpace(systemName))
@@ -108,7 +105,6 @@ public sealed class SystemCoreMappingsController(
         }
 
         mapping.NativeCoreFileName = nativeCoreFileName;
-        mapping.WebPlayerCoreKey = webPlayerCoreKey;
         mapping.IsEnabled = isEnabled;
         mapping.IsAutoMapped = false;
         mapping.Notes = notes;

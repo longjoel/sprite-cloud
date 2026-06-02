@@ -50,7 +50,6 @@ builder.Services.AddScoped<LibretroCoreInstaller>();
 builder.Services.AddScoped<CurrentProfileViewDataFilter>();
 builder.Services.AddLibretroDatabase(builder.Configuration);
 builder.Services.Configure<games_vault.Libretro.Import.LibraryStorageOptions>(builder.Configuration.GetSection("Library"));
-builder.Services.Configure<WebPlayerOptions>(builder.Configuration.GetSection("WebPlayer"));
 builder.Services.Configure<NosebleedOptions>(builder.Configuration.GetSection("Nosebleed"));
 builder.Services.AddSingleton<NosebleedTicketSigner>();
 builder.Services.AddSingleton<NosebleedSessionManager>();
@@ -60,10 +59,7 @@ builder.Services.AddSingleton<NosebleedRelayMetrics>();
 builder.Services.AddScoped<GamePlayTelemetryService>();
 builder.Services.AddSingleton<RoomCodeGenerator>();
 builder.Services.AddScoped<GamePlayRoomService>();
-builder.Services.AddSingleton<WebPlayerAssetLocator>();
-builder.Services.AddHostedService<WebPlayerBootstrapper>();
 builder.Services.AddHostedService<ArcadeCabinetSupervisor>();
-builder.Services.AddSingleton<WebPlayerDataStorage>();
 builder.Services.AddSingleton<games_vault.NetworkShares.ISmbFileService, games_vault.NetworkShares.SmbLibraryFileService>();
 builder.Services.AddSingleton<games_vault.Libretro.Import.GameFileStorage>();
 builder.Services.AddSingleton<games_vault.Libretro.Import.SystemFileStorage>();
@@ -170,8 +166,6 @@ await using (var scope = app.Services.CreateAsyncScope())
 
     var configuredNativeCores = builder.Configuration.GetSection("Nosebleed:SystemCores")
         .Get<Dictionary<string, string>>() ?? [];
-    var configuredWebCores = builder.Configuration.GetSection("WebPlayer:SystemCores")
-        .Get<Dictionary<string, string>>() ?? [];
     foreach (var pair in configuredNativeCores)
     {
         var systemName = pair.Key.Trim();
@@ -194,13 +188,6 @@ await using (var scope = app.Services.CreateAsyncScope())
         if (string.IsNullOrWhiteSpace(mapping.NativeCoreFileName) && !string.IsNullOrWhiteSpace(pair.Value))
         {
             mapping.NativeCoreFileName = pair.Value.Trim();
-        }
-
-        if (string.IsNullOrWhiteSpace(mapping.WebPlayerCoreKey) &&
-            configuredWebCores.TryGetValue(systemName, out var webCore) &&
-            !string.IsNullOrWhiteSpace(webCore))
-        {
-            mapping.WebPlayerCoreKey = webCore.Trim();
         }
 
         mapping.UpdatedUtc = DateTime.UtcNow;
@@ -231,7 +218,7 @@ await using (var scope = app.Services.CreateAsyncScope())
         }
     }
 
-    // Improve SQLite concurrency for the (chatty) web player sync workload.
+    // Improve SQLite concurrency for app background jobs and live session activity.
     try
     {
         await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;");

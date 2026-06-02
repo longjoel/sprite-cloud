@@ -86,10 +86,7 @@ else
                                 </button>
                                 <ul class="dropdown-menu dropdown-menu-end">
                                     <li>
-                                        <a class="dropdown-item" asp-action="PlayServer" asp-route-id="@game.Id">Play server-side</a>
-                                    </li>
-                                    <li>
-                                        <a class="dropdown-item" asp-action="Play" asp-route-id="@game.Id">Play in browser</a>
+                                        <a class="dropdown-item" asp-action="PlayServer" asp-route-id="@game.Id">Play</a>
                                     </li>
                                     <li>
                                         <button class="dropdown-item"
@@ -121,8 +118,7 @@ else
                         </div>
 
                         <div class="games-primary-actions d-flex flex-wrap gap-2 mt-auto">
-                            <a class="btn btn-primary" asp-action="PlayServer" asp-route-id="@game.Id">Play server-side</a>
-                            <a class="btn btn-outline-secondary" asp-action="Play" asp-route-id="@game.Id">Browser</a>
+                            <a class="btn btn-primary" asp-action="PlayServer" asp-route-id="@game.Id">Play</a>
                             <a class="btn btn-outline-secondary" asp-action="Details" asp-route-id="@game.Id">Open details</a>
                             <button class="btn btn-outline-secondary"
                                     type="button"

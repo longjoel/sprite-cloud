@@ -203,7 +203,6 @@ public sealed class ArcadeControllerTests
         Assert.Equal(currentSession.Id, model.SessionId);
         Assert.Equal("http://vault:8100", model.BaseUrl);
         Assert.NotNull(model.CurrentRoomId);
-        Assert.Equal("AQBG", model.CurrentRoomCode);
         Assert.True(model.IsArcadeRoom);
         Assert.False(model.ShowRoomControls);
         Assert.Equal("/Arcade", model.LeaveSessionReturnUrl);

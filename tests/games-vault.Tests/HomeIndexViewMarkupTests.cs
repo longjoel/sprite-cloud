@@ -31,6 +31,17 @@ public sealed class HomeIndexViewMarkupTests
     }
 
     [Fact]
+    public void HomeView_UsesRoomCodeLinks_ForActiveLibrarySessions()
+    {
+        var content = ReadHomeView();
+
+        Assert.Contains("!string.IsNullOrWhiteSpace(featuredSession.RoomCode)", content);
+        Assert.Contains("asp-route-code=\"@featuredSession.RoomCode\"", content);
+        Assert.Contains("!string.IsNullOrWhiteSpace(session.RoomCode)", content);
+        Assert.Contains("asp-route-code=\"@session.RoomCode\"", content);
+    }
+
+    [Fact]
     public void HomeView_RendersFeaturedPreviewAttributes_AsNormalMarkup()
     {
         var content = ReadHomeView();
@@ -94,14 +105,13 @@ public sealed class HomeIndexViewMarkupTests
     }
 
     [Fact]
-    public void HomeView_MainHomepageFlow_StopsAfterActiveMachines()
+    public void HomeView_Removes_WebPlayerSetupLanguage()
     {
         var content = ReadHomeView();
 
-        var activeMachinesIndex = content.IndexOf("id=\"home-active-machines\"", StringComparison.Ordinal);
-        var setupIndex = content.IndexOf("<div class=\"row\" hidden=\"@(Model.ShowDashboard)\">", StringComparison.Ordinal);
-
-        Assert.True(activeMachinesIndex >= 0, "Expected active machines section to exist.");
-        Assert.True(setupIndex > activeMachinesIndex, "Expected the dashboard flow to stop after active machines before the hidden setup branch begins.");
+        Assert.DoesNotContain("Install RetroArch web player", content);
+        Assert.DoesNotContain("StartWebPlayerInstall", content);
+        Assert.DoesNotContain("Use the web player to test cores.", content);
+        Assert.Contains("Open a server-side session and invite players.", content);
     }
 }

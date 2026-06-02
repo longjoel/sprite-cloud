@@ -19,6 +19,10 @@ public sealed class ProfileSessionEnforcementMiddleware(RequestDelegate next)
         {
             currentProfile.ClearCurrent();
         }
+        else if (!string.IsNullOrWhiteSpace(sessionNonce))
+        {
+            currentProfile.RefreshCurrent(profileId, sessionNonce);
+        }
 
         await next(context);
     }

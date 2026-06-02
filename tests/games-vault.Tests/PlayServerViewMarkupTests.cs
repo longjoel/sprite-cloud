@@ -55,13 +55,25 @@ public sealed class PlayServerViewMarkupTests
     }
 
     [Fact]
-    public void Hero_Uses_Room_Title_Without_ServerSide_Label()
+    public void Hero_Uses_Game_Title_Without_Room_Code_Or_ServerSide_Label()
     {
         var content = ReadPlayServerView();
 
-        Assert.Contains("ViewData[\"Title\"] = sessionTitle;", content);
-        Assert.Contains("asp-route=\"PlayServerRoom\"", content);
+        Assert.Contains("var sessionTitle = game.Name;", content);
+        Assert.DoesNotContain("Room ", content);
         Assert.DoesNotContain("Server-side session", content);
         Assert.DoesNotContain("Server-side player is not ready", content);
+    }
+
+    [Fact]
+    public void RoomControls_Only_Expose_Create_New_Session()
+    {
+        var content = ReadPlayServerView();
+
+        Assert.Contains(">Play</div>", content);
+        Assert.Contains(">Play</button>", content);
+        Assert.DoesNotContain("Join code", content);
+        Assert.DoesNotContain("Join room", content);
+        Assert.DoesNotContain("Create a fresh room or join by 4-letter code.", content);
     }
 }

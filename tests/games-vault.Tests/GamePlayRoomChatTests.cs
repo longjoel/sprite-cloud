@@ -80,6 +80,34 @@ public sealed class GamePlayRoomChatTests
     }
 
     [Fact]
+    public async Task AddChatMessageAsync_AllowsEphemeralGuestProfile()
+    {
+        await using var fixture = await CreateFixtureAsync();
+        var parent = new UserProfile { DisplayName = "Joel", Color = "#198754" };
+        var game = new Game { Name = "Sonic", SystemName = "Sega - Game Gear" };
+        var file = new GameFile { Game = game, Name = "sonic.gg", StoragePath = "/tmp/sonic.gg" };
+        var room = new GamePlayRoom { Code = "ABCD", Game = game, GameFile = file, Status = GamePlayRoomStatus.Active };
+        fixture.Db.UserProfiles.Add(parent);
+        fixture.Db.GameFiles.Add(file);
+        fixture.Db.GamePlayRooms.Add(room);
+        await fixture.Db.SaveChangesAsync();
+
+        var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
+        var localProfiles = new LocalProfileService(fixture.Db, currentProfile);
+        var guest = await localProfiles.CreateGuestChildAsync(parent.Id, "Guest of Joel", parent.Color, CancellationToken.None);
+
+        var service = CreateService(fixture.Db, fixture.HttpContextAccessor);
+
+        var result = await service.AddChatMessageAsync(room.Id, "hello from guest", CancellationToken.None);
+
+        Assert.True(result.Success);
+        var message = await fixture.Db.GamePlayRoomChatMessages.SingleAsync();
+        Assert.Equal(guest.Id, message.ProfileId);
+        Assert.Equal("Guest of Joel", message.DisplayNameSnapshot);
+        Assert.Equal("hello from guest", message.Message);
+    }
+
+    [Fact]
     public void BuildChatSnapshot_ReturnsChronologicalMessagesWithDisplayFallback()
     {
         var messages = new[]
