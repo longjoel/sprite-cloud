@@ -45,6 +45,39 @@ public sealed class LocalProfileService(
         return profile;
     }
 
+    public async Task<UserProfile> CreateGuestChildAsync(int parentProfileId, string displayName, string? color, CancellationToken ct, int? createdFromShareLinkId = null)
+    {
+        var parent = await db.UserProfiles
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == parentProfileId && !x.IsArchived, ct)
+            ?? throw new InvalidOperationException("Parent profile was not found.");
+
+        var normalizedName = PasskeyService.NormalizeDisplayName(displayName);
+        var normalizedColor = PasskeyService.NormalizeColor(color ?? parent.Color);
+        var now = DateTime.UtcNow;
+        var userHandle = new byte[32];
+        RandomNumberGenerator.Fill(userHandle);
+
+        var profile = new UserProfile
+        {
+            DisplayName = normalizedName,
+            Color = normalizedColor,
+            PasskeyUserHandleBase64Url = WebEncoders.Base64UrlEncode(userHandle),
+            ParentProfileId = parent.Id,
+            IsEphemeral = true,
+            CreatedFromShareLinkId = createdFromShareLinkId,
+            IsAdmin = false,
+            CreatedUtc = now,
+            UpdatedUtc = now
+        };
+
+        db.UserProfiles.Add(profile);
+        await db.SaveChangesAsync(ct);
+        var authSession = await CreateAuthSessionAsync(profile.Id, ct);
+        currentProfile.SetCurrent(profile.Id, authSession.SessionNonce);
+        return profile;
+    }
+
     public async Task<bool> SignInAsync(string? username, string? password, CancellationToken ct)
     {
         var normalizedUsername = NormalizeUsername(username);

@@ -76,6 +76,58 @@ public sealed class SpectatorAccessTests
         Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("playerNumber").ValueKind);
     }
 
+    [Fact]
+    public async Task KeepAliveServerSession_KeepsSignedInPlayerOnStandaloneSession()
+    {
+        await using var fixture = await SpectatorFixture.CreateAsync();
+        fixture.Db.GamePlayRooms.Remove(fixture.Room);
+        await fixture.Db.SaveChangesAsync();
+
+        var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
+        var localProfiles = new LocalProfileService(fixture.Db, currentProfile);
+        var profile = await localProfiles.CreateAsync("Player One", "player-one", "password123", "#198754", CancellationToken.None);
+        currentProfile.SetCurrent(profile.Id, "session-nonce-1");
+
+        var controller = fixture.CreateGamesController();
+
+        var result = await controller.KeepAliveServerSession(fixture.Session.Id, CancellationToken.None);
+
+        var json = Assert.IsType<JsonResult>(result);
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(json.Value));
+        Assert.Equal("player", doc.RootElement.GetProperty("kind").GetString());
+        Assert.Equal(JsonValueKind.Number, doc.RootElement.GetProperty("port").ValueKind);
+        Assert.Equal(0, doc.RootElement.GetProperty("port").GetInt32());
+        Assert.Equal(1, doc.RootElement.GetProperty("playerNumber").GetInt32());
+    }
+
+    [Fact]
+    public async Task JoinByShareTokenAsync_ReturnsPlayerSeatForEphemeralGuestWhenPlayerLinkIsRedeemed()
+    {
+        await using var fixture = await SpectatorFixture.CreateAsync();
+        var localProfiles = new LocalProfileService(fixture.Db, new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor));
+        var host = await localProfiles.CreateAsync("Joel", "joel", "password123", "#198754", CancellationToken.None);
+        fixture.Room.CreatedByProfileId = host.Id;
+        await fixture.Db.SaveChangesAsync();
+        var shareLinks = fixture.CreateShareLinkService();
+        var created = await shareLinks.CreateAsync(fixture.Room.Id, host.Id, RoomShareGrantMode.Player, CancellationToken.None);
+        fixture.HttpContext.Response.Headers.Clear();
+
+        var roomService = fixture.CreateRoomService();
+        var result = await roomService.JoinByShareTokenAsync(created.RawToken, fixture.ViewerId, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.NotNull(result.Seat);
+        Assert.Equal(NosebleedSeatKind.Player, result.Seat!.Kind);
+        Assert.NotNull(result.Seat.Port);
+        var participant = await fixture.Db.GamePlayRoomParticipants.SingleAsync(x => x.RoomId == fixture.Room.Id && x.ViewerId == fixture.ViewerId);
+        Assert.Equal(GamePlayRoomParticipantRole.Player, participant.Role);
+        Assert.NotNull(participant.ProfileId);
+
+        var guest = await fixture.Db.UserProfiles.SingleAsync(x => x.Id == participant.ProfileId);
+        Assert.True(guest.IsEphemeral);
+        Assert.Equal(host.Id, guest.ParentProfileId);
+    }
+
     private sealed class SpectatorFixture : IAsyncDisposable
     {
         private readonly SqliteConnection _connection;
@@ -125,6 +177,8 @@ public sealed class SpectatorAccessTests
         public string ViewerId { get; }
         public NosebleedSessionManager SessionManager { get; }
         public NosebleedSeatManager SeatManager { get; }
+        public DefaultHttpContext HttpContext => (DefaultHttpContext)_httpContextAccessor.HttpContext!;
+        public IHttpContextAccessor HttpContextAccessor => _httpContextAccessor;
 
         public static async Task<SpectatorFixture> CreateAsync()
         {
@@ -219,7 +273,7 @@ public sealed class SpectatorAccessTests
         public GamePlayRoomService CreateRoomService()
         {
             var currentProfile = new CurrentProfileService(Db, _httpContextAccessor);
-            var currentAccess = new CurrentAccessService(currentProfile, _configuration, _httpContextAccessor);
+            var currentAccess = new CurrentAccessService(currentProfile, _configuration, _httpContextAccessor, Db);
             return new GamePlayRoomService(
                 Db,
                 new RoomCodeGenerator(),
@@ -227,13 +281,21 @@ public sealed class SpectatorAccessTests
                 SeatManager,
                 _ticketSigner,
                 currentAccess,
-                currentProfile);
+                currentProfile,
+                CreateShareLinkService());
+        }
+
+        public ProfileShareLinkService CreateShareLinkService()
+        {
+            var currentProfile = new CurrentProfileService(Db, _httpContextAccessor);
+            var localProfiles = new LocalProfileService(Db, currentProfile);
+            return new ProfileShareLinkService(Db, localProfiles);
         }
 
         public GamesController CreateGamesController()
         {
             var currentProfile = new CurrentProfileService(Db, _httpContextAccessor);
-            var currentAccess = new CurrentAccessService(currentProfile, _configuration, _httpContextAccessor);
+            var currentAccess = new CurrentAccessService(currentProfile, _configuration, _httpContextAccessor, Db);
             var roomService = CreateRoomService();
 
             var controller = new GamesController(
@@ -253,6 +315,7 @@ public sealed class SpectatorAccessTests
                 _ticketSigner,
                 new GamePlayTelemetryService(Db),
                 roomService,
+                CreateShareLinkService(),
                 currentProfile,
                 currentAccess,
                 new TestHttpClientFactory())

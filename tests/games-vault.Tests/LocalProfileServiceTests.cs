@@ -154,6 +154,30 @@ public sealed class LocalProfileServiceTests
         Assert.True(await service.SignInAsync("legacy", "better-password", CancellationToken.None));
     }
 
+    [Fact]
+    public async Task CreateGuestChildAsync_CreatesEphemeralChildProfileWithoutUsernameOrPasswordAndSignsItIn()
+    {
+        await using var fixture = await CreateFixtureAsync();
+        var current = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
+        var service = new LocalProfileService(fixture.Db, current);
+        var parent = await service.CreateAsync("Joel", "joel", "password123", "#198754", CancellationToken.None);
+
+        fixture.HttpContext.Response.Headers.Clear();
+
+        var guest = await service.CreateGuestChildAsync(parent.Id, "Guest of Joel", "#6f42c1", CancellationToken.None);
+
+        Assert.Equal(parent.Id, guest.ParentProfileId);
+        Assert.True(guest.IsEphemeral);
+        Assert.Null(guest.Username);
+        Assert.Null(guest.PasswordHash);
+        Assert.False(guest.IsAdmin);
+        Assert.Contains($"{CurrentProfileService.CookieName}={guest.Id}", fixture.HttpContext.Response.Headers.SetCookie.ToString());
+        Assert.Contains(CurrentProfileService.SessionCookieName, fixture.HttpContext.Response.Headers.SetCookie.ToString());
+
+        var authSession = await fixture.Db.ProfileAuthSessions.SingleAsync(x => x.ProfileId == guest.Id && x.RevokedUtc == null);
+        Assert.Equal(guest.Id, authSession.ProfileId);
+    }
+
     private static async Task<TestFixture> CreateFixtureAsync()
     {
         var connection = new SqliteConnection("Data Source=:memory:");

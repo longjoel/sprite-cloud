@@ -26,6 +26,14 @@ public sealed class UserProfile
     [StringLength(256)]
     public string? PasswordHash { get; set; }
 
+    public int? ParentProfileId { get; set; }
+    public UserProfile? ParentProfile { get; set; }
+
+    public bool IsEphemeral { get; set; }
+
+    public int? CreatedFromShareLinkId { get; set; }
+    public ProfileShareLink? CreatedFromShareLink { get; set; }
+
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;

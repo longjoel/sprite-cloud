@@ -381,7 +381,6 @@ public class ArcadeController(
         }
 
         cabinet.GameFileId = file.Id;
-        cabinet.GameFile = file;
         cabinet.RuntimeSessionId = result.Session.Id;
         cabinet.LastStartedUtc ??= result.Session.StartedUtc;
         cabinet.LastSeenAliveUtc = DateTimeOffset.UtcNow;
