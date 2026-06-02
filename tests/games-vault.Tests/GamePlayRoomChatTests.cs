@@ -75,7 +75,7 @@ public sealed class GamePlayRoomChatTests
         var result = await service.AddChatMessageAsync(room.Id, "Hello", CancellationToken.None);
 
         Assert.False(result.Success);
-        Assert.Equal("Sign in with a player profile to chat.", result.Error);
+        Assert.Equal("Sign in with a profile to chat.", result.Error);
         Assert.Empty(await fixture.Db.GamePlayRoomChatMessages.ToListAsync());
     }
 
@@ -110,8 +110,16 @@ public sealed class GamePlayRoomChatTests
     private static GamePlayRoomService CreateService(AppDbContext db, IHttpContextAccessor httpContextAccessor)
     {
         var currentProfile = new CurrentProfileService(db, httpContextAccessor);
-        var currentAccess = new CurrentAccessService(currentProfile, new ConfigurationBuilder().Build(), httpContextAccessor);
-        return new GamePlayRoomService(db, new RoomCodeGenerator(), null!, null!, null!, currentAccess, currentProfile);
+        var currentAccess = new CurrentAccessService(currentProfile, new ConfigurationBuilder().Build(), httpContextAccessor, db);
+        return new GamePlayRoomService(
+            db,
+            new RoomCodeGenerator(),
+            null!,
+            null!,
+            null!,
+            currentAccess,
+            currentProfile,
+            new ProfileShareLinkService(db, new LocalProfileService(db, currentProfile)));
     }
 
     private static async Task<TestFixture> CreateFixtureAsync()

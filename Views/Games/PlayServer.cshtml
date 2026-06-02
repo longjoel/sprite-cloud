@@ -113,6 +113,37 @@
 
         @if (Model.CurrentRoomId is not null && !string.IsNullOrWhiteSpace(Model.SessionId))
         {
+            @if (Model.CanCreateShareLinks)
+            {
+                <div class="border rounded p-3 mb-3 bg-body-tertiary">
+                    <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-2">
+                        <div>
+                            <div class="fw-semibold">Share this room</div>
+                            <div class="text-muted small">Create one-time links for a friend to join this exact room.</div>
+                        </div>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2 mb-2">
+                        <form asp-action="CreateRoomShareLink" method="post" asp-antiforgery="true" class="d-inline">
+                            <input type="hidden" name="roomId" value="@Model.CurrentRoomId" />
+                            <input type="hidden" name="grantMode" value="Spectator" />
+                            <button type="submit" class="btn btn-outline-secondary btn-sm">Create spectator link</button>
+                        </form>
+                        <form asp-action="CreateRoomShareLink" method="post" asp-antiforgery="true" class="d-inline">
+                            <input type="hidden" name="roomId" value="@Model.CurrentRoomId" />
+                            <input type="hidden" name="grantMode" value="Player" />
+                            <button type="submit" class="btn btn-outline-primary btn-sm">Create player link</button>
+                        </form>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(Model.GeneratedShareLink))
+                    {
+                        <div class="small">
+                            <div class="fw-semibold mb-1">Latest @(string.IsNullOrWhiteSpace(Model.GeneratedShareGrantMode) ? "share" : Model.GeneratedShareGrantMode.ToLowerInvariant()) link</div>
+                            <code class="user-select-all">@Model.GeneratedShareLink</code>
+                        </div>
+                    }
+                </div>
+            }
+
             <div class="border rounded p-3 mb-3 bg-body-tertiary" id="room-presence-panel">
                 <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-2">
                     <div>
@@ -137,7 +168,7 @@
                             }
                             else
                             {
-                                <span>Watching only. Sign in with a player profile to chat.</span>
+                                <span>Watching only. Sign in with a profile to chat.</span>
                             }
                         </div>
                     </div>

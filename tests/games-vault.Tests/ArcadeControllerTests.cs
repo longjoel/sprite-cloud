@@ -120,6 +120,37 @@ public sealed class ArcadeControllerTests
     }
 
     [Fact]
+    public async Task Join_StartsCabinetWithoutTrackingDuplicateGameFileInstance()
+    {
+        await using var fixture = await CreateFixtureAsync(adminAlways: false, startCapable: true);
+        var session = new NosebleedSession(
+            "games-vault-999-999-abcdefabcdefabcdefabcdefabcdefab",
+            fixture.Cabinet.GameId,
+            fixture.Cabinet.GameFileId!.Value,
+            8105,
+            "http://vault:8105",
+            "",
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            Path.Combine(fixture.NosebleedOptions.Value.CoreRoot, "fake_arcade_core_libretro.so"),
+            fixture.Cabinet.GameFile!.ExternalPath!);
+        SeedManagedSession(fixture.SessionManager, $"arcade-cabinet:{fixture.Cabinet.Id}", session);
+
+        var controller = fixture.CreateController();
+
+        var result = await controller.Join(fixture.Cabinet.Id, CancellationToken.None);
+
+        var redirect = Assert.IsType<RedirectToRouteResult>(result);
+        Assert.Equal("ArcadeSession", redirect.RouteName);
+        Assert.NotNull(redirect.RouteValues);
+        Assert.Equal(session.Id, redirect.RouteValues!["sessionId"]);
+
+        fixture.Db.ChangeTracker.Clear();
+        var persisted = await fixture.Db.ArcadeCabinets.AsNoTracking().SingleAsync(x => x.Id == fixture.Cabinet.Id);
+        Assert.Equal(session.Id, persisted.RuntimeSessionId);
+        Assert.Equal(fixture.Cabinet.GameFileId, persisted.GameFileId);
+    }
+
+    [Fact]
     public async Task RemoveCabinet_RemovesCabinetAndRedirectsToIndex()
     {
         await using var fixture = await CreateFixtureAsync(adminAlways: true);
@@ -144,7 +175,7 @@ public sealed class ArcadeControllerTests
         Assert.True(await fixture.Db.ArcadeCabinets.AnyAsync(x => x.Id == fixture.Cabinet.Id));
     }
 
-    private static async Task<TestFixture> CreateFixtureAsync(bool adminAlways)
+    private static async Task<TestFixture> CreateFixtureAsync(bool adminAlways, bool startCapable = false)
     {
         var connection = new SqliteConnection("Data Source=:memory:");
         await connection.OpenAsync();
@@ -154,9 +185,14 @@ public sealed class ArcadeControllerTests
         var db = new AppDbContext(options);
         await db.Database.EnsureCreatedAsync();
 
+        var tempRoot = Path.Combine(Path.GetTempPath(), "games-vault-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        var romPath = Path.Combine(tempRoot, "metalslug.zip");
+        File.WriteAllText(romPath, "fake-rom");
+
         var arcade = new games_vault.Models.Arcade { Name = "Arcade", Slug = "arcade", IsEnabled = true };
         var game = new Game { Name = "Metal Slug", SystemName = "arcade", SizeBytes = 1 };
-        var file = new GameFile { Game = game, Name = "metalslug.zip", SizeBytes = 1, ExternalPath = "/tmp/metalslug.zip" };
+        var file = new GameFile { Game = game, Name = "metalslug.zip", SizeBytes = 1, ExternalPath = romPath };
         var cabinet = new ArcadeCabinet
         {
             Arcade = arcade,
@@ -172,6 +208,12 @@ public sealed class ArcadeControllerTests
         db.Games.Add(game);
         db.GameFiles.Add(file);
         db.ArcadeCabinets.Add(cabinet);
+        db.LocalFolders.Add(new LocalFolder
+        {
+            Name = "Test ROM Root",
+            RootPath = tempRoot,
+            Enabled = true
+        });
         await db.SaveChangesAsync();
 
         var httpContext = new DefaultHttpContext();
@@ -182,20 +224,42 @@ public sealed class ArcadeControllerTests
                 ["Access:AdminAlways"] = adminAlways ? "true" : "false"
             })
             .Build();
+        var coreRoot = Path.Combine(tempRoot, "cores");
+        Directory.CreateDirectory(coreRoot);
+        var coreFileName = "fake_arcade_core_libretro.so";
+        File.WriteAllText(Path.Combine(coreRoot, coreFileName), "fake-core");
+        var sessionRoot = Path.Combine(tempRoot, "sessions");
+        Directory.CreateDirectory(sessionRoot);
         var nosebleedOptions = Options.Create(new NosebleedOptions
         {
-            Enabled = false,
+            Enabled = startCapable,
             RequireAuth = false,
-            AuthSecretPath = Path.Combine(Path.GetTempPath(), $"nosebleed-test-{Guid.NewGuid():N}.secret")
+            AuthSecretPath = Path.Combine(Path.GetTempPath(), $"nosebleed-test-{Guid.NewGuid():N}.secret"),
+            BinaryPath = "/bin/true",
+            CoreRoot = coreRoot,
+            SessionRoot = sessionRoot,
+            SystemCores = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["arcade"] = coreFileName
+            }
         });
+        var serviceProvider = new ServiceCollection()
+            .AddSingleton(db)
+            .AddSingleton<IHttpClientFactory, TestHttpClientFactory>()
+            .AddSingleton(nosebleedOptions)
+            .AddSingleton<SystemCoreMappingResolver>()
+            .AddSingleton<SystemCoreAutomapper>()
+            .AddSingleton<Microsoft.Extensions.Logging.ILogger<LibretroCoreInstaller>>(NullLogger<LibretroCoreInstaller>.Instance)
+            .AddSingleton<LibretroCoreInstaller>()
+            .BuildServiceProvider();
         var sessionManager = new NosebleedSessionManager(
             nosebleedOptions,
-            new TestServiceScopeFactory(),
+            new TestServiceScopeFactory(serviceProvider),
             new NosebleedTicketSigner(nosebleedOptions, NullLogger<NosebleedTicketSigner>.Instance),
             new TestHttpClientFactory(),
             NullLogger<NosebleedSessionManager>.Instance);
 
-        return new TestFixture(connection, db, cabinet, accessor, config, nosebleedOptions, sessionManager);
+        return new TestFixture(connection, db, cabinet, accessor, config, nosebleedOptions, sessionManager, serviceProvider, tempRoot);
     }
 
     private sealed class TestHttpContextAccessor(HttpContext httpContext) : IHttpContextAccessor
@@ -210,7 +274,9 @@ public sealed class ArcadeControllerTests
         IHttpContextAccessor HttpContextAccessor,
         IConfiguration Configuration,
         IOptions<NosebleedOptions> NosebleedOptions,
-        NosebleedSessionManager SessionManager) : IAsyncDisposable
+        NosebleedSessionManager SessionManager,
+        ServiceProvider ServiceProvider,
+        string TempRoot) : IAsyncDisposable
     {
         public ArcadeController CreateController()
         {
@@ -218,7 +284,7 @@ public sealed class ArcadeControllerTests
             var fileStorage = new GameFileStorage(env, Options.Create(new LibraryStorageOptions { RootPath = Path.GetTempPath() }));
             var fileResolver = new ArcadeGameFileResolver(Db, fileStorage);
             var currentProfile = new CurrentProfileService(Db, HttpContextAccessor);
-            var currentAccess = new CurrentAccessService(currentProfile, Configuration, HttpContextAccessor);
+            var currentAccess = new CurrentAccessService(currentProfile, Configuration, HttpContextAccessor, Db);
 
             return new ArcadeController(
                 Db,
@@ -239,8 +305,20 @@ public sealed class ArcadeControllerTests
 
         public async ValueTask DisposeAsync()
         {
+            SessionManager.Dispose();
+            await ServiceProvider.DisposeAsync();
             await Db.DisposeAsync();
             await Connection.DisposeAsync();
+            try
+            {
+                if (Directory.Exists(TempRoot))
+                {
+                    Directory.Delete(TempRoot, recursive: true);
+                }
+            }
+            catch
+            {
+            }
         }
     }
 
@@ -259,14 +337,14 @@ public sealed class ArcadeControllerTests
         public HttpClient CreateClient(string name) => new();
     }
 
-    private sealed class TestServiceScopeFactory : IServiceScopeFactory
+    private sealed class TestServiceScopeFactory(IServiceProvider serviceProvider) : IServiceScopeFactory
     {
-        public IServiceScope CreateScope() => new TestServiceScope();
+        public IServiceScope CreateScope() => new TestServiceScope(serviceProvider);
     }
 
-    private sealed class TestServiceScope : IServiceScope
+    private sealed class TestServiceScope(IServiceProvider serviceProvider) : IServiceScope
     {
-        public IServiceProvider ServiceProvider { get; } = new ServiceCollection().BuildServiceProvider();
+        public IServiceProvider ServiceProvider { get; } = serviceProvider;
         public void Dispose()
         {
         }

@@ -36,6 +36,7 @@ public class GamesController(
     NosebleedTicketSigner nosebleedTickets,
     GamePlayTelemetryService gamePlayTelemetry,
     GamePlayRoomService roomService,
+    ProfileShareLinkService shareLinkService,
     CurrentProfileService currentProfile,
     CurrentAccessService currentAccess,
     IHttpClientFactory httpClientFactory) : Controller
@@ -960,8 +961,38 @@ public class GamesController(
         return RedirectToAction(nameof(PlayServer), new { id, code = joined.Room.Code });
     }
 
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> CreateRoomShareLink(int roomId, RoomShareGrantMode grantMode, CancellationToken cancellationToken = default)
+    {
+        var room = await db.GamePlayRooms
+            .AsNoTracking()
+            .Include(x => x.Game)
+            .FirstOrDefaultAsync(x => x.Id == roomId && x.Status == GamePlayRoomStatus.Active, cancellationToken);
+        if (room is null)
+        {
+            return NotFound();
+        }
+
+        var profile = await currentProfile.GetCurrentAsync(cancellationToken);
+        var isAdmin = await currentAccess.IsAdminAsync(cancellationToken);
+        if (profile is null || (!isAdmin && room.CreatedByProfileId != profile.Id))
+        {
+            return Forbid();
+        }
+
+        var created = await shareLinkService.CreateAsync(room.Id, profile.Id, grantMode, cancellationToken);
+        TempData["GeneratedShareLink"] = Url.Action(
+            nameof(PlayServer),
+            "Games",
+            new { id = room.GameId, share = created.RawToken },
+            Request.Scheme);
+        TempData["GeneratedShareGrantMode"] = grantMode.ToString();
+        return RedirectToAction(nameof(PlayServer), new { id = room.GameId, code = room.Code });
+    }
+
     [HttpGet]
-    public async Task<IActionResult> PlayServer(int id, string? code = null, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> PlayServer(int id, string? code = null, string? share = null, CancellationToken cancellationToken = default)
     {
         var game = await db.Games
             .AsNoTracking()
@@ -982,11 +1013,12 @@ public class GamesController(
                 Id = x.Id,
                 Code = x.Code,
                 SessionId = x.NosebleedSessionId,
+                CreatedByProfileId = x.CreatedByProfileId,
                 LastActiveUtc = DateTime.SpecifyKind(x.LastActiveUtc, DateTimeKind.Utc)
             })
             .ToList();
         var currentSignedInProfile = await currentProfile.GetCurrentAsync(cancellationToken);
-        var canChat = await currentAccess.CanPlayAsync(cancellationToken);
+        var canChat = await currentAccess.CanChatAsync(cancellationToken);
 
         string? error = null;
         NosebleedSession? session = null;
@@ -1003,6 +1035,32 @@ public class GamesController(
         else if (file is null)
         {
             error = "No stored or linked ROM file found for this game.";
+        }
+        else if (!string.IsNullOrWhiteSpace(share))
+        {
+            try
+            {
+                var viewerId = GetOrCreateNosebleedViewerId();
+                var joinResult = await roomService.JoinByShareTokenAsync(share, viewerId, cancellationToken);
+                if (joinResult.Success && joinResult.Room is not null && joinResult.Session is not null)
+                {
+                    currentSignedInProfile = await currentProfile.GetCurrentAsync(cancellationToken);
+                    currentRoomId = joinResult.Room.Id;
+                    currentRoomCode = joinResult.Room.Code;
+                    session = joinResult.Session;
+                    seat = joinResult.Seat;
+                    token = joinResult.Token;
+                    await gamePlayTelemetry.StartAsync(joinResult.Room.GameId, joinResult.Room.GameFileId, "nosebleed-share", session.Id, currentSignedInProfile?.Id, cancellationToken);
+                }
+                else
+                {
+                    error = joinResult.Error ?? "Unable to redeem the requested share link.";
+                }
+            }
+            catch (InvalidOperationException ex)
+            {
+                error = ex.Message;
+            }
         }
         else if (!string.IsNullOrWhiteSpace(code))
         {
@@ -1027,6 +1085,9 @@ public class GamesController(
             error = "Create a new room or join by session code to start server-side play.";
         }
 
+        var canCreateShareLinks = currentSignedInProfile is not null &&
+            (currentSignedInProfile.IsAdmin || activeRooms.Any(x => x.Id == currentRoomId && x.CreatedByProfileId == currentSignedInProfile.Id));
+
         return View(new ServerGamePlayViewModel
         {
             Game = game,
@@ -1046,7 +1107,10 @@ public class GamesController(
             CurrentRoomCode = currentRoomCode,
             CanChat = canChat,
             CurrentProfileDisplayName = currentSignedInProfile?.DisplayName,
-            ActiveRooms = activeRoomSummaries
+            ActiveRooms = activeRoomSummaries,
+            CanCreateShareLinks = canCreateShareLinks,
+            GeneratedShareLink = TempData["GeneratedShareLink"] as string,
+            GeneratedShareGrantMode = TempData["GeneratedShareGrantMode"] as string
         });
     }
 
@@ -1067,7 +1131,7 @@ public class GamesController(
             return NotFound();
         }
 
-        var canPlay = await currentAccess.CanPlayAsync(cancellationToken);
+        var canPlay = await currentAccess.CanPlaySessionAsync(sessionId, cancellationToken);
         var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow, allowPlayer: canPlay);
         await gamePlayTelemetry.TouchDurationAsync(sessionId, cancellationToken);
         return Json(new

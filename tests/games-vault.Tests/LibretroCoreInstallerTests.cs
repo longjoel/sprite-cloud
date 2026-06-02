@@ -25,6 +25,16 @@ public sealed class LibretroCoreInstallerTests
     }
 
     [Fact]
+    public void Catalog_knows_n64_native_core()
+    {
+        var entry = CoreCompatibilityCatalog.Find("Nintendo - Nintendo 64");
+
+        Assert.NotNull(entry);
+        Assert.Equal("mupen64plus_next_libretro.so", entry.NativeCoreFileName);
+        Assert.Null(entry.WebPlayerCoreKey);
+    }
+
+    [Fact]
     public void Catalog_knows_mame_native_core()
     {
         var entry = CoreCompatibilityCatalog.Find("MAME");

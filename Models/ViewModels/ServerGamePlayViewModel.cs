@@ -21,5 +21,8 @@ public sealed class ServerGamePlayViewModel
     public bool ShowRoomControls { get; init; } = true;
     public bool CanChat { get; init; }
     public string? CurrentProfileDisplayName { get; init; }
+    public bool CanCreateShareLinks { get; init; }
+    public string? GeneratedShareLink { get; init; }
+    public string? GeneratedShareGrantMode { get; init; }
     public IReadOnlyList<GamePlayRoomSummaryViewModel> ActiveRooms { get; init; } = [];
 }

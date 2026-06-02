@@ -30,6 +30,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
     public DbSet<UserProfilePasskey> UserProfilePasskeys => Set<UserProfilePasskey>();
     public DbSet<ProfileInviteCode> ProfileInviteCodes => Set<ProfileInviteCode>();
+    public DbSet<ProfileShareLink> ProfileShareLinks => Set<ProfileShareLink>();
     public DbSet<GamePlayRoom> GamePlayRooms => Set<GamePlayRoom>();
     public DbSet<GamePlayRoomParticipant> GamePlayRoomParticipants => Set<GamePlayRoomParticipant>();
     public DbSet<GamePlayRoomChatMessage> GamePlayRoomChatMessages => Set<GamePlayRoomChatMessage>();
@@ -279,6 +280,18 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasIndex(x => x.DisplayName);
             entity.HasIndex(x => x.Username).IsUnique();
             entity.HasIndex(x => x.PasskeyUserHandleBase64Url).IsUnique();
+            entity.HasIndex(x => x.ParentProfileId);
+            entity.HasIndex(x => x.CreatedFromShareLinkId);
+
+            entity.HasOne(x => x.ParentProfile)
+                .WithMany()
+                .HasForeignKey(x => x.ParentProfileId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(x => x.CreatedFromShareLink)
+                .WithMany()
+                .HasForeignKey(x => x.CreatedFromShareLinkId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<ProfileInviteCode>(entity =>
@@ -289,6 +302,39 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasOne(x => x.UsedByProfile)
                 .WithMany()
                 .HasForeignKey(x => x.UsedByProfileId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ProfileShareLink>(entity =>
+        {
+            entity.Property(x => x.TokenHash).HasMaxLength(128);
+            entity.HasIndex(x => x.TokenHash).IsUnique();
+            entity.HasIndex(x => new { x.RoomId, x.CreatedUtc });
+            entity.HasIndex(x => new { x.ParentProfileId, x.CreatedUtc });
+
+            entity.HasOne(x => x.Room)
+                .WithMany()
+                .HasForeignKey(x => x.RoomId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Game)
+                .WithMany()
+                .HasForeignKey(x => x.GameId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.CreatedByProfile)
+                .WithMany()
+                .HasForeignKey(x => x.CreatedByProfileId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(x => x.ParentProfile)
+                .WithMany()
+                .HasForeignKey(x => x.ParentProfileId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(x => x.RedeemedByProfile)
+                .WithMany()
+                .HasForeignKey(x => x.RedeemedByProfileId)
                 .OnDelete(DeleteBehavior.SetNull);
         });
 

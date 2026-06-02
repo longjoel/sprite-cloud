@@ -40,6 +40,7 @@ builder.Services.AddScoped<CurrentAccessService>();
 builder.Services.AddScoped<PasskeyReadinessService>();
 builder.Services.AddScoped<PasskeyService>();
 builder.Services.AddScoped<ProfileInviteService>();
+builder.Services.AddScoped<ProfileShareLinkService>();
 builder.Services.AddScoped<LocalProfileService>();
 builder.Services.AddScoped<ArcadeGameFileResolver>();
 builder.Services.AddScoped<SystemCoreMappingResolver>();

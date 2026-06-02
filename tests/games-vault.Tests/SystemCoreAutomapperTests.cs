@@ -70,6 +70,24 @@ public sealed class SystemCoreAutomapperTests
     }
 
     [Fact]
+    public async Task AutoMapDetectedSystemsAsync_creates_n64_mapping_when_n64_core_is_installed()
+    {
+        await using var fixture = await CreateFixtureAsync();
+        fixture.Db.Games.Add(new Game { Name = "Earthworm Jim 3D", SystemName = "Nintendo - Nintendo 64", SizeBytes = 1 });
+        await fixture.Db.SaveChangesAsync();
+
+        var automapper = new SystemCoreAutomapper(fixture.Db);
+
+        var result = await automapper.AutoMapDetectedSystemsAsync(["mupen64plus_next_libretro.so"]);
+
+        Assert.Equal(1, result.Created);
+        var mapping = await fixture.Db.SystemCoreMappings.SingleAsync(x => x.SystemName == "Nintendo - Nintendo 64");
+        Assert.Equal("mupen64plus_next_libretro.so", mapping.NativeCoreFileName);
+        Assert.Null(mapping.WebPlayerCoreKey);
+        Assert.True(mapping.IsAutoMapped);
+    }
+
+    [Fact]
     public async Task AutoMapDetectedSystemsAsync_creates_mame_mapping_when_mame_core_is_installed()
     {
         await using var fixture = await CreateFixtureAsync();

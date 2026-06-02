@@ -1,9 +1,12 @@
+using Microsoft.EntityFrameworkCore;
+
 namespace games_vault.Profiles;
 
 public sealed class CurrentAccessService(
     CurrentProfileService currentProfile,
     IConfiguration configuration,
-    IHttpContextAccessor httpContextAccessor)
+    IHttpContextAccessor httpContextAccessor,
+    games_vault.Data.AppDbContext db)
 {
     public const string AdminCookieName = "gv.admin";
 
@@ -29,6 +32,60 @@ public sealed class CurrentAccessService(
     {
         var mode = await GetAccessModeAsync(ct);
         return mode is AccessMode.Player or AccessMode.Admin;
+    }
+
+    public async Task<bool> CanPlayRoomAsync(int roomId, CancellationToken ct)
+    {
+        if (await CanPlayAsync(ct))
+        {
+            return true;
+        }
+
+        var profile = await currentProfile.GetCurrentAsync(ct);
+        if (profile is null || !profile.IsEphemeral)
+        {
+            return false;
+        }
+
+        return await db.ProfileShareLinks.AnyAsync(x =>
+            x.RoomId == roomId &&
+            x.RedeemedByProfileId == profile.Id &&
+            x.GrantMode == games_vault.Models.RoomShareGrantMode.Player &&
+            x.RevokedUtc == null &&
+            x.UseCount > 0 &&
+            x.ExpiresUtc > DateTime.UtcNow,
+            ct);
+    }
+
+    public async Task<bool> CanPlaySessionAsync(string sessionId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return false;
+        }
+
+        if (await CanPlayAsync(ct))
+        {
+            return true;
+        }
+
+        var roomId = await db.GamePlayRooms
+            .AsNoTracking()
+            .Where(x => x.NosebleedSessionId == sessionId && x.Status == games_vault.Models.GamePlayRoomStatus.Active)
+            .Select(x => (int?)x.Id)
+            .FirstOrDefaultAsync(ct);
+
+        return roomId is int id && await CanPlayRoomAsync(id, ct);
+    }
+
+    public async Task<bool> CanChatAsync(CancellationToken ct)
+    {
+        if (IsAdminOverrideEnabled())
+        {
+            return false;
+        }
+
+        return await currentProfile.GetCurrentAsync(ct) is not null;
     }
 
     public async Task<bool> CanManageLibraryAsync(CancellationToken ct) => await IsAdminAsync(ct);

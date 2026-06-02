@@ -54,10 +54,18 @@
 
             <div class="mb-3">
                 <label asp-for="Files" class="form-label"></label>
-                <input asp-for="Files" type="file" multiple class="form-control" disabled="@(!Model.LibretroAvailable)" />
+                <input asp-for="Files"
+                       type="file"
+                       multiple
+                       class="form-control"
+                       accept=".zip,.7z,.z64,.n64,.v64,.nes,.fds,.sfc,.smc,.gb,.gbc,.gba,.nds,.bin,.cue,.chd,.iso,.md,.gen,.32x,.sms,.gg,.pce,.sg"
+                       disabled="@(!Model.LibretroAvailable)" />
                 <span asp-validation-for="Files" class="text-danger"></span>
                 <div class="form-text">
                     Upload one or more ROM/track files, or a .zip. We'll scan files (and files inside zips) and match them against libretro-database.
+                </div>
+                <div class="form-text">
+                    On phones/tablets, use your device's <span class="fw-semibold">Files</span> picker if the media picker opens first — archive uploads like <code>.zip</code> and N64 ROM files are allowed here.
                 </div>
             </div>
 
