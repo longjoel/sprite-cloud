@@ -248,6 +248,30 @@ public sealed class SpectatorAccessTests
     }
 
     [Fact]
+    public async Task PlayServer_Maps_Battery_Save_Diagnostics_Into_The_Player_Model()
+    {
+        await using var fixture = await SpectatorFixture.CreateAsync();
+        var controller = fixture.CreateGamesController();
+        controller.ControllerContext.RouteData = new Microsoft.AspNetCore.Routing.RouteData();
+        controller.ControllerContext.RouteData.Values["code"] = fixture.Room.Code;
+        controller.TempData = new TempDataDictionary(fixture.HttpContextAccessor.HttpContext!, new TestTempDataProvider())
+        {
+            ["BatterySaveDiagnostics"] = JsonSerializer.Serialize(new[]
+            {
+                new games_vault.Models.ViewModels.ProfileBatterySaveLogEntry("good", "Runtime restore", "Restored 1 runtime save file.")
+            }, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+        };
+
+        var result = await controller.PlayServer(fixture.Game.Id, fixture.Room.Code, cancellationToken: CancellationToken.None);
+
+        var view = Assert.IsType<ViewResult>(result);
+        var model = Assert.IsType<ServerGamePlayViewModel>(view.Model);
+        Assert.Single(model.BatterySaveDiagnostics);
+        Assert.Equal("Runtime restore", model.BatterySaveDiagnostics[0].Title);
+        Assert.Contains("runtime save file", model.BatterySaveDiagnostics[0].Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task PlayServer_RedirectsSignedInPlayerToTheirExistingStandaloneRoom()
     {
         await using var fixture = await SpectatorFixture.CreateAsync();

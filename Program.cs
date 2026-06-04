@@ -59,10 +59,14 @@ builder.Services.AddSingleton<NosebleedRelayMetrics>();
 builder.Services.AddScoped<GamePlayTelemetryService>();
 builder.Services.AddSingleton<RoomCodeGenerator>();
 builder.Services.AddScoped<GamePlayRoomService>();
+builder.Services.AddSingleton<BatterySavePolicyResolver>();
+builder.Services.AddScoped<ProfileBatterySaveService>();
+builder.Services.AddScoped<BatterySaveRuntimeSyncService>();
 builder.Services.AddHostedService<ArcadeCabinetSupervisor>();
 builder.Services.AddSingleton<games_vault.NetworkShares.ISmbFileService, games_vault.NetworkShares.SmbLibraryFileService>();
 builder.Services.AddSingleton<games_vault.Libretro.Import.GameFileStorage>();
 builder.Services.AddSingleton<games_vault.Libretro.Import.SystemFileStorage>();
+builder.Services.AddSingleton<games_vault.Libretro.Import.ProfileGameSaveStorage>();
 builder.Services.AddSingleton<games_vault.Libretro.Dat.SystemDatIndexProvider>();
 builder.Services.AddSingleton<games_vault.EverDrive.EverDriveGbFirmwareService>();
 

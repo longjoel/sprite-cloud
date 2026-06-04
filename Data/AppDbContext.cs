@@ -23,6 +23,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<LocalScanRun> LocalScanRuns => Set<LocalScanRun>();
     public DbSet<LocalScanResult> LocalScanResults => Set<LocalScanResult>();
     public DbSet<GamePlayerFile> GamePlayerFiles => Set<GamePlayerFile>();
+    public DbSet<ProfileGameSave> ProfileGameSaves => Set<ProfileGameSave>();
+    public DbSet<ProfileGameSaveRevision> ProfileGameSaveRevisions => Set<ProfileGameSaveRevision>();
     public DbSet<GamePlaySession> GamePlaySessions => Set<GamePlaySession>();
     public DbSet<global::games_vault.Models.Arcade> Arcades => Set<global::games_vault.Models.Arcade>();
     public DbSet<ArcadeCabinet> ArcadeCabinets => Set<ArcadeCabinet>();
@@ -225,6 +227,58 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(x => new { x.GameId, x.Kind, x.Key, x.FileName }).IsUnique();
+        });
+
+        modelBuilder.Entity<ProfileGameSave>(entity =>
+        {
+            entity.Property(x => x.SystemName).HasMaxLength(100);
+            entity.Property(x => x.CoreKey).HasMaxLength(100);
+            entity.Property(x => x.Kind).HasMaxLength(50);
+            entity.Property(x => x.Key).HasMaxLength(200);
+            entity.Property(x => x.FileName).HasMaxLength(260);
+
+            entity.HasOne(x => x.Profile)
+                .WithMany()
+                .HasForeignKey(x => x.ProfileId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.Game)
+                .WithMany()
+                .HasForeignKey(x => x.GameId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.GameFile)
+                .WithMany()
+                .HasForeignKey(x => x.GameFileId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(x => x.LatestRevision)
+                .WithMany()
+                .HasForeignKey(x => x.LatestRevisionId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasMany(x => x.Revisions)
+                .WithOne(x => x.ProfileGameSave)
+                .HasForeignKey(x => x.ProfileGameSaveId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(x => new { x.ProfileId, x.GameId, x.GameFileId, x.Kind, x.Key, x.FileName, x.CoreKey }).IsUnique();
+            entity.HasIndex(x => new { x.ProfileId, x.UpdatedUtc });
+        });
+
+        modelBuilder.Entity<ProfileGameSaveRevision>(entity =>
+        {
+            entity.Property(x => x.StoragePath).HasMaxLength(1000);
+            entity.Property(x => x.Sha256).HasMaxLength(64);
+            entity.Property(x => x.Source).HasMaxLength(20);
+            entity.Property(x => x.OriginalUploadFileName).HasMaxLength(260);
+
+            entity.HasOne(x => x.GamePlaySession)
+                .WithMany()
+                .HasForeignKey(x => x.GamePlaySessionId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(x => new { x.ProfileGameSaveId, x.RevisionTimestampUtc });
         });
 
         modelBuilder.Entity<global::games_vault.Models.Arcade>(entity =>
