@@ -16,6 +16,7 @@ using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System.Globalization;
+using System.Text.Json;
 
 namespace games_vault.Controllers;
 
@@ -985,6 +986,11 @@ public class GamesController(
                     var created = await roomService.CreateRoomAsync(game.Id, file.Id, game.SystemName, contentPath, cancellationToken);
                     if (created.Success && created.Room is not null)
                     {
+                        if (created.Diagnostics.Count > 0)
+                        {
+                            TempData["BatterySaveDiagnostics"] = JsonSerializer.Serialize(created.Diagnostics, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                        }
+
                         return RedirectToRoute("PlayServerRoom", new { id, code = created.Room.Code });
                     }
 
@@ -1008,6 +1014,8 @@ public class GamesController(
             canCreateShareLinks = currentSignedInProfile.IsAdmin || roomOwnerId == currentSignedInProfile.Id;
         }
 
+        var batterySaveDiagnostics = ReadBatterySaveDiagnosticsFromTempData();
+
         return View(new ServerGamePlayViewModel
         {
             Game = game,
@@ -1029,10 +1037,28 @@ public class GamesController(
             CurrentProfileDisplayName = currentSignedInProfile?.DisplayName,
             CurrentProfileIsEphemeralGuest = currentSignedInProfile?.IsEphemeral == true && currentSignedInProfile.ParentProfileId is not null,
             CurrentProfileParentDisplayName = currentSignedInProfile?.ParentProfile?.DisplayName,
+            BatterySaveDiagnostics = batterySaveDiagnostics,
             CanCreateShareLinks = canCreateShareLinks,
             GeneratedShareLink = TempData["GeneratedShareLink"] as string,
             GeneratedShareGrantMode = TempData["GeneratedShareGrantMode"] as string
         });
+    }
+
+    private IReadOnlyList<ProfileBatterySaveLogEntry> ReadBatterySaveDiagnosticsFromTempData()
+    {
+        if (TempData.Peek("BatterySaveDiagnostics") is not string rawDiagnostics || string.IsNullOrWhiteSpace(rawDiagnostics))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<ProfileBatterySaveLogEntry>>(rawDiagnostics, new JsonSerializerOptions(JsonSerializerDefaults.Web)) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [new ProfileBatterySaveLogEntry("warn", "Battery saves", "Saved battery diagnostics could not be loaded.")];
+        }
     }
 
     [HttpPost]
@@ -1334,17 +1360,42 @@ public class GamesController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public IActionResult LeaveServerSession(string sessionId, string? returnUrl = null)
+    public async Task<IActionResult> LeaveServerSession(string sessionId, string? returnUrl = null)
     {
         if (Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var viewerId))
         {
             nosebleedSeats.Release(sessionId, viewerId);
-            _ = roomService.DisconnectRoomParticipantSessionAsync(sessionId, viewerId, HttpContext.RequestAborted);
+            await roomService.DisconnectRoomParticipantSessionAsync(sessionId, viewerId, HttpContext.RequestAborted);
         }
+
+        Response.Cookies.Delete(NosebleedViewerCookieName);
 
         if (!string.IsNullOrWhiteSpace(returnUrl) && Url.IsLocalUrl(returnUrl))
         {
             return LocalRedirect(returnUrl);
+        }
+
+        return RedirectToAction(nameof(Index));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> FlushServerSessionSave(int roomId, string? returnUrl = null, CancellationToken cancellationToken = default)
+    {
+        var result = await roomService.FlushStandaloneRoomBatterySaveAsync(roomId, cancellationToken);
+        TempData["Message"] = result.Success
+            ? result.Message ?? "Flushed runtime save."
+            : result.Error ?? "Unable to flush runtime save.";
+
+        if (!string.IsNullOrWhiteSpace(returnUrl) && Url.IsLocalUrl(returnUrl))
+        {
+            return LocalRedirect(returnUrl);
+        }
+
+        var room = await db.GamePlayRooms.AsNoTracking().FirstOrDefaultAsync(x => x.Id == roomId, cancellationToken);
+        if (room is not null)
+        {
+            return RedirectToRoute("PlayServerRoom", new { id = room.GameId, code = room.Code });
         }
 
         return RedirectToAction(nameof(Index));

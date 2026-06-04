@@ -1,5 +1,6 @@
 using games_vault.Data;
 using games_vault.Models;
+using games_vault.Models.ViewModels;
 using games_vault.Nosebleed;
 using games_vault.Profiles;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +15,9 @@ public sealed class GamePlayRoomService(
     NosebleedTicketSigner nosebleedTickets,
     CurrentAccessService currentAccess,
     CurrentProfileService currentProfile,
-    ProfileShareLinkService shareLinks)
+    ProfileShareLinkService shareLinks,
+    BatterySavePolicyResolver? batterySavePolicyResolver = null,
+    BatterySaveRuntimeSyncService? batterySaveRuntimeSyncService = null)
 {
     public async Task<RoomCreateResult> CreateRoomAsync(int gameId, int gameFileId, string systemName, string contentPath, CancellationToken ct)
     {
@@ -64,13 +67,43 @@ public sealed class GamePlayRoomService(
         db.GamePlayRooms.Add(room);
         await db.SaveChangesAsync(ct);
 
+        var diagnostics = new List<ProfileBatterySaveLogEntry>();
+        var batterySavePolicy = (batterySavePolicyResolver ?? new BatterySavePolicyResolver()).Resolve(room, profile);
+        var sessionId = nosebleedSessions.CreateSessionId(gameId, gameFileId);
+        if (batterySaveRuntimeSyncService is not null)
+        {
+            var restoredCount = await batterySaveRuntimeSyncService.PrepareRuntimeSaveDirectoryAsync(
+                batterySavePolicy,
+                gameId,
+                gameFileId,
+                systemName,
+                sessionId,
+                contentPath,
+                ct);
+
+            diagnostics.Add(new ProfileBatterySaveLogEntry("good", "Battery saves", $"Prepared runtime save directory for session {sessionId}."));
+            if (batterySavePolicy.Mode != BatterySavePersistenceMode.PerProfile || batterySavePolicy.ProfileId is null)
+            {
+                diagnostics.Add(new ProfileBatterySaveLogEntry("warn", "Runtime restore", $"Battery saves are disabled for session {sessionId}; no runtime restore was attempted."));
+            }
+            else if (restoredCount > 0)
+            {
+                diagnostics.Add(new ProfileBatterySaveLogEntry("good", "Runtime restore", $"Restored {restoredCount} runtime save file(s) for profile {batterySavePolicy.ProfileId} into {batterySaveRuntimeSyncService.GetRuntimeSaveDirectory(sessionId)}."));
+            }
+            else
+            {
+                diagnostics.Add(new ProfileBatterySaveLogEntry("warn", "Runtime restore", $"No runtime save files were restored for profile {batterySavePolicy.ProfileId} into {batterySaveRuntimeSyncService.GetRuntimeSaveDirectory(sessionId)}."));
+            }
+        }
+
         var start = await nosebleedSessions.StartOrReuseAsync(
             gameId,
             gameFileId,
             systemName,
             contentPath,
             ct,
-            $"room:{room.Id}");
+            $"room:{room.Id}",
+            sessionId);
 
         if (!start.Success || start.Session is null)
         {
@@ -84,7 +117,7 @@ public sealed class GamePlayRoomService(
         room.LastActiveUtc = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
 
-        return RoomCreateResult.Ok(room, start.Session);
+        return RoomCreateResult.Ok(room, start.Session, diagnostics);
     }
 
     public async Task<RoomJoinResult> JoinByCodeAsync(string rawCode, string viewerId, CancellationToken ct)
@@ -246,6 +279,54 @@ public sealed class GamePlayRoomService(
         await db.SaveChangesAsync(ct);
 
         await CleanupStandaloneRoomIfNoPlayersRemainAsync(room, ct, $"viewer-left:{viewerId}");
+    }
+
+    public async Task<RoomBatterySaveFlushResult> FlushStandaloneRoomBatterySaveAsync(int roomId, CancellationToken ct)
+    {
+        if (!await currentAccess.CanPlayRoomAsync(roomId, ct))
+        {
+            return RoomBatterySaveFlushResult.Fail("Sign in with a player profile to flush saves for this room.");
+        }
+
+        var room = await db.GamePlayRooms
+            .Include(x => x.Game)
+            .FirstOrDefaultAsync(x => x.Id == roomId && x.Status == GamePlayRoomStatus.Active, ct);
+        if (room is null)
+        {
+            return RoomBatterySaveFlushResult.Fail("That room is no longer active.");
+        }
+
+        if (room.IsArcadeBound)
+        {
+            return RoomBatterySaveFlushResult.Fail("Arcade rooms do not use durable battery saves.");
+        }
+
+        if (batterySaveRuntimeSyncService is null)
+        {
+            return RoomBatterySaveFlushResult.Fail("Battery save runtime sync is not available.");
+        }
+
+        if (string.IsNullOrWhiteSpace(room.NosebleedSessionId))
+        {
+            return RoomBatterySaveFlushResult.Fail("That room does not have a live runtime session.");
+        }
+
+        var profile = await currentProfile.GetCurrentAsync(ct);
+        var batterySavePolicy = (batterySavePolicyResolver ?? new BatterySavePolicyResolver()).Resolve(room, profile);
+        var capturedCount = await batterySaveRuntimeSyncService.CaptureRuntimeSaveRevisionsAsync(
+            batterySavePolicy,
+            room.GameId,
+            room.GameFileId,
+            room.Game?.SystemName ?? await db.Games.Where(x => x.Id == room.GameId).Select(x => x.SystemName).FirstAsync(ct),
+            room.NosebleedSessionId,
+            ct);
+
+        if (capturedCount <= 0)
+        {
+            return RoomBatterySaveFlushResult.Ok(0, "No runtime save files were found to flush.");
+        }
+
+        return RoomBatterySaveFlushResult.Ok(capturedCount, $"Flushed {capturedCount} runtime save file(s).");
     }
 
     private async Task<RoomJoinResult> JoinRoomAsync(GamePlayRoom room, string viewerId, CancellationToken ct, bool? allowPlayerOverride)
@@ -415,8 +496,59 @@ public sealed class GamePlayRoomService(
 
         if (stopSession && !string.IsNullOrWhiteSpace(room.NosebleedSessionId))
         {
+            if (batterySaveRuntimeSyncService is not null)
+            {
+                var batterySavePolicy = await ResolveBatterySavePolicyForRoomAsync(room, ct);
+
+                await batterySaveRuntimeSyncService.CaptureRuntimeSaveRevisionsAsync(
+                    batterySavePolicy,
+                    room.GameId,
+                    room.GameFileId,
+                    room.Game?.SystemName ?? await db.Games.Where(x => x.Id == room.GameId).Select(x => x.SystemName).FirstAsync(ct),
+                    room.NosebleedSessionId,
+                    ct);
+            }
+
             nosebleedSessions.TryStop(room.NosebleedSessionId, reason);
         }
+    }
+
+    private async Task<BatterySavePolicy> ResolveBatterySavePolicyForRoomAsync(GamePlayRoom room, CancellationToken ct)
+    {
+        var resolver = batterySavePolicyResolver ?? new BatterySavePolicyResolver();
+
+        var current = await currentProfile.GetCurrentAsync(ct);
+        if (current is not null)
+        {
+            return resolver.Resolve(room, current);
+        }
+
+        var participantProfileId = await db.GamePlayRoomParticipants
+            .AsNoTracking()
+            .Where(x => x.RoomId == room.Id && x.IsConnected && x.Role == GamePlayRoomParticipantRole.Player && x.ProfileId != null)
+            .OrderByDescending(x => x.LastSeenUtc)
+            .Select(x => x.ProfileId!.Value)
+            .FirstOrDefaultAsync(ct);
+
+        if (participantProfileId > 0)
+        {
+            var participantProfile = await db.UserProfiles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == participantProfileId, ct);
+            if (participantProfile is not null)
+            {
+                return resolver.Resolve(room, participantProfile);
+            }
+        }
+
+        if (room.CreatedByProfileId is int creatorProfileId)
+        {
+            var creatorProfile = await db.UserProfiles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == creatorProfileId, ct);
+            if (creatorProfile is not null)
+            {
+                return resolver.Resolve(room, creatorProfile);
+            }
+        }
+
+        return BatterySavePolicy.None();
     }
 
     public static string? NormalizeCode(string? code)

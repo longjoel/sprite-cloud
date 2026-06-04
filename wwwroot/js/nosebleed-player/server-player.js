@@ -12,6 +12,7 @@
     const sessionId = config.sessionId;
     const touchLayoutName = config.touchLayoutName;
     const keepAliveUrl = config.keepAliveUrl;
+    const bootstrapBatterySaveDiagnostics = Array.isArray(config.batterySaveDiagnostics) ? config.batterySaveDiagnostics : [];
     const statusEl = document.getElementById("nosebleed-status");
     const shell = document.getElementById("server-player-shell");
     const canvas = document.getElementById("nosebleed-screen");
@@ -34,6 +35,13 @@
     const playerHealth = document.getElementById("nosebleed-player-health");
     const playerHealthText = document.getElementById("nosebleed-player-health-text");
     const touchToggleButton = document.getElementById("nosebleed-touch-toggle");
+    const loggingToggleButton = document.getElementById("nosebleed-logging-toggle");
+    const playerLogPanel = document.getElementById("nosebleed-player-log");
+    const playerLogList = document.getElementById("nosebleed-player-log-list");
+    const playerLogClearButton = document.getElementById("nosebleed-player-log-clear");
+    const saveStateSlotSelect = document.getElementById("nosebleed-save-state-slot");
+    const saveStateSaveButton = document.getElementById("nosebleed-save-state-save");
+    const saveStateLoadButton = document.getElementById("nosebleed-save-state-load");
     const videoTransportSelect = document.getElementById("nosebleed-video-transport");
     const videoCompressionSelect = document.getElementById("nosebleed-video-compression");
     const gamepadSelect = document.getElementById("nosebleed-gamepad-select");
@@ -59,6 +67,8 @@
     };
     const layoutStorageKey = `games-vault:nosebleed-control-layout:${touchLayoutName}`;
     const overlayStorageKey = "games-vault:nosebleed-overlays-enabled";
+    const logOverlayStorageKey = "games-vault:nosebleed-log-overlay-enabled";
+    const saveStateSlotStorageKey = "games-vault:nosebleed-save-state-slot";
     const viewModeStorageKey = "games-vault:nosebleed-view-mode";
     const videoTransportStorageKey = "games-vault:nosebleed-video-transport";
     const videoCompressionStorageKey = "games-vault:nosebleed-video-compression";
@@ -109,6 +119,8 @@
     let audioEnabled = false;
     let audioVolume = Math.min(1, Math.max(0, Number.parseFloat(localStorage.getItem(volumeStorageKey) || "1") || 1));
     let overlaysEnabled = true;
+    let logOverlayEnabled = localStorage.getItem(logOverlayStorageKey) === "true";
+    let saveStateSlot = normalizeSaveStateSlot(localStorage.getItem(saveStateSlotStorageKey) || "1");
     let playerChromeTimer = 0;
     let playerPromptTimer = 0;
     const playerEventTimers = new WeakMap();
@@ -120,6 +132,14 @@
 
     function normalizeViewMode(mode) {
         return mode === "theater" ? "theater" : "windowed";
+    }
+
+    function normalizeSaveStateSlot(slot) {
+        const parsed = Number.parseInt(String(slot ?? "1"), 10);
+        if (!Number.isFinite(parsed)) {
+            return 1;
+        }
+        return Math.min(5, Math.max(1, parsed));
     }
 
     function syncViewModeButtons() {
@@ -213,6 +233,117 @@
             window.setTimeout(() => eventEl.remove(), 220);
         }, timeoutMs);
         playerEventTimers.set(eventEl, cleanup);
+        logPlayerEvent(title || (tone === "bad" ? "Connection issue" : tone === "good" ? "Recovered" : "Room update"), message, tone);
+    }
+
+    function formatLogTimestamp(date = new Date()) {
+        return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+    }
+
+    function setLogOverlayVisibility(enabled) {
+        playerLogPanel?.classList.toggle("d-none", !enabled);
+        if (loggingToggleButton) {
+            loggingToggleButton.classList.toggle("is-on", enabled);
+            loggingToggleButton.setAttribute("aria-pressed", String(enabled));
+            loggingToggleButton.textContent = enabled ? "Hide logs" : "Logs";
+        }
+    }
+
+    function clearPlayerLog() {
+        if (!playerLogList) {
+            return;
+        }
+
+        playerLogList.replaceChildren();
+        const placeholder = document.createElement("li");
+        placeholder.className = "player-log-entry text-muted";
+        placeholder.dataset.placeholder = "true";
+        placeholder.textContent = "No log entries yet.";
+        playerLogList.appendChild(placeholder);
+    }
+
+    function appendPlayerLog(level, title, message) {
+        if (!playerLogList) {
+            return;
+        }
+
+        const normalizedLevel = ["good", "warn", "bad"].includes(level) ? level : "warn";
+        const entry = document.createElement("li");
+        entry.className = `player-log-entry is-${normalizedLevel}`;
+
+        const meta = document.createElement("div");
+        meta.className = "player-log-entry-meta";
+
+        const titleEl = document.createElement("div");
+        titleEl.className = "player-log-entry-title";
+        titleEl.textContent = title;
+
+        const timeEl = document.createElement("div");
+        timeEl.className = "player-log-entry-time";
+        timeEl.textContent = formatLogTimestamp();
+
+        const bodyEl = document.createElement("div");
+        bodyEl.className = "player-log-entry-body";
+        bodyEl.textContent = message;
+
+        meta.appendChild(titleEl);
+        meta.appendChild(timeEl);
+        entry.appendChild(meta);
+        entry.appendChild(bodyEl);
+
+        const placeholder = playerLogList.querySelector('[data-placeholder="true"]');
+        if (placeholder) {
+            placeholder.remove();
+        }
+
+        playerLogList.appendChild(entry);
+        while (playerLogList.children.length > 80) {
+            playerLogList.removeChild(playerLogList.firstElementChild);
+        }
+    }
+
+    function setLogOverlayEnabled(enabled, persist = true) {
+        logOverlayEnabled = enabled;
+        setLogOverlayVisibility(enabled);
+        if (persist) {
+            localStorage.setItem(logOverlayStorageKey, String(enabled));
+        }
+        if (enabled && playerLogList && !playerLogList.children.length) {
+            clearPlayerLog();
+        }
+    }
+
+    function toggleLogOverlay() {
+        const next = !logOverlayEnabled;
+        setLogOverlayEnabled(next);
+        appendPlayerLog("good", "Logs", next ? "Logging overlay opened." : "Logging overlay hidden.");
+        wakePlayerChrome(2600);
+    }
+
+    function logPlayerStatus(text, tone = "warn") {
+        appendPlayerLog(tone, "Status", text);
+    }
+
+    function logPlayerEvent(title, message, tone = "warn") {
+        appendPlayerLog(tone, title, message);
+    }
+
+    function appendBatterySaveDiagnostics(entries) {
+        if (!Array.isArray(entries) || entries.length === 0) {
+            return;
+        }
+
+        for (const entry of entries) {
+            if (!entry || typeof entry !== "object") {
+                continue;
+            }
+
+            appendPlayerLog(
+                typeof entry.level === "string" ? entry.level : "warn",
+                typeof entry.title === "string" ? entry.title : "Battery saves",
+                typeof entry.message === "string" ? entry.message : JSON.stringify(entry)
+            );
+        }
     }
 
     function setPlayerHealth(label, tone = "warn") {
@@ -230,6 +361,7 @@
             statusEl.textContent = text;
         }
         updateChip(chips.status, text.replace(/[.…]+$/u, ""), tone);
+        logPlayerStatus(text, tone);
     }
 
     function updateChip(chip, label, tone = "neutral") {
@@ -859,6 +991,20 @@
         window.setTimeout(() => button.classList.remove("is-pressed"), 150);
     }
 
+    function syncSaveStateSlotUi() {
+        if (saveStateSlotSelect) {
+            saveStateSlotSelect.value = String(saveStateSlot);
+        }
+    }
+
+    function setSaveStateSlot(slot, persist = true) {
+        saveStateSlot = normalizeSaveStateSlot(slot);
+        syncSaveStateSlotUi();
+        if (persist) {
+            localStorage.setItem(saveStateSlotStorageKey, String(saveStateSlot));
+        }
+    }
+
     function sendCommand(command, button = null, port = assignedPort ?? 0) {
         if (isSpectator || assignedPort === null || !inputWs || inputWs.readyState !== WebSocket.OPEN) {
             setStatus("Connect as a player before sending arcade commands.", "warn");
@@ -873,6 +1019,25 @@
             setStatus("Reset command sent to the machine.", "good");
         }
 
+        return true;
+    }
+
+    function sendStateCommand(command, button = null) {
+        if (isSpectator || assignedPort === null || !inputWs || inputWs.readyState !== WebSocket.OPEN) {
+            setStatus("Connect as a player before sending state commands.", "warn");
+            return false;
+        }
+
+        const slot = normalizeSaveStateSlot(saveStateSlotSelect?.value ?? saveStateSlot);
+        setSaveStateSlot(slot, true);
+        flashCommandButton(button);
+        inputWs.send(JSON.stringify({ type: "command", command, slot, port: assignedPort, sequence: ++inputSeq }));
+        if (command === "save_state") {
+            setStatus(`Save state slot ${slot} queued.`, "good");
+        } else if (command === "load_state") {
+            setStatus(`Load state slot ${slot} queued.`, "good");
+        }
+        wakePlayerChrome(2600);
         return true;
     }
 
@@ -911,8 +1076,8 @@
         if (isSpectator || assignedPort === null || !inputWs || inputWs.readyState !== WebSocket.OPEN) return;
         const pad = getActiveGamepad();
         const buttons = {
-            a: keys.has("KeyZ") || touchControls.has("a") || !!pad?.buttons[0]?.pressed,
-            b: keys.has("KeyX") || touchControls.has("b") || !!pad?.buttons[1]?.pressed,
+            a: keys.has("KeyZ") || touchControls.has("a") || !!pad?.buttons[1]?.pressed,
+            b: keys.has("KeyX") || touchControls.has("b") || !!pad?.buttons[0]?.pressed,
             x: touchControls.has("x") || !!pad?.buttons[2]?.pressed,
             y: touchControls.has("y") || !!pad?.buttons[3]?.pressed,
             select: keys.has("ShiftLeft") || keys.has("ShiftRight") || touchControls.has("select") || !!pad?.buttons[8]?.pressed,
@@ -1589,6 +1754,38 @@
         updatePadChip();
         updatePadTestPanel();
     });
+    window.addEventListener("error", event => {
+        const message = event?.message || "Unknown window error.";
+        appendPlayerLog("bad", "Window error", message);
+    });
+    window.addEventListener("unhandledrejection", event => {
+        const reason = event?.reason instanceof Error
+            ? event.reason.message
+            : String(event?.reason ?? "Unhandled promise rejection.");
+        appendPlayerLog("bad", "Unhandled rejection", reason);
+    });
+    window.addEventListener("message", event => {
+        if (event.origin !== window.location.origin) {
+            return;
+        }
+
+        const payload = event.data;
+        if (!payload || payload.type !== "games-vault:player-log") {
+            return;
+        }
+
+        const entries = Array.isArray(payload.entries) ? payload.entries : [];
+        for (const entry of entries) {
+            if (!entry || typeof entry !== "object") {
+                continue;
+            }
+
+            appendPlayerLog(
+                typeof entry.level === "string" ? entry.level : "warn",
+                typeof entry.title === "string" ? entry.title : "Battery saves",
+                typeof entry.message === "string" ? entry.message : JSON.stringify(entry));
+        }
+    });
     shell.addEventListener("touchend", handleDoubleTap, { passive: false });
     shell.addEventListener("dblclick", ev => {
         if (ev.target?.closest?.(".touch-btn, .player-overlay-action")) return;
@@ -1673,6 +1870,23 @@
         wakePlayerChrome(2600);
     });
     overlayToggleButton?.addEventListener("click", toggleOverlay);
+    loggingToggleButton?.addEventListener("click", toggleLogOverlay);
+    playerLogClearButton?.addEventListener("click", () => {
+        clearPlayerLog();
+    });
+    saveStateSlotSelect?.addEventListener("change", () => {
+        setSaveStateSlot(saveStateSlotSelect.value, true);
+        setStatus(`Save state slot ${saveStateSlot} selected.`, "good");
+        wakePlayerChrome(2400);
+    });
+    saveStateSaveButton?.addEventListener("click", ev => {
+        ev.preventDefault();
+        sendStateCommand("save_state", saveStateSaveButton);
+    });
+    saveStateLoadButton?.addEventListener("click", ev => {
+        ev.preventDefault();
+        sendStateCommand("load_state", saveStateLoadButton);
+    });
     layoutLockButton.addEventListener("click", () => {
         if (layoutEditMode) saveLayout();
         else setLayoutEditMode(true);
@@ -1707,9 +1921,20 @@
         if (padTestPanel?.classList.contains("d-none")) startPadTest();
         else hidePadTest();
     });
+    const leaveSeatForm = document.getElementById("leave-seat-form");
+    leaveSeatForm?.addEventListener("submit", () => {
+        stopSeatKeepAlive();
+        closeSockets();
+    });
     syncVideoPreferenceControls();
     applyViewMode(preferredViewMode, false);
     applyAudioVolume(false);
+    if (playerLogList) {
+        clearPlayerLog();
+    }
+    setLogOverlayEnabled(logOverlayEnabled, false);
+    setSaveStateSlot(saveStateSlot, false);
+    appendBatterySaveDiagnostics(bootstrapBatterySaveDiagnostics);
     connect();
     setOverlayEnabled(true, false);
     setAudioDisabledUi();

@@ -58,8 +58,12 @@ public sealed class PlayServerViewMarkupTests
         Assert.Contains("id=\"nosebleed-view-windowed\"", content);
         Assert.Contains("id=\"nosebleed-view-theater\"", content);
         Assert.Contains("id=\"nosebleed-fullscreen\"", content);
+        Assert.Contains("id=\"nosebleed-logging-toggle\"", content);
+        Assert.Contains("id=\"nosebleed-player-log\"", content);
+        Assert.Contains("id=\"nosebleed-player-log-list\"", content);
         Assert.Contains("aria-label=\"Windowed view\"", content);
         Assert.Contains("aria-label=\"Theater view\"", content);
+        Assert.Contains("aria-label=\"Toggle logging overlay\"", content);
         Assert.Contains("id=\"nosebleed-audio-overlay\"", content);
         Assert.Contains("id=\"nosebleed-volume\"", content);
         Assert.Contains("id=\"nosebleed-player-health\"", content);
@@ -82,6 +86,8 @@ public sealed class PlayServerViewMarkupTests
         Assert.Contains("title=\"Windowed view\"", content);
         Assert.Contains("title=\"Theater view\"", content);
         Assert.Contains("title=\"Full screen\"", content);
+        Assert.DoesNotContain("<span class=\"player-control-label\">Full screen</span>", content);
+        Assert.DoesNotContain("<span class=\"player-control-label\">Logs</span>", content);
         Assert.DoesNotContain("id=\"nosebleed-audio-overlay\" class=\"btn btn-outline-secondary d-none\"", content);
     }
 
@@ -91,7 +97,6 @@ public sealed class PlayServerViewMarkupTests
         var content = ReadPlayServerView();
 
         Assert.DoesNotContain("id=\"nosebleed-player-room-meta\"", content);
-        Assert.DoesNotContain("id=\"nosebleed-player-events\"", content);
         Assert.DoesNotContain("id=\"nosebleed-video-chip\"", content);
         Assert.DoesNotContain("id=\"nosebleed-input-chip\"", content);
         Assert.DoesNotContain("id=\"nosebleed-pad-chip\"", content);
@@ -113,8 +118,8 @@ public sealed class PlayServerViewMarkupTests
     {
         var content = ReadPlayServerView();
 
+        Assert.Contains("var hideSaveStateUi = isArcadeRoom;", content);
         Assert.Contains("var sessionTitle = game.Name;", content);
-        Assert.DoesNotContain("Room ", content);
         Assert.DoesNotContain("Server-side session", content);
         Assert.DoesNotContain("Server-side player is not ready", content);
     }
@@ -129,14 +134,31 @@ public sealed class PlayServerViewMarkupTests
     }
 
     [Fact]
-    public void RoomControls_Only_Expose_Create_New_Session()
+    public void PlayServer_Does_Not_Render_Manual_Play_Section_For_Normal_Games()
     {
         var content = ReadPlayServerView();
 
-        Assert.Contains(">Play</div>", content);
-        Assert.Contains(">Play</button>", content);
+        Assert.DoesNotContain(">Play</div>", content);
+        Assert.DoesNotContain(">Play</button>", content);
+        Assert.DoesNotContain("Open a fresh session from this game page", content);
         Assert.DoesNotContain("Join code", content);
         Assert.DoesNotContain("Join room", content);
         Assert.DoesNotContain("Create a fresh room or join by 4-letter code.", content);
+    }
+
+    [Fact]
+    public void Share_Card_Is_Renamed_Advanced_And_Houses_Battery_Save_Actions()
+    {
+        var content = ReadPlayServerView();
+
+        Assert.Contains("id=\"playserver-advanced-card\"", content);
+        Assert.Contains("<summary>Advanced</summary>", content);
+        Assert.DoesNotContain("id=\"playserver-share-card\"", content);
+        Assert.DoesNotContain("<summary>Share</summary>", content);
+        Assert.Contains("<div class=\"fw-semibold small mb-2\">Share links</div>", content);
+        Assert.Contains("<div class=\"fw-semibold small mb-2\">Battery saves</div>", content);
+        Assert.Contains(">Flush save</button>", content);
+        Assert.Contains(">Upload save</a>", content);
+        Assert.Contains(">Save history</a>", content);
     }
 }
