@@ -1,5 +1,8 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Net.WebSockets;
+using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Options;
 
 namespace games_vault.Nosebleed;
@@ -34,6 +37,22 @@ public sealed class NosebleedSessionManager(
             .ToList();
     }
 
+    public string CreateSessionId(int gameId, int fileId)
+    {
+        return $"games-vault-{gameId}-{fileId}-{Guid.NewGuid():N}";
+    }
+
+    public string GetRuntimeSaveDirectory(string sessionId)
+    {
+        sessionId = (sessionId ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            throw new ArgumentException("Session ID is required.", nameof(sessionId));
+        }
+
+        return Path.Combine(Path.GetFullPath(_options.SessionRoot), "save-data", SanitizeSessionId(sessionId));
+    }
+
     public bool TryStop(string sessionId, string reason = "manual")
     {
         foreach (var pair in _sessions.ToArray())
@@ -57,15 +76,142 @@ public sealed class NosebleedSessionManager(
         return false;
     }
 
+    // Reset is sent over /ws/input as a command-only player token. It must stay
+    // within Nosebleed's valid port range for auth validation, but it does not
+    // need to correspond to an actually reserved player seat.
+    private const int ResetCommandPort = 0;
+
+    public async Task<(bool Success, string? Error)> TryRequestResetAsync(string sessionId, int port = 0, CancellationToken cancellationToken = default)
+    {
+        foreach (var pair in _sessions.ToArray())
+        {
+            if (!string.Equals(pair.Value.Session.Id, sessionId, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var session = pair.Value.Session;
+            if (pair.Value.Process.HasExited)
+            {
+                return (false, "session process has exited");
+            }
+
+            try
+            {
+                using var socket = new ClientWebSocket();
+                var baseUri = new Uri(session.BaseUrl);
+                var uriBuilder = new UriBuilder(baseUri)
+                {
+                    Scheme = string.Equals(baseUri.Scheme, "https", StringComparison.OrdinalIgnoreCase) ? "wss" : "ws",
+                    Path = "/ws/input"
+                };
+
+                var commandPort = port == 0 ? ResetCommandPort : port;
+                var resetToken = ticketSigner.CreatePlayerToken(sessionId, "games-vault-reset", commandPort);
+                if (!string.IsNullOrWhiteSpace(resetToken))
+                {
+                    uriBuilder.Query = $"token={Uri.EscapeDataString(resetToken)}";
+                }
+                else if (!string.IsNullOrWhiteSpace(session.Token))
+                {
+                    uriBuilder.Query = $"token={Uri.EscapeDataString(session.Token)}";
+                }
+
+                await socket.ConnectAsync(uriBuilder.Uri, cancellationToken);
+
+                var payload = JsonSerializer.Serialize(new
+                {
+                    type = "command",
+                    command = "reset",
+                    port = commandPort,
+                    sequence = 1
+                });
+                var bytes = Encoding.UTF8.GetBytes(payload);
+                await socket.SendAsync(bytes, WebSocketMessageType.Text, true, cancellationToken);
+
+                var buffer = new byte[4096];
+                var receive = await socket.ReceiveAsync(buffer, cancellationToken);
+                if (receive.MessageType == WebSocketMessageType.Text && receive.Count > 0)
+                {
+                    var response = Encoding.UTF8.GetString(buffer, 0, receive.Count);
+                    try
+                    {
+                        using var document = JsonDocument.Parse(response);
+                        if (document.RootElement.TryGetProperty("type", out var type) && type.GetString() == "error")
+                        {
+                            var message = document.RootElement.TryGetProperty("message", out var msg) ? msg.GetString() : "reset rejected";
+                            return (false, message);
+                        }
+                    }
+                    catch
+                    {
+                        // If we got a non-JSON response, treat the command as delivered if the socket stayed open.
+                    }
+                }
+
+                return (true, null);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to request reset for Nosebleed session {SessionId}", sessionId);
+                return (false, ex.Message);
+            }
+        }
+
+        return (false, "session not found");
+    }
+
     public void Cleanup() => CleanupExitedSessions(disposeRemoved: true);
 
-    public async Task<NosebleedStartResult> StartOrReuseAsync(
+    public Task<NosebleedStartResult> StartOrReuseAsync(
         int gameId,
         int fileId,
         string systemName,
         string contentPath,
         CancellationToken cancellationToken = default,
-        string? instanceKey = null)
+        string? instanceKey = null,
+        string? sessionIdOverride = null)
+        => StartAsync(
+            gameId,
+            fileId,
+            systemName,
+            contentPath,
+            cancellationToken,
+            instanceKey,
+            sessionIdOverride,
+            forceNew: false,
+            allowOverCapacity: false);
+
+    public Task<NosebleedStartResult> StartFreshAsync(
+        int gameId,
+        int fileId,
+        string systemName,
+        string contentPath,
+        CancellationToken cancellationToken = default,
+        string? instanceKey = null,
+        string? sessionIdOverride = null,
+        bool allowOverCapacity = true)
+        => StartAsync(
+            gameId,
+            fileId,
+            systemName,
+            contentPath,
+            cancellationToken,
+            instanceKey,
+            sessionIdOverride,
+            forceNew: true,
+            allowOverCapacity: allowOverCapacity);
+
+    private async Task<NosebleedStartResult> StartAsync(
+        int gameId,
+        int fileId,
+        string systemName,
+        string contentPath,
+        CancellationToken cancellationToken,
+        string? instanceKey,
+        string? sessionIdOverride,
+        bool forceNew,
+        bool allowOverCapacity)
     {
         if (!_options.Enabled)
         {
@@ -127,7 +273,7 @@ public sealed class NosebleedSessionManager(
         var key = string.IsNullOrWhiteSpace(instanceKey)
             ? $"{gameId}:{fileId}:{corePath}:{contentPath}"
             : instanceKey.Trim();
-        if (_sessions.TryGetValue(key, out var existing) && !existing.Process.HasExited)
+        if (!forceNew && _sessions.TryGetValue(key, out var existing) && !existing.Process.HasExited)
         {
             return NosebleedStartResult.Ok(existing.Session);
         }
@@ -137,19 +283,23 @@ public sealed class NosebleedSessionManager(
         {
             CleanupExitedSessions(disposeRemoved: true);
 
-            if (_sessions.TryGetValue(key, out existing) && !existing.Process.HasExited)
+            if (!forceNew && _sessions.TryGetValue(key, out existing) && !existing.Process.HasExited)
             {
                 return NosebleedStartResult.Ok(existing.Session);
             }
 
-            if (_sessions.Count >= Math.Max(1, _options.MaxSessions))
+            if (!allowOverCapacity && _sessions.Count >= Math.Max(1, _options.MaxSessions))
             {
                 return NosebleedStartResult.Fail($"Nosebleed session limit reached ({_options.MaxSessions}). Stop an existing session and try again.");
             }
 
             Directory.CreateDirectory(_options.SessionRoot);
             var port = AllocatePort();
-            var sessionId = $"games-vault-{gameId}-{fileId}-{Guid.NewGuid():N}";
+            var sessionId = string.IsNullOrWhiteSpace(sessionIdOverride)
+                ? CreateSessionId(gameId, fileId)
+                : sessionIdOverride.Trim();
+            var runtimeSaveDirectory = GetRuntimeSaveDirectory(sessionId);
+            Directory.CreateDirectory(runtimeSaveDirectory);
             var baseUrl = $"{_options.PublicScheme}://{_options.PublicHost}:{port}";
             var token = ticketSigner.CreatePlayerToken(sessionId, $"games-vault-user", 0);
 
@@ -178,6 +328,7 @@ public sealed class NosebleedSessionManager(
             {
                 psi.ArgumentList.Add("--session-copy-content");
             }
+            psi.Environment["NOSEBLEED_SAVE_DIR"] = runtimeSaveDirectory;
             if (_options.RequireAuth)
             {
                 psi.ArgumentList.Add("--require-auth");
@@ -338,6 +489,14 @@ public sealed class NosebleedSessionManager(
         {
             return true;
         }
+    }
+
+    private static string SanitizeSessionId(string raw)
+    {
+        var chars = raw.Trim()
+            .Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' ? ch : '_')
+            .ToArray();
+        return chars.Length == 0 ? "session" : new string(chars);
     }
 
     private async Task DrainAsync(StreamReader reader, string sessionId, bool error)

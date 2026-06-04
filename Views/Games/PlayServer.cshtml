@@ -8,20 +8,26 @@
     var isGenesis = systemName.Equals("Sega - Mega Drive - Genesis", StringComparison.OrdinalIgnoreCase)
         || systemName.Contains("Mega Drive", StringComparison.OrdinalIgnoreCase)
         || systemName.Contains("Genesis", StringComparison.OrdinalIgnoreCase);
-    var isArcade = systemName.Contains("Arcade", StringComparison.OrdinalIgnoreCase)
+    var isArcadeSystem = systemName.Contains("Arcade", StringComparison.OrdinalIgnoreCase)
         || systemName.Contains("MAME", StringComparison.OrdinalIgnoreCase)
         || systemName.Contains("FinalBurn", StringComparison.OrdinalIgnoreCase)
         || systemName.Contains("FBNeo", StringComparison.OrdinalIgnoreCase)
         || systemName.Contains("Neo Geo", StringComparison.OrdinalIgnoreCase);
+    var isArcadeRoom = Model.IsArcadeRoom;
+    var hideSaveStateUi = isArcadeRoom;
     var touchLayoutName = isGameGear
         ? "Sega Game Gear"
         : isGenesis
             ? "Sega Genesis"
-            : isArcade
+            : isArcadeSystem
                 ? "Arcade 4-Button"
                 : "Generic Retropad";
     var hasLiveSession = string.IsNullOrWhiteSpace(Model.Error) && !string.IsNullOrWhiteSpace(Model.BaseUrl);
     var sessionTitle = game.Name;
+    var canManageBatterySaves = !hideSaveStateUi
+        && Model.File is not null
+        && !string.IsNullOrWhiteSpace(Model.CurrentProfileDisplayName)
+        && !Model.CurrentProfileIsEphemeralGuest;
     ViewData["Title"] = sessionTitle;
 }
 
@@ -31,17 +37,42 @@
     </div>
 </div>
 
-@if (Model.ShowRoomControls)
+@if (TempData["Message"] is string message && !string.IsNullOrWhiteSpace(message))
 {
-    <div class="card mb-3">
-        <div class="card-body d-flex flex-wrap align-items-center gap-2 justify-content-between">
-            <div>
-                <div class="fw-semibold">Play</div>
-                <div class="text-muted small">Open a fresh session from this game page whenever you want a new instance.</div>
+    <div class="alert alert-info alert-dismissible fade show" role="alert">
+        @message
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+@if (canManageBatterySaves)
+{
+    <div class="modal fade" id="playServerSaveHistoryModal" tabindex="-1" aria-labelledby="playServerSaveHistoryModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="playServerSaveHistoryModalLabel">Battery save management</h5>
+                        <div class="text-muted small">Open the full save manager without leaving the game page.</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <iframe
+                        id="playServerSaveHistoryFrame"
+                        title="Battery save management"
+                        class="border-0 w-100"
+                        style="height: 78vh;"
+                        loading="lazy"
+                        referrerpolicy="same-origin"
+                        data-src="@Url.Action("History", "ProfileBatterySaves", new { gameId = game.Id, gameFileId = Model.File!.Id })">
+                    </iframe>
+                </div>
+                <div class="modal-footer">
+                    <a class="btn btn-outline-secondary" asp-controller="ProfileBatterySaves" asp-action="History" asp-route-gameId="@game.Id" asp-route-gameFileId="@Model.File!.Id">Open full page</a>
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
+                </div>
             </div>
-            <form asp-action="CreateRoom" asp-route-id="@game.Id" method="post" class="d-inline">
-                <button type="submit" class="btn btn-success">Play</button>
-            </form>
         </div>
     </div>
 }
@@ -326,6 +357,70 @@
                     padding-inline: .62rem;
                 }
 
+                .player-state-pill {
+                    position: absolute;
+                    left: max(1rem, env(safe-area-inset-left));
+                    bottom: max(1rem, env(safe-area-inset-bottom));
+                    z-index: 7;
+                    display: inline-flex;
+                    align-items: center;
+                    gap: .45rem;
+                    padding: .42rem .5rem;
+                    border: 1px solid rgba(255,255,255,.16);
+                    border-radius: 999px;
+                    background: rgba(15, 23, 42, .62);
+                    color: rgba(255,255,255,.95);
+                    backdrop-filter: blur(8px);
+                    box-shadow: 0 .25rem 1rem rgba(0,0,0,.35);
+                    pointer-events: auto;
+                }
+
+                .player-state-slot,
+                .player-state-action {
+                    border: 1px solid rgba(255,255,255,.18);
+                    background: rgba(15, 23, 42, .72);
+                    color: rgba(255,255,255,.95);
+                    border-radius: 999px;
+                    font-weight: 700;
+                    height: 2.2rem;
+                }
+
+                .player-state-slot {
+                    min-width: 6.5rem;
+                    padding-inline: .75rem 1.85rem .75rem .8rem;
+                }
+
+                .player-state-action {
+                    padding: 0 .85rem;
+                    min-width: 4.25rem;
+                }
+
+                .player-state-action.is-primary {
+                    background: rgba(13, 110, 253, .35);
+                }
+
+                .player-state-action.is-success {
+                    background: rgba(25, 135, 84, .35);
+                }
+
+                .player-state-action:hover,
+                .player-state-action:focus-visible,
+                .player-state-slot:hover,
+                .player-state-slot:focus-visible {
+                    border-color: rgba(255,255,255,.4);
+                    outline: none;
+                }
+
+                .player-chrome-hidden .player-state-pill {
+                    opacity: 0;
+                    pointer-events: none;
+                }
+
+                .player-chrome-hidden .player-state-pill,
+                .player-chrome-hidden .player-log-panel {
+                    transition: opacity .18s ease;
+                }
+
                 .player-chrome {
                     position: absolute;
                     inset: 0;
@@ -402,6 +497,11 @@
 
                 .player-control-button.primary {
                     background: rgba(59, 130, 246, .3);
+                }
+
+                .player-control-button.is-on {
+                    background: rgba(25, 135, 84, .3);
+                    border-color: rgba(25, 135, 84, .5);
                 }
 
                 .player-control-icon {
@@ -506,6 +606,144 @@
 
                 .player-health.is-warn .player-health-dot { background: #ffc107; box-shadow: 0 0 .65rem rgba(255,193,7,.75); }
                 .player-health.is-bad .player-health-dot { background: #dc3545; box-shadow: 0 0 .65rem rgba(220,53,69,.75); }
+
+                .player-events {
+                    position: absolute;
+                    top: max(4.9rem, calc(env(safe-area-inset-top) + 4.9rem));
+                    left: 50%;
+                    width: min(38rem, calc(100% - 2rem));
+                    transform: translateX(-50%);
+                    display: grid;
+                    gap: .5rem;
+                    pointer-events: none;
+                    z-index: 9;
+                }
+
+                .player-event {
+                    display: grid;
+                    gap: .18rem;
+                    border-radius: 1rem;
+                    border: 1px solid rgba(255,255,255,.15);
+                    background: rgba(15, 23, 42, .82);
+                    color: rgba(255,255,255,.96);
+                    padding: .7rem .9rem;
+                    box-shadow: 0 .6rem 1.4rem rgba(0,0,0,.34);
+                    backdrop-filter: blur(10px);
+                    transform: translateY(-.25rem);
+                    opacity: 0;
+                    transition: opacity .18s ease, transform .18s ease;
+                }
+
+                .player-event.show {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+
+                .player-event.is-good { border-color: rgba(25, 135, 84, .5); }
+                .player-event.is-warn { border-color: rgba(255, 193, 7, .5); }
+                .player-event.is-bad { border-color: rgba(220, 53, 69, .55); }
+
+                .player-event-title,
+                .player-log-entry-title {
+                    font-size: .74rem;
+                    font-weight: 800;
+                    letter-spacing: .04em;
+                    text-transform: uppercase;
+                    color: rgba(226, 232, 240, .84);
+                }
+
+                .player-event-body,
+                .player-log-entry-body {
+                    font-size: .9rem;
+                    line-height: 1.35;
+                    word-break: break-word;
+                }
+
+                .player-log-panel {
+                    position: absolute;
+                    top: max(.9rem, env(safe-area-inset-top));
+                    left: max(.9rem, env(safe-area-inset-left));
+                    width: min(24rem, calc(100% - 1.8rem));
+                    max-height: min(42vh, 24rem);
+                    display: flex;
+                    flex-direction: column;
+                    gap: .65rem;
+                    border-radius: 1.1rem;
+                    border: 1px solid rgba(255,255,255,.15);
+                    background: rgba(15, 23, 42, .88);
+                    color: rgba(255,255,255,.94);
+                    padding: .85rem .9rem .9rem;
+                    box-shadow: 0 .85rem 1.8rem rgba(0,0,0,.38);
+                    backdrop-filter: blur(10px);
+                    z-index: 10;
+                    pointer-events: auto;
+                }
+
+                .player-log-panel.d-none {
+                    display: none !important;
+                }
+
+                .player-log-header {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: .75rem;
+                }
+
+                .player-log-title {
+                    font-size: .9rem;
+                    font-weight: 800;
+                }
+
+                .player-log-actions {
+                    display: inline-flex;
+                    gap: .4rem;
+                }
+
+                .player-log-action {
+                    border: 1px solid rgba(255,255,255,.18);
+                    border-radius: 999px;
+                    background: rgba(30, 41, 59, .75);
+                    color: rgba(255,255,255,.92);
+                    padding: .32rem .62rem;
+                    font-size: .78rem;
+                    font-weight: 700;
+                }
+
+                .player-log-body {
+                    overflow: auto;
+                    padding-right: .1rem;
+                }
+
+                .player-log-list {
+                    display: grid;
+                    gap: .5rem;
+                }
+
+                .player-log-entry {
+                    border-radius: .85rem;
+                    border: 1px solid rgba(255,255,255,.12);
+                    background: rgba(30, 41, 59, .56);
+                    padding: .55rem .65rem;
+                }
+
+                .player-log-entry.is-good { border-color: rgba(25, 135, 84, .45); }
+                .player-log-entry.is-warn { border-color: rgba(255, 193, 7, .45); }
+                .player-log-entry.is-bad { border-color: rgba(220, 53, 69, .5); }
+
+                .player-log-entry-meta {
+                    display: flex;
+                    justify-content: space-between;
+                    gap: .5rem;
+                    align-items: baseline;
+                    margin-bottom: .2rem;
+                }
+
+                .player-log-entry-time {
+                    font-size: .72rem;
+                    color: rgba(203, 213, 225, .72);
+                    white-space: nowrap;
+                }
 
                 .server-player-shell.player-chrome-hidden .player-chrome-gradient-top,
                 .server-player-shell.player-chrome-hidden .player-chrome-gradient-bottom,
@@ -704,6 +942,33 @@
                     <div class="player-prompt-wrap">
                         <div id="nosebleed-player-prompt" class="player-prompt" aria-live="polite"></div>
                     </div>
+                    <div id="nosebleed-player-events" class="player-events" aria-live="polite"></div>
+                    <div id="nosebleed-player-log" class="player-log-panel d-none" aria-label="Nosebleed logging overlay" role="dialog" aria-modal="false">
+                        <div class="player-log-header">
+                            <div class="player-log-title">Logging overlay</div>
+                            <div class="player-log-actions">
+                                <button id="nosebleed-player-log-clear" type="button" class="player-log-action" aria-label="Clear logging overlay">Clear</button>
+                            </div>
+                        </div>
+                        <div class="player-log-body">
+                            <ul id="nosebleed-player-log-list" class="player-log-list list-unstyled mb-0" role="log" aria-live="polite" aria-relevant="additions text"></ul>
+                        </div>
+                    </div>
+                    @if (!hideSaveStateUi)
+                    {
+                        <div id="nosebleed-save-state-pill" class="player-state-pill" aria-label="Save state controls">
+                            <label class="visually-hidden" for="nosebleed-save-state-slot">Save state slot</label>
+                            <select id="nosebleed-save-state-slot" class="player-state-slot" aria-label="Save state slot">
+                                <option value="1">Slot 1</option>
+                                <option value="2">Slot 2</option>
+                                <option value="3">Slot 3</option>
+                                <option value="4">Slot 4</option>
+                                <option value="5">Slot 5</option>
+                            </select>
+                            <button id="nosebleed-save-state-save" class="player-state-action is-primary" type="button" aria-label="Save state">Save</button>
+                            <button id="nosebleed-save-state-load" class="player-state-action is-success" type="button" aria-label="Load state">Load</button>
+                        </div>
+                    }
                     <div id="nosebleed-player-bottom-bar" class="player-bottom-bar">
                         <div class="player-control-cluster">
                             <div class="player-audio-controls">
@@ -725,14 +990,15 @@
                             <div class="player-view-mode-buttons">
                                 <button id="nosebleed-view-windowed" class="player-control-button" type="button" aria-label="Windowed view" title="Windowed view"><span class="player-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><rect x="5" y="6" width="14" height="12" rx="1.5"></rect></svg></span><span class="player-control-label">Windowed</span></button>
                                 <button id="nosebleed-view-theater" class="player-control-button" type="button" aria-label="Theater view" title="Theater view"><span class="player-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 7.5h18"></path><rect x="4" y="7.5" width="16" height="9.5" rx="1.5"></rect></svg></span><span class="player-control-label">Theater</span></button>
-                                <button id="nosebleed-fullscreen" class="player-control-button" type="button" aria-label="Full screen" title="Full screen"><span class="player-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M8 4H4v4"></path><path d="M16 4h4v4"></path><path d="M20 16v4h-4"></path><path d="M4 16v4h4"></path></svg></span><span class="player-control-label">Full screen</span></button>
+                                <button id="nosebleed-fullscreen" class="player-control-button" type="button" aria-label="Full screen" title="Full screen"><span class="player-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M8 4H4v4"></path><path d="M16 4h4v4"></path><path d="M20 16v4h-4"></path><path d="M4 16v4h4"></path></svg></span></button>
+                                <button id="nosebleed-logging-toggle" class="player-control-button" type="button" aria-label="Toggle logging overlay" title="Toggle logging overlay"><span class="player-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M7 6h10"></path><path d="M7 12h10"></path><path d="M7 18h10"></path><path d="M5 6h.01"></path><path d="M5 12h.01"></path><path d="M5 18h.01"></path></svg></span></button>
                             </div>
                         </div>
                     </div>
                 </div>
                 @if (!Model.IsSpectator)
                 {
-                    <div id="touch-gamepad" class="touch-gamepad is-visible @(isGameGear ? "layout-game-gear" : isGenesis ? "layout-genesis" : isArcade ? "layout-arcade" : "layout-generic")" aria-label="On-screen @touchLayoutName gamepad">
+                    <div id="touch-gamepad" class="touch-gamepad is-visible @(isGameGear ? "layout-game-gear" : isGenesis ? "layout-genesis" : isArcadeSystem ? "layout-arcade" : "layout-generic")" aria-label="On-screen @touchLayoutName gamepad">
                         <div class="pad-cluster" data-control-group="dpad" aria-label="Directional pad">
                             <button class="touch-btn dpad" type="button" data-button="up" aria-label="Up">▲</button>
                             <button class="touch-btn dpad" type="button" data-button="left" aria-label="Left">◀</button>
@@ -751,7 +1017,7 @@
                                 <button class="touch-btn face" type="button" data-button="b" data-control-group="genesis-b" aria-label="Genesis B">B</button>
                                 <button class="touch-btn face" type="button" data-button="a" data-control-group="genesis-c" aria-label="Genesis C">C</button>
                             }
-                            else if (isArcade)
+                            else if (isArcadeSystem)
                             {
                                 <button class="touch-btn face" type="button" data-button="b" aria-label="Arcade button 1">1</button>
                                 <button class="touch-btn face" type="button" data-button="a" aria-label="Arcade button 2">2</button>
@@ -767,7 +1033,7 @@
                             }
                         </div>
                         <div class="menu-cluster" data-control-group="menu" aria-label="Menu buttons">
-                            @if (isArcade)
+                            @if (isArcadeSystem)
                             {
                                 <button class="touch-btn menu" type="button" data-command="insert_coin" aria-label="Insert coin">Coin</button>
                                 <button class="touch-btn menu" type="button" data-button="start" aria-label="Start">Start</button>
@@ -798,7 +1064,7 @@
                 </div>
                 @if (!Model.IsSpectator && !string.IsNullOrWhiteSpace(Model.SessionId))
                 {
-                    <form asp-controller="Games" asp-action="LeaveServerSession" method="post" class="d-grid mt-3">
+                    <form asp-controller="Games" asp-action="LeaveServerSession" method="post" class="d-grid mt-3" id="leave-seat-form">
                         <input type="hidden" name="sessionId" value="@Model.SessionId" />
                         @if (!string.IsNullOrWhiteSpace(Model.LeaveSessionReturnUrl))
                         {
@@ -838,28 +1104,55 @@
                             </form>
                         }
                     </div>
-                    @if (Model.CurrentRoomId is not null && Model.CanCreateShareLinks)
+                    @if (Model.CurrentRoomId is int advancedRoomId && (Model.CanCreateShareLinks || canManageBatterySaves))
                     {
-                        <details class="border rounded-4 p-3 bg-body-tertiary" id="playserver-share-card">
-                            <summary>Share</summary>
-                            <div class="d-grid gap-2 mt-3 mb-2">
-                                <form asp-action="CreateRoomShareLink" method="post" asp-antiforgery="true">
-                                    <input type="hidden" name="roomId" value="@Model.CurrentRoomId" />
-                                    <input type="hidden" name="grantMode" value="Spectator" />
-                                    <button type="submit" class="btn btn-outline-secondary w-100">Spectator link</button>
-                                </form>
-                                <form asp-action="CreateRoomShareLink" method="post" asp-antiforgery="true">
-                                    <input type="hidden" name="roomId" value="@Model.CurrentRoomId" />
-                                    <input type="hidden" name="grantMode" value="Player" />
-                                    <button type="submit" class="btn btn-outline-primary w-100">Player link</button>
-                                </form>
+                        <details class="border rounded-4 p-3 bg-body-tertiary" id="playserver-advanced-card">
+                            <summary>Advanced</summary>
+                            <div class="d-grid gap-3 mt-3 mb-2">
+                                @if (Model.CanCreateShareLinks)
+                                {
+                                    <div>
+                                        <div class="fw-semibold small mb-2">Share links</div>
+                                        <div class="d-grid gap-2">
+                                            <form asp-action="CreateRoomShareLink" method="post" asp-antiforgery="true">
+                                                <input type="hidden" name="roomId" value="@advancedRoomId" />
+                                                <input type="hidden" name="grantMode" value="Spectator" />
+                                                <button type="submit" class="btn btn-outline-secondary w-100">Spectator link</button>
+                                            </form>
+                                            <form asp-action="CreateRoomShareLink" method="post" asp-antiforgery="true">
+                                                <input type="hidden" name="roomId" value="@advancedRoomId" />
+                                                <input type="hidden" name="grantMode" value="Player" />
+                                                <button type="submit" class="btn btn-outline-primary w-100">Player link</button>
+                                            </form>
+                                        </div>
+                                        @if (!string.IsNullOrWhiteSpace(Model.GeneratedShareLink))
+                                        {
+                                            <div class="small mt-2">
+                                                <code class="user-select-all">@Model.GeneratedShareLink</code>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                                @if (canManageBatterySaves)
+                                {
+                                    <div>
+                                        <div class="fw-semibold small mb-2">Battery saves</div>
+                                        <div class="d-grid gap-2">
+                                            @if (!string.IsNullOrWhiteSpace(Model.SessionId) && !Model.IsSpectator)
+                                            {
+                                                <form asp-controller="Games" asp-action="FlushServerSessionSave" method="post">
+                                                    <input type="hidden" name="roomId" value="@advancedRoomId" />
+                                                    <input type="hidden" name="returnUrl" value="@(Context.Request.Path + Context.Request.QueryString)" />
+                                                    <button type="submit" class="btn btn-outline-warning w-100">Flush save</button>
+                                                </form>
+                                            }
+                                            <a class="btn btn-outline-primary w-100" asp-controller="ProfileBatterySaves" asp-action="Upload" asp-route-gameId="@game.Id" asp-route-gameFileId="@Model.File!.Id">Upload save</a>
+                                            <a class="btn btn-outline-secondary w-100" asp-controller="ProfileBatterySaves" asp-action="History" asp-route-gameId="@game.Id" asp-route-gameFileId="@Model.File!.Id">Save history</a>
+                                            <button type="button" class="btn btn-outline-success w-100" data-bs-toggle="modal" data-bs-target="#playServerSaveHistoryModal">Manage saves</button>
+                                        </div>
+                                    </div>
+                                }
                             </div>
-                            @if (!string.IsNullOrWhiteSpace(Model.GeneratedShareLink))
-                            {
-                                <div class="small mt-2">
-                                    <code class="user-select-all">@Model.GeneratedShareLink</code>
-                                </div>
-                            }
                         </details>
                     }
                 </aside>
@@ -894,7 +1187,8 @@
     touchLayoutName,
     keepAliveUrl = Url.Action("KeepAliveServerSession", "Games"),
     roomPresenceUrl = Model.CurrentRoomId is null ? null : Url.Action("RoomPresence", "Games", new { roomId = Model.CurrentRoomId }),
-    roomChatUrl = Model.CurrentRoomId is null ? null : Url.Action("RoomChat", "Games", new { roomId = Model.CurrentRoomId })
+    roomChatUrl = Model.CurrentRoomId is null ? null : Url.Action("RoomChat", "Games", new { roomId = Model.CurrentRoomId }),
+    batterySaveDiagnostics = Model.BatterySaveDiagnostics
 }))
 </script>
 <script src="~/js/nosebleed-player/input-helpers.js" asp-append-version="true"></script>
@@ -1149,6 +1443,30 @@
     loadChat();
     window.setInterval(loadPresence, 3000);
     window.setInterval(loadChat, 3000);
+})();
+</script>
+<script>
+(() => {
+    const modal = document.getElementById('playServerSaveHistoryModal');
+    const frame = document.getElementById('playServerSaveHistoryFrame');
+    if (!modal || !frame) {
+        return;
+    }
+
+    const src = frame.getAttribute('data-src');
+    if (!src) {
+        return;
+    }
+
+    modal.addEventListener('show.bs.modal', () => {
+        if (!frame.getAttribute('src')) {
+            frame.setAttribute('src', src);
+        }
+    });
+
+    modal.addEventListener('hidden.bs.modal', () => {
+        frame.removeAttribute('src');
+    });
 })();
 </script>
 }

@@ -57,6 +57,15 @@ public sealed class ServerPlayerJsMarkupTests
     }
 
     [Fact]
+    public void ServerPlayerJs_Swaps_Gamepad_A_And_B_Button_Indices_For_Browser_Input()
+    {
+        var content = ReadServerPlayerJs();
+
+        Assert.Contains("a: keys.has(\"KeyZ\") || touchControls.has(\"a\") || !!pad?.buttons[1]?.pressed", content);
+        Assert.Contains("b: keys.has(\"KeyX\") || touchControls.has(\"b\") || !!pad?.buttons[0]?.pressed", content);
+    }
+
+    [Fact]
     public void ServerPlayerJs_Defaults_Overlay_On_And_Manages_Overlay_Audio_Volume()
     {
         var content = ReadServerPlayerJs();

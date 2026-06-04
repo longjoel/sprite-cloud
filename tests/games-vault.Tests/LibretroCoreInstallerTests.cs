@@ -35,6 +35,25 @@ public sealed class LibretroCoreInstallerTests
     }
 
     [Fact]
+    public void Catalog_defaults_game_boy_to_mgba_native_and_web_cores()
+    {
+        var gb = CoreCompatibilityCatalog.Find("Nintendo - Game Boy");
+        var gbc = CoreCompatibilityCatalog.Find("Nintendo - Game Boy Color");
+        var gba = CoreCompatibilityCatalog.Find("Nintendo - Game Boy Advance");
+
+        Assert.NotNull(gb);
+        Assert.NotNull(gbc);
+        Assert.NotNull(gba);
+
+        Assert.Equal("mgba_libretro.so", gb!.NativeCoreFileName);
+        Assert.Equal("mgba", gb.WebPlayerCoreKey);
+        Assert.Equal("mgba_libretro.so", gbc!.NativeCoreFileName);
+        Assert.Equal("mgba", gbc.WebPlayerCoreKey);
+        Assert.Equal("mgba_libretro.so", gba!.NativeCoreFileName);
+        Assert.Equal("mgba", gba.WebPlayerCoreKey);
+    }
+
+    [Fact]
     public void Catalog_knows_mame_native_core()
     {
         var entry = CoreCompatibilityCatalog.Find("MAME");

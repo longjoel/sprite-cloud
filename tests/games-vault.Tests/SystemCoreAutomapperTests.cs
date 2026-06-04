@@ -27,6 +27,27 @@ public sealed class SystemCoreAutomapperTests
     }
 
     [Fact]
+    public async Task AutoMapDetectedSystemsAsync_creates_game_boy_mapping_when_mgba_core_is_installed()
+    {
+        await using var fixture = await CreateFixtureAsync();
+        fixture.Db.Games.Add(new Game { Name = "Pokemon Blue", SystemName = "Nintendo - Game Boy", SizeBytes = 1 });
+        fixture.Db.Games.Add(new Game { Name = "Pokemon Crystal", SystemName = "Nintendo - Game Boy Color", SizeBytes = 1 });
+        await fixture.Db.SaveChangesAsync();
+
+        var automapper = new SystemCoreAutomapper(fixture.Db);
+
+        var result = await automapper.AutoMapDetectedSystemsAsync(["mgba_libretro.so"]);
+
+        Assert.Equal(2, result.Created);
+        var gb = await fixture.Db.SystemCoreMappings.SingleAsync(x => x.SystemName == "Nintendo - Game Boy");
+        var gbc = await fixture.Db.SystemCoreMappings.SingleAsync(x => x.SystemName == "Nintendo - Game Boy Color");
+        Assert.Equal("mgba_libretro.so", gb.NativeCoreFileName);
+        Assert.Equal("mgba", gb.WebPlayerCoreKey);
+        Assert.Equal("mgba_libretro.so", gbc.NativeCoreFileName);
+        Assert.Equal("mgba", gbc.WebPlayerCoreKey);
+    }
+
+    [Fact]
     public async Task AutoMapDetectedSystemsAsync_does_not_overwrite_manual_mapping()
     {
         await using var fixture = await CreateFixtureAsync();

@@ -23,6 +23,7 @@ public sealed class ServerGamePlayViewModel
     public string? CurrentProfileDisplayName { get; init; }
     public bool CurrentProfileIsEphemeralGuest { get; init; }
     public string? CurrentProfileParentDisplayName { get; init; }
+    public IReadOnlyList<ProfileBatterySaveLogEntry> BatterySaveDiagnostics { get; init; } = [];
     public bool CanCreateShareLinks { get; init; }
     public string? GeneratedShareLink { get; init; }
     public string? GeneratedShareGrantMode { get; init; }

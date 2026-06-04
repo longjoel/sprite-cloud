@@ -1,0 +1,245 @@
+@model games_vault.Models.ViewModels.ProfileBatterySaveHistoryViewModel
+
+@{
+    ViewData["Title"] = "Battery save management";
+}
+
+<div class="d-flex align-items-center justify-content-between gap-3 mb-3 flex-wrap">
+    <div>
+        <h1 class="h3 mb-0">Battery save management</h1>
+        <div class="text-muted">@Model.GameName · @Model.SystemName · @Model.GameFileName</div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <a class="btn btn-outline-primary" asp-action="Upload" asp-route-gameId="@Model.GameId" asp-route-gameFileId="@Model.GameFileId">Upload save</a>
+        <a class="btn btn-outline-secondary" asp-controller="Games" asp-action="PlayServer" asp-route-id="@Model.GameId">Back to game</a>
+    </div>
+</div>
+
+@if (TempData["Message"] is string message && !string.IsNullOrWhiteSpace(message))
+{
+    <div class="alert alert-info">@message</div>
+}
+
+<div asp-validation-summary="ModelOnly" class="alert alert-danger"></div>
+
+@if (Model.Revisions.Count == 0)
+{
+    <div class="alert alert-info">
+        No battery save revisions have been recorded for this game yet.
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="card-body table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr>
+                        <th>When</th>
+                        <th>Stream</th>
+                        <th>Source</th>
+                        <th>Size</th>
+                        <th>SHA-256</th>
+                        <th>Upload file</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var revision in Model.Revisions)
+                    {
+                        <tr class="@(revision.IsLatest ? "table-success" : "")">
+                            <td>
+                                <div class="fw-semibold">@revision.RevisionTimestampUtc.ToString("u")</div>
+                                @if (revision.IsLatest)
+                                {
+                                    <div class="badge text-bg-success">Latest</div>
+                                }
+                            </td>
+                            <td>
+                                <div class="fw-semibold">@revision.Key / @revision.FileName</div>
+                                <div class="text-muted small">@(string.IsNullOrWhiteSpace(revision.CoreKey) ? "No core key" : revision.CoreKey)</div>
+                            </td>
+                            <td>@revision.Source</td>
+                            <td>@(revision.SizeBytes.ToString("N0")) bytes</td>
+                            <td><code>@revision.Sha256[..Math.Min(12, revision.Sha256.Length)]</code></td>
+                            <td>
+                                @if (!string.IsNullOrWhiteSpace(revision.OriginalUploadFileName))
+                                {
+                                    <span>@revision.OriginalUploadFileName</span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted">—</span>
+                                }
+                            </td>
+                            <td class="text-end">
+                                <button
+                                    type="button"
+                                    class="btn btn-sm btn-outline-primary"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#saveManageModal"
+                                    data-save-game-id="@Model.GameId"
+                                    data-save-game-file-id="@Model.GameFileId"
+                                    data-save-profile-game-save-id="@revision.ProfileGameSaveId"
+                                    data-save-revision-id="@revision.RevisionId"
+                                    data-save-file-name="@revision.FileName"
+                                    data-save-label="@revision.Key / @revision.FileName"
+                                    data-save-source="@revision.Source"
+                                    data-save-size="@revision.SizeBytes.ToString("N0") bytes"
+                                    data-save-sha256="@revision.Sha256"
+                                    data-save-timestamp="@revision.RevisionTimestampUtc.ToString("u")"
+                                    data-save-download-url="@Url.Action("Download", "ProfileBatterySaves", new { gameId = Model.GameId, gameFileId = Model.GameFileId, revisionId = revision.RevisionId })">
+                                    Manage
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+<div class="modal fade" id="saveManageModal" tabindex="-1" aria-labelledby="saveManageModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title" id="saveManageModalLabel">Manage battery save</h5>
+                    <div class="text-muted small" id="saveManageModalMeta"></div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <dl class="row mb-0">
+                            <dt class="col-sm-3">Revision</dt>
+                            <dd class="col-sm-9" id="saveManageRevisionId">—</dd>
+
+                            <dt class="col-sm-3">Timestamp</dt>
+                            <dd class="col-sm-9" id="saveManageTimestamp">—</dd>
+
+                            <dt class="col-sm-3">Source</dt>
+                            <dd class="col-sm-9" id="saveManageSource">—</dd>
+
+                            <dt class="col-sm-3">Size</dt>
+                            <dd class="col-sm-9" id="saveManageSize">—</dd>
+
+                            <dt class="col-sm-3">SHA-256</dt>
+                            <dd class="col-sm-9"><code id="saveManageSha256">—</code></dd>
+                        </dl>
+                    </div>
+                </div>
+
+                <form asp-action="Rename" method="post" class="mb-3" id="saveRenameForm">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="gameId" value="@Model.GameId" id="saveRenameGameId" />
+                    <input type="hidden" name="gameFileId" value="@Model.GameFileId" id="saveRenameGameFileId" />
+                    <input type="hidden" name="profileGameSaveId" id="saveRenameProfileGameSaveId" />
+
+                    <label class="form-label" for="saveRenameFileName">Rename save file</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" name="fileName" id="saveRenameFileName" maxlength="260" placeholder="e.g. sonic.srm" />
+                        <button type="submit" class="btn btn-primary">Rename</button>
+                    </div>
+                    <div class="form-text">This updates the logical save name while keeping its revision history.</div>
+                </form>
+
+                <div class="d-flex gap-2 flex-wrap align-items-center">
+                    <form asp-action="LoadAndReset" method="post" class="d-inline" id="saveLoadResetForm">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="gameId" value="@Model.GameId" id="saveLoadGameId" />
+                        <input type="hidden" name="gameFileId" value="@Model.GameFileId" id="saveLoadGameFileId" />
+                        <input type="hidden" name="revisionId" id="saveLoadRevisionId" />
+                        <button type="submit" class="btn btn-warning">Load and reset</button>
+                    </form>
+
+                    <form asp-action="Delete" method="post" class="d-inline" id="saveDeleteForm" onsubmit="return confirm('Delete this save revision? This cannot be undone.');">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="gameId" value="@Model.GameId" id="saveDeleteGameId" />
+                        <input type="hidden" name="gameFileId" value="@Model.GameFileId" id="saveDeleteGameFileId" />
+                        <input type="hidden" name="revisionId" id="saveDeleteRevisionId" />
+                        <button type="submit" class="btn btn-outline-danger">Delete revision</button>
+                    </form>
+
+                    <a class="btn btn-outline-secondary" id="saveDownloadLink" href="#" download>Download</a>
+                    <div class="text-muted small">Load &amp; reset promotes this revision to the latest save, restores it into the live runtime save dir, and resets the active session when one exists.</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        (() => {
+            const modal = document.getElementById('saveManageModal');
+            if (!modal) return;
+
+            const label = document.getElementById('saveManageModalLabel');
+            const meta = document.getElementById('saveManageModalMeta');
+            const revisionId = document.getElementById('saveManageRevisionId');
+            const timestamp = document.getElementById('saveManageTimestamp');
+            const source = document.getElementById('saveManageSource');
+            const size = document.getElementById('saveManageSize');
+            const sha256 = document.getElementById('saveManageSha256');
+            const renameGameId = document.getElementById('saveRenameGameId');
+            const renameGameFileId = document.getElementById('saveRenameGameFileId');
+            const renameProfileGameSaveId = document.getElementById('saveRenameProfileGameSaveId');
+            const renameFileName = document.getElementById('saveRenameFileName');
+            const loadGameId = document.getElementById('saveLoadGameId');
+            const loadGameFileId = document.getElementById('saveLoadGameFileId');
+            const loadRevisionId = document.getElementById('saveLoadRevisionId');
+            const deleteGameId = document.getElementById('saveDeleteGameId');
+            const deleteGameFileId = document.getElementById('saveDeleteGameFileId');
+            const deleteRevisionId = document.getElementById('saveDeleteRevisionId');
+            const downloadLink = document.getElementById('saveDownloadLink');
+
+            modal.addEventListener('show.bs.modal', event => {
+                const button = event.relatedTarget;
+                if (!button) return;
+
+                const saveLabel = button.getAttribute('data-save-label') || 'Battery save';
+                label.textContent = `Manage ${saveLabel}`;
+                meta.textContent = button.getAttribute('data-save-timestamp') || '';
+                revisionId.textContent = button.getAttribute('data-save-revision-id') || '—';
+                timestamp.textContent = button.getAttribute('data-save-timestamp') || '—';
+                source.textContent = button.getAttribute('data-save-source') || '—';
+                size.textContent = button.getAttribute('data-save-size') || '—';
+                sha256.textContent = button.getAttribute('data-save-sha256') || '—';
+
+                renameGameId.value = button.getAttribute('data-save-game-id') || '';
+                renameGameFileId.value = button.getAttribute('data-save-game-file-id') || '';
+                renameProfileGameSaveId.value = button.getAttribute('data-save-profile-game-save-id') || '';
+                renameFileName.value = button.getAttribute('data-save-file-name') || '';
+
+                loadGameId.value = button.getAttribute('data-save-game-id') || '';
+                loadGameFileId.value = button.getAttribute('data-save-game-file-id') || '';
+                loadRevisionId.value = button.getAttribute('data-save-revision-id') || '';
+                deleteGameId.value = button.getAttribute('data-save-game-id') || '';
+                deleteGameFileId.value = button.getAttribute('data-save-game-file-id') || '';
+                deleteRevisionId.value = button.getAttribute('data-save-revision-id') || '';
+
+                downloadLink.href = button.getAttribute('data-save-download-url') || '#';
+            });
+        })();
+        (() => {
+            const BatterySaveDiagnostics = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Diagnostics, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
+            if (!BatterySaveDiagnostics.length || window.parent === window) {
+                return;
+            }
+
+            window.parent.postMessage(
+                {
+                    type: 'games-vault:player-log',
+                    entries: BatterySaveDiagnostics
+                },
+                window.location.origin);
+        })();
+    </script>
+}
