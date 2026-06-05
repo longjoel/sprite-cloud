@@ -417,6 +417,95 @@ public sealed class SpectatorAccessTests
     }
 
     [Fact]
+    public async Task CreateRoomAsync_RejectsEphemeralGuestEvenAfterPlayerShareLinkRedemption()
+    {
+        await using var fixture = await SpectatorFixture.CreateAsync();
+        var localProfiles = new LocalProfileService(fixture.Db, new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor));
+        var host = await localProfiles.CreateAsync("Joel", "joel", "password123", "#198754", CancellationToken.None);
+        fixture.Room.CreatedByProfileId = host.Id;
+        await fixture.Db.SaveChangesAsync();
+        var shareLinks = fixture.CreateShareLinkService();
+        var created = await shareLinks.CreateAsync(fixture.Room.Id, host.Id, RoomShareGrantMode.Player, CancellationToken.None);
+        fixture.HttpContext.Response.Headers.Clear();
+
+        var roomService = fixture.CreateRoomService();
+        var redeemed = await roomService.JoinByShareTokenAsync(created.RawToken, fixture.ViewerId, CancellationToken.None);
+        Assert.True(redeemed.Success);
+        var guest = await fixture.Db.UserProfiles.SingleAsync(x => x.ParentProfileId == host.Id && x.IsEphemeral);
+        Assert.Equal(NosebleedSeatKind.Player, redeemed.Seat!.Kind);
+
+        var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
+        currentProfile.SetCurrent(guest.Id, "guest-session");
+
+        var createdRoom = await roomService.CreateRoomAsync(
+            fixture.Game.Id,
+            fixture.File.Id,
+            fixture.Game.SystemName,
+            fixture.File.ExternalPath!,
+            CancellationToken.None);
+
+        Assert.False(createdRoom.Success);
+        Assert.Equal("Sign in with a player profile to create a room.", createdRoom.Error);
+    }
+
+    [Fact]
+    public async Task JoinByCodeAsync_ReturnsSpectatorForEphemeralGuestOutsideRedeemedRoom()
+    {
+        await using var fixture = await SpectatorFixture.CreateAsync();
+        var localProfiles = new LocalProfileService(fixture.Db, new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor));
+        var host = await localProfiles.CreateAsync("Joel", "joel", "password123", "#198754", CancellationToken.None);
+        fixture.Room.CreatedByProfileId = host.Id;
+        await fixture.Db.SaveChangesAsync();
+        var shareLinks = fixture.CreateShareLinkService();
+        var created = await shareLinks.CreateAsync(fixture.Room.Id, host.Id, RoomShareGrantMode.Player, CancellationToken.None);
+        fixture.HttpContext.Response.Headers.Clear();
+
+        var roomService = fixture.CreateRoomService();
+        var redeemed = await roomService.JoinByShareTokenAsync(created.RawToken, fixture.ViewerId, CancellationToken.None);
+        Assert.True(redeemed.Success);
+        var guest = await fixture.Db.UserProfiles.SingleAsync(x => x.ParentProfileId == host.Id && x.IsEphemeral);
+
+        var otherGame = new Game { Name = "Other Game", SystemName = fixture.Game.SystemName, SizeBytes = 1 };
+        var otherFile = new GameFile { Game = otherGame, Name = "other.bin", SizeBytes = 1, ExternalPath = fixture.File.ExternalPath };
+        fixture.Db.Games.Add(otherGame);
+        fixture.Db.GameFiles.Add(otherFile);
+        await fixture.Db.SaveChangesAsync();
+        var otherSessionId = "games-vault-other-share-session";
+        var otherRoom = new GamePlayRoom
+        {
+            Code = "QWER",
+            GameId = otherGame.Id,
+            GameFileId = otherFile.Id,
+            CreatedByProfileId = host.Id,
+            Status = GamePlayRoomStatus.Active,
+            CreatedUtc = DateTime.UtcNow,
+            LastActiveUtc = DateTime.UtcNow,
+            NosebleedSessionId = otherSessionId
+        };
+        fixture.Db.GamePlayRooms.Add(otherRoom);
+        await fixture.Db.SaveChangesAsync();
+        SeedSession(fixture.SessionManager, new NosebleedSession(
+            otherSessionId,
+            otherGame.Id,
+            otherFile.Id,
+            18125,
+            "http://127.0.0.1:18125",
+            null,
+            DateTimeOffset.UtcNow,
+            "/tmp/fake-core.so",
+            fixture.File.ExternalPath!),
+            StartLongRunningProcess());
+
+        var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
+        currentProfile.SetCurrent(guest.Id, "guest-session");
+        var outsideShareResult = await roomService.JoinByCodeAsync(otherRoom.Code, "other-viewer", CancellationToken.None);
+
+        Assert.True(outsideShareResult.Success);
+        Assert.Equal(NosebleedSeatKind.Spectator, outsideShareResult.Seat!.Kind);
+        Assert.Null(outsideShareResult.Seat.Port);
+    }
+
+    [Fact]
     public async Task PlayServer_ShareLinkGuestShowsChatIdentityLabel()
     {
         await using var fixture = await SpectatorFixture.CreateAsync();

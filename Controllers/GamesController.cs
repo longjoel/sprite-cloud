@@ -1217,7 +1217,7 @@ public class GamesController(
             return NotFound();
         }
 
-        var canPlay = await currentAccess.CanPlayAsync(cancellationToken);
+        var canPlay = await currentAccess.CanPlaySessionAsync(sessionId, cancellationToken);
         var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow, allowPlayer: canPlay);
         string? token;
         if (channel == "input")
@@ -1303,7 +1303,7 @@ public class GamesController(
             return NotFound();
         }
 
-        var canPlay = await currentAccess.CanPlayAsync(cancellationToken);
+        var canPlay = await currentAccess.CanPlaySessionAsync(sessionId, cancellationToken);
         var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow, allowPlayer: canPlay);
         string? token;
         if (canPlay && seat.Kind == NosebleedSeatKind.Player && seat.Port is not null)

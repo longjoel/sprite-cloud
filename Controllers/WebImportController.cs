@@ -1,9 +1,11 @@
 using games_vault.BackgroundJobs;
 using games_vault.Libretro;
+using games_vault.Web;
 using Microsoft.AspNetCore.Mvc;
 
 namespace games_vault.Controllers;
 
+[ServiceFilter(typeof(AdminOnlyFilter))]
 public sealed class WebImportController(
     IInternalJobsClient internalJobs,
     LibretroDatabaseStore libretroStore) : Controller
