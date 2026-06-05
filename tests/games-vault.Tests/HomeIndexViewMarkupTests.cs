@@ -105,23 +105,14 @@ public sealed class HomeIndexViewMarkupTests
     }
 
     [Fact]
-    public void HomeView_DefinesAdminNosebleedRuntimeProcessSection()
+    public void HomeView_DoesNotRender_AdminRuntimeSurvey()
     {
         var content = ReadHomeView();
 
-        Assert.Contains("id=\"home-admin-runtime\"", content);
-        Assert.Contains("Nosebleed runtime processes", content);
-        Assert.Contains("@Model.NosebleedRuntimeProcesses.Count running", content);
-        Assert.Contains("@foreach (var process in Model.NosebleedRuntimeProcesses)", content);
-        Assert.Contains("<th scope=\"col\">PID</th>", content);
-        Assert.Contains("<th scope=\"col\">User</th>", content);
-        Assert.Contains("<th scope=\"col\" class=\"text-end\">Actions</th>", content);
-        Assert.Contains("@process.UserLabel", content);
-        Assert.Contains("asp-action=\"StopNosebleedSession\"", content);
-        Assert.Contains("name=\"sessionId\" value=\"@process.SessionId\"", content);
-        Assert.Contains("asp-action=\"KillNosebleedProcess\"", content);
-        Assert.Contains("name=\"pid\" value=\"@process.ProcessId\"", content);
-        Assert.Contains(">Terminate</button>", content);
+        Assert.DoesNotContain("id=\"home-admin-runtime\"", content);
+        Assert.DoesNotContain("Nosebleed runtime processes", content);
+        Assert.DoesNotContain("@foreach (var process in Model.NosebleedRuntimeProcesses)", content);
+        Assert.DoesNotContain("asp-action=\"KillNosebleedProcess\"", content);
     }
 
     [Fact]

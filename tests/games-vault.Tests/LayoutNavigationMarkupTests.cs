@@ -20,30 +20,16 @@ public sealed class LayoutNavigationMarkupTests
     }
 
     [Fact]
-    public void Layout_UsesAdminDropdown_InsteadOfTopLevelAdminLinks()
+    public void Layout_UsesSingleAdminBackendLink_InsteadOfDropdown()
     {
         var content = ReadLayout();
 
-        Assert.Contains("id=\"admin-nav-dropdown\"", content);
-        Assert.Contains(">Admin</a>", content);
-        Assert.Contains("dropdown-menu", content);
-        Assert.DoesNotContain("asp-controller=\"Profiles\" asp-action=\"Index\">Profiles</a>\n                        </li>\n                        <li class=\"nav-item\">", content);
-    }
-
-    [Fact]
-    public void Layout_AdminDropdownContainsExpectedEntries()
-    {
-        var content = ReadLayout();
-
-        Assert.Contains("asp-controller=\"Profiles\" asp-action=\"Index\">Profiles</a>", content);
-        Assert.Contains("asp-controller=\"GameFiles\" asp-action=\"Index\">Game Files</a>", content);
-        Assert.Contains("asp-controller=\"SystemFiles\" asp-action=\"Index\">System Files</a>", content);
-        Assert.Contains("asp-controller=\"SystemCoreMappings\" asp-action=\"Index\">Core Mappings</a>", content);
-        Assert.Contains("asp-controller=\"Profiles\" asp-action=\"Invites\">Profile Invites</a>", content);
-        Assert.Contains("asp-controller=\"Sources\" asp-action=\"Index\">Sources</a>", content);
-        Assert.Contains("asp-controller=\"Jobs\" asp-action=\"Index\">Jobs</a>", content);
-        Assert.Contains("asp-controller=\"Downloads\" asp-action=\"Index\">Downloads</a>", content);
-        Assert.Contains("asp-controller=\"Home\" asp-action=\"Index\" asp-fragment=\"home-admin-runtime\">Nosebleed Runtime</a>", content);
+        Assert.Contains("asp-controller=\"Admin\" asp-action=\"Index\">Admin</a>", content);
+        Assert.DoesNotContain("id=\"admin-nav-dropdown\"", content);
+        Assert.DoesNotContain("dropdown-menu", content);
+        Assert.DoesNotContain("asp-controller=\"GameFiles\" asp-action=\"Index\">Game Files</a>", content);
+        Assert.DoesNotContain("asp-controller=\"SystemFiles\" asp-action=\"Index\">System Files</a>", content);
+        Assert.DoesNotContain("asp-controller=\"Home\" asp-action=\"Index\" asp-fragment=\"home-admin-runtime\"", content);
     }
 
     [Fact]
