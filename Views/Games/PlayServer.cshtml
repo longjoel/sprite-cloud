@@ -929,7 +929,7 @@
                 }
             </style>
 
-            <div id="server-player-shell" class="server-player-shell bg-dark rounded p-2">
+            <div id="server-player-shell" class="server-player-shell bg-dark rounded p-2" tabindex="0" aria-label="Game player surface">
                 <canvas id="nosebleed-screen" class="rounded border border-secondary"></canvas>
                 <video id="nosebleed-screen-video" class="rounded border border-secondary d-none" autoplay playsinline muted></video>
                 <audio id="nosebleed-rtc-audio" class="d-none" autoplay playsinline muted></audio>
@@ -1054,6 +1054,12 @@
                 <button id="nosebleed-layout-lock" class="player-overlay-action layout-lock-action" type="button" aria-label="Unlock control layout">Unlock layout</button>
                 <button id="nosebleed-layout-reset" class="player-overlay-action layout-reset-action" type="button" aria-label="Reset control layout">Reset</button>
             </div>
+            <div class="alert alert-info small mt-3 mb-0" id="playserver-gamepad-browser-note">
+                <div class="fw-semibold">Controller note</div>
+                <div>
+                    Browsers may wait to expose already-connected gamepads until the page sees controller input. If a controller was plugged in before opening the game and does not respond, unplug it, plug it back in, then press a button while this page is focused.
+                </div>
+            </div>
             <div class="playserver-seat-panel border rounded-4 p-3 mt-3 bg-body-tertiary" id="room-presence-panel">
                 <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-2">
                     <div class="fw-semibold">Seats</div>
@@ -1081,7 +1087,6 @@
                         <ul class="list-unstyled mb-0 small" id="room-presence-players">
                             <li class="text-muted">Loading players…</li>
                         </ul>
-                        <ul class="list-unstyled mb-0 mt-2 small" id="room-presence-watchers"></ul>
                     </div>
                     <div class="border rounded-4 p-3 bg-body-tertiary mb-3" id="room-chat-panel">
                         <div class="d-flex flex-wrap justify-content-end gap-2 align-items-start mb-2">
@@ -1210,12 +1215,12 @@
 
     const presenceSummaryEl = document.getElementById('room-presence-summary');
     const presencePlayersEl = document.getElementById('room-presence-players');
-    const presenceWatchersEl = document.getElementById('room-presence-watchers');
     const seatStripEl = document.getElementById('room-seat-strip');
     const chatStatusEl = document.getElementById('room-chat-status');
     const chatMessagesEl = document.getElementById('room-chat-messages');
     const chatLogEl = document.getElementById('room-chat-log');
     const chatFormEl = document.getElementById('room-chat-form');
+    const currentPlayerNumber = Number.isInteger(config.playerNumber) ? config.playerNumber : null;
 
     const clearChildren = (el) => {
         while (el && el.firstChild) {
@@ -1235,8 +1240,9 @@
     };
 
     const buildSeatCard = (playerNumber, occupant, statusText, tone) => {
+        const isCurrentSeat = currentPlayerNumber === playerNumber;
         const card = document.createElement('div');
-        card.className = `border rounded px-3 py-2 small bg-body ${tone}`.trim();
+        card.className = `border rounded px-3 py-2 small bg-body ${tone} ${isCurrentSeat ? 'border-primary border-2' : ''}`.trim();
         card.style.minWidth = '9rem';
 
         const seatLabel = document.createElement('div');
@@ -1244,12 +1250,12 @@
         seatLabel.textContent = `Player ${playerNumber}`;
 
         const occupantEl = document.createElement('div');
-        occupantEl.className = 'fw-semibold';
+        occupantEl.className = isCurrentSeat ? 'fw-bold' : 'fw-semibold';
         occupantEl.textContent = occupant;
 
         const statusEl = document.createElement('div');
         statusEl.className = 'text-muted';
-        statusEl.textContent = statusText;
+        statusEl.textContent = isCurrentSeat ? `${statusText} · your seat` : statusText;
 
         card.appendChild(seatLabel);
         card.appendChild(occupantEl);
@@ -1263,10 +1269,8 @@
         }
 
         const players = Array.isArray(payload.players) ? payload.players : [];
-        const watchers = Array.isArray(payload.watchers) ? payload.watchers : [];
-        presenceSummaryEl.textContent = `${payload.totalConnected ?? 0} connected · ${payload.watcherCount ?? 0} watching`;
+        presenceSummaryEl.textContent = `${payload.totalConnected ?? 0} connected`;
         clearChildren(presencePlayersEl);
-        clearChildren(presenceWatchersEl);
         clearChildren(seatStripEl);
 
         if (players.length === 0) {
@@ -1280,20 +1284,6 @@
                 item.appendChild(label);
                 item.append(` — ${player.displayName ?? 'Viewer'}${Number.isInteger(player.port) ? ` · Input ${player.port + 1}` : ''}`);
                 presencePlayersEl.appendChild(item);
-            }
-        }
-
-        if (watchers.length === 0) {
-            if (presenceWatchersEl) {
-                presenceWatchersEl.classList.add('d-none');
-            }
-        } else {
-            presenceWatchersEl?.classList.remove('d-none');
-            for (const watcher of watchers) {
-                const item = document.createElement('li');
-                item.className = 'text-muted';
-                item.textContent = watcher.displayName ?? 'Viewer';
-                presenceWatchersEl.appendChild(item);
             }
         }
 
@@ -1367,7 +1357,6 @@
             if (presenceSummaryEl && presencePlayersEl) {
                 presenceSummaryEl.textContent = 'Presence unavailable right now.';
                 clearChildren(presencePlayersEl);
-                clearChildren(presenceWatchersEl);
                 clearChildren(seatStripEl);
                 appendMutedListItem(presencePlayersEl, 'Could not load presence.');
                 if (seatStripEl) {

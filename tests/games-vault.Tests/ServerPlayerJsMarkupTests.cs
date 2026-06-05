@@ -23,12 +23,15 @@ public sealed class ServerPlayerJsMarkupTests
     }
 
     [Fact]
-    public void ServerPlayerJs_Updates_FullScreen_Button_Copy()
+    public void ServerPlayerJs_Updates_FullScreen_Button_Labels_Without_Replacing_Icon_Markup()
     {
         var content = ReadServerPlayerJs();
 
         Assert.Contains("Exit full screen", content);
         Assert.Contains("Full screen", content);
+        Assert.Contains("fullscreenButton.setAttribute(\"aria-label\", label);", content);
+        Assert.Contains("fullscreenButton.setAttribute(\"title\", label);", content);
+        Assert.DoesNotContain("fullscreenButton.textContent", content);
         Assert.Contains("syncViewModeButtons", content);
     }
 
@@ -76,5 +79,39 @@ public sealed class ServerPlayerJsMarkupTests
         Assert.Contains("audioGainNode", content);
         Assert.Contains("volumeSlider?.addEventListener(\"input\"", content);
         Assert.Contains("setOverlayEnabled(true, false);", content);
+    }
+
+    [Fact]
+    public void ServerPlayerJs_Primes_Preconnected_Gamepads_On_User_Activation()
+    {
+        var content = ReadServerPlayerJs();
+
+        Assert.Contains("function refreshGamepadSelectionFromBrowser", content);
+        Assert.Contains("function primePreconnectedGamepads", content);
+        Assert.Contains("window.addEventListener(\"pointerdown\", primePreconnectedGamepads", content);
+        Assert.Contains("window.addEventListener(\"keydown\", primePreconnectedGamepads", content);
+        Assert.Contains("window.addEventListener(\"gamepadconnected\", event =>", content);
+        Assert.Contains("primePreconnectedGamepads(event);", content);
+        Assert.Contains("refreshGamepadSelectionFromBrowser(event?.gamepad || null)", content);
+        Assert.Contains("function focusPlayerSurface", content);
+        Assert.Contains("shell.focus({ preventScroll: true });", content);
+        Assert.Contains("focusPlayerSurface();\n                primePreconnectedGamepads();", content);
+        Assert.DoesNotContain("nosebleed-controller-scan", content);
+        Assert.DoesNotContain("startControllerActivationScan", content);
+        Assert.DoesNotContain("scanForControllerActivation", content);
+        Assert.DoesNotContain("Press any controller button or move a stick now.", content);
+    }
+
+    [Fact]
+    public void ServerPlayerJs_Ignores_Disconnected_Stale_Gamepad_Slots()
+    {
+        var content = ReadServerPlayerJs();
+
+        Assert.Contains("const knownGamepads = new Map();", content);
+        Assert.Contains("function rememberGamepad", content);
+        Assert.Contains("if (pad.connected === false)", content);
+        Assert.Contains("if (selectedPad && selectedPad.connected !== false) return selectedPad;", content);
+        Assert.Contains("const knownPad = knownGamepads.get(selectedGamepadIndex) || null;", content);
+        Assert.Contains("forgetGamepad(event.gamepad);", content);
     }
 }
