@@ -175,6 +175,25 @@ public sealed class PlayServerViewMarkupTests
     }
 
     [Fact]
+    public void PlayerOne_Can_Kick_Other_Player_Seats_From_Roster()
+    {
+        var content = ReadPlayServerView();
+        var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
+        var controller = File.ReadAllText(Path.Combine(repoRoot, "Controllers", "GamesController.cs")).Replace("\r\n", "\n");
+
+        Assert.Contains("id=\"room-kick-form\"", content);
+        Assert.Contains("asp-action=\"KickRoomPlayer\"", content);
+        Assert.Contains("roomKickUrl = Model.CurrentRoomId is null ? null : Url.Action(\"KickRoomPlayer\", \"Games\"", content);
+        Assert.Contains("canKickPlayers = !Model.IsSpectator && Model.PlayerNumber == 1", content);
+        Assert.Contains("const canKickPlayers = config.canKickPlayers === true;", content);
+        Assert.Contains("const kickPlayer = async (viewerId, displayName) =>", content);
+        Assert.Contains("body.set('__RequestVerificationToken', token);", content);
+        Assert.Contains("kickButton.textContent = 'Kick';", content);
+        Assert.Contains("player.viewerId && player.playerNumber !== currentPlayerNumber", content);
+        Assert.Contains("public async Task<IActionResult> KickRoomPlayer(int roomId, string viewerId", controller);
+    }
+
+    [Fact]
     public void PlayServer_Does_Not_Render_Manual_Play_Section_For_Normal_Games()
     {
         var content = ReadPlayServerView();

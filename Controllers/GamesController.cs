@@ -1354,7 +1354,7 @@ public class GamesController(
         var snapshot = GamePlayRoomService.BuildPresenceSnapshot(assignments, participants);
         return Json(new
         {
-            players = snapshot.Players.Select(x => new { displayName = x.DisplayName, playerNumber = x.PlayerNumber, port = x.Port }),
+            players = snapshot.Players.Select(x => new { displayName = x.DisplayName, playerNumber = x.PlayerNumber, port = x.Port, viewerId = x.ViewerId }),
             watchers = snapshot.Watchers.Select(x => new { displayName = x.DisplayName }),
             watcherCount = snapshot.WatcherCount,
             totalConnected = snapshot.TotalConnected
@@ -1389,6 +1389,27 @@ public class GamesController(
                 createdUtc = x.CreatedUtc.ToString("O", CultureInfo.InvariantCulture)
             })
         });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> KickRoomPlayer(int roomId, string viewerId, CancellationToken cancellationToken = default)
+    {
+        if (!Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var requesterViewerId) ||
+            !Guid.TryParse(requesterViewerId, out _))
+        {
+            Response.StatusCode = StatusCodes.Status400BadRequest;
+            return Json(new { error = "A player identity is required to kick a player." });
+        }
+
+        var result = await roomService.KickRoomPlayerAsync(roomId, requesterViewerId, viewerId, cancellationToken);
+        if (!result.Success)
+        {
+            Response.StatusCode = StatusCodes.Status403Forbidden;
+            return Json(new { error = result.Error ?? "Unable to kick player." });
+        }
+
+        return Json(new { ok = true });
     }
 
     [HttpPost]
