@@ -38,19 +38,8 @@
                         }
                         @if (canManageLibrary)
                         {
-                        <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle text-dark" href="#" id="admin-nav-dropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">Admin</a>
-                            <ul class="dropdown-menu" aria-labelledby="admin-nav-dropdown">
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Profiles" asp-action="Index">Profiles</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="GameFiles" asp-action="Index">Game Files</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="SystemFiles" asp-action="Index">System Files</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="SystemCoreMappings" asp-action="Index">Core Mappings</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Profiles" asp-action="Invites">Profile Invites</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Sources" asp-action="Index">Sources</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Jobs" asp-action="Index">Jobs</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Downloads" asp-action="Index">Downloads</a></li>
-                                <li><a class="dropdown-item" asp-area="" asp-controller="Home" asp-action="Index" asp-fragment="home-admin-runtime">Nosebleed Runtime</a></li>
-                            </ul>
+                        <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-controller="Admin" asp-action="Index">Admin</a>
                         </li>
                         }
                     </ul>
