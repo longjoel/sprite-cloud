@@ -4,6 +4,7 @@
     var q = Model.Query;
     var pageSize = Model.PageSize;
     var returnUrl = (string?)ViewData["ReturnUrl"] ?? (Context.Request.Path + Context.Request.QueryString);
+    var canManageLibrary = Model.CanManageLibrary;
 }
 
 @if (Model.Games.Count == 0)
@@ -111,26 +112,31 @@ else
 
                         <div class="games-primary-actions d-flex flex-wrap gap-2 mt-auto">
                             <a class="btn btn-primary" asp-action="PlayServer" asp-route-id="@game.Id">Play</a>
-                            <a class="btn btn-outline-secondary" asp-action="Details" asp-route-id="@game.Id">Open details</a>
-                            <button class="btn btn-outline-secondary"
-                                    type="button"
-                                    data-bs-toggle="collapse"
-                                    data-bs-target="#@detailsId"
-                                    aria-controls="@detailsId"
-                                    aria-expanded="false">
-                                Quick details
-                            </button>
-                            <button class="btn btn-outline-secondary"
-                                    type="button"
-                                    data-bs-toggle="collapse"
-                                    data-bs-target="#@editId"
-                                    aria-controls="@editId"
-                                    aria-expanded="false">
-                                Edit inline
-                            </button>
-                            <a class="btn btn-outline-danger" asp-action="Delete" asp-route-id="@game.Id">Delete</a>
+                            @if (canManageLibrary)
+                            {
+                                <a class="btn btn-outline-secondary" asp-action="Details" asp-route-id="@game.Id">Open details</a>
+                                <button class="btn btn-outline-secondary"
+                                        type="button"
+                                        data-bs-toggle="collapse"
+                                        data-bs-target="#@detailsId"
+                                        aria-controls="@detailsId"
+                                        aria-expanded="false">
+                                    Quick details
+                                </button>
+                                <button class="btn btn-outline-secondary"
+                                        type="button"
+                                        data-bs-toggle="collapse"
+                                        data-bs-target="#@editId"
+                                        aria-controls="@editId"
+                                        aria-expanded="false">
+                                    Edit inline
+                                </button>
+                                <a class="btn btn-outline-danger" asp-action="Delete" asp-route-id="@game.Id">Delete</a>
+                            }
                         </div>
 
+                        @if (canManageLibrary)
+                        {
                         <div id="@accordionId" class="game-details-row" data-game-id="@game.Id">
                             <div class="collapse" id="@detailsId" data-bs-parent="#@accordionId">
                                 <div class="border-top pt-3">
@@ -238,6 +244,7 @@ else
                                 </div>
                             </div>
                         </div>
+                        }
                     </div>
                 </div>
             </div>

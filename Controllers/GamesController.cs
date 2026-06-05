@@ -149,12 +149,19 @@ public class GamesController(
                 bank = new GamesBankViewModel
                 {
                     Games = bank.Games,
+                    Browse = bank.Browse,
                     Query = bank.Query,
                     Page = bank.Page,
                     PageSize = bank.PageSize,
                     TotalCount = bank.TotalCount,
+                    SystemOptions = bank.SystemOptions,
+                    PlayerOptions = bank.PlayerOptions,
+                    Sections = bank.Sections,
+                    ActiveGameIds = bank.ActiveGameIds,
+                    CanManageLibrary = bank.CanManageLibrary,
                     BatchId = null,
-                    BatchGameIds = Array.Empty<int>()
+                    BatchGameIds = Array.Empty<int>(),
+                    MissingSystemFilesBySystem = bank.MissingSystemFilesBySystem
                 };
             }
         }
@@ -213,6 +220,7 @@ public class GamesController(
             PlayerOptions = bank.PlayerOptions,
             Sections = bank.Sections,
             ActiveGameIds = bank.ActiveGameIds,
+            CanManageLibrary = bank.CanManageLibrary,
             BatchId = bank.BatchId,
             BatchName = activeBatchName,
             SavedBatches = savedBatches,
@@ -433,6 +441,7 @@ public class GamesController(
         }
 
         var sections = BuildGamesLibrarySections(games, browse.Group, activeGameIds);
+        var canManageLibrary = await currentAccess.CanManageLibraryAsync(cancellationToken);
 
         return new GamesBankViewModel
         {
@@ -446,6 +455,7 @@ public class GamesController(
             PlayerOptions = playerOptions,
             Sections = sections,
             ActiveGameIds = activeGameIds,
+            CanManageLibrary = canManageLibrary,
             BatchId = batchId,
             BatchGameIds = batchGameIds,
             MissingSystemFilesBySystem = missingBySystem
