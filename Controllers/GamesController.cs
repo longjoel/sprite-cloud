@@ -158,6 +158,7 @@ public class GamesController(
                     PlayerOptions = bank.PlayerOptions,
                     Sections = bank.Sections,
                     ActiveGameIds = bank.ActiveGameIds,
+                    ActiveRoomsByGameId = bank.ActiveRoomsByGameId,
                     CanManageLibrary = bank.CanManageLibrary,
                     BatchId = null,
                     BatchGameIds = Array.Empty<int>(),
@@ -220,6 +221,7 @@ public class GamesController(
             PlayerOptions = bank.PlayerOptions,
             Sections = bank.Sections,
             ActiveGameIds = bank.ActiveGameIds,
+            ActiveRoomsByGameId = bank.ActiveRoomsByGameId,
             CanManageLibrary = bank.CanManageLibrary,
             BatchId = bank.BatchId,
             BatchName = activeBatchName,
@@ -374,6 +376,40 @@ public class GamesController(
                 .ToListAsync(cancellationToken))
             .ToHashSet();
 
+        var activeRoomsByGameId = pageGameIds.Length == 0
+            ? new Dictionary<int, IReadOnlyList<GamesLibraryActiveRoomOption>>()
+            : (await db.GamePlayRooms
+                .AsNoTracking()
+                .Where(r => pageGameIds.Contains(r.GameId) && r.Status == GamePlayRoomStatus.Active && r.NosebleedSessionId != null)
+                .OrderByDescending(r => r.LastActiveUtc)
+                .Select(r => new
+                {
+                    r.GameId,
+                    r.Code,
+                    CreatedByProfileName = r.CreatedByProfile != null ? r.CreatedByProfile.DisplayName : null,
+                    PlayerProfileName = r.Participants
+                        .Where(p => p.Role == GamePlayRoomParticipantRole.Player && p.Profile != null)
+                        .OrderByDescending(p => p.IsConnected)
+                        .ThenBy(p => p.JoinedUtc)
+                        .Select(p => p.Profile!.DisplayName)
+                        .FirstOrDefault(),
+                    PlayerDisplayName = r.Participants
+                        .Where(p => p.Role == GamePlayRoomParticipantRole.Player && p.DisplayNameSnapshot != null && p.DisplayNameSnapshot != "")
+                        .OrderByDescending(p => p.IsConnected)
+                        .ThenBy(p => p.JoinedUtc)
+                        .Select(p => p.DisplayNameSnapshot)
+                        .FirstOrDefault()
+                })
+                .ToListAsync(cancellationToken))
+            .GroupBy(r => r.GameId)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyList<GamesLibraryActiveRoomOption>)g
+                    .Select(r => new GamesLibraryActiveRoomOption(
+                        r.Code,
+                        r.PlayerProfileName ?? r.PlayerDisplayName ?? r.CreatedByProfileName ?? "Player"))
+                    .ToList());
+
         // System BIOS missing check (based on libretro System.dat expected paths).
         var missingBySystem = new Dictionary<string, SystemMissingInfo>(StringComparer.OrdinalIgnoreCase);
         try
@@ -455,6 +491,7 @@ public class GamesController(
             PlayerOptions = playerOptions,
             Sections = sections,
             ActiveGameIds = activeGameIds,
+            ActiveRoomsByGameId = activeRoomsByGameId,
             CanManageLibrary = canManageLibrary,
             BatchId = batchId,
             BatchGameIds = batchGameIds,

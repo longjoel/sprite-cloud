@@ -77,6 +77,24 @@ public sealed class GamesIndexViewMarkupTests
     }
 
     [Fact]
+    public void GamesBank_Renders_In_Progress_Room_Join_Buttons()
+    {
+        var bankContent = ReadGamesBankView();
+        var indexContent = ReadGamesIndexView();
+        var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
+        var bankViewModel = File.ReadAllText(Path.Combine(repoRoot, "Models", "ViewModels", "GamesBankViewModel.cs")).Replace("\r\n", "\n");
+        var controllerContent = File.ReadAllText(Path.Combine(repoRoot, "Controllers", "GamesController.cs")).Replace("\r\n", "\n");
+
+        Assert.Contains("public sealed record GamesLibraryActiveRoomOption(string Code, string PlayerName);", bankViewModel);
+        Assert.Contains("ActiveRoomsByGameId = Model.ActiveRoomsByGameId", indexContent);
+        Assert.Contains("ActiveRoomsByGameId = activeRoomsByGameId", controllerContent);
+        Assert.Contains("var activeRooms = Model.ActiveRoomsByGameId.TryGetValue(game.Id, out var rooms)", bankContent);
+        Assert.Contains("Join an in-progress room", bankContent);
+        Assert.Contains("asp-route-code=\"@room.Code\"", bankContent);
+        Assert.Contains("@room.Code · @room.PlayerName", bankContent);
+    }
+
+    [Fact]
     public void BrowsePane_Renders_Inviting_Library_Search_Filter_Sort_And_Group_Controls()
     {
         var content = ReadGamesIndexView();
