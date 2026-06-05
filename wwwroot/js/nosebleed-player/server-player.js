@@ -1240,6 +1240,51 @@
         else await disableAudio();
     }
 
+    function setVolumeSliderUi(normalized) {
+        if (!volumeSlider) {
+            return;
+        }
+
+        const percent = Math.round(normalized * 100);
+        if (volumeSlider instanceof HTMLInputElement) {
+            volumeSlider.value = String(percent);
+            return;
+        }
+
+        volumeSlider.style.setProperty("--volume-fill", `${percent}%`);
+        volumeSlider.setAttribute("aria-valuenow", String(percent));
+        volumeSlider.setAttribute("aria-valuetext", `${percent} percent`);
+    }
+
+    function setVolumeFromPoint(clientX) {
+        if (!volumeSlider) {
+            return;
+        }
+
+        const rect = volumeSlider.getBoundingClientRect();
+        if (rect.width <= 0) {
+            return;
+        }
+
+        audioVolume = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+        applyAudioVolume();
+        wakePlayerChrome(2600);
+    }
+
+    function setVolumeFromKey(key) {
+        const step = key === "ArrowLeft" || key === "ArrowDown" ? -0.05 : 0.05;
+        if (key === "Home") {
+            audioVolume = 0;
+        } else if (key === "End") {
+            audioVolume = 1;
+        } else {
+            audioVolume = Math.min(1, Math.max(0, audioVolume + step));
+        }
+
+        applyAudioVolume();
+        wakePlayerChrome(2600);
+    }
+
     function applyAudioVolume(persist = true) {
         const normalized = Math.min(1, Math.max(0, Number.isFinite(audioVolume) ? audioVolume : 1));
         audioVolume = normalized;
@@ -1249,9 +1294,7 @@
         if (audioGainNode) {
             audioGainNode.gain.value = normalized;
         }
-        if (volumeSlider) {
-            volumeSlider.value = String(Math.round(normalized * 100));
-        }
+        setVolumeSliderUi(normalized);
         if (persist) {
             localStorage.setItem(volumeStorageKey, String(normalized));
         }
@@ -1954,11 +1997,35 @@
         }
         toggleAudio();
     });
-    volumeSlider?.addEventListener("input", () => {
-        audioVolume = Number.parseFloat(volumeSlider.value) / 100;
-        applyAudioVolume();
-        wakePlayerChrome(2600);
-    });
+    if (volumeSlider instanceof HTMLInputElement) {
+        volumeSlider.addEventListener("input", () => {
+            audioVolume = Number.parseFloat(volumeSlider.value) / 100;
+            applyAudioVolume();
+            wakePlayerChrome(2600);
+        });
+    } else if (volumeSlider) {
+        volumeSlider.addEventListener("pointerdown", ev => {
+            ev.preventDefault();
+            volumeSlider.setPointerCapture?.(ev.pointerId);
+            setVolumeFromPoint(ev.clientX);
+        });
+        volumeSlider.addEventListener("pointermove", ev => {
+            if (!ev.buttons) {
+                return;
+            }
+
+            ev.preventDefault();
+            setVolumeFromPoint(ev.clientX);
+        });
+        volumeSlider.addEventListener("keydown", ev => {
+            if (!["ArrowLeft", "ArrowDown", "ArrowRight", "ArrowUp", "Home", "End"].includes(ev.key)) {
+                return;
+            }
+
+            ev.preventDefault();
+            setVolumeFromKey(ev.key);
+        });
+    }
     overlayToggleButton?.addEventListener("click", toggleOverlay);
     loggingToggleButton?.addEventListener("click", toggleLogOverlay);
     playerLogClearButton?.addEventListener("click", () => {
