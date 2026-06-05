@@ -45,14 +45,24 @@ public sealed class GamesIndexViewMarkupTests
     }
 
     [Fact]
-    public void GamesViews_Remove_BrowserPlayActions()
+    public void GamesBank_Consolidates_Card_Actions_To_Bottom_Buttons()
     {
-        var detailsContent = File.ReadAllText(Path.Combine(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../")), "Views", "Games", "Details.cshtml")).Replace("\r\n", "\n");
         var bankContent = ReadGamesBankView();
+        var detailsContent = File.ReadAllText(Path.Combine(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../")), "Views", "Games", "Details.cshtml")).Replace("\r\n", "\n");
 
         Assert.DoesNotContain("asp-action=\"Play\"", detailsContent);
         Assert.DoesNotContain("Play in browser", detailsContent);
         Assert.DoesNotContain("asp-action=\"Play\"", bankContent);
         Assert.DoesNotContain(">Browser<", bankContent);
+        Assert.DoesNotContain("dropdown-toggle", bankContent);
+        Assert.DoesNotContain("dropdown-menu", bankContent);
+        Assert.DoesNotContain(">Actions<", bankContent);
+        Assert.Contains("<div class=\"games-primary-actions d-flex flex-wrap gap-2 mt-auto\">", bankContent);
+        Assert.Contains(">Play</a>", bankContent);
+        Assert.Contains(">Open details</a>", bankContent);
+        Assert.Contains("Quick details", bankContent);
+        Assert.Contains("Edit inline", bankContent);
+        Assert.Contains("btn btn-outline-danger", bankContent);
+        Assert.Contains(">Delete</a>", bankContent);
     }
 }
