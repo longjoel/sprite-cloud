@@ -362,25 +362,64 @@ public class GamesController(
             .ToListAsync(cancellationToken);
 
         var pageGameIds = games.Select(g => g.Id).ToArray();
-        var activeGameIds = pageGameIds.Length == 0
+        nosebleedSessions.Cleanup();
+        var liveNosebleedSessionIds = nosebleedSessions
+            .GetSessions()
+            .Where(s => !s.HasExited)
+            .Select(s => s.SessionId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var liveSessionIdList = liveNosebleedSessionIds.ToList();
+
+        var staleStandaloneRooms = await db.GamePlayRooms
+            .Where(r =>
+                r.Status == GamePlayRoomStatus.Active &&
+                !r.IsArcadeBound &&
+                r.NosebleedSessionId != null &&
+                !liveSessionIdList.Contains(r.NosebleedSessionId))
+            .ToListAsync(cancellationToken);
+        if (staleStandaloneRooms.Count > 0)
+        {
+            var closedUtc = DateTime.UtcNow;
+            foreach (var room in staleStandaloneRooms)
+            {
+                room.Status = GamePlayRoomStatus.Closed;
+                room.ClosedUtc = closedUtc;
+            }
+
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        var activeGameIds = pageGameIds.Length == 0 || liveSessionIdList.Count == 0
             ? new HashSet<int>()
             : (await db.GamePlayRooms
                 .AsNoTracking()
-                .Where(r => pageGameIds.Contains(r.GameId) && r.Status == GamePlayRoomStatus.Active && r.NosebleedSessionId != null)
+                .Where(r =>
+                    pageGameIds.Contains(r.GameId) &&
+                    r.Status == GamePlayRoomStatus.Active &&
+                    r.NosebleedSessionId != null &&
+                    liveSessionIdList.Contains(r.NosebleedSessionId))
                 .Select(r => r.GameId)
                 .Concat(db.ArcadeCabinets
                     .AsNoTracking()
-                    .Where(c => pageGameIds.Contains(c.GameId) && c.IsEnabled && c.RuntimeSessionId != null)
+                    .Where(c =>
+                        pageGameIds.Contains(c.GameId) &&
+                        c.IsEnabled &&
+                        c.RuntimeSessionId != null &&
+                        liveSessionIdList.Contains(c.RuntimeSessionId))
                     .Select(c => c.GameId))
                 .Distinct()
                 .ToListAsync(cancellationToken))
             .ToHashSet();
 
-        var activeRoomsByGameId = pageGameIds.Length == 0
+        var activeRoomsByGameId = pageGameIds.Length == 0 || liveSessionIdList.Count == 0
             ? new Dictionary<int, IReadOnlyList<GamesLibraryActiveRoomOption>>()
             : (await db.GamePlayRooms
                 .AsNoTracking()
-                .Where(r => pageGameIds.Contains(r.GameId) && r.Status == GamePlayRoomStatus.Active && r.NosebleedSessionId != null)
+                .Where(r =>
+                    pageGameIds.Contains(r.GameId) &&
+                    r.Status == GamePlayRoomStatus.Active &&
+                    r.NosebleedSessionId != null &&
+                    liveSessionIdList.Contains(r.NosebleedSessionId))
                 .OrderByDescending(r => r.LastActiveUtc)
                 .Select(r => new
                 {
