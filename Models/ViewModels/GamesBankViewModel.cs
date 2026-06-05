@@ -16,6 +16,7 @@ public sealed class GamesBankViewModel
     public IReadOnlyList<GamesLibraryPlayerCountOption> PlayerOptions { get; init; } = Array.Empty<GamesLibraryPlayerCountOption>();
     public IReadOnlyList<GamesLibraryGroupSection> Sections { get; init; } = Array.Empty<GamesLibraryGroupSection>();
     public IReadOnlySet<int> ActiveGameIds { get; init; } = new HashSet<int>();
+    public bool CanManageLibrary { get; init; }
 
     public int PageCount => PageSize <= 0 ? 0 : (int)Math.Ceiling(TotalCount / (double)PageSize);
     public bool HasPrevious => Page > 1;

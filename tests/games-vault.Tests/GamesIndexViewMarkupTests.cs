@@ -59,6 +59,16 @@ public sealed class GamesIndexViewMarkupTests
         Assert.DoesNotContain(">Actions<", bankContent);
         Assert.Contains("<div class=\"games-primary-actions d-flex flex-wrap gap-2 mt-auto\">", bankContent);
         Assert.Contains(">Play</a>", bankContent);
+    }
+
+    [Fact]
+    public void GamesBank_Admin_Card_Actions_Are_Hidden_From_Non_Admins()
+    {
+        var bankContent = ReadGamesBankView();
+
+        Assert.Contains("var canManageLibrary = Model.CanManageLibrary;", bankContent);
+        Assert.Contains("@if (canManageLibrary)\n                            {\n                                <a class=\"btn btn-outline-secondary\" asp-action=\"Details\"", bankContent);
+        Assert.Contains("@if (canManageLibrary)\n                        {\n                        <div id=\"@accordionId\" class=\"game-details-row\"", bankContent);
         Assert.Contains(">Open details</a>", bankContent);
         Assert.Contains("Quick details", bankContent);
         Assert.Contains("Edit inline", bankContent);
