@@ -88,6 +88,13 @@ public sealed class GamesIndexViewMarkupTests
         Assert.Contains("public sealed record GamesLibraryActiveRoomOption(string Code, string PlayerName);", bankViewModel);
         Assert.Contains("ActiveRoomsByGameId = Model.ActiveRoomsByGameId", indexContent);
         Assert.Contains("ActiveRoomsByGameId = activeRoomsByGameId", controllerContent);
+        Assert.Contains("nosebleedSessions.Cleanup();", controllerContent);
+        Assert.Contains("var liveNosebleedSessionIds = nosebleedSessions", controllerContent);
+        Assert.Contains("liveSessionIdList.Contains(r.NosebleedSessionId)", controllerContent);
+        Assert.Contains("liveSessionIdList.Contains(c.RuntimeSessionId)", controllerContent);
+        Assert.Contains("var staleStandaloneRooms = await db.GamePlayRooms", controllerContent);
+        Assert.Contains("room.Status = GamePlayRoomStatus.Closed;", controllerContent);
+        Assert.Contains("room.ClosedUtc = closedUtc;", controllerContent);
         Assert.Contains("var activeRooms = Model.ActiveRoomsByGameId.TryGetValue(game.Id, out var rooms)", bankContent);
         Assert.Contains("Join an in-progress room", bankContent);
         Assert.Contains("asp-route-code=\"@room.Code\"", bankContent);
