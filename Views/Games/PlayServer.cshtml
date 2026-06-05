@@ -1077,24 +1077,18 @@
                 }
                 @if (!Model.IsSpectator && !string.IsNullOrWhiteSpace(Model.SessionId))
                 {
-                    <form asp-controller="Games" asp-action="LeaveServerSession" method="post" class="d-grid mt-3" id="leave-seat-form">
+                    <form asp-controller="Games" asp-action="LeaveServerSession" method="post" class="d-none" id="leave-seat-form">
                         <input type="hidden" name="sessionId" value="@Model.SessionId" />
                         @if (!string.IsNullOrWhiteSpace(Model.LeaveSessionReturnUrl))
                         {
                             <input type="hidden" name="returnUrl" value="@Model.LeaveSessionReturnUrl" />
                         }
-                        <button type="submit" class="btn btn-outline-warning">Leave seat</button>
                     </form>
                 }
             </div>
         </div>
 
                 <aside class="playserver-sidebar-column">
-                    <div class="border rounded-4 p-3 bg-body-tertiary mb-3" id="playserver-roster-card">
-                        <ul class="list-unstyled mb-0 small" id="room-presence-players">
-                            <li class="text-muted">Loading players…</li>
-                        </ul>
-                    </div>
                     <div class="border rounded-4 p-3 bg-body-tertiary mb-3" id="room-chat-panel">
                         <div class="d-flex flex-wrap justify-content-end gap-2 align-items-start mb-2">
                             <div class="small text-muted" id="room-chat-status">Loading chat…</div>
@@ -1224,7 +1218,6 @@
     }
 
     const presenceSummaryEl = document.getElementById('room-presence-summary');
-    const presencePlayersEl = document.getElementById('room-presence-players');
     const seatStripEl = document.getElementById('room-seat-strip');
     const chatStatusEl = document.getElementById('room-chat-status');
     const chatMessagesEl = document.getElementById('room-chat-messages');
@@ -1253,8 +1246,9 @@
         el.appendChild(item);
     };
 
-    const buildSeatCard = (playerNumber, occupant, statusText, tone) => {
+    const buildSeatCard = (playerNumber, player, statusText, tone) => {
         const isCurrentSeat = currentPlayerNumber === playerNumber;
+        const occupant = player?.displayName ?? 'Open seat';
         const card = document.createElement('div');
         card.className = `border rounded px-3 py-2 small bg-body ${tone} ${isCurrentSeat ? 'border-primary border-2' : ''}`.trim();
         card.style.minWidth = '9rem';
@@ -1274,6 +1268,31 @@
         card.appendChild(seatLabel);
         card.appendChild(occupantEl);
         card.appendChild(statusEl);
+
+        const actions = document.createElement('div');
+        actions.className = 'd-flex flex-wrap gap-2 mt-2';
+        if (isCurrentSeat && document.getElementById('leave-seat-form')) {
+            const leaveButton = document.createElement('button');
+            leaveButton.type = 'submit';
+            leaveButton.className = 'btn btn-sm btn-outline-warning';
+            leaveButton.setAttribute('form', 'leave-seat-form');
+            leaveButton.textContent = 'Leave seat';
+            actions.appendChild(leaveButton);
+        }
+
+        if (canKickPlayers && player?.viewerId && !isCurrentSeat) {
+            const kickButton = document.createElement('button');
+            kickButton.type = 'button';
+            kickButton.className = 'btn btn-sm btn-outline-danger';
+            kickButton.textContent = 'Kick';
+            kickButton.addEventListener('click', () => kickPlayer(player.viewerId, player.displayName ?? 'Player'));
+            actions.appendChild(kickButton);
+        }
+
+        if (actions.childElementCount > 0) {
+            card.appendChild(actions);
+        }
+
         return card;
     };
 
@@ -1316,53 +1335,23 @@
     };
 
     const renderPresence = (payload) => {
-        if (!presenceSummaryEl || !presencePlayersEl) {
+        if (!presenceSummaryEl || !seatStripEl) {
             return;
         }
 
         const players = Array.isArray(payload.players) ? payload.players : [];
         presenceSummaryEl.textContent = `${payload.totalConnected ?? 0} connected`;
-        clearChildren(presencePlayersEl);
         clearChildren(seatStripEl);
 
-        if (players.length === 0) {
-            appendMutedListItem(presencePlayersEl, 'No players connected right now.');
-        } else {
-            for (const player of players) {
-                const item = document.createElement('li');
-                item.className = 'd-flex align-items-center justify-content-between gap-2 mb-1';
-                const playerLabel = document.createElement('span');
-                const label = document.createElement('span');
-                label.className = 'fw-semibold';
-                label.textContent = `P${player.playerNumber}`;
-                playerLabel.appendChild(label);
-                playerLabel.append(` — ${player.displayName ?? 'Viewer'}${Number.isInteger(player.port) ? ` · Input ${player.port + 1}` : ''}`);
-                item.appendChild(playerLabel);
-
-                if (canKickPlayers && player.viewerId && player.playerNumber !== currentPlayerNumber) {
-                    const kickButton = document.createElement('button');
-                    kickButton.type = 'button';
-                    kickButton.className = 'btn btn-sm btn-outline-danger py-0';
-                    kickButton.textContent = 'Kick';
-                    kickButton.addEventListener('click', () => kickPlayer(player.viewerId, player.displayName ?? 'Player'));
-                    item.appendChild(kickButton);
-                }
-
-                presencePlayersEl.appendChild(item);
-            }
-        }
-
-        if (seatStripEl) {
-            const playersByNumber = new Map(players
-                .filter((player) => Number.isInteger(player.playerNumber))
-                .map((player) => [player.playerNumber, player]));
-            for (let playerNumber = 1; playerNumber <= 4; playerNumber += 1) {
-                const player = playersByNumber.get(playerNumber);
-                if (player) {
-                    seatStripEl.appendChild(buildSeatCard(playerNumber, player.displayName ?? 'Viewer', `Input ${Number.isInteger(player.port) ? player.port + 1 : playerNumber}`, 'border-success-subtle'));
-                } else {
-                    seatStripEl.appendChild(buildSeatCard(playerNumber, 'Open seat', 'Waiting for a player', ''));
-                }
+        const playersByNumber = new Map(players
+            .filter((player) => Number.isInteger(player.playerNumber))
+            .map((player) => [player.playerNumber, player]));
+        for (let playerNumber = 1; playerNumber <= 4; playerNumber += 1) {
+            const player = playersByNumber.get(playerNumber);
+            if (player) {
+                seatStripEl.appendChild(buildSeatCard(playerNumber, player, `Input ${Number.isInteger(player.port) ? player.port + 1 : playerNumber}`, 'border-success-subtle'));
+            } else {
+                seatStripEl.appendChild(buildSeatCard(playerNumber, null, 'Waiting for a player', ''));
             }
         }
     };
@@ -1419,17 +1408,13 @@
 
             renderPresence(await response.json());
         } catch {
-            if (presenceSummaryEl && presencePlayersEl) {
+            if (presenceSummaryEl && seatStripEl) {
                 presenceSummaryEl.textContent = 'Presence unavailable right now.';
-                clearChildren(presencePlayersEl);
                 clearChildren(seatStripEl);
-                appendMutedListItem(presencePlayersEl, 'Could not load presence.');
-                if (seatStripEl) {
-                    const placeholder = document.createElement('div');
-                    placeholder.className = 'border rounded px-3 py-2 small text-muted bg-body';
-                    placeholder.textContent = 'Seat map unavailable.';
-                    seatStripEl.appendChild(placeholder);
-                }
+                const placeholder = document.createElement('div');
+                placeholder.className = 'border rounded px-3 py-2 small text-muted bg-body';
+                placeholder.textContent = 'Seat map unavailable.';
+                seatStripEl.appendChild(placeholder);
             }
         }
     };

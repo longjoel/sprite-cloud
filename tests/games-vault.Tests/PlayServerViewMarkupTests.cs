@@ -41,9 +41,11 @@ public sealed class PlayServerViewMarkupTests
 
         Assert.Contains("id=\"playserver-session-grid\"", content);
         Assert.Contains("id=\"room-seat-strip\"", content);
-        Assert.Contains("id=\"playserver-roster-card\"", content);
+        Assert.DoesNotContain("id=\"playserver-roster-card\"", content);
+        Assert.DoesNotContain("id=\"room-presence-players\"", content);
         Assert.Contains("<div class=\"fw-semibold\">Seats</div>", content);
-        Assert.Contains(">Leave seat</button>", content);
+        Assert.Contains("id=\"leave-seat-form\"", content);
+        Assert.Contains("leaveButton.textContent = 'Leave seat';", content);
     }
 
     [Fact]
@@ -175,7 +177,7 @@ public sealed class PlayServerViewMarkupTests
     }
 
     [Fact]
-    public void PlayerOne_Can_Kick_Other_Player_Seats_From_Roster()
+    public void PlayerOne_Can_Kick_Other_Player_Seats_From_Seat_Cards()
     {
         var content = ReadPlayServerView();
         var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
@@ -189,7 +191,9 @@ public sealed class PlayServerViewMarkupTests
         Assert.Contains("const kickPlayer = async (viewerId, displayName) =>", content);
         Assert.Contains("body.set('__RequestVerificationToken', token);", content);
         Assert.Contains("kickButton.textContent = 'Kick';", content);
-        Assert.Contains("player.viewerId && player.playerNumber !== currentPlayerNumber", content);
+        Assert.Contains("canKickPlayers && player?.viewerId && !isCurrentSeat", content);
+        Assert.Contains("kickButton.addEventListener('click', () => kickPlayer(player.viewerId, player.displayName ?? 'Player'));", content);
+        Assert.DoesNotContain("playerLabel.append(` — ${player.displayName", content);
         Assert.Contains("public async Task<IActionResult> KickRoomPlayer(int roomId, string viewerId", controller);
     }
 
