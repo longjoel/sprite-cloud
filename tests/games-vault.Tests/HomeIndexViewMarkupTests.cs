@@ -105,6 +105,20 @@ public sealed class HomeIndexViewMarkupTests
     }
 
     [Fact]
+    public void HomeView_DefinesAdminNosebleedRuntimeProcessSection()
+    {
+        var content = ReadHomeView();
+
+        Assert.Contains("id=\"home-admin-runtime\"", content);
+        Assert.Contains("Nosebleed runtime processes", content);
+        Assert.Contains("@Model.NosebleedRuntimeProcesses.Count running", content);
+        Assert.Contains("@foreach (var process in Model.NosebleedRuntimeProcesses)", content);
+        Assert.Contains("<th scope=\"col\">PID</th>", content);
+        Assert.Contains("<th scope=\"col\">User</th>", content);
+        Assert.Contains("@process.UserLabel", content);
+    }
+
+    [Fact]
     public void HomeView_Removes_WebPlayerSetupLanguage()
     {
         var content = ReadHomeView();

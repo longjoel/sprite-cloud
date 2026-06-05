@@ -43,6 +43,7 @@ public sealed class LayoutNavigationMarkupTests
         Assert.Contains("asp-controller=\"Sources\" asp-action=\"Index\">Sources</a>", content);
         Assert.Contains("asp-controller=\"Jobs\" asp-action=\"Index\">Jobs</a>", content);
         Assert.Contains("asp-controller=\"Downloads\" asp-action=\"Index\">Downloads</a>", content);
+        Assert.Contains("asp-controller=\"Home\" asp-action=\"Index\" asp-fragment=\"home-admin-runtime\">Nosebleed Runtime</a>", content);
     }
 
     [Fact]

@@ -7,9 +7,19 @@ public sealed class NosebleedProcessInspector(IOptions<NosebleedOptions> options
 {
     private readonly NosebleedOptions _options = options.Value ?? new NosebleedOptions();
 
+    public IReadOnlyList<NosebleedProcessSnapshot> GetProcesses()
+    {
+        return GetProcessesExcluding(null);
+    }
+
     public IReadOnlyList<NosebleedProcessSnapshot> GetOrphanProcesses(IEnumerable<int>? managedPids = null)
     {
-        var excluded = managedPids is null ? new HashSet<int>() : new HashSet<int>(managedPids);
+        return GetProcessesExcluding(managedPids);
+    }
+
+    private IReadOnlyList<NosebleedProcessSnapshot> GetProcessesExcluding(IEnumerable<int>? excludedProcessIds)
+    {
+        var excluded = excludedProcessIds is null ? new HashSet<int>() : new HashSet<int>(excludedProcessIds);
         var snapshots = new List<NosebleedProcessSnapshot>();
 
         if (!OperatingSystem.IsLinux() || !Directory.Exists("/proc"))
