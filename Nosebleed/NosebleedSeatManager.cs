@@ -17,9 +17,10 @@ public sealed class NosebleedSeatManager(IOptions<NosebleedOptions> options)
         lock (session.Gate)
         {
             CleanupExpired(session.Seats, now);
+            var wasKicked = session.KickedViewerIds.Contains(viewerId);
 
             var existing = session.Seats.FirstOrDefault(s => string.Equals(s.ViewerId, viewerId, StringComparison.Ordinal));
-            if (allowPlayer && existing is { Kind: NosebleedSeatKind.Player })
+            if (allowPlayer && !wasKicked && existing is { Kind: NosebleedSeatKind.Player })
             {
                 session.Seats.Remove(existing);
                 var refreshed = existing with { ExpiresUtc = now.AddMinutes(SeatTtlMinutes()) };
@@ -35,7 +36,7 @@ public sealed class NosebleedSeatManager(IOptions<NosebleedOptions> options)
             }
 
             NosebleedSeatAssignment assignment;
-            if (!allowPlayer)
+            if (!allowPlayer || wasKicked)
             {
                 assignment = new NosebleedSeatAssignment(NosebleedSeatKind.Spectator, viewerId, null, now, expiresUtc);
             }
@@ -68,6 +69,22 @@ public sealed class NosebleedSeatManager(IOptions<NosebleedOptions> options)
         lock (session.Gate)
         {
             session.Seats.RemoveAll(s => string.Equals(s.ViewerId, viewerId, StringComparison.Ordinal));
+            session.KickedViewerIds.Remove(viewerId);
+        }
+    }
+
+    public void Kick(string sessionId, string viewerId)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(viewerId))
+        {
+            return;
+        }
+
+        var session = _sessions.GetOrAdd(sessionId, _ => new SessionSeatState());
+        lock (session.Gate)
+        {
+            session.Seats.RemoveAll(s => string.Equals(s.ViewerId, viewerId, StringComparison.Ordinal));
+            session.KickedViewerIds.Add(viewerId);
         }
     }
 
@@ -107,5 +124,6 @@ public sealed class NosebleedSeatManager(IOptions<NosebleedOptions> options)
     {
         public object Gate { get; } = new();
         public List<NosebleedSeatAssignment> Seats { get; } = [];
+        public HashSet<string> KickedViewerIds { get; } = new(StringComparer.Ordinal);
     }
 }
