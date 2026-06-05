@@ -556,8 +556,51 @@
                 }
 
                 .player-volume-slider {
+                    --volume-fill: 100%;
+                    position: relative;
                     width: min(7rem, 26vw);
-                    accent-color: #f8fafc;
+                    height: 1.7rem;
+                    cursor: pointer;
+                    touch-action: none;
+                    user-select: none;
+                }
+
+                .player-volume-slider:focus-visible {
+                    outline: 2px solid rgba(248, 250, 252, .88);
+                    outline-offset: .28rem;
+                    border-radius: 999px;
+                }
+
+                .player-volume-track {
+                    position: absolute;
+                    left: 0;
+                    right: 0;
+                    top: 50%;
+                    height: .24rem;
+                    border-radius: 999px;
+                    transform: translateY(-50%);
+                    background: rgba(255, 255, 255, .28);
+                    overflow: hidden;
+                }
+
+                .player-volume-fill {
+                    display: block;
+                    width: var(--volume-fill);
+                    height: 100%;
+                    border-radius: inherit;
+                    background: rgba(248, 250, 252, .96);
+                }
+
+                .player-volume-thumb {
+                    position: absolute;
+                    left: var(--volume-fill);
+                    top: 50%;
+                    width: .82rem;
+                    height: .82rem;
+                    border-radius: 50%;
+                    transform: translate(-50%, -50%);
+                    background: #f8fafc;
+                    box-shadow: 0 .15rem .55rem rgba(0, 0, 0, .38);
                 }
 
                 .player-audio-icon .audio-mute-cross {
@@ -1010,7 +1053,10 @@
                                     <span class="player-control-label">Sound</span>
                                 </button>
                                 <label class="visually-hidden" for="nosebleed-volume">Volume</label>
-                                <input id="nosebleed-volume" class="player-volume-slider" type="range" min="0" max="100" step="1" value="100" aria-label="Volume" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other" />
+                                <div id="nosebleed-volume" class="player-volume-slider" role="slider" tabindex="0" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100" aria-valuetext="100 percent" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">
+                                    <span class="player-volume-track" aria-hidden="true"><span class="player-volume-fill"></span></span>
+                                    <span class="player-volume-thumb" aria-hidden="true"></span>
+                                </div>
                             </div>
                             <div class="player-view-mode-buttons">
                                 <button id="nosebleed-view-windowed" class="player-control-button" type="button" aria-label="Windowed view" title="Windowed view"><span class="player-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><rect x="5" y="6" width="14" height="12" rx="1.5"></rect></svg></span><span class="player-control-label">Windowed</span></button>

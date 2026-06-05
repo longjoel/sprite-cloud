@@ -77,7 +77,11 @@ public sealed class ServerPlayerJsMarkupTests
         Assert.Contains("function applyAudioVolume", content);
         Assert.Contains("function syncOverlayAudioUi", content);
         Assert.Contains("audioGainNode", content);
-        Assert.Contains("volumeSlider?.addEventListener(\"input\"", content);
+        Assert.Contains("setVolumeSliderUi", content);
+        Assert.Contains("setVolumeFromPoint", content);
+        Assert.Contains("setVolumeFromKey", content);
+        Assert.Contains("volumeSlider.addEventListener(\"pointerdown\"", content);
+        Assert.Contains("volumeSlider.addEventListener(\"keydown\"", content);
         Assert.Contains("setOverlayEnabled(true, false);", content);
     }
 

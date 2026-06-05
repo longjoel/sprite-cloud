@@ -109,6 +109,12 @@ public sealed class PlayServerViewMarkupTests
         Assert.Contains("class=\"player-control-icon\"", content);
         Assert.Contains("<svg viewBox=\"0 0 24 24\"", content);
         Assert.Contains("class=\"player-volume-slider\"", content);
+        Assert.Contains("role=\"slider\"", content);
+        Assert.Contains("tabindex=\"0\"", content);
+        Assert.Contains("aria-valuenow=\"100\"", content);
+        Assert.Contains("class=\"player-volume-track\"", content);
+        Assert.Contains("class=\"player-volume-thumb\"", content);
+        Assert.DoesNotContain("<input id=\"nosebleed-volume\"", content);
         Assert.Contains("data-lpignore=\"true\"", content);
         Assert.Contains("data-1p-ignore=\"true\"", content);
         Assert.Contains("data-bwignore=\"true\"", content);
