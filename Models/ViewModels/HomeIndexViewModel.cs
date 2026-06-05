@@ -31,6 +31,7 @@ public sealed class HomeIndexViewModel
     public IReadOnlyList<ActiveProfileSummaryViewModel> ActiveProfiles { get; set; } = [];
     public IReadOnlyList<HomeRecentSessionViewModel> RecentSessions { get; set; } = [];
     public IReadOnlyList<NosebleedProcessSnapshot> OrphanNosebleedProcesses { get; set; } = [];
+    public IReadOnlyList<NosebleedRuntimeProcessViewModel> NosebleedRuntimeProcesses { get; set; } = [];
 
     public int NetworkSharesCount { get; set; }
     public int LocalFoldersCount { get; set; }
@@ -70,6 +71,67 @@ public sealed class ActiveNosebleedSessionViewModel
     public int? ArcadeCabinetId { get; set; }
     public string? ArcadeCabinetName { get; set; }
     public string? RoomCode { get; set; }
+}
+
+public sealed class NosebleedRuntimeProcessViewModel
+{
+    public int ProcessId { get; set; }
+    public string SessionId { get; set; } = "";
+    public int? GameId { get; set; }
+    public string? GameName { get; set; }
+    public int? FileId { get; set; }
+    public int? Port { get; set; }
+    public string? BaseUrl { get; set; }
+    public DateTimeOffset? StartedUtc { get; set; }
+    public TimeSpan? Runtime { get; set; }
+    public bool IsManaged { get; set; }
+    public bool HasExited { get; set; }
+    public bool IsArcadeCabinet { get; set; }
+    public string? ArcadeCabinetName { get; set; }
+    public string? RoomCode { get; set; }
+    public string? CreatedByProfileName { get; set; }
+    public string? CreatedByProfileUsername { get; set; }
+    public string? ActiveParticipantNames { get; set; }
+    public string? TelemetryProfileName { get; set; }
+    public string? CorePath { get; set; }
+    public string? ContentPath { get; set; }
+    public string? CommandLine { get; set; }
+
+    public string UserLabel
+    {
+        get
+        {
+            var owner = FormatProfile(CreatedByProfileName, CreatedByProfileUsername);
+            if (!string.IsNullOrWhiteSpace(owner))
+            {
+                return owner;
+            }
+
+            if (!string.IsNullOrWhiteSpace(ActiveParticipantNames))
+            {
+                return ActiveParticipantNames!;
+            }
+
+            if (!string.IsNullOrWhiteSpace(TelemetryProfileName))
+            {
+                return TelemetryProfileName!;
+            }
+
+            return "No linked profile";
+        }
+    }
+
+    public string SessionKind => IsArcadeCabinet ? "Arcade" : IsManaged ? "Library" : "External";
+
+    private static string? FormatProfile(string? displayName, string? username)
+    {
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            return string.IsNullOrWhiteSpace(username) ? null : $"@{username}";
+        }
+
+        return string.IsNullOrWhiteSpace(username) ? displayName : $"{displayName} (@{username})";
+    }
 }
 
 public sealed class ActiveProfileSummaryViewModel

@@ -176,6 +176,10 @@ public class HomeController(
             .ToList();
 
         var managedPids = nosebleedSessions.GetManagedProcessIds();
+        var allNosebleedProcesses = nosebleedProcessInspector.GetProcesses();
+        var processById = allNosebleedProcesses
+            .GroupBy(x => x.ProcessId)
+            .ToDictionary(x => x.Key, x => x.First());
         var orphanProcesses = nosebleedProcessInspector.GetOrphanProcesses(managedPids);
         var activeGameIds = activeSessions.Select(x => x.GameId).Distinct().ToArray();
         var activeGameNames = activeGameIds.Length == 0
@@ -235,6 +239,147 @@ public class HomeController(
                 };
             })
             .ToList();
+
+        var runtimeSessionIds = activeSessionModels
+            .Select(x => x.SessionId)
+            .Concat(orphanProcesses.Select(x => x.SessionId).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x!))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var runtimeRoomRows = runtimeSessionIds.Length == 0
+            ? []
+            : await db.GamePlayRooms
+                .AsNoTracking()
+                .Where(x => x.NosebleedSessionId != null && runtimeSessionIds.Contains(x.NosebleedSessionId))
+                .Select(x => new HomeRuntimeRoomRow(
+                    x.Id,
+                    x.NosebleedSessionId!,
+                    x.Code,
+                    x.IsArcadeBound,
+                    x.ArcadeCabinet != null ? x.ArcadeCabinet.DisplayName : null,
+                    x.GameId,
+                    x.Game.Name,
+                    x.CreatedByProfile != null ? x.CreatedByProfile.DisplayName : null,
+                    x.CreatedByProfile != null ? x.CreatedByProfile.Username : null))
+                .ToListAsync(cancellationToken);
+        var runtimeArcadeRoomRows = runtimeSessionIds.Length == 0
+            ? []
+            : await db.GamePlayRooms
+                .AsNoTracking()
+                .Where(x => x.ArcadeCabinet != null && x.ArcadeCabinet.RuntimeSessionId != null && runtimeSessionIds.Contains(x.ArcadeCabinet.RuntimeSessionId))
+                .Select(x => new HomeRuntimeRoomRow(
+                    x.Id,
+                    x.ArcadeCabinet!.RuntimeSessionId!,
+                    x.Code,
+                    true,
+                    x.ArcadeCabinet.DisplayName,
+                    x.GameId,
+                    x.Game.Name,
+                    x.CreatedByProfile != null ? x.CreatedByProfile.DisplayName : null,
+                    x.CreatedByProfile != null ? x.CreatedByProfile.Username : null))
+                .ToListAsync(cancellationToken);
+        runtimeRoomRows.AddRange(runtimeArcadeRoomRows);
+        var runtimeRoomBySessionId = runtimeRoomRows
+            .GroupBy(x => x.SessionId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(x => x.Key, x => x.OrderByDescending(room => room.Id).First(), StringComparer.OrdinalIgnoreCase);
+        var runtimeRoomIds = runtimeRoomRows.Select(x => x.Id).Distinct().ToArray();
+        var runtimeParticipantRows = runtimeRoomIds.Length == 0
+            ? []
+            : await db.GamePlayRoomParticipants
+                .AsNoTracking()
+                .Where(x => runtimeRoomIds.Contains(x.RoomId) && x.IsConnected)
+                .Select(x => new
+                {
+                    x.RoomId,
+                    Name = x.Profile != null ? x.Profile.DisplayName : x.DisplayNameSnapshot
+                })
+                .ToListAsync(cancellationToken);
+        var runtimeParticipantsByRoomId = runtimeParticipantRows
+            .Where(x => !string.IsNullOrWhiteSpace(x.Name))
+            .GroupBy(x => x.RoomId)
+            .ToDictionary(
+                x => x.Key,
+                x => string.Join(", ", x.Select(participant => participant.Name!).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(name => name)));
+        var runtimeTelemetryRows = runtimeSessionIds.Length == 0
+            ? []
+            : await db.GamePlaySessions
+                .AsNoTracking()
+                .Where(x => x.EndedUtc == null && x.ExternalSessionId != null && runtimeSessionIds.Contains(x.ExternalSessionId))
+                .OrderByDescending(x => x.StartedUtc)
+                .Select(x => new
+                {
+                    SessionId = x.ExternalSessionId!,
+                    ProfileName = x.Profile != null ? x.Profile.DisplayName : null
+                })
+                .ToListAsync(cancellationToken);
+        var runtimeTelemetryBySessionId = runtimeTelemetryRows
+            .Where(x => !string.IsNullOrWhiteSpace(x.ProfileName))
+            .GroupBy(x => x.SessionId, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(x => x.Key, x => x.First().ProfileName, StringComparer.OrdinalIgnoreCase);
+
+        var runtimeProcessModels = activeSessionModels
+            .Select(session =>
+            {
+                processById.TryGetValue(session.ProcessId, out var process);
+                runtimeRoomBySessionId.TryGetValue(session.SessionId, out var room);
+                var participants = room is not null && runtimeParticipantsByRoomId.TryGetValue(room.Id, out var names) ? names : null;
+                runtimeTelemetryBySessionId.TryGetValue(session.SessionId, out var telemetryProfileName);
+                return new NosebleedRuntimeProcessViewModel
+                {
+                    ProcessId = session.ProcessId,
+                    SessionId = session.SessionId,
+                    GameId = session.GameId,
+                    GameName = session.GameName,
+                    FileId = session.FileId,
+                    Port = session.Port,
+                    BaseUrl = session.BaseUrl,
+                    StartedUtc = session.StartedUtc,
+                    Runtime = session.Runtime,
+                    IsManaged = true,
+                    HasExited = session.HasExited,
+                    IsArcadeCabinet = session.IsArcadeCabinet,
+                    ArcadeCabinetName = session.ArcadeCabinetName,
+                    RoomCode = session.RoomCode,
+                    CreatedByProfileName = room?.CreatedByProfileName,
+                    CreatedByProfileUsername = room?.CreatedByProfileUsername,
+                    ActiveParticipantNames = participants,
+                    TelemetryProfileName = telemetryProfileName,
+                    CorePath = session.CorePath,
+                    ContentPath = session.ContentPath,
+                    CommandLine = process?.CommandLine
+                };
+            })
+            .Concat(orphanProcesses.Select(process =>
+            {
+                var sessionId = process.SessionId ?? $"pid:{process.ProcessId}";
+                runtimeRoomBySessionId.TryGetValue(sessionId, out var room);
+                var participants = room is not null && runtimeParticipantsByRoomId.TryGetValue(room.Id, out var names) ? names : null;
+                runtimeTelemetryBySessionId.TryGetValue(sessionId, out var telemetryProfileName);
+                return new NosebleedRuntimeProcessViewModel
+                {
+                    ProcessId = process.ProcessId,
+                    SessionId = sessionId,
+                    GameId = room?.GameId,
+                    GameName = room?.GameName ?? Path.GetFileNameWithoutExtension(process.ContentPath ?? string.Empty),
+                    Port = process.Port,
+                    IsManaged = false,
+                    IsArcadeCabinet = room?.IsArcadeBound == true,
+                    ArcadeCabinetName = room?.ArcadeCabinetName,
+                    RoomCode = room?.Code,
+                    CreatedByProfileName = room?.CreatedByProfileName,
+                    CreatedByProfileUsername = room?.CreatedByProfileUsername,
+                    ActiveParticipantNames = participants,
+                    TelemetryProfileName = telemetryProfileName,
+                    CorePath = process.CorePath,
+                    ContentPath = process.ContentPath,
+                    CommandLine = process.CommandLine
+                };
+            }))
+            .OrderByDescending(x => x.IsManaged)
+            .ThenBy(x => x.SessionKind)
+            .ThenBy(x => x.GameName)
+            .ThenBy(x => x.ProcessId)
+            .ToList();
         var activeArcadeCabinets = activeSessionModels
             .Where(x => x.IsArcadeCabinet)
             .OrderBy(x => x.ArcadeCabinetName ?? x.GameName)
@@ -281,6 +426,7 @@ public class HomeController(
             ActiveProfiles = activeProfiles,
             RecentSessions = recentSessions,
             OrphanNosebleedProcesses = orphanProcesses,
+            NosebleedRuntimeProcesses = runtimeProcessModels,
             SystemFilesCount = systemFilesCount,
             MissingSystemFilesCount = missingSystemFilesCount,
 
@@ -447,3 +593,14 @@ public class HomeController(
         return View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
     }
 }
+
+internal sealed record HomeRuntimeRoomRow(
+    int Id,
+    string SessionId,
+    string Code,
+    bool IsArcadeBound,
+    string? ArcadeCabinetName,
+    int GameId,
+    string GameName,
+    string? CreatedByProfileName,
+    string? CreatedByProfileUsername);
