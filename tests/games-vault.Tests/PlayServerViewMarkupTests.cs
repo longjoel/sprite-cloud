@@ -42,9 +42,30 @@ public sealed class PlayServerViewMarkupTests
         Assert.Contains("id=\"playserver-session-grid\"", content);
         Assert.Contains("id=\"room-seat-strip\"", content);
         Assert.Contains("id=\"playserver-roster-card\"", content);
-        Assert.Contains("id=\"room-presence-watchers\"", content);
         Assert.Contains("<div class=\"fw-semibold\">Seats</div>", content);
         Assert.Contains(">Leave seat</button>", content);
+    }
+
+    [Fact]
+    public void RoomPresencePanel_Does_Not_Render_Separate_Viewers_List()
+    {
+        var content = ReadPlayServerView();
+
+        Assert.DoesNotContain("id=\"room-presence-watchers\"", content);
+        Assert.DoesNotContain("presenceWatchersEl", content);
+        Assert.DoesNotContain("payload.watchers", content);
+        Assert.DoesNotContain("watching", content);
+    }
+
+    [Fact]
+    public void SeatCards_Highlight_The_Current_Player_Seat()
+    {
+        var content = ReadPlayServerView();
+
+        Assert.Contains("const currentPlayerNumber = Number.isInteger(config.playerNumber) ? config.playerNumber : null;", content);
+        Assert.Contains("const isCurrentSeat = currentPlayerNumber === playerNumber;", content);
+        Assert.Contains("occupantEl.className = isCurrentSeat ? 'fw-bold' : 'fw-semibold';", content);
+        Assert.Contains("statusEl.textContent = isCurrentSeat ? `${statusText} · your seat` : statusText;", content);
     }
 
     [Fact]
@@ -53,6 +74,8 @@ public sealed class PlayServerViewMarkupTests
         var content = ReadPlayServerView();
 
         Assert.Contains("id=\"nosebleed-player-chrome\"", content);
+        Assert.Contains("id=\"server-player-shell\" class=\"server-player-shell bg-dark rounded p-2\" tabindex=\"0\"", content);
+        Assert.Contains("aria-label=\"Game player surface\"", content);
         Assert.Contains("id=\"nosebleed-player-bottom-bar\"", content);
         Assert.Contains("id=\"nosebleed-player-prompt\"", content);
         Assert.Contains("id=\"nosebleed-view-windowed\"", content);
@@ -69,6 +92,7 @@ public sealed class PlayServerViewMarkupTests
         Assert.Contains("id=\"nosebleed-player-health\"", content);
         Assert.DoesNotContain("id=\"nosebleed-audio\"", content);
         Assert.DoesNotContain("id=\"nosebleed-connect\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-controller-scan\"", content);
     }
 
     [Fact]
@@ -88,7 +112,19 @@ public sealed class PlayServerViewMarkupTests
         Assert.Contains("title=\"Full screen\"", content);
         Assert.DoesNotContain("<span class=\"player-control-label\">Full screen</span>", content);
         Assert.DoesNotContain("<span class=\"player-control-label\">Logs</span>", content);
+        Assert.DoesNotContain("loggingToggleButton.textContent", File.ReadAllText(Path.Combine(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../")), "wwwroot", "js", "nosebleed-player", "server-player.js")));
         Assert.DoesNotContain("id=\"nosebleed-audio-overlay\" class=\"btn btn-outline-secondary d-none\"", content);
+    }
+
+    [Fact]
+    public void PlayerSurface_Documents_Firefox_Gamepad_Discovery_Limitation()
+    {
+        var content = ReadPlayServerView();
+
+        Assert.Contains("id=\"playserver-gamepad-browser-note\"", content);
+        Assert.Contains("Controller note", content);
+        Assert.Contains("Browsers may wait to expose already-connected gamepads", content);
+        Assert.Contains("unplug it, plug it back in", content);
     }
 
     [Fact]

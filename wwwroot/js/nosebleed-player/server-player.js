@@ -124,6 +124,7 @@
     let playerChromeTimer = 0;
     let playerPromptTimer = 0;
     const playerEventTimers = new WeakMap();
+    const knownGamepads = new Map();
     const keys = new Set();
 
     function isFullscreenActive() {
@@ -173,7 +174,9 @@
     function syncFullscreenUi() {
         const fullscreen = isFullscreenActive();
         if (fullscreenButton) {
-            fullscreenButton.textContent = fullscreen ? "Exit full screen" : "Full screen";
+            const label = fullscreen ? "Exit full screen" : "Full screen";
+            fullscreenButton.setAttribute("aria-label", label);
+            fullscreenButton.setAttribute("title", label);
         }
         document.documentElement.classList.toggle("games-vault-player-fullscreen", fullscreen);
         document.body?.classList.toggle("games-vault-player-fullscreen", fullscreen);
@@ -243,9 +246,11 @@
     function setLogOverlayVisibility(enabled) {
         playerLogPanel?.classList.toggle("d-none", !enabled);
         if (loggingToggleButton) {
+            const label = enabled ? "Hide logging overlay" : "Show logging overlay";
             loggingToggleButton.classList.toggle("is-on", enabled);
             loggingToggleButton.setAttribute("aria-pressed", String(enabled));
-            loggingToggleButton.textContent = enabled ? "Hide logs" : "Logs";
+            loggingToggleButton.setAttribute("aria-label", label);
+            loggingToggleButton.setAttribute("title", label);
         }
     }
 
@@ -456,8 +461,39 @@
         fpsTimer = 0;
     }
 
+    function rememberGamepad(pad) {
+        if (!pad || !Number.isInteger(pad.index) || pad.connected === false) return null;
+        knownGamepads.set(pad.index, pad);
+        return pad;
+    }
+
+    function forgetGamepad(padOrIndex) {
+        const index = typeof padOrIndex === "number" ? padOrIndex : padOrIndex?.index;
+        if (Number.isInteger(index)) knownGamepads.delete(index);
+    }
+
+    function visibleBrowserGamepads() {
+        return Array.from(navigator.getGamepads?.() || []).filter(pad => {
+            if (!pad) return false;
+            if (pad.connected === false) {
+                forgetGamepad(pad);
+                return false;
+            }
+            rememberGamepad(pad);
+            return true;
+        });
+    }
+
     function connectedGamepads() {
-        return Array.from(navigator.getGamepads?.() || []).filter(Boolean);
+        const padsByIndex = new Map();
+        for (const pad of visibleBrowserGamepads()) padsByIndex.set(pad.index, pad);
+        for (const pad of knownGamepads.values()) {
+            if (pad?.connected !== false && !padsByIndex.has(pad.index)) {
+                padsByIndex.set(pad.index, pad);
+            }
+        }
+
+        return [...padsByIndex.values()].sort((left, right) => left.index - right.index);
     }
 
     function syncGamepadSelectionOptions() {
@@ -472,7 +508,7 @@
         if ([...gamepadSelect.options].some(option => option.value === currentValue)) {
             gamepadSelect.value = currentValue;
         } else {
-            const fallback = playerHelpers?.chooseInitialGamepadIndex?.(navigator.getGamepads?.() || [], selectedGamepadIndex, preferredGamepadIndex) ?? null;
+            const fallback = playerHelpers?.chooseInitialGamepadIndex?.(connectedGamepads(), selectedGamepadIndex, preferredGamepadIndex) ?? null;
             selectedGamepadIndex = fallback;
             gamepadSelect.value = fallback === null ? "" : String(fallback);
             if (fallback === null) localStorage.removeItem(gamepadStorageKey);
@@ -480,9 +516,46 @@
         }
     }
 
+    function refreshGamepadSelectionFromBrowser(eventGamepad = null) {
+        if (eventGamepad) rememberGamepad(eventGamepad);
+        if (!navigator.getGamepads && knownGamepads.size === 0) return false;
+        const beforePad = getActiveGamepad();
+        const nextIndex = playerHelpers?.chooseInitialGamepadIndex?.(connectedGamepads(), selectedGamepadIndex, preferredGamepadIndex) ?? selectedGamepadIndex;
+        selectedGamepadIndex = nextIndex;
+        syncGamepadSelectionOptions();
+        const afterPad = getActiveGamepad();
+        if (afterPad && afterPad !== beforePad) {
+            updatePadChip();
+            updatePadTestPanel();
+            return true;
+        }
+
+        return false;
+    }
+
+    function primePreconnectedGamepads(event = null) {
+        if (refreshGamepadSelectionFromBrowser(event?.gamepad || null)) {
+            showTransientPlayerEvent("Controller detected.", "good", 2200, "Controller");
+        }
+    }
+
+    function focusPlayerSurface() {
+        if (document.activeElement === shell) return;
+        try {
+            shell.focus({ preventScroll: true });
+        } catch {
+            try { shell.focus(); } catch { }
+        }
+    }
+
     function getActiveGamepad() {
         const pads = navigator.getGamepads?.() || [];
-        if (selectedGamepadIndex !== null) return pads[selectedGamepadIndex] || null;
+        if (selectedGamepadIndex !== null) {
+            const selectedPad = pads[selectedGamepadIndex] || null;
+            if (selectedPad && selectedPad.connected !== false) return selectedPad;
+            const knownPad = knownGamepads.get(selectedGamepadIndex) || null;
+            if (knownPad && knownPad.connected !== false) return knownPad;
+        }
         return connectedGamepads()[0] || null;
     }
 
@@ -509,8 +582,9 @@
             const parsed = Number.parseInt(saved, 10);
             if (Number.isInteger(parsed)) selectedGamepadIndex = parsed;
         }
-        selectedGamepadIndex = playerHelpers?.chooseInitialGamepadIndex?.(navigator.getGamepads?.() || [], selectedGamepadIndex, preferredGamepadIndex) ?? selectedGamepadIndex;
+        selectedGamepadIndex = playerHelpers?.chooseInitialGamepadIndex?.(connectedGamepads(), selectedGamepadIndex, preferredGamepadIndex) ?? selectedGamepadIndex;
         syncGamepadSelectionOptions();
+        primePreconnectedGamepads();
     }
 
     function startGamepadPolling() {
@@ -519,7 +593,7 @@
         gamepadPollTimer = window.setInterval(() => {
             const before = describeGamepad(getActiveGamepad());
             if (selectedGamepadIndex === null) {
-                selectedGamepadIndex = playerHelpers?.chooseInitialGamepadIndex?.(navigator.getGamepads(), null, preferredGamepadIndex) ?? null;
+                selectedGamepadIndex = playerHelpers?.chooseInitialGamepadIndex?.(connectedGamepads(), null, preferredGamepadIndex) ?? null;
             }
             syncGamepadSelectionOptions();
             const afterPad = getActiveGamepad();
@@ -662,6 +736,8 @@
         if (!isSpectator && assignedPort !== null) {
             inputWs = new WebSocket(withToken("/ws/input"));
             inputWs.onopen = () => {
+                focusPlayerSurface();
+                primePreconnectedGamepads();
                 updateChip(chips.input, `P${assignedPort + 1} input`, "good");
                 setStatus(`Connected as Player ${assignedPort + 1}. Sending input.`, "good");
                 setPlayerHealth(`Controller live · P${assignedPort + 1}`, "good");
@@ -1744,13 +1820,27 @@
     window.addEventListener("pointermove", () => wakePlayerChrome());
     window.addEventListener("focus", () => wakePlayerChrome(2400));
     window.addEventListener("mousemove", () => wakePlayerChrome());
-    shell.addEventListener("pointerdown", () => wakePlayerChrome(2800));
-    shell.addEventListener("touchstart", () => wakePlayerChrome(2800), { passive: true });
-    window.addEventListener("gamepadconnected", () => {
+    window.addEventListener("pointerdown", primePreconnectedGamepads, { capture: true });
+    window.addEventListener("keydown", primePreconnectedGamepads, { capture: true });
+    shell.addEventListener("pointerdown", () => {
+        focusPlayerSurface();
+        wakePlayerChrome(2800);
+    });
+    shell.addEventListener("touchstart", () => {
+        focusPlayerSurface();
+        wakePlayerChrome(2800);
+    }, { passive: true });
+    window.addEventListener("gamepadconnected", event => {
+        primePreconnectedGamepads(event);
         updatePadChip();
         updatePadTestPanel();
     });
-    window.addEventListener("gamepaddisconnected", () => {
+    window.addEventListener("gamepaddisconnected", event => {
+        forgetGamepad(event.gamepad);
+        if (selectedGamepadIndex === event.gamepad?.index) {
+            selectedGamepadIndex = playerHelpers?.chooseInitialGamepadIndex?.(connectedGamepads(), null, preferredGamepadIndex) ?? null;
+            syncGamepadSelectionOptions();
+        }
         updatePadChip();
         updatePadTestPanel();
     });
