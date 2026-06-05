@@ -48,7 +48,7 @@ public sealed class PasskeysController(PasskeyService passkeys, CurrentProfileSe
         try
         {
             var profile = await passkeys.CompleteLoginAsync(request, cancellationToken);
-            return Ok(new { profileId = profile.Id, displayName = profile.DisplayName, redirectUrl = Url.Action("Details", "Profiles", new { id = profile.Id }) });
+            return Ok(new { profileId = profile.Id, displayName = profile.DisplayName, redirectUrl = Url.Action("Index", "Home") });
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Fido2NetLib.Fido2VerificationException)
         {

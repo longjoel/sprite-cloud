@@ -94,7 +94,7 @@ public sealed class ProfilesController(
         if (await localProfiles.SignInAsync(username, password, cancellationToken))
         {
             TempData["Message"] = "Profile selected.";
-            return RedirectToAction(nameof(Index));
+            return RedirectToAction("Index", "Home");
         }
 
         TempData["Error"] = "Invalid username or password.";
