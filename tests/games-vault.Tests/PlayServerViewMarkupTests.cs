@@ -211,15 +211,32 @@ public sealed class PlayServerViewMarkupTests
     }
 
     [Fact]
-    public void Share_Card_Is_Renamed_Advanced_And_Houses_Battery_Save_Actions()
+    public void Invite_Links_Render_Next_To_Game_Title_With_Copy_Button()
+    {
+        var content = ReadPlayServerView();
+
+        Assert.Contains("id=\"playserver-invite-links\"", content);
+        Assert.Contains("<div class=\"fw-semibold small mb-2\">Invite links</div>", content);
+        Assert.Contains("Model.CurrentRoomId is int shareRoomId && Model.CanCreateShareLinks", content);
+        Assert.Contains("name=\"grantMode\" value=\"Spectator\"", content);
+        Assert.Contains("name=\"grantMode\" value=\"Player\"", content);
+        Assert.Contains("data-share-link-copy-value", content);
+        Assert.Contains("data-share-link-copy-button", content);
+        Assert.Contains("navigator.clipboard.writeText(shareCopyValue.value)", content);
+        Assert.Contains("document.execCommand('copy')", content);
+    }
+
+    [Fact]
+    public void Advanced_Houses_Battery_Save_Actions_Only()
     {
         var content = ReadPlayServerView();
 
         Assert.Contains("id=\"playserver-advanced-card\"", content);
         Assert.Contains("<summary>Advanced</summary>", content);
+        Assert.Contains("Model.CurrentRoomId is int advancedRoomId && canManageBatterySaves", content);
         Assert.DoesNotContain("id=\"playserver-share-card\"", content);
         Assert.DoesNotContain("<summary>Share</summary>", content);
-        Assert.Contains("<div class=\"fw-semibold small mb-2\">Share links</div>", content);
+        Assert.DoesNotContain("<div class=\"fw-semibold small mb-2\">Share links</div>", content);
         Assert.Contains("<div class=\"fw-semibold small mb-2\">Battery saves</div>", content);
         Assert.Contains(">Flush save</button>", content);
         Assert.Contains(">Upload save</a>", content);

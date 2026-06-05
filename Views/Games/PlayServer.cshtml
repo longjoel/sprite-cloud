@@ -32,8 +32,35 @@
 }
 
 <div class="playserver-hero mb-4">
-    <div>
-        <h1 class="h2 mb-1">@sessionTitle</h1>
+    <div class="d-flex flex-wrap justify-content-between gap-3 align-items-start">
+        <div>
+            <h1 class="h2 mb-1">@sessionTitle</h1>
+        </div>
+        @if (Model.CurrentRoomId is int shareRoomId && Model.CanCreateShareLinks)
+        {
+            <div class="playserver-invite-links border rounded-4 p-3 bg-body-tertiary" id="playserver-invite-links">
+                <div class="fw-semibold small mb-2">Invite links</div>
+                <div class="d-flex flex-wrap gap-2">
+                    <form asp-action="CreateRoomShareLink" method="post" asp-antiforgery="true">
+                        <input type="hidden" name="roomId" value="@shareRoomId" />
+                        <input type="hidden" name="grantMode" value="Spectator" />
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">Spectator link</button>
+                    </form>
+                    <form asp-action="CreateRoomShareLink" method="post" asp-antiforgery="true">
+                        <input type="hidden" name="roomId" value="@shareRoomId" />
+                        <input type="hidden" name="grantMode" value="Player" />
+                        <button type="submit" class="btn btn-sm btn-outline-primary">Player link</button>
+                    </form>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(Model.GeneratedShareLink))
+                {
+                    <div class="input-group input-group-sm mt-2" data-share-link-copy-row>
+                        <input class="form-control font-monospace" type="text" value="@Model.GeneratedShareLink" readonly aria-label="Generated @Model.GeneratedShareGrantMode invite link" data-share-link-copy-value />
+                        <button type="button" class="btn btn-outline-success" data-share-link-copy-button>Copy</button>
+                    </div>
+                }
+            </div>
+        }
     </div>
 </div>
 
@@ -1110,39 +1137,13 @@
                             </form>
                         }
                     </div>
-                    @if (Model.CurrentRoomId is int advancedRoomId && (Model.CanCreateShareLinks || canManageBatterySaves))
+                    @if (Model.CurrentRoomId is int advancedRoomId && canManageBatterySaves)
                     {
                         <details class="border rounded-4 p-3 bg-body-tertiary" id="playserver-advanced-card">
                             <summary>Advanced</summary>
                             <div class="d-grid gap-3 mt-3 mb-2">
-                                @if (Model.CanCreateShareLinks)
-                                {
-                                    <div>
-                                        <div class="fw-semibold small mb-2">Share links</div>
-                                        <div class="d-grid gap-2">
-                                            <form asp-action="CreateRoomShareLink" method="post" asp-antiforgery="true">
-                                                <input type="hidden" name="roomId" value="@advancedRoomId" />
-                                                <input type="hidden" name="grantMode" value="Spectator" />
-                                                <button type="submit" class="btn btn-outline-secondary w-100">Spectator link</button>
-                                            </form>
-                                            <form asp-action="CreateRoomShareLink" method="post" asp-antiforgery="true">
-                                                <input type="hidden" name="roomId" value="@advancedRoomId" />
-                                                <input type="hidden" name="grantMode" value="Player" />
-                                                <button type="submit" class="btn btn-outline-primary w-100">Player link</button>
-                                            </form>
-                                        </div>
-                                        @if (!string.IsNullOrWhiteSpace(Model.GeneratedShareLink))
-                                        {
-                                            <div class="small mt-2">
-                                                <code class="user-select-all">@Model.GeneratedShareLink</code>
-                                            </div>
-                                        }
-                                    </div>
-                                }
-                                @if (canManageBatterySaves)
-                                {
-                                    <div>
-                                        <div class="fw-semibold small mb-2">Battery saves</div>
+                                <div>
+                                    <div class="fw-semibold small mb-2">Battery saves</div>
                                         <div class="d-grid gap-2">
                                             @if (!string.IsNullOrWhiteSpace(Model.SessionId) && !Model.IsSpectator)
                                             {
@@ -1157,7 +1158,6 @@
                                             <button type="button" class="btn btn-outline-success w-100" data-bs-toggle="modal" data-bs-target="#playServerSaveHistoryModal">Manage saves</button>
                                         </div>
                                     </div>
-                                }
                             </div>
                         </details>
                     }
@@ -1226,6 +1226,26 @@
     const kickFormEl = document.getElementById('room-kick-form');
     const currentPlayerNumber = Number.isInteger(config.playerNumber) ? config.playerNumber : null;
     const canKickPlayers = config.canKickPlayers === true;
+
+    const shareCopyButton = document.querySelector('[data-share-link-copy-button]');
+    const shareCopyValue = document.querySelector('[data-share-link-copy-value]');
+    shareCopyButton?.addEventListener('click', async () => {
+        if (!shareCopyValue?.value) {
+            return;
+        }
+
+        try {
+            await navigator.clipboard.writeText(shareCopyValue.value);
+            shareCopyButton.textContent = 'Copied';
+            setTimeout(() => { shareCopyButton.textContent = 'Copy'; }, 1600);
+        } catch {
+            shareCopyValue.focus();
+            shareCopyValue.select();
+            document.execCommand('copy');
+            shareCopyButton.textContent = 'Copied';
+            setTimeout(() => { shareCopyButton.textContent = 'Copy'; }, 1600);
+        }
+    });
 
     const getKickToken = () => kickFormEl?.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
 
