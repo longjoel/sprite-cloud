@@ -109,6 +109,10 @@ public sealed class PlayServerViewMarkupTests
         Assert.Contains("class=\"player-control-icon\"", content);
         Assert.Contains("<svg viewBox=\"0 0 24 24\"", content);
         Assert.Contains("class=\"player-volume-slider\"", content);
+        Assert.Contains("data-lpignore=\"true\"", content);
+        Assert.Contains("data-1p-ignore=\"true\"", content);
+        Assert.Contains("data-bwignore=\"true\"", content);
+        Assert.Contains("data-form-type=\"other\"", content);
         Assert.Contains("title=\"Windowed view\"", content);
         Assert.Contains("title=\"Theater view\"", content);
         Assert.Contains("title=\"Full screen\"", content);
