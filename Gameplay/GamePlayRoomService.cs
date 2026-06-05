@@ -329,6 +329,59 @@ public sealed class GamePlayRoomService(
         return RoomBatterySaveFlushResult.Ok(capturedCount, $"Flushed {capturedCount} runtime save file(s).");
     }
 
+    public async Task<RoomPlayerKickResult> KickRoomPlayerAsync(int roomId, string requesterViewerId, string targetViewerId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(requesterViewerId) || string.IsNullOrWhiteSpace(targetViewerId))
+        {
+            return RoomPlayerKickResult.Fail("A player identity is required to kick a player.");
+        }
+
+        if (string.Equals(requesterViewerId, targetViewerId, StringComparison.Ordinal))
+        {
+            return RoomPlayerKickResult.Fail("You cannot kick yourself.");
+        }
+
+        var room = await db.GamePlayRooms.FirstOrDefaultAsync(x => x.Id == roomId && x.Status == GamePlayRoomStatus.Active, ct);
+        if (room is null || string.IsNullOrWhiteSpace(room.NosebleedSessionId))
+        {
+            return RoomPlayerKickResult.Fail("That room is no longer active.");
+        }
+
+        var assignments = nosebleedSeats.GetAssignments(room.NosebleedSessionId, DateTimeOffset.UtcNow);
+        var requester = assignments.FirstOrDefault(x => string.Equals(x.ViewerId, requesterViewerId, StringComparison.Ordinal));
+        var target = assignments.FirstOrDefault(x => string.Equals(x.ViewerId, targetViewerId, StringComparison.Ordinal));
+        var profile = await currentProfile.GetCurrentAsync(ct);
+        var requesterCanKick = profile?.IsAdmin == true || requester is { Kind: NosebleedSeatKind.Player, Port: 0 };
+        if (!requesterCanKick)
+        {
+            return RoomPlayerKickResult.Fail("Only Player 1 can kick other players.");
+        }
+
+        if (target is null)
+        {
+            return RoomPlayerKickResult.Fail("That player is no longer connected.");
+        }
+
+        if (target.Kind != NosebleedSeatKind.Player)
+        {
+            return RoomPlayerKickResult.Fail("Only active players can be kicked from a seat.");
+        }
+
+        nosebleedSeats.Kick(room.NosebleedSessionId, targetViewerId);
+        var participant = await db.GamePlayRoomParticipants.FirstOrDefaultAsync(x => x.RoomId == room.Id && x.ViewerId == targetViewerId, ct);
+        if (participant is not null)
+        {
+            participant.IsConnected = false;
+            participant.LastSeenUtc = DateTime.UtcNow;
+            participant.Port = null;
+            participant.Role = GamePlayRoomParticipantRole.Spectator;
+        }
+
+        room.LastActiveUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return RoomPlayerKickResult.Ok();
+    }
+
     private async Task<RoomJoinResult> JoinRoomAsync(GamePlayRoom room, string viewerId, CancellationToken ct, bool? allowPlayerOverride)
     {
         nosebleedSessions.Cleanup();
@@ -624,7 +677,7 @@ public sealed class GamePlayRoomService(
                 var displayName = string.IsNullOrWhiteSpace(participant?.DisplayNameSnapshot)
                     ? "Viewer"
                     : participant.DisplayNameSnapshot!.Trim();
-                return new RoomPresencePlayer(displayName, x.PlayerNumber ?? 0, x.Port);
+                return new RoomPresencePlayer(displayName, x.PlayerNumber ?? 0, x.Port, x.ViewerId);
             })
             .ToList();
 

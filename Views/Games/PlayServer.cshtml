@@ -1069,6 +1069,12 @@
                 <div class="playserver-seat-strip" id="room-seat-strip">
                     <div class="border rounded px-3 py-2 small text-muted bg-body" data-seat-placeholder="true">Loading seats…</div>
                 </div>
+                @if (Model.CurrentRoomId is int kickRoomId)
+                {
+                    <form asp-controller="Games" asp-action="KickRoomPlayer" asp-route-roomId="@kickRoomId" method="post" class="d-none" id="room-kick-form">
+                        @Html.AntiForgeryToken()
+                    </form>
+                }
                 @if (!Model.IsSpectator && !string.IsNullOrWhiteSpace(Model.SessionId))
                 {
                     <form asp-controller="Games" asp-action="LeaveServerSession" method="post" class="d-grid mt-3" id="leave-seat-form">
@@ -1194,6 +1200,9 @@
     keepAliveUrl = Url.Action("KeepAliveServerSession", "Games"),
     roomPresenceUrl = Model.CurrentRoomId is null ? null : Url.Action("RoomPresence", "Games", new { roomId = Model.CurrentRoomId }),
     roomChatUrl = Model.CurrentRoomId is null ? null : Url.Action("RoomChat", "Games", new { roomId = Model.CurrentRoomId }),
+    roomKickUrl = Model.CurrentRoomId is null ? null : Url.Action("KickRoomPlayer", "Games", new { roomId = Model.CurrentRoomId }),
+    canKickPlayers = !Model.IsSpectator && Model.PlayerNumber == 1,
+    playerNumber = Model.PlayerNumber,
     batterySaveDiagnostics = Model.BatterySaveDiagnostics
 }))
 </script>
@@ -1221,7 +1230,11 @@
     const chatMessagesEl = document.getElementById('room-chat-messages');
     const chatLogEl = document.getElementById('room-chat-log');
     const chatFormEl = document.getElementById('room-chat-form');
+    const kickFormEl = document.getElementById('room-kick-form');
     const currentPlayerNumber = Number.isInteger(config.playerNumber) ? config.playerNumber : null;
+    const canKickPlayers = config.canKickPlayers === true;
+
+    const getKickToken = () => kickFormEl?.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
 
     const clearChildren = (el) => {
         while (el && el.firstChild) {
@@ -1264,6 +1277,44 @@
         return card;
     };
 
+    const kickPlayer = async (viewerId, displayName) => {
+        if (!canKickPlayers || !config.roomKickUrl || !kickFormEl || !viewerId) {
+            return;
+        }
+
+        if (!window.confirm(`Kick ${displayName || 'this player'} from their seat?`)) {
+            return;
+        }
+
+        const token = getKickToken();
+        const body = new URLSearchParams({ viewerId });
+        if (token) {
+            body.set('__RequestVerificationToken', token);
+        }
+
+        try {
+            const response = await fetch(config.roomKickUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body,
+                credentials: 'same-origin'
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(payload.error || `kick ${response.status}`);
+            }
+
+            if (chatStatusEl) {
+                chatStatusEl.textContent = `${displayName || 'Player'} was kicked from their seat.`;
+            }
+            await loadPresence();
+        } catch (error) {
+            if (chatStatusEl) {
+                chatStatusEl.textContent = error instanceof Error ? error.message : 'Could not kick player.';
+            }
+        }
+    };
+
     const renderPresence = (payload) => {
         if (!presenceSummaryEl || !presencePlayersEl) {
             return;
@@ -1279,11 +1330,24 @@
         } else {
             for (const player of players) {
                 const item = document.createElement('li');
+                item.className = 'd-flex align-items-center justify-content-between gap-2 mb-1';
+                const playerLabel = document.createElement('span');
                 const label = document.createElement('span');
                 label.className = 'fw-semibold';
                 label.textContent = `P${player.playerNumber}`;
-                item.appendChild(label);
-                item.append(` — ${player.displayName ?? 'Viewer'}${Number.isInteger(player.port) ? ` · Input ${player.port + 1}` : ''}`);
+                playerLabel.appendChild(label);
+                playerLabel.append(` — ${player.displayName ?? 'Viewer'}${Number.isInteger(player.port) ? ` · Input ${player.port + 1}` : ''}`);
+                item.appendChild(playerLabel);
+
+                if (canKickPlayers && player.viewerId && player.playerNumber !== currentPlayerNumber) {
+                    const kickButton = document.createElement('button');
+                    kickButton.type = 'button';
+                    kickButton.className = 'btn btn-sm btn-outline-danger py-0';
+                    kickButton.textContent = 'Kick';
+                    kickButton.addEventListener('click', () => kickPlayer(player.viewerId, player.displayName ?? 'Player'));
+                    item.appendChild(kickButton);
+                }
+
                 presencePlayersEl.appendChild(item);
             }
         }

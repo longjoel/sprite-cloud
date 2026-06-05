@@ -16,7 +16,13 @@ public sealed record RoomJoinResult(bool Success, GamePlayRoom? Room, NosebleedS
     public static RoomJoinResult Ok(GamePlayRoom room, NosebleedSession session, NosebleedSeatAssignment seat, string token) => new(true, room, session, seat, token, null);
 }
 
-public sealed record RoomPresencePlayer(string DisplayName, int PlayerNumber, int? Port);
+public sealed record RoomPresencePlayer(string DisplayName, int PlayerNumber, int? Port, string ViewerId);
+
+public sealed record RoomPlayerKickResult(bool Success, string? Error)
+{
+    public static RoomPlayerKickResult Fail(string error) => new(false, error);
+    public static RoomPlayerKickResult Ok() => new(true, null);
+}
 
 public sealed record RoomPresenceWatcher(string DisplayName);
 

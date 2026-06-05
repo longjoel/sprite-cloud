@@ -115,6 +115,31 @@ public sealed class NosebleedSeatManagerTests
         Assert.Null(active[2].Port);
     }
 
+    [Fact]
+    public void Kick_RemovesPlayerSeatAndKeepsViewerSpectatingUntilRelease()
+    {
+        var manager = CreateManager(maxPlayers: 2, ttlMinutes: 30);
+        var now = DateTimeOffset.UtcNow;
+
+        var first = manager.Assign("s1", "v1", now);
+        var second = manager.Assign("s1", "v2", now);
+        Assert.Equal(0, first.Port);
+        Assert.Equal(1, second.Port);
+
+        manager.Kick("s1", "v2");
+        var afterKick = manager.Assign("s1", "v2", now.AddSeconds(1));
+
+        Assert.Equal(NosebleedSeatKind.Spectator, afterKick.Kind);
+        Assert.Null(afterKick.Port);
+        Assert.Single(manager.GetAssignments("s1", now.AddSeconds(2)), x => x.Kind == NosebleedSeatKind.Player);
+
+        manager.Release("s1", "v2");
+        var afterRelease = manager.Assign("s1", "v2", now.AddSeconds(3));
+
+        Assert.Equal(NosebleedSeatKind.Player, afterRelease.Kind);
+        Assert.Equal(1, afterRelease.Port);
+    }
+
     private static NosebleedSeatManager CreateManager(int maxPlayers, int ttlMinutes) => new(
         Options.Create(new NosebleedOptions
         {
