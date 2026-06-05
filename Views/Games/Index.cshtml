@@ -2,7 +2,8 @@
 
 @{
     ViewData["Title"] = "Games";
-    var q = Model.Query;
+    var browse = Model.Browse;
+    var q = browse.Q;
     var currentPage = Model.Page;
     var pageSize = Model.PageSize;
     var returnUrl = Context.Request.Path + Context.Request.QueryString;
@@ -12,10 +13,15 @@
     var bankModel = new games_vault.Models.ViewModels.GamesBankViewModel
     {
         Games = Model.Games,
+        Browse = browse,
         Query = q,
         Page = currentPage,
         PageSize = pageSize,
         TotalCount = Model.TotalCount,
+        SystemOptions = Model.SystemOptions,
+        PlayerOptions = Model.PlayerOptions,
+        Sections = Model.Sections,
+        ActiveGameIds = Model.ActiveGameIds,
         BatchId = Model.BatchId,
         BatchGameIds = Model.BatchGameIds,
         MissingSystemFilesBySystem = Model.MissingSystemFilesBySystem
@@ -29,16 +35,19 @@
 
 <div class="mb-4">
     <div class="games-shell-hero rounded-4 p-4 p-lg-5 mb-3 shadow-sm">
-        <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
-            <div>
+        <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
+            <div class="games-library-hero-copy">
                 <div class="games-card-kicker mb-2">Playable library</div>
-                <h1 class="h2 mb-2">Games</h1>
-                <div class="text-muted">Browse your library, jump straight into a server-side session, or add/import new ROMs without leaving the page.</div>
+                <h1 class="display-6 mb-2">Browse your library</h1>
+                <div class="lead text-muted">Search your collection, jump into recently played favorites, find active rooms, or browse by system like a personal Steam shelf for ROMs.</div>
             </div>
         </div>
 
         <div class="d-flex flex-wrap gap-2 text-muted small">
             <span class="games-meta-chip">@Model.TotalCount game@(Model.TotalCount == 1 ? "" : "s")</span>
+            <span class="games-meta-chip">@Model.SystemCount system@(Model.SystemCount == 1 ? "" : "s")</span>
+            <span class="games-meta-chip">@Model.ActiveNowCount playing now</span>
+            <span class="games-meta-chip">@Model.PlayedThisWeekCount played this week</span>
             <span class="games-meta-chip">@pageSize per page</span>
         </div>
     </div>
@@ -54,23 +63,79 @@
 
     <div class="tab-content">
         <div class="tab-pane fade @(browseTabActive ? "show active" : "")" id="games-browse-pane" role="tabpanel" aria-labelledby="games-browse-tab" tabindex="0">
-            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
-                <form id="games-search-form" asp-action="Index" method="get" class="d-flex flex-wrap gap-2 align-items-center">
-                    <input id="games-search" name="q" value="@q" class="form-control" placeholder="Search games, systems, or CRC…" autocomplete="off" />
-                    <input type="hidden" name="page" value="@currentPage" />
-                    <select id="games-page-size" name="pageSize" class="form-select" style="width: 8rem;">
-                        @foreach (var size in new[] { 10, 25, 50, 100 })
-                        {
-                            <option value="@size" selected="@(size == pageSize)">@size / page</option>
-                        }
-                    </select>
-                    <button type="submit" class="btn btn-outline-secondary">Search</button>
-                    @if (!string.IsNullOrWhiteSpace(q))
-                    {
-                        <a class="btn btn-outline-secondary" asp-action="Index" asp-route-pageSize="@pageSize">Clear</a>
-                    }
-                </form>
+            <div class="card border-0 shadow-sm mb-3 games-library-controls">
+                <div class="card-body p-3 p-lg-4">
+                    <form id="games-search-form" asp-action="Index" method="get" class="row g-3 align-items-end">
+                        <div class="col-12 col-lg-4">
+                            <label class="form-label fw-semibold" for="games-search">Search library</label>
+                            <input id="games-search" name="q" value="@q" class="form-control form-control-lg" placeholder="Search games, systems, files, CRC…" autocomplete="off" />
+                        </div>
+                        <input type="hidden" name="page" value="@currentPage" />
+                        <div class="col-6 col-md-4 col-lg-2">
+                            <label class="form-label" for="games-system-filter">System</label>
+                            <select id="games-system-filter" name="system" class="form-select games-browse-control">
+                                <option value="">All systems</option>
+                                @foreach (var option in Model.SystemOptions)
+                                {
+                                    <option value="@option.Name" selected="@(string.Equals(option.Name, browse.System, StringComparison.OrdinalIgnoreCase))">@option.Name (@option.Count)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-4 col-lg-2">
+                            <label class="form-label" for="games-players-filter">Players</label>
+                            <select id="games-players-filter" name="players" class="form-select games-browse-control">
+                                <option value="">Any players</option>
+                                @foreach (var option in Model.PlayerOptions)
+                                {
+                                    <option value="@option.Players" selected="@(browse.Players == option.Players)">@option.Players player@(option.Players == 1 ? "" : "s") (@option.Count)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-4 col-lg-2">
+                            <label class="form-label" for="games-sort">Sort</label>
+                            <select id="games-sort" name="sort" class="form-select games-browse-control">
+                                <option value="RecentlyAdded" selected="@(browse.Sort == games_vault.Models.ViewModels.GamesLibrarySort.RecentlyAdded)">Recently added</option>
+                                <option value="AlphabeticalAsc" selected="@(browse.Sort == games_vault.Models.ViewModels.GamesLibrarySort.AlphabeticalAsc)">Alphabetical A-Z</option>
+                                <option value="AlphabeticalDesc" selected="@(browse.Sort == games_vault.Models.ViewModels.GamesLibrarySort.AlphabeticalDesc)">Alphabetical Z-A</option>
+                                <option value="RecentlyPlayed" selected="@(browse.Sort == games_vault.Models.ViewModels.GamesLibrarySort.RecentlyPlayed)">Recently played</option>
+                                <option value="MostPlayedAllTime" selected="@(browse.Sort == games_vault.Models.ViewModels.GamesLibrarySort.MostPlayedAllTime)">Most played all time</option>
+                                <option value="MostPlayedThisWeek" selected="@(browse.Sort == games_vault.Models.ViewModels.GamesLibrarySort.MostPlayedThisWeek)">Most played this week</option>
+                                <option value="NumberOfPlayers" selected="@(browse.Sort == games_vault.Models.ViewModels.GamesLibrarySort.NumberOfPlayers)">Number of players</option>
+                                <option value="System" selected="@(browse.Sort == games_vault.Models.ViewModels.GamesLibrarySort.System)">System</option>
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-4 col-lg-2">
+                            <label class="form-label" for="games-group">Group</label>
+                            <select id="games-group" name="group" class="form-select games-browse-control">
+                                <option value="None" selected="@(browse.Group == games_vault.Models.ViewModels.GamesLibraryGroup.None)">No grouping</option>
+                                <option value="System" selected="@(browse.Group == games_vault.Models.ViewModels.GamesLibraryGroup.System)">System</option>
+                                <option value="Alphabetical" selected="@(browse.Group == games_vault.Models.ViewModels.GamesLibraryGroup.Alphabetical)">Alphabetical</option>
+                                <option value="NumberOfPlayers" selected="@(browse.Group == games_vault.Models.ViewModels.GamesLibraryGroup.NumberOfPlayers)">Number of players</option>
+                                <option value="CurrentlyPlaying" selected="@(browse.Group == games_vault.Models.ViewModels.GamesLibraryGroup.CurrentlyPlaying)">Playing now</option>
+                            </select>
+                        </div>
+                        <div class="col-6 col-md-4 col-lg-2">
+                            <label class="form-label" for="games-page-size">Page size</label>
+                            <select id="games-page-size" name="pageSize" class="form-select games-browse-control">
+                                @foreach (var size in new[] { 10, 25, 50, 100 })
+                                {
+                                    <option value="@size" selected="@(size == pageSize)">@size / page</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-12 col-md-8 col-lg-4 d-flex flex-wrap gap-2 align-items-center">
+                            <div class="form-check form-switch me-auto">
+                                <input class="form-check-input games-browse-control" type="checkbox" role="switch" id="games-playing-now" name="playingNow" value="true" checked="@(browse.PlayingNow)">
+                                <label class="form-check-label" for="games-playing-now">What's being played right now</label>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Search</button>
+                            <a class="btn btn-outline-secondary" asp-action="Index" asp-route-pageSize="@pageSize">Clear filters</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
 
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
                 <div class="text-muted" id="games-total-count">
                     @Model.TotalCount total
                 </div>
@@ -111,22 +176,36 @@
             var addTabButton = document.getElementById('games-add-tab');
             var pageInput = form ? form.querySelector('input[name="page"]') : null;
             var pageSize = document.getElementById('games-page-size');
+            var browseControls = form ? Array.from(form.querySelectorAll('.games-browse-control')) : [];
             var bankContainer = document.getElementById('games-bank-container');
             var totalCountEl = document.getElementById('games-total-count');
 
             function getParams() {
+                var data = new FormData(form || undefined);
                 return {
-                    q: input ? input.value : "",
+                    q: data.get('q') || "",
+                    system: data.get('system') || "",
+                    players: data.get('players') || "",
+                    playingNow: data.get('playingNow') || "",
+                    sort: data.get('sort') || "RecentlyAdded",
+                    group: data.get('group') || "None",
                     page: pageInput ? pageInput.value : "1",
                     pageSize: pageSize ? pageSize.value : "25"
                 };
             }
 
+            function writeParams(searchParams, params) {
+                ['q', 'system', 'players', 'playingNow', 'sort', 'group', 'page', 'pageSize'].forEach(function (key) {
+                    var value = params[key];
+                    var isDefault = (key === 'sort' && value === 'RecentlyAdded') || (key === 'group' && value === 'None') || (key === 'page' && value === '1');
+                    if (value && !isDefault) searchParams.set(key, value);
+                    else searchParams.delete(key);
+                });
+            }
+
             function setUrl(params) {
                 var url = new URL(window.location.href);
-                if (params.q) url.searchParams.set('q', params.q); else url.searchParams.delete('q');
-                if (params.page) url.searchParams.set('page', params.page); else url.searchParams.delete('page');
-                if (params.pageSize) url.searchParams.set('pageSize', params.pageSize); else url.searchParams.delete('pageSize');
+                writeParams(url.searchParams, params);
                 window.history.replaceState({}, "", url.toString());
             }
 
@@ -140,9 +219,7 @@
             async function loadBank(params) {
                 if (!bankContainer) return;
                 var qs = new URLSearchParams();
-                if (params.q) qs.set('q', params.q);
-                if (params.page) qs.set('page', params.page);
-                if (params.pageSize) qs.set('pageSize', params.pageSize);
+                writeParams(qs, params);
 
                 try {
                     var res = await fetch('/Games/Bank?' + qs.toString(), { cache: 'no-store', credentials: 'same-origin' });
@@ -180,13 +257,15 @@
                 });
             }
 
-            if (form && pageSize && pageInput) {
-                pageSize.addEventListener('change', function () {
-                    pageInput.value = "1";
-                    var params = getParams();
-                    params.page = "1";
-                    setUrl(params);
-                    loadBank(params);
+            if (form && browseControls.length && pageInput) {
+                browseControls.forEach(function (control) {
+                    control.addEventListener('change', function () {
+                        pageInput.value = "1";
+                        var params = getParams();
+                        params.page = "1";
+                        setUrl(params);
+                        loadBank(params);
+                    });
                 });
             }
 
@@ -216,6 +295,11 @@
                     var url = new URL(href, window.location.origin);
                     var params = {
                         q: url.searchParams.get('q') || "",
+                        system: url.searchParams.get('system') || "",
+                        players: url.searchParams.get('players') || "",
+                        playingNow: url.searchParams.get('playingNow') || "",
+                        sort: url.searchParams.get('sort') || "RecentlyAdded",
+                        group: url.searchParams.get('group') || "None",
                         page: url.searchParams.get('page') || "1",
                         pageSize: url.searchParams.get('pageSize') || (pageSize ? pageSize.value : "25")
                     };

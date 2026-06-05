@@ -41,9 +41,7 @@ public class GamesController(
     IHttpClientFactory httpClientFactory) : Controller
 {
     public async Task<IActionResult> Index(
-        string? q,
-        int page = 1,
-        int pageSize = 25,
+        [FromQuery] GamesLibraryBrowseQuery browse,
         int? batchId = null,
         int batchPage = 1,
         int batchPageSize = 50,
@@ -59,7 +57,7 @@ public class GamesController(
         string? localQuery = null,
         CancellationToken cancellationToken = default)
     {
-        var bank = await BuildGamesBankAsync(q, page, pageSize, batchId, cancellationToken);
+        var bank = await BuildGamesBankAsync(browse, batchId, cancellationToken);
 
         var savedBatches = await db.GameBatches
             .AsNoTracking()
@@ -163,7 +161,12 @@ public class GamesController(
 
         ViewData["ReturnUrl"] = Url.Action(nameof(Index), new
         {
-            q = bank.Query,
+            q = bank.Browse.Q,
+            system = bank.Browse.System,
+            players = bank.Browse.Players,
+            playingNow = bank.Browse.PlayingNow ? true : (bool?)null,
+            sort = bank.Browse.Sort,
+            group = bank.Browse.Group,
             page = bank.Page,
             pageSize = bank.PageSize,
             batchId = bank.BatchId,
@@ -198,10 +201,18 @@ public class GamesController(
         return View(new GamesIndexViewModel
         {
             Games = bank.Games,
+            Browse = bank.Browse,
             Query = bank.Query,
             Page = bank.Page,
             PageSize = bank.PageSize,
             TotalCount = bank.TotalCount,
+            SystemCount = bank.SystemOptions.Count,
+            ActiveNowCount = bank.ActiveGameIds.Count,
+            PlayedThisWeekCount = await db.GamePlaySessions.AsNoTracking().Where(s => s.StartedUtc >= DateTime.UtcNow.AddDays(-7)).Select(s => s.GameId).Distinct().CountAsync(cancellationToken),
+            SystemOptions = bank.SystemOptions,
+            PlayerOptions = bank.PlayerOptions,
+            Sections = bank.Sections,
+            ActiveGameIds = bank.ActiveGameIds,
             BatchId = bank.BatchId,
             BatchName = activeBatchName,
             SavedBatches = savedBatches,
@@ -221,45 +232,139 @@ public class GamesController(
     }
 
     [HttpGet]
-    public async Task<IActionResult> Bank(string? q, int page = 1, int pageSize = 25, int? batchId = null, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> Bank([FromQuery] GamesLibraryBrowseQuery browse, int? batchId = null, CancellationToken cancellationToken = default)
     {
         Response.Headers.CacheControl = "no-store";
 
-        var bank = await BuildGamesBankAsync(q, page, pageSize, batchId, cancellationToken);
+        var bank = await BuildGamesBankAsync(browse, batchId, cancellationToken);
         Response.Headers["X-Games-TotalCount"] = bank.TotalCount.ToString(CultureInfo.InvariantCulture);
 
-        ViewData["ReturnUrl"] = Url.Action(nameof(Index), new { q = bank.Query, page = bank.Page, pageSize = bank.PageSize, batchId = bank.BatchId }) ?? "/Games";
+        ViewData["ReturnUrl"] = Url.Action(nameof(Index), new
+        {
+            q = bank.Browse.Q,
+            system = bank.Browse.System,
+            players = bank.Browse.Players,
+            playingNow = bank.Browse.PlayingNow ? true : (bool?)null,
+            sort = bank.Browse.Sort,
+            group = bank.Browse.Group,
+            page = bank.Page,
+            pageSize = bank.PageSize,
+            batchId = bank.BatchId
+        }) ?? "/Games";
         return PartialView("_GamesBank", bank);
     }
 
-    private async Task<GamesBankViewModel> BuildGamesBankAsync(string? q, int page, int pageSize, int? batchId, CancellationToken cancellationToken)
+    private IQueryable<Game> ApplyGamesLibrarySearch(IQueryable<Game> query, string? q)
     {
-        q = string.IsNullOrWhiteSpace(q) ? null : q.Trim();
-        page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 5, 100);
+        if (string.IsNullOrWhiteSpace(q))
+        {
+            return query;
+        }
+
+        var qLower = q.Trim().ToLower();
+        return query.Where(g =>
+            g.Name.ToLower().Contains(qLower) ||
+            g.SystemName.ToLower().Contains(qLower) ||
+            g.Files.Any(f =>
+                f.Name.ToLower().Contains(qLower) ||
+                (f.Crc32 != null && f.Crc32.ToLower().Contains(qLower))));
+    }
+
+    private IQueryable<Game> ApplyGamesLibraryPlayingNowFilter(IQueryable<Game> query)
+    {
+        return query.Where(g =>
+            db.GamePlayRooms.Any(r => r.GameId == g.Id && r.Status == GamePlayRoomStatus.Active && r.NosebleedSessionId != null) ||
+            db.ArcadeCabinets.Any(c => c.GameId == g.Id && c.IsEnabled && c.RuntimeSessionId != null));
+    }
+
+    private async Task<GamesBankViewModel> BuildGamesBankAsync(GamesLibraryBrowseQuery? browse, int? batchId, CancellationToken cancellationToken)
+    {
+        browse = (browse ?? new GamesLibraryBrowseQuery()).Normalize();
+        var page = browse.Page;
+        var pageSize = browse.PageSize;
         batchId = batchId is > 0 ? batchId : null;
 
-        var query = db.Games.AsQueryable();
+        var searchedQuery = ApplyGamesLibrarySearch(db.Games.AsNoTracking(), browse.Q);
 
-        if (q is not null)
+        var systemOptionRows = await searchedQuery
+            .Where(g => g.SystemName != "")
+            .GroupBy(g => g.SystemName)
+            .Select(g => new { Name = g.Key, Count = g.Count() })
+            .OrderBy(g => g.Name)
+            .ToListAsync(cancellationToken);
+        var systemOptions = systemOptionRows
+            .Select(g => new GamesLibrarySystemOption(g.Name, g.Count))
+            .ToList();
+
+        var playerOptionRows = await searchedQuery
+            .Where(g => g.NumberOfPlayers != null)
+            .GroupBy(g => g.NumberOfPlayers!.Value)
+            .Select(g => new { Players = g.Key, Count = g.Count() })
+            .OrderBy(g => g.Players)
+            .ToListAsync(cancellationToken);
+        var playerOptions = playerOptionRows
+            .Select(g => new GamesLibraryPlayerCountOption(g.Players, g.Count))
+            .ToList();
+
+        var query = searchedQuery;
+
+        if (!string.IsNullOrWhiteSpace(browse.System))
         {
-            var qLower = q.ToLower();
-            query = query.Where(g =>
-                g.Name.ToLower().Contains(qLower) ||
-                g.SystemName.ToLower().Contains(qLower) ||
-                g.Files.Any(f =>
-                    f.Name.ToLower().Contains(qLower) ||
-                    (f.Crc32 != null && f.Crc32.ToLower().Contains(qLower))));
+            var systemLower = browse.System.ToLower();
+            query = query.Where(g => g.SystemName.ToLower() == systemLower);
         }
+
+        if (browse.Players is > 0)
+        {
+            query = query.Where(g => g.NumberOfPlayers == browse.Players.Value);
+        }
+
+        if (browse.PlayingNow)
+        {
+            query = ApplyGamesLibraryPlayingNowFilter(query);
+        }
+
+        var weekStartUtc = DateTime.UtcNow.AddDays(-7);
+        query = browse.Sort switch
+        {
+            GamesLibrarySort.AlphabeticalAsc => query.OrderBy(g => g.Name),
+            GamesLibrarySort.AlphabeticalDesc => query.OrderByDescending(g => g.Name),
+            GamesLibrarySort.System => query.OrderBy(g => g.SystemName).ThenBy(g => g.Name),
+            GamesLibrarySort.NumberOfPlayers => query.OrderByDescending(g => g.NumberOfPlayers ?? 0).ThenBy(g => g.Name),
+            GamesLibrarySort.RecentlyPlayed => query
+                .OrderByDescending(g => db.GamePlaySessions.Where(s => s.GameId == g.Id).Max(s => (DateTime?)s.StartedUtc) ?? g.CreatedUtc)
+                .ThenBy(g => g.Name),
+            GamesLibrarySort.MostPlayedAllTime => query
+                .OrderByDescending(g => db.GamePlaySessions.Count(s => s.GameId == g.Id))
+                .ThenBy(g => g.Name),
+            GamesLibrarySort.MostPlayedThisWeek => query
+                .OrderByDescending(g => db.GamePlaySessions.Count(s => s.GameId == g.Id && s.StartedUtc >= weekStartUtc))
+                .ThenBy(g => g.Name),
+            _ => query.OrderByDescending(g => g.CreatedUtc)
+        };
 
         var totalCount = await query.CountAsync(cancellationToken);
 
         var games = await query
             .Include(x => x.Files)
-            .OrderByDescending(x => x.CreatedUtc)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
             .ToListAsync(cancellationToken);
+
+        var pageGameIds = games.Select(g => g.Id).ToArray();
+        var activeGameIds = pageGameIds.Length == 0
+            ? new HashSet<int>()
+            : (await db.GamePlayRooms
+                .AsNoTracking()
+                .Where(r => pageGameIds.Contains(r.GameId) && r.Status == GamePlayRoomStatus.Active && r.NosebleedSessionId != null)
+                .Select(r => r.GameId)
+                .Concat(db.ArcadeCabinets
+                    .AsNoTracking()
+                    .Where(c => pageGameIds.Contains(c.GameId) && c.IsEnabled && c.RuntimeSessionId != null)
+                    .Select(c => c.GameId))
+                .Distinct()
+                .ToListAsync(cancellationToken))
+            .ToHashSet();
 
         // System BIOS missing check (based on libretro System.dat expected paths).
         var missingBySystem = new Dictionary<string, SystemMissingInfo>(StringComparer.OrdinalIgnoreCase);
@@ -327,16 +432,56 @@ public class GamesController(
             }
         }
 
+        var sections = BuildGamesLibrarySections(games, browse.Group, activeGameIds);
+
         return new GamesBankViewModel
         {
             Games = games,
-            Query = q,
+            Browse = browse,
+            Query = browse.Q,
             Page = page,
             PageSize = pageSize,
             TotalCount = totalCount,
+            SystemOptions = systemOptions,
+            PlayerOptions = playerOptions,
+            Sections = sections,
+            ActiveGameIds = activeGameIds,
             BatchId = batchId,
             BatchGameIds = batchGameIds,
             MissingSystemFilesBySystem = missingBySystem
+        };
+    }
+
+    private static IReadOnlyList<GamesLibraryGroupSection> BuildGamesLibrarySections(
+        IReadOnlyList<Game> games,
+        GamesLibraryGroup group,
+        IReadOnlySet<int> activeGameIds)
+    {
+        if (games.Count == 0)
+        {
+            return Array.Empty<GamesLibraryGroupSection>();
+        }
+
+        return group switch
+        {
+            GamesLibraryGroup.System => games
+                .GroupBy(g => string.IsNullOrWhiteSpace(g.SystemName) ? "Unknown system" : g.SystemName)
+                .Select(g => new GamesLibraryGroupSection(g.Key, g.ToList()))
+                .ToList(),
+            GamesLibraryGroup.Alphabetical => games
+                .GroupBy(g => !string.IsNullOrWhiteSpace(g.Name) && char.IsLetter(g.Name[0]) ? char.ToUpperInvariant(g.Name[0]).ToString() : "#")
+                .Select(g => new GamesLibraryGroupSection(g.Key, g.ToList()))
+                .ToList(),
+            GamesLibraryGroup.NumberOfPlayers => games
+                .GroupBy(g => g.NumberOfPlayers is > 0 ? $"{g.NumberOfPlayers} player{(g.NumberOfPlayers == 1 ? "" : "s")}" : "Unknown players")
+                .Select(g => new GamesLibraryGroupSection(g.Key, g.ToList()))
+                .ToList(),
+            GamesLibraryGroup.CurrentlyPlaying => games
+                .GroupBy(g => activeGameIds.Contains(g.Id) ? "Playing now" : "Not currently playing")
+                .OrderBy(g => g.Key == "Playing now" ? 0 : 1)
+                .Select(g => new GamesLibraryGroupSection(g.Key, g.ToList()))
+                .ToList(),
+            _ => [new GamesLibraryGroupSection(null, games)]
         };
     }
 
