@@ -289,6 +289,7 @@
                                     <th scope="col">Kind</th>
                                     <th scope="col">Port</th>
                                     <th scope="col">Runtime</th>
+                                    <th scope="col" class="text-end">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -320,6 +321,22 @@
                                         </td>
                                         <td>@(process.Port?.ToString() ?? "—")</td>
                                         <td>@(process.Runtime is null ? "—" : FormatDuration(process.Runtime.Value))</td>
+                                        <td class="text-end">
+                                            @if (process.IsManaged)
+                                            {
+                                                <form asp-controller="Home" asp-action="StopNosebleedSession" method="post" asp-antiforgery="true" class="d-inline">
+                                                    <input type="hidden" name="sessionId" value="@process.SessionId" />
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger">Terminate</button>
+                                                </form>
+                                            }
+                                            else
+                                            {
+                                                <form asp-controller="Home" asp-action="KillNosebleedProcess" method="post" asp-antiforgery="true" class="d-inline">
+                                                    <input type="hidden" name="pid" value="@process.ProcessId" />
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger">Terminate</button>
+                                                </form>
+                                            }
+                                        </td>
                                     </tr>
                                 }
                             </tbody>
