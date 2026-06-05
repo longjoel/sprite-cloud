@@ -77,44 +77,6 @@ else
                                     }
                                 </div>
                             </div>
-                            <div class="dropdown">
-                                <button class="btn btn-sm btn-outline-secondary dropdown-toggle"
-                                        type="button"
-                                        data-bs-toggle="dropdown"
-                                        aria-expanded="false">
-                                    Actions
-                                </button>
-                                <ul class="dropdown-menu dropdown-menu-end">
-                                    <li>
-                                        <a class="dropdown-item" asp-action="PlayServer" asp-route-id="@game.Id">Play</a>
-                                    </li>
-                                    <li>
-                                        <button class="dropdown-item"
-                                                type="button"
-                                                data-bs-toggle="collapse"
-                                                data-bs-target="#@detailsId"
-                                                aria-controls="@detailsId"
-                                                aria-expanded="false">
-                                            Details
-                                        </button>
-                                    </li>
-                                    <li>
-                                        <button class="dropdown-item"
-                                                type="button"
-                                                data-bs-toggle="collapse"
-                                                data-bs-target="#@editId"
-                                                aria-controls="@editId"
-                                                aria-expanded="false">
-                                            Edit inline
-                                        </button>
-                                    </li>
-
-                                    <li><hr class="dropdown-divider" /></li>
-                                    <li>
-                                        <a class="dropdown-item text-danger" asp-action="Delete" asp-route-id="@game.Id">Delete</a>
-                                    </li>
-                                </ul>
-                            </div>
                         </div>
 
                         <div class="games-primary-actions d-flex flex-wrap gap-2 mt-auto">
@@ -128,6 +90,15 @@ else
                                     aria-expanded="false">
                                 Quick details
                             </button>
+                            <button class="btn btn-outline-secondary"
+                                    type="button"
+                                    data-bs-toggle="collapse"
+                                    data-bs-target="#@editId"
+                                    aria-controls="@editId"
+                                    aria-expanded="false">
+                                Edit inline
+                            </button>
+                            <a class="btn btn-outline-danger" asp-action="Delete" asp-route-id="@game.Id">Delete</a>
                         </div>
 
                         <div id="@accordionId" class="game-details-row" data-game-id="@game.Id">
