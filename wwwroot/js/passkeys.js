@@ -93,7 +93,7 @@
       }
     };
     const result = await postJson('/Passkeys/Login/Complete', payload);
-    window.location.href = result.redirectUrl || '/Profiles';
+    window.location.href = result.redirectUrl || '/';
   }
 
   function showError(container, error) {
