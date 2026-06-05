@@ -18,7 +18,7 @@ public sealed class CurrentAccessService(
         }
 
         var profile = await currentProfile.GetCurrentAsync(ct);
-        if (profile is null)
+        if (profile is null || profile.IsEphemeral)
         {
             return AccessMode.Viewer;
         }

@@ -2,11 +2,13 @@ using games_vault.Data;
 using games_vault.Libretro.Import;
 using games_vault.Models;
 using games_vault.Models.ViewModels;
+using games_vault.Web;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace games_vault.Controllers;
 
+[ServiceFilter(typeof(AdminOnlyFilter))]
 public class GameFilesController(AppDbContext db, GameFileStorage fileStorage) : Controller
 {
     public async Task<IActionResult> Index(string? q, int page = 1, int pageSize = 50, CancellationToken cancellationToken = default)

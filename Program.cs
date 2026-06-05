@@ -48,6 +48,7 @@ builder.Services.AddScoped<SystemCoreAutomapper>();
 builder.Services.AddScoped<InstalledCoreInventoryBuilder>();
 builder.Services.AddScoped<LibretroCoreInstaller>();
 builder.Services.AddScoped<CurrentProfileViewDataFilter>();
+builder.Services.AddScoped<AdminOnlyFilter>();
 builder.Services.AddLibretroDatabase(builder.Configuration);
 builder.Services.Configure<games_vault.Libretro.Import.LibraryStorageOptions>(builder.Configuration.GetSection("Library"));
 builder.Services.Configure<NosebleedOptions>(builder.Configuration.GetSection("Nosebleed"));

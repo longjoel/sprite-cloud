@@ -5,12 +5,14 @@ using games_vault.Libretro.Dat;
 using games_vault.Libretro.Import;
 using games_vault.Models;
 using games_vault.Models.ViewModels;
+using games_vault.Web;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.IO.Compression;
 
 namespace games_vault.Controllers;
 
+[ServiceFilter(typeof(AdminOnlyFilter))]
 public sealed class SystemFilesController(
     AppDbContext db,
     SystemFileStorage storage,

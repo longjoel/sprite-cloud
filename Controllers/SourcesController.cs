@@ -1,10 +1,12 @@
 using games_vault.Data;
 using games_vault.Models.ViewModels;
+using games_vault.Web;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace games_vault.Controllers;
 
+[ServiceFilter(typeof(AdminOnlyFilter))]
 public sealed class SourcesController(AppDbContext db) : Controller
 {
     public async Task<IActionResult> Index(
@@ -73,4 +75,3 @@ public sealed class SourcesController(AppDbContext db) : Controller
         });
     }
 }
-

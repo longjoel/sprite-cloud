@@ -1,10 +1,12 @@
 using games_vault.Data;
 using games_vault.Models.ViewModels;
+using games_vault.Web;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace games_vault.Controllers;
 
+[ServiceFilter(typeof(AdminOnlyFilter))]
 public sealed class DownloadsController(AppDbContext db, IWebHostEnvironment env) : Controller
 {
     public async Task<IActionResult> Index(int page = 1, int pageSize = 50, CancellationToken cancellationToken = default)
