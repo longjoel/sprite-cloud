@@ -194,3 +194,30 @@ body.site-warning-visible {
   border-bottom: 1px solid rgba(15, 23, 42, 0.08);
   padding-bottom: 0.5rem;
 }
+
+.arcade-add-cabinet-card {
+  border: 1px solid rgba(13, 110, 253, 0.16);
+  background: linear-gradient(135deg, rgba(13, 110, 253, 0.06), rgba(111, 66, 193, 0.04));
+}
+
+.arcade-game-picker-list {
+  max-height: 32rem;
+  overflow: auto;
+}
+
+.arcade-game-picker-item.active,
+.arcade-game-picker-item.active:hover {
+  background: linear-gradient(135deg, #0d6efd, #5b5ce2);
+  border-color: #0d6efd;
+  color: #fff;
+}
+
+.arcade-game-picker-item.active .text-muted,
+.arcade-game-picker-item.active:hover .text-muted {
+  color: rgba(255, 255, 255, 0.78) !important;
+}
+
+.arcade-selected-game-card {
+  position: sticky;
+  top: 1rem;
+}
