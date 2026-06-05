@@ -242,6 +242,68 @@ public sealed class ArcadeControllerTests
         Assert.True(await fixture.Db.ArcadeCabinets.AnyAsync(x => x.Id == fixture.Cabinet.Id));
     }
 
+    [Fact]
+    public async Task GamePicker_SearchesFilesAndPaginatesPlayableGames()
+    {
+        await using var fixture = await CreateFixtureAsync(adminAlways: true);
+        fixture.Db.Games.Add(new Game
+        {
+            Name = "Super Mario Bros.",
+            SystemName = "Nintendo - NES",
+            NumberOfPlayers = 2,
+            SizeBytes = 1024,
+            Files =
+            {
+                new GameFile
+                {
+                    Name = "smb.nes",
+                    Crc32 = "ABCD1234",
+                    SizeBytes = 1024,
+                    ExternalPath = Path.Combine(fixture.TempRoot, "smb.nes")
+                }
+            }
+        });
+        fixture.Db.Games.Add(new Game
+        {
+            Name = "No ROM Placeholder",
+            SystemName = "Nintendo - NES",
+            NumberOfPlayers = 1,
+            SizeBytes = 0
+        });
+        await fixture.Db.SaveChangesAsync();
+
+        var controller = fixture.CreateController();
+
+        var result = await controller.GamePicker(new ArcadeGamePickerQuery
+        {
+            Q = "ABCD",
+            Page = 1,
+            PageSize = 5
+        }, CancellationToken.None);
+
+        var partial = Assert.IsType<PartialViewResult>(result);
+        Assert.Equal("_GamePickerResults", partial.ViewName);
+        var model = Assert.IsType<ArcadeGamePickerViewModel>(partial.Model);
+        var game = Assert.Single(model.Games);
+        Assert.Equal("Super Mario Bros.", game.Name);
+        Assert.Equal("Nintendo - NES", game.SystemName);
+        Assert.Equal(1, model.TotalCount);
+        Assert.Equal(1, model.PageCount);
+        Assert.DoesNotContain(model.Games, x => x.Name == "No ROM Placeholder");
+    }
+
+    [Fact]
+    public async Task GamePicker_ReturnsForbidWhenViewerCannotManageArcade()
+    {
+        await using var fixture = await CreateFixtureAsync(adminAlways: false);
+        var controller = fixture.CreateController();
+
+        var result = await controller.GamePicker(new ArcadeGamePickerQuery(), CancellationToken.None);
+
+        var status = Assert.IsType<StatusCodeResult>(result);
+        Assert.Equal(StatusCodes.Status403Forbidden, status.StatusCode);
+    }
+
     private static async Task<TestFixture> CreateFixtureAsync(bool adminAlways, bool startCapable = false)
     {
         var connection = new SqliteConnection("Data Source=:memory:");

@@ -69,25 +69,32 @@ public class ArcadeController(
             }
         }
 
-        var gameOptions = canManage
-            ? await db.Games
-                .AsNoTracking()
-                .Where(g => g.Files.Any(f => f.StoragePath != null || f.ExternalPath != null))
-                .OrderBy(g => g.Name)
-                .Take(300)
-                .Select(g => new ArcadeGameOptionViewModel { Id = g.Id, Name = g.Name, SystemName = g.SystemName })
-                .ToListAsync(cancellationToken)
-            : new List<ArcadeGameOptionViewModel>();
+        var gamePicker = canManage
+            ? await BuildGamePickerAsync(new ArcadeGamePickerQuery { PageSize = 10 }, cancellationToken)
+            : new ArcadeGamePickerViewModel();
 
         return View(new ArcadeIndexViewModel
         {
             Arcade = arcade,
             Cabinets = cabinets,
-            GameOptions = gameOptions,
+            GamePicker = gamePicker,
+            CabinetCount = cabinets.Count,
+            RunningCabinetCount = cabinets.Count(x => x.IsRunning),
+            SystemCount = cabinets.Select(x => x.SystemName).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
             CanManage = canManage,
             CanPlay = canPlay,
             NosebleedEnabled = (nosebleedOptions.Value ?? new NosebleedOptions()).Enabled
         });
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GamePicker([FromQuery] ArcadeGamePickerQuery query, CancellationToken cancellationToken = default)
+    {
+        if (!await currentAccess.CanManageLibraryAsync(cancellationToken)) return StatusCode(StatusCodes.Status403Forbidden);
+
+        var model = await BuildGamePickerAsync(query, cancellationToken);
+        Response.Headers.CacheControl = "no-store";
+        return PartialView("_GamePickerResults", model);
     }
 
     [HttpPost]
@@ -431,6 +438,105 @@ public class ArcadeController(
             CurrentProfileParentDisplayName = profile?.ParentProfile?.DisplayName,
             LeaveSessionReturnUrl = Url.Action(nameof(Index), "Arcade")
         });
+    }
+
+    private async Task<ArcadeGamePickerViewModel> BuildGamePickerAsync(ArcadeGamePickerQuery? query, CancellationToken cancellationToken)
+    {
+        var normalized = (query ?? new ArcadeGamePickerQuery()).Normalize();
+
+        var playable = db.Games
+            .AsNoTracking()
+            .Where(g => g.Files.Any(f => f.StoragePath != null || f.ExternalPath != null));
+
+        var searched = ApplyArcadeGamePickerSearch(playable, normalized.Q);
+
+        var systemRows = await searched
+            .Where(g => g.SystemName != "")
+            .GroupBy(g => g.SystemName)
+            .Select(g => new { Name = g.Key, Count = g.Count() })
+            .OrderBy(g => g.Name)
+            .ToListAsync(cancellationToken);
+        var systemOptions = systemRows.Select(g => new ArcadeGamePickerSystemOption(g.Name, g.Count)).ToList();
+
+        var playerRows = await searched
+            .Where(g => g.NumberOfPlayers != null)
+            .GroupBy(g => g.NumberOfPlayers!.Value)
+            .Select(g => new { Players = g.Key, Count = g.Count() })
+            .OrderBy(g => g.Players)
+            .ToListAsync(cancellationToken);
+        var playerOptions = playerRows.Select(g => new ArcadeGamePickerPlayerOption(g.Players, g.Count)).ToList();
+
+        var filtered = searched;
+        if (!string.IsNullOrWhiteSpace(normalized.System))
+        {
+            var systemLower = normalized.System.ToLower();
+            filtered = filtered.Where(g => g.SystemName.ToLower() == systemLower);
+        }
+
+        if (normalized.Players is > 0)
+        {
+            filtered = filtered.Where(g => g.NumberOfPlayers == normalized.Players.Value);
+        }
+
+        filtered = normalized.Sort switch
+        {
+            ArcadeGamePickerSort.RecentlyAdded => filtered.OrderByDescending(g => g.CreatedUtc).ThenBy(g => g.Name),
+            ArcadeGamePickerSort.System => filtered.OrderBy(g => g.SystemName).ThenBy(g => g.Name),
+            ArcadeGamePickerSort.NumberOfPlayers => filtered.OrderByDescending(g => g.NumberOfPlayers ?? 0).ThenBy(g => g.Name),
+            _ => filtered.OrderBy(g => g.Name)
+        };
+
+        var totalCount = await filtered.CountAsync(cancellationToken);
+        var rows = await filtered
+            .Skip((normalized.Page - 1) * normalized.PageSize)
+            .Take(normalized.PageSize)
+            .Select(g => new
+            {
+                g.Id,
+                g.Name,
+                g.SystemName,
+                g.NumberOfPlayers,
+                FileCount = g.Files.Count(f => f.StoragePath != null || f.ExternalPath != null),
+                AlreadyCabinetCount = db.ArcadeCabinets.Count(c => c.GameId == g.Id)
+            })
+            .ToListAsync(cancellationToken);
+
+        var games = rows.Select(g => new ArcadeGamePickerGameViewModel
+        {
+            Id = g.Id,
+            Name = g.Name,
+            SystemName = g.SystemName,
+            NumberOfPlayers = g.NumberOfPlayers,
+            FileCount = g.FileCount,
+            AlreadyCabinetCount = g.AlreadyCabinetCount
+        }).ToList();
+
+        return new ArcadeGamePickerViewModel
+        {
+            Query = normalized,
+            Games = games,
+            SystemOptions = systemOptions,
+            PlayerOptions = playerOptions,
+            TotalCount = totalCount,
+            Page = normalized.Page,
+            PageSize = normalized.PageSize
+        };
+    }
+
+    private static IQueryable<Game> ApplyArcadeGamePickerSearch(IQueryable<Game> query, string? q)
+    {
+        if (string.IsNullOrWhiteSpace(q))
+        {
+            return query;
+        }
+
+        var qLower = q.Trim().ToLower();
+        return query.Where(g =>
+            g.Name.ToLower().Contains(qLower)
+            || g.SystemName.ToLower().Contains(qLower)
+            || g.Files.Any(f =>
+                f.Name.ToLower().Contains(qLower)
+                || (f.Crc32 != null && f.Crc32.ToLower().Contains(qLower))));
     }
 
     private async Task<Models.Arcade> EnsureDefaultArcadeAsync(CancellationToken cancellationToken)

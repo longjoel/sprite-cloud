@@ -7,7 +7,15 @@
     <div>
         <div class="text-uppercase text-muted small fw-semibold mb-2">Arcade experiment</div>
         <h1 class="display-6 mb-1">@(Model.Arcade?.Name ?? "Arcade")</h1>
-        <p class="text-muted mb-0">Persistent free-play cabinets. The games keep running even when nobody is connected.</p>
+        <p class="text-muted mb-2">Persistent free-play cabinets. The games keep running even when nobody is connected.</p>
+        @if (Model.Arcade is not null)
+        {
+            <div class="d-flex flex-wrap gap-2 small text-muted">
+                <span class="games-meta-chip">@Model.CabinetCount cabinet@(Model.CabinetCount == 1 ? "" : "s")</span>
+                <span class="games-meta-chip">@Model.RunningCabinetCount running</span>
+                <span class="games-meta-chip">@Model.SystemCount system@(Model.SystemCount == 1 ? "" : "s")</span>
+            </div>
+        }
     </div>
     @if (Model.CanManage)
     {
@@ -35,34 +43,15 @@ else
 {
     @if (Model.CanManage)
     {
-        <div class="card mb-4">
-            <div class="card-header fw-semibold">Add a free-play cabinet</div>
-            <div class="card-body">
-                @if (Model.GameOptions.Count == 0)
-                {
-                    <div class="text-muted">No playable games with stored or linked ROM files were found.</div>
-                }
-                else
-                {
-                    <form asp-action="AddCabinet" method="post" asp-antiforgery="true" class="row g-2 align-items-end">
-                        <div class="col-md-5">
-                            <label class="form-label" for="gameId">Game</label>
-                            <select class="form-select" id="gameId" name="gameId" required>
-                                @foreach (var game in Model.GameOptions)
-                                {
-                                    <option value="@game.Id">@game.Name (@game.SystemName)</option>
-                                }
-                            </select>
-                        </div>
-                        <div class="col-md-5">
-                            <label class="form-label" for="displayName">Cabinet label</label>
-                            <input class="form-control" id="displayName" name="displayName" placeholder="Defaults to game name" />
-                        </div>
-                        <div class="col-md-2 d-grid">
-                            <button type="submit" class="btn btn-primary">Add cabinet</button>
-                        </div>
-                    </form>
-                }
+        <div class="card mb-4 arcade-add-cabinet-card">
+            <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
+                <div>
+                    <div class="card-title fw-semibold mb-1">Add a free-play cabinet</div>
+                    <div class="text-muted">Search your library, pick a playable ROM, and pin it to the arcade floor.</div>
+                </div>
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#arcade-game-picker-modal">
+                    Choose game
+                </button>
             </div>
         </div>
     }
@@ -152,6 +141,87 @@ else
     }
 }
 
+@if (Model.CanManage && Model.Arcade is not null)
+{
+    <div class="modal fade" id="arcade-game-picker-modal" tabindex="-1" aria-labelledby="arcade-game-picker-title" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h2 class="modal-title h5" id="arcade-game-picker-title">Choose a game for the arcade</h2>
+                        <div class="text-muted small">Search the full playable library instead of scrolling a giant dropdown.</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-lg-8">
+                            <form id="arcade-game-picker-filters" class="row g-2 align-items-end" data-arcade-game-picker-filters>
+                                <div class="col-12 col-md-5">
+                                    <label class="form-label" for="arcade-game-picker-search">Search library</label>
+                                    <input class="form-control" id="arcade-game-picker-search" name="q" value="@Model.GamePicker.Query.Q" placeholder="Search games, systems, files, CRC…" autocomplete="off" />
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <label class="form-label" for="arcade-game-picker-system">System</label>
+                                    <select class="form-select" id="arcade-game-picker-system" name="system">
+                                        <option value="">All systems</option>
+                                        @foreach (var option in Model.GamePicker.SystemOptions)
+                                        {
+                                            <option value="@option.Name" selected="@(string.Equals(option.Name, Model.GamePicker.Query.System, StringComparison.OrdinalIgnoreCase))">@option.Name (@option.Count)</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-6 col-md-2">
+                                    <label class="form-label" for="arcade-game-picker-players">Players</label>
+                                    <select class="form-select" id="arcade-game-picker-players" name="players">
+                                        <option value="">Any</option>
+                                        @foreach (var option in Model.GamePicker.PlayerOptions)
+                                        {
+                                            <option value="@option.Players" selected="@(Model.GamePicker.Query.Players == option.Players)">@option.Players (@option.Count)</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div class="col-12 col-md-2">
+                                    <label class="form-label" for="arcade-game-picker-sort">Sort</label>
+                                    <select class="form-select" id="arcade-game-picker-sort" name="sort">
+                                        <option value="AlphabeticalAsc" selected="@(Model.GamePicker.Query.Sort == games_vault.Models.ViewModels.ArcadeGamePickerSort.AlphabeticalAsc)">A-Z</option>
+                                        <option value="RecentlyAdded" selected="@(Model.GamePicker.Query.Sort == games_vault.Models.ViewModels.ArcadeGamePickerSort.RecentlyAdded)">Newest</option>
+                                        <option value="System" selected="@(Model.GamePicker.Query.Sort == games_vault.Models.ViewModels.ArcadeGamePickerSort.System)">System</option>
+                                        <option value="NumberOfPlayers" selected="@(Model.GamePicker.Query.Sort == games_vault.Models.ViewModels.ArcadeGamePickerSort.NumberOfPlayers)">Players</option>
+                                    </select>
+                                </div>
+                                <input type="hidden" name="page" value="@Model.GamePicker.Page" data-arcade-game-picker-page />
+                                <input type="hidden" name="pageSize" value="@Model.GamePicker.PageSize" />
+                            </form>
+
+                            <div class="mt-3" id="arcade-game-picker-results" data-arcade-game-picker-results-url="@Url.Action("GamePicker", "Arcade")">
+                                <partial name="_GamePickerResults" model="Model.GamePicker" />
+                            </div>
+                        </div>
+                        <div class="col-lg-4">
+                            <form asp-action="AddCabinet" method="post" asp-antiforgery="true" class="card h-100 arcade-selected-game-card">
+                                <div class="card-body d-flex flex-column gap-3">
+                                    <div>
+                                        <div class="text-uppercase text-muted small fw-semibold mb-2">Selected cabinet game</div>
+                                        <div class="h5 mb-1" data-arcade-selected-game-name>No game selected</div>
+                                        <div class="small text-muted" data-arcade-selected-game-meta>Pick a result to enable cabinet creation.</div>
+                                    </div>
+                                    <input type="hidden" id="arcade-selected-game-id" name="gameId" data-arcade-selected-game-id />
+                                    <div>
+                                        <label class="form-label" for="arcade-cabinet-display-name">Cabinet label</label>
+                                        <input class="form-control" id="arcade-cabinet-display-name" name="displayName" data-arcade-cabinet-display-name placeholder="Defaults to game name" />
+                                    </div>
+                                    <button type="submit" class="btn btn-primary mt-auto" data-arcade-add-cabinet-submit disabled>Add cabinet</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @functions {
     static string FormatDuration(TimeSpan duration)
     {
@@ -163,4 +233,5 @@ else
 
 @section Scripts {
     <script src="~/js/nosebleed-player/preview.js" asp-append-version="true"></script>
+    <script src="~/js/arcade-game-picker.js" asp-append-version="true"></script>
 }
