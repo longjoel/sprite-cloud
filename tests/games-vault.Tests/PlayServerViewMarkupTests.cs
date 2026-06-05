@@ -218,10 +218,18 @@ public sealed class PlayServerViewMarkupTests
         Assert.Contains("id=\"playserver-invite-links\"", content);
         Assert.Contains("<div class=\"fw-semibold small mb-2\">Invite links</div>", content);
         Assert.Contains("Model.CurrentRoomId is int shareRoomId && Model.CanCreateShareLinks", content);
+        Assert.Contains("data-share-link-form", content);
         Assert.Contains("name=\"grantMode\" value=\"Spectator\"", content);
         Assert.Contains("name=\"grantMode\" value=\"Player\"", content);
         Assert.Contains("data-share-link-copy-value", content);
         Assert.Contains("data-share-link-copy-button", content);
+        Assert.Contains("document.querySelectorAll('[data-share-link-form]').forEach", content);
+        Assert.Contains("event.preventDefault();", content);
+        Assert.Contains("headers: {", content);
+        Assert.Contains("'X-Requested-With': 'XMLHttpRequest'", content);
+        Assert.Contains("Accept: 'application/json'", content);
+        Assert.Contains("shareCopyValue.value = payload.link;", content);
+        Assert.Contains("shareCopyRow?.classList.remove('d-none');", content);
         Assert.Contains("navigator.clipboard.writeText(shareCopyValue.value)", content);
         Assert.Contains("document.execCommand('copy')", content);
     }

@@ -1109,12 +1109,26 @@ public class GamesController(
         }
 
         var created = await shareLinkService.CreateAsync(room.Id, profile.Id, grantMode, cancellationToken);
-        TempData["GeneratedShareLink"] = Url.RouteUrl(
+        var shareLink = Url.RouteUrl(
             "PlayServerRoom",
             new { id = room.GameId, code = room.Code, share = created.RawToken },
-            Request.Scheme);
-        TempData["GeneratedShareGrantMode"] = grantMode.ToString();
+            Request.Scheme) ?? string.Empty;
+        var grantModeLabel = grantMode.ToString();
+
+        if (IsAjaxRequest())
+        {
+            return Json(new { link = shareLink, grantMode = grantModeLabel });
+        }
+
+        TempData["GeneratedShareLink"] = shareLink;
+        TempData["GeneratedShareGrantMode"] = grantModeLabel;
         return RedirectToRoute("PlayServerRoom", new { id = room.GameId, code = room.Code });
+    }
+
+    private bool IsAjaxRequest()
+    {
+        return string.Equals(Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.OrdinalIgnoreCase)
+            || Request.Headers.Accept.Any(x => x?.Contains("application/json", StringComparison.OrdinalIgnoreCase) == true);
     }
 
     [HttpGet("/Games/PlayServer/{id:int}/{code?}", Name = "PlayServerRoom")]
