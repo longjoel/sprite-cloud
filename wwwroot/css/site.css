@@ -176,3 +176,21 @@ body.site-warning-visible {
 .table-responsive.table-actions-overflow td {
   overflow: visible !important;
 }
+
+.games-library-hero-copy {
+  max-width: 58rem;
+}
+
+.games-library-controls {
+  border: 1px solid rgba(13, 110, 253, 0.10) !important;
+}
+
+.games-library-controls .form-label {
+  color: var(--bs-secondary-color);
+  font-size: 0.82rem;
+}
+
+.games-library-group-heading {
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  padding-bottom: 0.5rem;
+}
