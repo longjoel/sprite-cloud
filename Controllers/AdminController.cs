@@ -12,7 +12,8 @@ namespace games_vault.Controllers;
 public sealed class AdminController(
     AppDbContext db,
     NosebleedSessionManager nosebleedSessions,
-    NosebleedProcessInspector nosebleedProcessInspector) : Controller
+    NosebleedProcessInspector nosebleedProcessInspector,
+    NosebleedStreamSettingsStore streamSettingsStore) : Controller
 {
     public async Task<IActionResult> Index(CancellationToken cancellationToken = default)
     {
@@ -181,6 +182,8 @@ public sealed class AdminController(
             .ThenBy(x => x.ProcessId)
             .ToList();
 
+        var streamSettings = streamSettingsStore.Get();
+
         return View(new AdminIndexViewModel
         {
             GamesCount = await db.Games.AsNoTracking().CountAsync(cancellationToken),
@@ -194,8 +197,33 @@ public sealed class AdminController(
             ProfilesCount = await db.UserProfiles.AsNoTracking().CountAsync(x => !x.IsArchived, cancellationToken),
             ProfileInviteCodesCount = await db.ProfileInviteCodes.AsNoTracking().CountAsync(cancellationToken),
             CoreMappingsCount = await db.SystemCoreMappings.AsNoTracking().CountAsync(cancellationToken),
+            StreamSettings = new AdminStreamSettingsViewModel
+            {
+                PreferredVideoTransport = streamSettings.PreferredVideoTransport,
+                WebSocketVideoCompression = streamSettings.WebSocketVideoCompression,
+                WebRtcVideoEncoder = streamSettings.WebRtcVideoEncoder,
+                WebRtcVideoEncoderArgs = streamSettings.WebRtcVideoEncoderArgs,
+                FfmpegBinary = streamSettings.FfmpegBinary
+            },
             NosebleedRuntimeProcesses = runtimeProcesses
         });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult SaveStreamSettings(AdminStreamSettingsViewModel model)
+    {
+        var saved = streamSettingsStore.Save(new NosebleedStreamSettings
+        {
+            PreferredVideoTransport = model.PreferredVideoTransport,
+            WebSocketVideoCompression = model.WebSocketVideoCompression,
+            WebRtcVideoEncoder = model.WebRtcVideoEncoder,
+            WebRtcVideoEncoderArgs = model.WebRtcVideoEncoderArgs,
+            FfmpegBinary = model.FfmpegBinary
+        });
+
+        TempData["AdminMessage"] = $"Stream settings saved. New sessions will use {saved.PreferredVideoTransport} with {saved.WebSocketVideoCompression} websocket compression.";
+        return Redirect($"{Url.Action(nameof(Index))}#admin-stream-settings");
     }
 }
 

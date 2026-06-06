@@ -86,6 +86,11 @@ public sealed class PlayServerViewMarkupTests
         Assert.Contains("id=\"nosebleed-logging-toggle\"", content);
         Assert.Contains("id=\"nosebleed-player-log\"", content);
         Assert.Contains("id=\"nosebleed-player-log-list\"", content);
+        Assert.Contains("@inject games_vault.Nosebleed.NosebleedStreamSettingsStore StreamSettingsStore", content);
+        Assert.Contains("streamSettings = StreamSettingsStore.Get();", content);
+        Assert.Contains("streamDefaults = new", content);
+        Assert.Contains("videoTransport = streamSettings.PreferredVideoTransport", content);
+        Assert.Contains("videoCompression = streamSettings.WebSocketVideoCompression", content);
         Assert.Contains("aria-label=\"Windowed view\"", content);
         Assert.Contains("aria-label=\"Theater view\"", content);
         Assert.Contains("aria-label=\"Toggle logging overlay\"", content);

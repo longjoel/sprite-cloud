@@ -30,10 +30,30 @@ public sealed class AdminIndexViewMarkupTests
         Assert.Contains("asp-controller=\"Sources\" asp-action=\"Index\">Sources</a>", content);
         Assert.Contains("asp-controller=\"Downloads\" asp-action=\"Index\">Downloads</a>", content);
         Assert.Contains("asp-controller=\"Jobs\" asp-action=\"Index\">Jobs</a>", content);
+        Assert.Contains("href=\"#admin-stream-settings\">Stream settings</a>", content);
         Assert.Contains("asp-controller=\"Profiles\" asp-action=\"Index\">Profiles</a>", content);
         Assert.Contains("asp-controller=\"Profiles\" asp-action=\"Invites\">Invites</a>", content);
         Assert.Contains("asp-controller=\"SystemFiles\" asp-action=\"Index\">System files</a>", content);
         Assert.Contains("asp-controller=\"SystemCoreMappings\" asp-action=\"Index\">Core mappings</a>", content);
+    }
+
+    [Fact]
+    public void AdminView_HostsStreamSettingsForm()
+    {
+        var content = ReadAdminView();
+
+        Assert.Contains("id=\"admin-stream-settings\"", content);
+        Assert.Contains("Stream settings", content);
+        Assert.Contains("asp-action=\"SaveStreamSettings\"", content);
+        Assert.Contains("name=\"PreferredVideoTransport\"", content);
+        Assert.Contains("value=\"websocket\"", content);
+        Assert.Contains("name=\"WebSocketVideoCompression\"", content);
+        Assert.Contains("value=\"raw\"", content);
+        Assert.Contains("name=\"WebRtcVideoEncoder\"", content);
+        Assert.Contains("vp8_vaapi", content);
+        Assert.Contains("name=\"WebRtcVideoEncoderArgs\"", content);
+        Assert.Contains("name=\"FfmpegBinary\"", content);
+        Assert.Contains("Save stream settings", content);
     }
 
     [Fact]
