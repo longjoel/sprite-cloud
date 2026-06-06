@@ -82,6 +82,10 @@ public sealed class ServerPlayerJsMarkupTests
         Assert.Contains("setVolumeFromKey", content);
         Assert.Contains("volumeSlider.addEventListener(\"pointerdown\"", content);
         Assert.Contains("volumeSlider.addEventListener(\"keydown\"", content);
+        Assert.Contains("const configuredStreamDefaults = config.streamDefaults || {}", content);
+        Assert.Contains("const defaultVideoTransport = playerHelpers?.normalizeVideoTransportPreference?.(configuredStreamDefaults.videoTransport)", content);
+        Assert.Contains("let selectedVideoTransport = defaultVideoTransport;", content);
+        Assert.Contains("let selectedVideoCompression = defaultVideoCompression;", content);
         Assert.Contains("setOverlayEnabled(true, false);", content);
     }
 

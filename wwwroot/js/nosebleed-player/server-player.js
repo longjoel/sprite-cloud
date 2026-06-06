@@ -95,8 +95,11 @@
     let rtcVideoDecoder = null;
     let rtcVideoDecoderReady = false;
     let activeVideoTransport = "idle";
-    let selectedVideoTransport = playerHelpers?.normalizeVideoTransportPreference?.(localStorage.getItem(videoTransportStorageKey)) ?? "webrtc-track";
-    let selectedVideoCompression = playerHelpers?.normalizeVideoCompressionPreference?.(localStorage.getItem(videoCompressionStorageKey)) ?? "balanced";
+    const configuredStreamDefaults = config.streamDefaults || {};
+    const defaultVideoTransport = playerHelpers?.normalizeVideoTransportPreference?.(configuredStreamDefaults.videoTransport) ?? "webrtc-track";
+    const defaultVideoCompression = playerHelpers?.normalizeVideoCompressionPreference?.(configuredStreamDefaults.videoCompression) ?? "balanced";
+    let selectedVideoTransport = defaultVideoTransport;
+    let selectedVideoCompression = defaultVideoCompression;
     let rtcTrackFrameCallbackActive = false;
     let rtcTrackAudioReady = false;
     let inputSeq = 0;
