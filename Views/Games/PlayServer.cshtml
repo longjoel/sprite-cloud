@@ -1,4 +1,5 @@
 @model games_vault.Models.ViewModels.ServerGamePlayViewModel
+@inject games_vault.Nosebleed.NosebleedStreamSettingsStore StreamSettingsStore
 
 @{
     var game = Model.Game;
@@ -15,6 +16,7 @@
         || systemName.Contains("Neo Geo", StringComparison.OrdinalIgnoreCase);
     var isArcadeRoom = Model.IsArcadeRoom;
     var hideSaveStateUi = isArcadeRoom;
+    var streamSettings = StreamSettingsStore.Get();
     var touchLayoutName = isGameGear
         ? "Sega Game Gear"
         : isGenesis
@@ -1235,6 +1237,11 @@
     isSpectator = Model.IsSpectator,
     sessionId = Model.SessionId,
     touchLayoutName,
+    streamDefaults = new
+    {
+        videoTransport = streamSettings.PreferredVideoTransport,
+        videoCompression = streamSettings.WebSocketVideoCompression
+    },
     keepAliveUrl = Url.Action("KeepAliveServerSession", "Games"),
     roomPresenceUrl = Model.CurrentRoomId is null ? null : Url.Action("RoomPresence", "Games", new { roomId = Model.CurrentRoomId }),
     roomChatUrl = Model.CurrentRoomId is null ? null : Url.Action("RoomChat", "Games", new { roomId = Model.CurrentRoomId }),

@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace games_vault.Nosebleed;
@@ -328,7 +329,14 @@ public sealed class NosebleedSessionManager(
             {
                 psi.ArgumentList.Add("--session-copy-content");
             }
+            var streamSettings = GetStreamSettings();
             psi.Environment["NOSEBLEED_SAVE_DIR"] = runtimeSaveDirectory;
+            psi.Environment["NOSEBLEED_FFMPEG_BIN"] = streamSettings.FfmpegBinary;
+            psi.Environment["NOSEBLEED_WEBRTC_VIDEO_ENCODER"] = streamSettings.WebRtcVideoEncoder;
+            if (!string.IsNullOrWhiteSpace(streamSettings.WebRtcVideoEncoderArgs))
+            {
+                psi.Environment["NOSEBLEED_WEBRTC_VIDEO_ENCODER_ARGS"] = streamSettings.WebRtcVideoEncoderArgs;
+            }
             if (_options.RequireAuth)
             {
                 psi.ArgumentList.Add("--require-auth");
@@ -377,6 +385,20 @@ public sealed class NosebleedSessionManager(
         finally
         {
             _lock.Release();
+        }
+    }
+
+    private NosebleedStreamSettings GetStreamSettings()
+    {
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            return scope.ServiceProvider.GetService<NosebleedStreamSettingsStore>()?.Get() ?? new NosebleedStreamSettings();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to load Nosebleed stream settings; falling back to defaults.");
+            return new NosebleedStreamSettings();
         }
     }
 
