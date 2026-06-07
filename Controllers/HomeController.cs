@@ -368,13 +368,13 @@ public class HomeController(
         if (!await currentAccess.IsAdminAsync(cancellationToken))
         {
             TempData["Message"] = "Admin mode is required to stop Nosebleed sessions.";
-            return RedirectToAction(nameof(Index));
+            return RedirectToAction("Index", "Admin", fragment: "admin-nosebleed-runtime");
         }
 
         if (string.IsNullOrWhiteSpace(sessionId))
         {
             TempData["Message"] = "No Nosebleed session id was provided.";
-            return RedirectToAction(nameof(Index));
+            return RedirectToAction("Index", "Admin", fragment: "admin-nosebleed-runtime");
         }
 
         var stopped = nosebleedSessions.TryStop(sessionId, "manual-stop");
@@ -382,7 +382,7 @@ public class HomeController(
         TempData["Message"] = stopped
             ? $"Stopped Nosebleed session {sessionId}."
             : $"Nosebleed session {sessionId} was not found.";
-        return RedirectToAction(nameof(Index));
+        return RedirectToAction("Index", "Admin", fragment: "admin-nosebleed-runtime");
     }
 
     [HttpPost]
@@ -392,20 +392,20 @@ public class HomeController(
         if (!await currentAccess.IsAdminAsync(cancellationToken))
         {
             TempData["Message"] = "Admin mode is required to kill Nosebleed processes.";
-            return RedirectToAction(nameof(Index));
+            return RedirectToAction("Index", "Admin", fragment: "admin-nosebleed-runtime");
         }
 
         if (nosebleedSessions.GetManagedProcessIds().Contains(pid))
         {
             TempData["Message"] = $"Process {pid} is a managed Nosebleed session. Use Stop session instead.";
-            return RedirectToAction(nameof(Index));
+            return RedirectToAction("Index", "Admin", fragment: "admin-nosebleed-runtime");
         }
 
         var killed = nosebleedProcessInspector.TryKillIfNosebleed(pid);
         TempData["Message"] = killed
             ? $"Killed orphan Nosebleed process {pid}."
             : $"Process {pid} was not a live Nosebleed process or could not be killed.";
-        return RedirectToAction(nameof(Index));
+        return RedirectToAction("Index", "Admin", fragment: "admin-nosebleed-runtime");
     }
 
     [HttpPost]
