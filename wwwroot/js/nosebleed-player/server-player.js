@@ -1879,13 +1879,14 @@
     }
 
     function saveLayout() {
-        const shellRect = shell.getBoundingClientRect();
         const layout = {};
         for (const control of draggableControls) {
             const rect = control.getBoundingClientRect();
+            const container = control.offsetParent;
+            const containerRect = container ? container.getBoundingClientRect() : shell.getBoundingClientRect();
             layout[control.dataset.controlGroup] = {
-                left: ((rect.left - shellRect.left) / shellRect.width) * 100,
-                top: ((rect.top - shellRect.top) / shellRect.height) * 100
+                left: ((rect.left - containerRect.left) / containerRect.width) * 100,
+                top: ((rect.top - containerRect.top) / containerRect.height) * 100
             };
         }
         localStorage.setItem(layoutStorageKey, JSON.stringify(layout));
@@ -1910,10 +1911,19 @@
     }
 
     function positionControl(control, leftPct, topPct) {
+        const container = control.offsetParent;
+        const containerRect = container ? container.getBoundingClientRect() : shell.getBoundingClientRect();
         const shellRect = shell.getBoundingClientRect();
         const rect = control.getBoundingClientRect();
-        const maxLeft = Math.max(0, 100 - (rect.width / shellRect.width) * 100);
-        const maxTop = Math.max(0, 100 - (rect.height / shellRect.height) * 100);
+        // Clamp against shell bounds so controls can't be dragged entirely off-screen,
+        // but convert to container-relative percentages since that's the coordinate
+        // space left/top percentages resolve against.
+        const maxLeftShell = Math.max(0, 100 - (rect.width / shellRect.width) * 100);
+        const maxTopShell = Math.max(0, 100 - (rect.height / shellRect.height) * 100);
+        const scaleX = shellRect.width / containerRect.width;
+        const scaleY = shellRect.height / containerRect.height;
+        const maxLeft = maxLeftShell * scaleX;
+        const maxTop = maxTopShell * scaleY;
         const left = Math.min(Math.max(leftPct, 0), maxLeft);
         const top = Math.min(Math.max(topPct, 0), maxTop);
         control.style.left = `${left}%`;
@@ -1930,12 +1940,15 @@
         releaseAllTouchButtons();
         const shellRect = shell.getBoundingClientRect();
         const rect = control.getBoundingClientRect();
+        const container = control.offsetParent;
+        const containerRect = container ? container.getBoundingClientRect() : shellRect;
         activeDrag = {
             control,
             pointerId: ev.pointerId,
             offsetX: ev.clientX - rect.left,
             offsetY: ev.clientY - rect.top,
-            shellRect
+            shellRect,
+            containerRect
         };
         control.classList.add("is-dragging");
         control.setPointerCapture?.(ev.pointerId);
@@ -1945,9 +1958,8 @@
     function updateLayoutDrag(ev) {
         if (!activeDrag || ev.pointerId !== activeDrag.pointerId) return;
         ev.preventDefault();
-        const rect = activeDrag.control.getBoundingClientRect();
-        const leftPct = ((ev.clientX - activeDrag.shellRect.left - activeDrag.offsetX) / activeDrag.shellRect.width) * 100;
-        const topPct = ((ev.clientY - activeDrag.shellRect.top - activeDrag.offsetY) / activeDrag.shellRect.height) * 100;
+        const leftPct = ((ev.clientX - activeDrag.containerRect.left - activeDrag.offsetX) / activeDrag.containerRect.width) * 100;
+        const topPct = ((ev.clientY - activeDrag.containerRect.top - activeDrag.offsetY) / activeDrag.containerRect.height) * 100;
         positionControl(activeDrag.control, leftPct, topPct);
     }
 
