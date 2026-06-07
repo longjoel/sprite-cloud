@@ -95,8 +95,10 @@ public sealed class ServerPlayerJsMarkupTests
 
         Assert.Contains("function refreshGamepadSelectionFromBrowser", content);
         Assert.Contains("function primePreconnectedGamepads", content);
-        Assert.Contains("window.addEventListener(\"pointerdown\", primePreconnectedGamepads", content);
-        Assert.Contains("window.addEventListener(\"keydown\", primePreconnectedGamepads", content);
+        Assert.Contains("window.addEventListener(\"pointerdown\", ev => {", content);
+        Assert.Contains("primePreconnectedGamepads(ev);", content);
+        Assert.Contains("startPlayback();", content);
+        Assert.Contains("window.addEventListener(\"keydown\", ev => {", content);
         Assert.Contains("window.addEventListener(\"gamepadconnected\", event =>", content);
         Assert.Contains("primePreconnectedGamepads(event);", content);
         Assert.Contains("refreshGamepadSelectionFromBrowser(event?.gamepad || null)", content);

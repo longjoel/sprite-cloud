@@ -31,7 +31,7 @@ public sealed class PlayServerViewMarkupTests
         var content = ReadPlayServerView();
 
         Assert.Contains("id=\"nosebleed-rtc-audio\"", content);
-        Assert.Contains("<audio id=\"nosebleed-rtc-audio\" class=\"d-none\" autoplay playsinline muted></audio>", content);
+        Assert.Contains("<audio id=\"nosebleed-rtc-audio\" class=\"d-none\" autoplay playsinline webkit-playsinline muted></audio>", content);
     }
 
     [Fact]
