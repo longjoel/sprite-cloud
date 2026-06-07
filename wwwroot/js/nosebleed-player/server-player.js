@@ -1756,7 +1756,10 @@
                     return;
                 }
                 if (screen.orientation?.lock) {
-                    try { await screen.orientation.lock("landscape"); } catch { }
+                    const currentType = screen.orientation.type;
+                    if (currentType.startsWith("landscape")) {
+                        try { await screen.orientation.lock("landscape"); } catch { }
+                    }
                 }
                 setStatus("Fullscreen. Double tap the stream or use your browser gesture to exit.");
             } else {
