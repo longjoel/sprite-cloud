@@ -18,6 +18,16 @@
         if (string.IsNullOrWhiteSpace(value)) return "—";
         return value.Length <= 18 ? value : value[..18] + "…";
     }
+
+    private static string FormatBytes(long bytes)
+    {
+        const double MiB = 1024d * 1024d;
+        const double GiB = MiB * 1024d;
+
+        return bytes >= GiB
+            ? $"{bytes / GiB:0.00} GiB"
+            : $"{bytes / MiB:0.0} MiB";
+    }
 }
 
 <section id="admin-backend-hero" class="card border-0 shadow-sm mb-4">
@@ -189,6 +199,7 @@
                             <th scope="col">Kind</th>
                             <th scope="col">Port</th>
                             <th scope="col">Runtime</th>
+                            <th scope="col">CPU / Mem</th>
                             <th scope="col" class="text-end">Actions</th>
                         </tr>
                     </thead>
@@ -219,6 +230,10 @@
                                 <td><span class="badge @(process.IsManaged ? "text-bg-primary" : "text-bg-warning")">@process.SessionKind</span></td>
                                 <td>@(process.Port?.ToString() ?? "—")</td>
                                 <td>@(process.Runtime is null ? "—" : FormatDuration(process.Runtime.Value))</td>
+                                <td>
+                                    <div>@(process.AverageCpuPercent is null ? "—" : $"{process.AverageCpuPercent:0.0}%")</div>
+                                    <div class="small text-muted">@(process.WorkingSetBytes is null ? "—" : FormatBytes(process.WorkingSetBytes.Value))</div>
+                                </td>
                                 <td class="text-end">
                                     @if (process.IsManaged)
                                     {
