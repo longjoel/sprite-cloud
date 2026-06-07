@@ -104,6 +104,10 @@
     let rtcTrackAudioReady = false;
     let inputSeq = 0;
     let inputTimer = 0;
+    /** @type {Worker|null} */
+    let gamepadWorker = null;
+    /** @type {import('./gamepad-worker').GamepadSnapshot|null} */
+    let latestWorkerGamepadState = null;
     let keepAliveTimer = 0;
     let fpsTimer = 0;
     let framesThisSecond = 0;
@@ -1053,15 +1057,120 @@
 
     function startInputLoop() {
         stopInputLoop();
-        inputTimer = window.setInterval(sendInput, 16);
+        // Spawn gamepad worker for off-main-thread polling
+        try {
+            gamepadWorker = new Worker("/js/nosebleed-player/gamepad-worker.js", { type: "module" });
+            gamepadWorker.addEventListener("message", (ev) => {
+                if (ev.data?.type === "gamepad-state") {
+                    // Store the first connected pad that matches our selection preference
+                    const pads = ev.data.pads || [];
+                    const selected = getActiveGamepadIndex();
+                    const match = selected !== null
+                        ? pads.find(p => p.index === selected)
+                        : pads[0] || null;
+                    latestWorkerGamepadState = match;
+                    if (pads.length > 0) syncGamepadSelectionOptions();
+                } else if (ev.data?.type === "gamepad-disconnected") {
+                    forgetGamepad(ev.data.index);
+                    syncGamepadSelectionOptions();
+                    updatePadChip();
+                }
+            });
+            gamepadWorker.postMessage({ type: "start" });
+        } catch {
+            // Worker unsupported or blocked — fall back to main-thread polling
+            gamepadWorker = null;
+        }
+        inputTimer = window.setInterval(sendBinaryInput, 16);
     }
     function stopInputLoop() {
+        if (gamepadWorker) {
+            try { gamepadWorker.postMessage({ type: "stop" }); } catch { }
+            try { gamepadWorker.terminate(); } catch { }
+            gamepadWorker = null;
+        }
+        latestWorkerGamepadState = null;
         if (inputTimer) window.clearInterval(inputTimer);
         inputTimer = 0;
     }
 
+    /**
+     * Binary-encode the current input state and send over WebSocket.
+     *
+     * Uses the latest Web Worker gamepad snapshot when available, falling
+     * back to main-thread navigator.getGamepads().
+     *
+     * Wire format: 34 bytes (little-endian) — see InputBinary in nosebleed.
+     */
+    function sendBinaryInput() {
+        if (isSpectator || assignedPort === null || !inputWs || inputWs.readyState !== WebSocket.OPEN) return;
+        const pad = latestWorkerGamepadState ?? getActivePadFromMainThread();
+        const buf = new ArrayBuffer(34);
+        const dv = new DataView(buf);
+
+        let buttons = 0;
+        // retro_id 0 (B): gamepad button 0, keyboard X
+        if (keys.has("KeyX") || touchControls.has("b") || pad?.buttons?.[0]?.pressed) buttons |= 1 << 0;
+        // retro_id 1 (Y): gamepad button 3
+        if (touchControls.has("y") || pad?.buttons?.[3]?.pressed) buttons |= 1 << 1;
+        // retro_id 2 (Select): gamepad button 8, Shift
+        if (keys.has("ShiftLeft") || keys.has("ShiftRight") || touchControls.has("select") || pad?.buttons?.[8]?.pressed) buttons |= 1 << 2;
+        // retro_id 3 (Start): gamepad button 9, Enter
+        if (keys.has("Enter") || touchControls.has("start") || pad?.buttons?.[9]?.pressed) buttons |= 1 << 3;
+        // retro_id 4 (Up): gamepad button 12, ArrowUp, axis y < -0.5
+        if (keys.has("ArrowUp") || touchControls.has("up") || pad?.buttons?.[12]?.pressed || (pad?.axes?.[1] ?? 0) < -0.5) buttons |= 1 << 4;
+        // retro_id 5 (Down): gamepad button 13, ArrowDown, axis y > 0.5
+        if (keys.has("ArrowDown") || touchControls.has("down") || pad?.buttons?.[13]?.pressed || (pad?.axes?.[1] ?? 0) > 0.5) buttons |= 1 << 5;
+        // retro_id 6 (Left): gamepad button 14, ArrowLeft, axis x < -0.5
+        if (keys.has("ArrowLeft") || touchControls.has("left") || pad?.buttons?.[14]?.pressed || (pad?.axes?.[0] ?? 0) < -0.5) buttons |= 1 << 6;
+        // retro_id 7 (Right): gamepad button 15, ArrowRight, axis x > 0.5
+        if (keys.has("ArrowRight") || touchControls.has("right") || pad?.buttons?.[15]?.pressed || (pad?.axes?.[0] ?? 0) > 0.5) buttons |= 1 << 7;
+        // retro_id 8 (A): gamepad button 1, keyboard Z
+        if (keys.has("KeyZ") || touchControls.has("a") || pad?.buttons?.[1]?.pressed) buttons |= 1 << 8;
+        // retro_id 9 (X): gamepad button 2
+        if (touchControls.has("x") || pad?.buttons?.[2]?.pressed) buttons |= 1 << 9;
+        // retro_id 10 (L): gamepad button 10
+        if (touchControls.has("l") || pad?.buttons?.[10]?.pressed) buttons |= 1 << 10;
+        // retro_id 11 (R): gamepad button 11
+        if (touchControls.has("r") || pad?.buttons?.[11]?.pressed) buttons |= 1 << 11;
+        // retro_id 12 (L2): gamepad button 6
+        if (pad?.buttons?.[6]?.pressed) buttons |= 1 << 12;
+        // retro_id 13 (R2): gamepad button 7
+        if (pad?.buttons?.[7]?.pressed) buttons |= 1 << 13;
+
+        // Row 0: sequence (u16 LE) + port (u32 LE)
+        dv.setUint16(0, ++inputSeq & 0xffff, true);
+        dv.setUint32(2, assignedPort, true);
+        // Row 1: buttons bitmask (u32 LE)
+        dv.setUint32(6, buttons, true);
+        // Rows 2-4: axes (f32 LE)
+        dv.setFloat32(10, pad?.axes?.[0] ?? 0, true);  // lx
+        dv.setFloat32(14, pad?.axes?.[1] ?? 0, true);  // ly
+        dv.setFloat32(18, pad?.axes?.[2] ?? 0, true);  // rx
+        dv.setFloat32(22, pad?.axes?.[3] ?? 0, true);  // ry
+        dv.setFloat32(26, pad?.buttons?.[6]?.value ?? 0, true);  // lt (L2)
+        dv.setFloat32(30, pad?.buttons?.[7]?.value ?? 0, true);  // rt (R2)
+
+        inputWs.send(buf);
+    }
+
+    /**
+     * Fallback: read gamepad state from the main thread.
+     * Used when the Web Worker is unavailable.
+     */
+    function getActivePadFromMainThread() {
+        const pads = navigator.getGamepads?.() || [];
+        const idx = selectedGamepadIndex;
+        if (idx !== null && pads[idx]?.connected) return pads[idx];
+        // Fall back to the first connected pad
+        for (let i = 0; i < pads.length; i++) {
+            if (pads[i]?.connected) return pads[i];
+        }
+        return null;
+    }
+
     function sendInputImmediately() {
-        try { sendInput(); } catch { }
+        try { sendBinaryInput(); } catch { }
     }
 
     function flashCommandButton(button) {
