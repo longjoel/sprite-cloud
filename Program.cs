@@ -8,8 +8,6 @@ using games_vault.Nosebleed;
 using games_vault.Web;
 using games_vault.Profiles;
 using Microsoft.AspNetCore.Http.Features;
-using Microsoft.Extensions.FileProviders;
-using Microsoft.Extensions.FileProviders.Physical;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -109,17 +107,7 @@ if (!app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// RetroArch's web player relies on dotfiles (e.g. "/webplayer/assets/cores/.index-xhr") and unusual extensions
-// (e.g. "bundle.zip.aa"). ASP.NET Core's default WebRootFileProvider excludes dotfiles.
-app.UseStaticFiles(new StaticFileOptions
-{
-    // RetroArch's web player uses extension-less / uncommon extension assets (e.g. ".index-xhr", "bundle.zip.aa").
-    // Serve them as octet-stream so BrowserFS/XHR can fetch them.
-    ServeUnknownFileTypes = true,
-    FileProvider = string.IsNullOrWhiteSpace(app.Environment.WebRootPath)
-        ? app.Environment.WebRootFileProvider
-        : new PhysicalFileProvider(app.Environment.WebRootPath, ExclusionFilters.None)
-});
+app.UseStaticFiles();
 app.UseWebSockets();
 app.UseRouting();
 app.UseMiddleware<ProfileSessionEnforcementMiddleware>();
