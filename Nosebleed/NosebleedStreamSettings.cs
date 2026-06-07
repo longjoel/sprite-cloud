@@ -14,11 +14,15 @@ public sealed class NosebleedStreamSettings
     public const string CompressionBalanced = "balanced";
     public const string CompressionCompact = "compact";
 
+    public const string MediaBackendLegacy = "legacy";
+    public const string MediaBackendGstreamer = "gstreamer";
+
     public string PreferredVideoTransport { get; set; } = TransportWebRtcTrack;
     public string WebSocketVideoCompression { get; set; } = CompressionBalanced;
     public string WebRtcVideoEncoder { get; set; } = "libvpx";
     public string? WebRtcVideoEncoderArgs { get; set; }
     public string FfmpegBinary { get; set; } = "ffmpeg";
+    public string MediaBackend { get; set; } = MediaBackendLegacy;
 
     public static IReadOnlySet<string> AllowedVideoTransports { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -35,6 +39,12 @@ public sealed class NosebleedStreamSettings
         CompressionCompact
     };
 
+    public static IReadOnlySet<string> AllowedMediaBackends { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        MediaBackendLegacy,
+        MediaBackendGstreamer
+    };
+
     public void Normalize()
     {
         PreferredVideoTransport = NormalizeVideoTransport(PreferredVideoTransport);
@@ -42,6 +52,7 @@ public sealed class NosebleedStreamSettings
         WebRtcVideoEncoder = string.IsNullOrWhiteSpace(WebRtcVideoEncoder) ? "libvpx" : WebRtcVideoEncoder.Trim();
         FfmpegBinary = string.IsNullOrWhiteSpace(FfmpegBinary) ? "ffmpeg" : FfmpegBinary.Trim();
         WebRtcVideoEncoderArgs = string.IsNullOrWhiteSpace(WebRtcVideoEncoderArgs) ? null : WebRtcVideoEncoderArgs.Trim();
+        MediaBackend = NormalizeMediaBackend(MediaBackend);
     }
 
     public static string NormalizeVideoTransport(string? value)
@@ -58,6 +69,14 @@ public sealed class NosebleedStreamSettings
         return !string.IsNullOrWhiteSpace(value) && AllowedWebSocketCompressions.Contains(value)
             ? value
             : CompressionBalanced;
+    }
+
+    public static string NormalizeMediaBackend(string? value)
+    {
+        value = value?.Trim();
+        return !string.IsNullOrWhiteSpace(value) && AllowedMediaBackends.Contains(value)
+            ? value
+            : MediaBackendLegacy;
     }
 }
 
@@ -133,6 +152,7 @@ public sealed class NosebleedStreamSettingsStore
         WebSocketVideoCompression = settings.WebSocketVideoCompression,
         WebRtcVideoEncoder = settings.WebRtcVideoEncoder,
         WebRtcVideoEncoderArgs = settings.WebRtcVideoEncoderArgs,
-        FfmpegBinary = settings.FfmpegBinary
+        FfmpegBinary = settings.FfmpegBinary,
+        MediaBackend = settings.MediaBackend
     };
 }
