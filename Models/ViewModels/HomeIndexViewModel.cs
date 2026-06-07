@@ -96,6 +96,8 @@ public sealed class NosebleedRuntimeProcessViewModel
     public string? CorePath { get; set; }
     public string? ContentPath { get; set; }
     public string? CommandLine { get; set; }
+    public double? AverageCpuPercent { get; set; }
+    public long? WorkingSetBytes { get; set; }
 
     public string UserLabel
     {

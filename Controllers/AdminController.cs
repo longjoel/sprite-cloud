@@ -68,7 +68,9 @@ public sealed class AdminController(
                     IsArcadeCabinet = isArcadeCabinet,
                     ArcadeCabinetName = isArcadeCabinet ? arcadeCabinet!.DisplayName : null,
                     RoomCode = roomCodeMap.TryGetValue(x.SessionId, out var roomCode) ? roomCode : null,
-                    CommandLine = allProcesses.TryGetValue(x.ProcessId, out var process) ? process.CommandLine : null
+                    CommandLine = allProcesses.TryGetValue(x.ProcessId, out var process) ? process.CommandLine : null,
+                    AverageCpuPercent = allProcesses.TryGetValue(x.ProcessId, out process) ? process.AverageCpuPercent : null,
+                    WorkingSetBytes = allProcesses.TryGetValue(x.ProcessId, out process) ? process.WorkingSetBytes : null
                 };
             })
             .ToList();
@@ -173,7 +175,9 @@ public sealed class AdminController(
                     ActiveParticipantNames = participants,
                     CorePath = process.CorePath,
                     ContentPath = process.ContentPath,
-                    CommandLine = process.CommandLine
+                    CommandLine = process.CommandLine,
+                    AverageCpuPercent = process.AverageCpuPercent,
+                    WorkingSetBytes = process.WorkingSetBytes
                 };
             }))
             .OrderByDescending(x => x.IsManaged)

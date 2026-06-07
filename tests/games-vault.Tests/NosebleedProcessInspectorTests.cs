@@ -61,4 +61,23 @@ public sealed class NosebleedProcessInspectorTests
         Assert.Equal(8099, NosebleedProcessInspector.ExtractPort("8099"));
         Assert.Null(NosebleedProcessInspector.ExtractPort("not-a-port"));
     }
+
+    [Fact]
+    public void ProcessSnapshot_HoldsCpuAndMemoryUsage()
+    {
+        var snapshot = new NosebleedProcessSnapshot(
+            42,
+            "/opt/nosebleed/nosebleed",
+            "/opt/nosebleed/nosebleed --listen 0.0.0.0:8099",
+            "games-vault-123",
+            "0.0.0.0:8099",
+            8099,
+            "/cores/mgba.so",
+            "/roms/game.gb",
+            12.5,
+            134_217_728);
+
+        Assert.Equal(12.5, snapshot.AverageCpuPercent);
+        Assert.Equal(134_217_728, snapshot.WorkingSetBytes);
+    }
 }
