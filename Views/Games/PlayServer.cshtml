@@ -1757,8 +1757,7 @@
     touchLayoutName,
     streamDefaults = new
     {
-        videoTransport = streamSettings.PreferredVideoTransport,
-        videoCompression = streamSettings.WebSocketVideoCompression
+        videoTransport = streamSettings.PreferredVideoTransport
     },
     keepAliveUrl = Url.Action("KeepAliveServerSession", "Games"),
     roomPresenceUrl = Model.CurrentRoomId is null ? null : Url.Action("RoomPresence", "Games", new { roomId = Model.CurrentRoomId }),

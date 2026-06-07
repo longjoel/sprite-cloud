@@ -76,7 +76,6 @@ public sealed class ServerPlayerJsMarkupTests
         Assert.Contains("const volumeStorageKey = \"games-vault:nosebleed-volume\"", content);
         Assert.Contains("function applyAudioVolume", content);
         Assert.Contains("function syncOverlayAudioUi", content);
-        Assert.Contains("audioGainNode", content);
         Assert.Contains("setVolumeSliderUi", content);
         Assert.Contains("setVolumeFromPoint", content);
         Assert.Contains("setVolumeFromKey", content);

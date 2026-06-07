@@ -20,9 +20,5 @@ public sealed class AdminIndexViewModel
 public sealed class AdminStreamSettingsViewModel
 {
     public string PreferredVideoTransport { get; set; } = "webrtc-track";
-    public string WebSocketVideoCompression { get; set; } = "balanced";
-    public string WebRtcVideoEncoder { get; set; } = "libvpx";
-    public string? WebRtcVideoEncoderArgs { get; set; }
-    public string FfmpegBinary { get; set; } = "ffmpeg";
     public string MediaBackend { get; set; } = "legacy";
 }

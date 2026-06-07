@@ -6,37 +6,11 @@ namespace games_vault.Nosebleed;
 public sealed class NosebleedStreamSettings
 {
     public const string TransportWebRtcTrack = "webrtc-track";
-    public const string TransportWebRtcDataChannel = "webrtc";
-    public const string TransportWebSocket = "websocket";
-
-    public const string CompressionRaw = "raw";
-    public const string CompressionCrisp = "crisp";
-    public const string CompressionBalanced = "balanced";
-    public const string CompressionCompact = "compact";
 
     public const string MediaBackendGstreamer = "gstreamer";
 
     public string PreferredVideoTransport { get; set; } = TransportWebRtcTrack;
-    public string WebSocketVideoCompression { get; set; } = CompressionBalanced;
-    public string WebRtcVideoEncoder { get; set; } = "libvpx";
-    public string? WebRtcVideoEncoderArgs { get; set; }
-    public string FfmpegBinary { get; set; } = "ffmpeg";
     public string MediaBackend { get; set; } = MediaBackendGstreamer;
-
-    public static IReadOnlySet<string> AllowedVideoTransports { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        TransportWebRtcTrack,
-        TransportWebRtcDataChannel,
-        TransportWebSocket
-    };
-
-    public static IReadOnlySet<string> AllowedWebSocketCompressions { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        CompressionRaw,
-        CompressionCrisp,
-        CompressionBalanced,
-        CompressionCompact
-    };
 
     public static IReadOnlySet<string> AllowedMediaBackends { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -46,27 +20,12 @@ public sealed class NosebleedStreamSettings
     public void Normalize()
     {
         PreferredVideoTransport = NormalizeVideoTransport(PreferredVideoTransport);
-        WebSocketVideoCompression = NormalizeWebSocketCompression(WebSocketVideoCompression);
-        WebRtcVideoEncoder = string.IsNullOrWhiteSpace(WebRtcVideoEncoder) ? "libvpx" : WebRtcVideoEncoder.Trim();
-        FfmpegBinary = string.IsNullOrWhiteSpace(FfmpegBinary) ? "ffmpeg" : FfmpegBinary.Trim();
-        WebRtcVideoEncoderArgs = string.IsNullOrWhiteSpace(WebRtcVideoEncoderArgs) ? null : WebRtcVideoEncoderArgs.Trim();
         MediaBackend = NormalizeMediaBackend(MediaBackend);
     }
 
     public static string NormalizeVideoTransport(string? value)
     {
-        value = value?.Trim();
-        return !string.IsNullOrWhiteSpace(value) && AllowedVideoTransports.Contains(value)
-            ? value
-            : TransportWebRtcTrack;
-    }
-
-    public static string NormalizeWebSocketCompression(string? value)
-    {
-        value = value?.Trim();
-        return !string.IsNullOrWhiteSpace(value) && AllowedWebSocketCompressions.Contains(value)
-            ? value
-            : CompressionBalanced;
+        return TransportWebRtcTrack;
     }
 
     public static string NormalizeMediaBackend(string? _)
@@ -144,10 +103,6 @@ public sealed class NosebleedStreamSettingsStore
     private static NosebleedStreamSettings Clone(NosebleedStreamSettings settings) => new()
     {
         PreferredVideoTransport = settings.PreferredVideoTransport,
-        WebSocketVideoCompression = settings.WebSocketVideoCompression,
-        WebRtcVideoEncoder = settings.WebRtcVideoEncoder,
-        WebRtcVideoEncoderArgs = settings.WebRtcVideoEncoderArgs,
-        FfmpegBinary = settings.FfmpegBinary,
         MediaBackend = settings.MediaBackend
     };
 }

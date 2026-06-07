@@ -1524,9 +1524,7 @@ public class GamesController(
         using var downstream = await HttpContext.WebSockets.AcceptWebSocketAsync();
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, HttpContext.RequestAborted);
         var clientToUpstream = PumpWebSocketAsync(downstream, upstream, linkedCts.Token);
-        var upstreamToClient = channel == "video"
-            ? LatestVideoWebSocketRelay.PumpLatestAsync(upstream, downstream, linkedCts.Token)
-            : PumpWebSocketAsync(upstream, downstream, linkedCts.Token);
+        var upstreamToClient = PumpWebSocketAsync(upstream, downstream, linkedCts.Token);
         await Task.WhenAny(clientToUpstream, upstreamToClient);
         await linkedCts.CancelAsync();
 
