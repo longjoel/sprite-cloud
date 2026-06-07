@@ -1102,37 +1102,43 @@
                         min-height: 100dvh;
                     }
 
-                    /* Game screen: full width, pinned to top, visible through transparent gamepad */
+                    /* Game screen: absolutely pinned to top-left so it can't drift */
                     #nosebleed-screen {
                         display: block !important;
-                        position: relative !important;
+                        position: absolute !important;
                         top: 0 !important;
                         left: 0 !important;
                         max-height: 48vh !important;
                         max-height: 48dvh !important;
                         width: 100% !important;
+                        max-width: 100% !important;
                         border-radius: 0 !important;
                         border: 0 !important;
                         margin: 0 !important;
                         margin-inline: 0 !important;
                         object-fit: contain !important;
+                        object-position: top center !important;
                         background: #000 !important;
+                        z-index: 1 !important;
                     }
 
                     #nosebleed-screen-video:not(.d-none) {
                         display: block !important;
-                        position: relative !important;
+                        position: absolute !important;
                         top: 0 !important;
                         left: 0 !important;
                         max-height: 48vh !important;
                         max-height: 48dvh !important;
                         width: 100% !important;
+                        max-width: 100% !important;
                         border-radius: 0 !important;
                         border: 0 !important;
                         margin: 0 !important;
                         margin-inline: 0 !important;
                         object-fit: contain !important;
+                        object-position: top center !important;
                         background: #000 !important;
+                        z-index: 1 !important;
                     }
 
                     /* Gamepad: full-shell overlay. pointer-events: none lets touches
