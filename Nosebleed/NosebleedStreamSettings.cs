@@ -14,7 +14,6 @@ public sealed class NosebleedStreamSettings
     public const string CompressionBalanced = "balanced";
     public const string CompressionCompact = "compact";
 
-    public const string MediaBackendLegacy = "legacy";
     public const string MediaBackendGstreamer = "gstreamer";
 
     public string PreferredVideoTransport { get; set; } = TransportWebRtcTrack;
@@ -22,7 +21,7 @@ public sealed class NosebleedStreamSettings
     public string WebRtcVideoEncoder { get; set; } = "libvpx";
     public string? WebRtcVideoEncoderArgs { get; set; }
     public string FfmpegBinary { get; set; } = "ffmpeg";
-    public string MediaBackend { get; set; } = MediaBackendLegacy;
+    public string MediaBackend { get; set; } = MediaBackendGstreamer;
 
     public static IReadOnlySet<string> AllowedVideoTransports { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -41,7 +40,6 @@ public sealed class NosebleedStreamSettings
 
     public static IReadOnlySet<string> AllowedMediaBackends { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
-        MediaBackendLegacy,
         MediaBackendGstreamer
     };
 
@@ -71,12 +69,9 @@ public sealed class NosebleedStreamSettings
             : CompressionBalanced;
     }
 
-    public static string NormalizeMediaBackend(string? value)
+    public static string NormalizeMediaBackend(string? _)
     {
-        value = value?.Trim();
-        return !string.IsNullOrWhiteSpace(value) && AllowedMediaBackends.Contains(value)
-            ? value
-            : MediaBackendLegacy;
+        return MediaBackendGstreamer;
     }
 }
 

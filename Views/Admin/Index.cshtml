@@ -140,11 +140,8 @@
                 </div>
                 <div class="col-md-6 col-xl-3">
                     <label class="form-label" for="streamMediaBackend">Media backend</label>
-                    <select class="form-select" id="streamMediaBackend" name="MediaBackend">
-                        <option value="legacy" selected="@(Model.StreamSettings.MediaBackend == "legacy")">Legacy (ffmpeg)</option>
-                        <option value="gstreamer" selected="@(Model.StreamSettings.MediaBackend == "gstreamer")">GStreamer (native)</option>
-                    </select>
-                    <div class="form-text">GStreamer uses native pipelines with auto-detected encoder. Legacy uses ffmpeg + VP8.</div>
+                    <input class="form-control" id="streamMediaBackend" type="text" value="@Model.StreamSettings.MediaBackend" readonly />
+                    <div class="form-text">GStreamer is the only media backend supported by Nosebleed.</div>
                 </div>
                 <div class="col-md-6 col-xl-3">
                     <label class="form-label" for="streamWebSocketCompression">WebSocket frame mode</label>
