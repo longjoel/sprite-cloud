@@ -46,13 +46,6 @@ public sealed class AdminIndexViewMarkupTests
         Assert.Contains("Stream settings", content);
         Assert.Contains("asp-action=\"SaveStreamSettings\"", content);
         Assert.Contains("name=\"PreferredVideoTransport\"", content);
-        Assert.Contains("value=\"websocket\"", content);
-        Assert.Contains("name=\"WebSocketVideoCompression\"", content);
-        Assert.Contains("value=\"raw\"", content);
-        Assert.Contains("name=\"WebRtcVideoEncoder\"", content);
-        Assert.Contains("vp8_vaapi", content);
-        Assert.Contains("name=\"WebRtcVideoEncoderArgs\"", content);
-        Assert.Contains("name=\"FfmpegBinary\"", content);
         Assert.Contains("Save stream settings", content);
     }
 

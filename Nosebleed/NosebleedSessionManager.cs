@@ -332,10 +332,7 @@ public sealed class NosebleedSessionManager(
             var streamSettings = GetStreamSettings();
             psi.Environment["NOSEBLEED_SAVE_DIR"] = runtimeSaveDirectory;
             psi.Environment["NOSEBLEED_MEDIA_BACKEND"] = streamSettings.MediaBackend;
-            if (!string.IsNullOrWhiteSpace(streamSettings.WebRtcVideoEncoderArgs))
-            {
-                psi.Environment["NOSEBLEED_WEBRTC_VIDEO_ENCODER_ARGS"] = streamSettings.WebRtcVideoEncoderArgs;
-            }
+
             if (_options.RequireAuth)
             {
                 psi.ArgumentList.Add("--require-auth");

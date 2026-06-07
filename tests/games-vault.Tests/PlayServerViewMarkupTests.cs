@@ -90,7 +90,6 @@ public sealed class PlayServerViewMarkupTests
         Assert.Contains("streamSettings = StreamSettingsStore.Get();", content);
         Assert.Contains("streamDefaults = new", content);
         Assert.Contains("videoTransport = streamSettings.PreferredVideoTransport", content);
-        Assert.Contains("videoCompression = streamSettings.WebSocketVideoCompression", content);
         Assert.Contains("aria-label=\"Windowed view\"", content);
         Assert.Contains("aria-label=\"Theater view\"", content);
         Assert.Contains("aria-label=\"Toggle logging overlay\"", content);

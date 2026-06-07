@@ -75,27 +75,15 @@
     const volumeStorageKey = "games-vault:nosebleed-volume";
     const preferredGamepadIndex = Number.isInteger(assignedPort) ? assignedPort : null;
     const gamepadStorageKey = `games-vault:nosebleed-gamepad-index:${sessionId || "global"}:port:${assignedPort ?? "spectator"}`;
-    const RTC_CHUNK_MAGIC = 0x3143424e;
-    const RTC_CHUNK_HEADER_LEN = 12;
-    const RTC_CHUNK_TTL_MS = 1400;
-    const VP8_VIDEO_MAGIC = 0x3156424e;
-    const VP8_VIDEO_HEADER_LEN = 21;
     const touchControls = new Set();
     let layoutEditMode = false;
     let activeDrag = null;
     let activeDpadPointer = null;
     let lastTapAt = 0;
-    let videoWs = null;
     let inputWs = null;
-    let audioWs = null;
     let rtcPeer = null;
-    let rtcVideoDc = null;
     /** @type {RTCDataChannel|null} */
     let rtcInputDc = null;
-    let rtcVideoChunkMap = new Map();
-    let rtcVp8DecodeSupported = null;
-    let rtcVideoDecoder = null;
-    let rtcVideoDecoderReady = false;
     let activeVideoTransport = "idle";
     const configuredStreamDefaults = config.streamDefaults || {};
     const defaultVideoTransport = playerHelpers?.normalizeVideoTransportPreference?.(configuredStreamDefaults.videoTransport) ?? "webrtc-track";
@@ -122,9 +110,6 @@
     let preferredViewMode = normalizeViewMode(localStorage.getItem(viewModeStorageKey));
     let padTestTimer = 0;
     let gamepadPollTimer = 0;
-    let audioCtx = null;
-    let audioGainNode = null;
-    let audioStartTime = 0;
     let audioEnabled = false;
     let audioVolume = Math.min(1, Math.max(0, Number.parseFloat(localStorage.getItem(volumeStorageKey) || "1") || 1));
     let overlaysEnabled = true;
@@ -659,25 +644,17 @@
     }
 
     function withToken(path, options = {}) {
-        const proxyUrl = path === "/ws/video"
-            ? websocketUrls.video
-            : path === "/ws/audio"
-                ? websocketUrls.audio
-                : path === "/ws/input"
-                    ? websocketUrls.input
-                    : null;
+        const proxyUrl = path === "/ws/input"
+            ? websocketUrls.input
+            : null;
         if (proxyUrl) {
             const url = new URL(proxyUrl, window.location.href);
-            if (options.videoMode) url.searchParams.set("videoMode", options.videoMode);
-            if (Number.isInteger(options.jpegQuality)) url.searchParams.set("jpegQuality", String(options.jpegQuality));
             url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
             return url.toString();
         }
         if (!baseUrl) throw new Error(`No WebSocket URL configured for ${path}`);
         const url = new URL(path, baseUrl);
         if (token) url.searchParams.set("token", token);
-        if (options.videoMode) url.searchParams.set("video_mode", options.videoMode);
-        if (Number.isInteger(options.jpegQuality)) url.searchParams.set("jpeg_quality", String(options.jpegQuality));
         url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
         return url.toString();
     }
@@ -709,37 +686,9 @@
             rtcSupported: typeof RTCPeerConnection !== "undefined",
             webrtcSessionUrl,
             preferredTransport: selectedVideoTransport
-        }) ?? "websocket";
-        const videoConnected = videoTransport === "webrtc-track"
-            ? await connectWebRtcTrackVideo()
-            : videoTransport === "webrtc"
-                ? await connectWebRtcVideo()
-                : false;
-        if (!videoConnected) {
-            activeVideoTransport = "websocket";
-            hideRtcTrackVideo();
-            const videoMode = playerHelpers?.compressionToWebSocketVideoMode?.(selectedVideoCompression) ?? "jpeg";
-            const jpegQuality = playerHelpers?.compressionToJpegQuality?.(selectedVideoCompression) ?? 70;
-            videoWs = new WebSocket(withToken("/ws/video", { videoMode, jpegQuality }));
-            videoWs.binaryType = "arraybuffer";
-            videoWs.onopen = () => {
-                updateChip(chips.video, "Video live", "good");
-                setStatus("Video connected (ws).", "good");
-                setPlayerHealth(isSpectator ? "Watching live" : "Controller live", "good");
-            };
-            videoWs.onmessage = ev => queueVideoFrame(ev.data);
-            videoWs.onerror = () => {
-                updateChip(chips.video, "Video error", "bad");
-                setStatus("Video socket error.", "bad");
-                setPlayerHealth("Video error", "bad");
-                showTransientPlayerEvent("Video socket error.", "bad", 3200);
-            };
-            videoWs.onclose = () => {
-                updateChip(chips.video, "Video offline", "bad");
-                setStatus("Video disconnected.", "bad");
-                setPlayerHealth("Video offline", "bad");
-                showTransientPlayerEvent("Video stream disconnected.", "bad", 3200);
-            };
+        }) ?? "webrtc";
+        if (videoTransport === "webrtc-track") {
+            await connectWebRtcTrackVideo();
         }
 
         if (!isSpectator && assignedPort !== null) {
@@ -865,67 +814,6 @@
         }
     }
 
-    async function connectWebRtcVideo() {
-        if (typeof RTCPeerConnection === "undefined" || !webrtcSessionUrl) return false;
-        try {
-            activeVideoTransport = "webrtc";
-            rtcPeer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
-            rtcVideoDc = rtcPeer.createDataChannel("video", { ordered: false, maxRetransmits: 0 });
-            rtcVideoDc.binaryType = "arraybuffer";
-            rtcVideoDc.onopen = () => {
-                updateChip(chips.video, "Video live (rtc)", "good");
-                setStatus("Video connected (webrtc).", "good");
-            };
-            rtcVideoDc.onmessage = ev => {
-                const payload = decodeRtcPayload(rtcVideoChunkMap, ev.data);
-                if (!payload) return;
-                const vp8 = decodeVp8VideoPacket(payload);
-                if (vp8 && decodeVp8WebCodecFrame(vp8)) {
-                    framesThisSecond += 1;
-                    return;
-                }
-                queueVideoFrame(payload);
-            };
-
-            // Incoming data channels from the server — "input" for low-latency input
-            rtcPeer.ondatachannel = (ev) => {
-                if (ev.channel.label === "input") {
-                    rtcInputDc = ev.channel;
-                    rtcInputDc.binaryType = "arraybuffer";
-                    rtcInputDc.onopen = () => updateChip(chips.input, "Input (rtc)", "good");
-                    rtcInputDc.onclose = () => {
-                        if (rtcInputDc === ev.channel) rtcInputDc = null;
-                    };
-                    // No onmessage needed — input is send-only from client
-                }
-            };
-
-            const offer = await rtcPeer.createOffer();
-            await rtcPeer.setLocalDescription(offer);
-            await waitForIceGatheringComplete(rtcPeer);
-            if (!rtcPeer.localDescription) return false;
-
-            const requestedVideoMode = probeVp8WebCodecDecode() ? "vp8" : "raw";
-            const response = await fetch(new URL(webrtcSessionUrl, window.location.href).toString(), {
-                method: "POST",
-                headers: { "content-type": "application/json" },
-                body: JSON.stringify({ type: rtcPeer.localDescription.type, sdp: rtcPeer.localDescription.sdp, video_mode: requestedVideoMode })
-            });
-            if (!response.ok) throw new Error(`webrtc signaling failed: ${response.status}`);
-            const answer = await response.json();
-            await rtcPeer.setRemoteDescription(answer);
-            return true;
-        } catch (err) {
-            console.warn("webrtc video setup failed, fallback to websocket", err);
-            try { rtcVideoDc?.close(); } catch { }
-            try { rtcPeer?.close(); } catch { }
-            rtcVideoDc = null;
-            rtcPeer = null;
-            activeVideoTransport = "idle";
-            return false;
-        }
-    }
-
     function closeSockets() {
         stopInputLoop();
         stopSeatKeepAlive();
@@ -941,27 +829,18 @@
         videoRenderMs = 0;
         pendingVideoFrame = null;
         videoFrameScheduled = false;
-        for (const ws of [videoWs, inputWs, audioWs]) {
-            try { ws?.close(); } catch { }
-        }
-        try { rtcVideoDc?.close(); } catch { }
+        try { inputWs?.close(); } catch { }
         try { rtcInputDc?.close(); } catch { }
         try { rtcPeer?.close(); } catch { }
-        rtcVideoDc = null;
         rtcInputDc = null;
         rtcPeer = null;
-        rtcTrackFrameCallbackActive = false;
         rtcTrackAudioReady = false;
-        rtcVideoChunkMap.clear();
-        rtcVideoDecoderReady = false;
-        try { rtcVideoDecoder?.close(); } catch { }
-        rtcVideoDecoder = null;
         if (rtcTrackAudio) {
             try { rtcTrackAudio.pause?.(); } catch { }
             rtcTrackAudio.muted = true;
             rtcTrackAudio.srcObject = null;
         }
-        videoWs = inputWs = audioWs = null;
+        inputWs = null;
         audioEnabled = false;
         setAudioDisabledUi();
     }
@@ -982,109 +861,6 @@
         setStatus(message, "good");
         showTransientPlayerEvent(message, "good", 2400, "Stream updated");
         connect().catch(() => { });
-    }
-
-    function queueVideoFrame(buffer) {
-        videoFramesReceived += 1;
-        if (pendingVideoFrame) videoFramesDropped += 1;
-        pendingVideoFrame = buffer;
-        if (videoFrameScheduled) return;
-        videoFrameScheduled = true;
-        window.requestAnimationFrame(() => {
-            videoFrameScheduled = false;
-            const latest = pendingVideoFrame;
-            pendingVideoFrame = null;
-            if (latest) drawFrame(latest);
-        });
-    }
-
-    function drawFrame(buffer) {
-        const renderStartedAt = performance.now();
-        const data = new DataView(buffer);
-        const sig = data.byteLength >= 4 ? magic(data, 0) : "";
-        if (sig === "NBJ0") {
-            drawJpegFrame(buffer, renderStartedAt);
-            return;
-        }
-        if (data.byteLength < 33 || sig !== "NBF0") return;
-        const width = data.getUint32(20, true);
-        const height = data.getUint32(24, true);
-        const pitch = data.getUint32(28, true);
-        const pixelFormat = data.getUint8(32);
-        const payloadLen = data.getUint32(33, true);
-        const payloadOffset = 37;
-        if (data.byteLength < payloadOffset + payloadLen) return;
-        if (canvas.width !== width || canvas.height !== height) {
-            canvas.width = width;
-            canvas.height = height;
-            fitCanvasToShell();
-        }
-        const src = new Uint8Array(buffer, payloadOffset, payloadLen);
-        const image = ctx.createImageData(width, height);
-        const out = image.data;
-        if (pixelFormat === 0) {
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const si = y * pitch + x * 4;
-                    const di = (y * width + x) * 4;
-                    out[di] = src[si + 2];
-                    out[di + 1] = src[si + 1];
-                    out[di + 2] = src[si];
-                    out[di + 3] = 255;
-                }
-            }
-        } else if (pixelFormat === 1) {
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const si = y * pitch + x * 2;
-                    const v = src[si] | (src[si + 1] << 8);
-                    const di = (y * width + x) * 4;
-                    out[di] = ((v >> 11) & 0x1f) * 255 / 31;
-                    out[di + 1] = ((v >> 5) & 0x3f) * 255 / 63;
-                    out[di + 2] = (v & 0x1f) * 255 / 31;
-                    out[di + 3] = 255;
-                }
-            }
-        } else {
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const si = y * pitch + x * 2;
-                    const v = src[si] | (src[si + 1] << 8);
-                    const di = (y * width + x) * 4;
-                    out[di] = ((v >> 10) & 0x1f) * 255 / 31;
-                    out[di + 1] = ((v >> 5) & 0x1f) * 255 / 31;
-                    out[di + 2] = (v & 0x1f) * 255 / 31;
-                    out[di + 3] = 255;
-                }
-            }
-        }
-        framesThisSecond += 1;
-        ctx.putImageData(image, 0, 0);
-        videoRenderMs = performance.now() - renderStartedAt;
-    }
-
-    function drawJpegFrame(buffer, renderStartedAt) {
-        const data = new DataView(buffer);
-        if (data.byteLength < 16) return;
-        const width = data.getUint32(4, true);
-        const height = data.getUint32(8, true);
-        const payloadLen = data.getUint32(12, true);
-        const payloadOffset = 16;
-        if (data.byteLength < payloadOffset + payloadLen) return;
-        if (canvas.width !== width || canvas.height !== height) {
-            canvas.width = width;
-            canvas.height = height;
-            fitCanvasToShell();
-        }
-        const jpegSlice = buffer.slice(payloadOffset, payloadOffset + payloadLen);
-        createImageBitmap(new Blob([jpegSlice], { type: "image/jpeg" }))
-            .then(bitmap => {
-                framesThisSecond += 1;
-                ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-                bitmap.close();
-                videoRenderMs = performance.now() - renderStartedAt;
-            })
-            .catch(() => { });
     }
 
     function fitCanvasToShell() {
@@ -1342,48 +1118,14 @@
             showTransientPlayerPrompt("Audio enabled");
             return;
         }
-
-        audioCtx ??= new AudioContext({ latencyHint: "interactive" });
-        audioGainNode ??= audioCtx.createGain();
-        audioGainNode.connect(audioCtx.destination);
-        applyAudioVolume(false);
-        await audioCtx.resume();
-        audioStartTime = Math.max(audioCtx.currentTime, audioStartTime);
-        if (audioWs && audioWs.readyState === WebSocket.OPEN) {
-            setAudioEnabledUi();
-            showTransientPlayerPrompt("Audio enabled");
-            return;
-        }
-        audioWs = new WebSocket(withToken("/ws/audio"));
-        audioWs.binaryType = "arraybuffer";
-        audioWs.onopen = () => {
-            setAudioEnabledUi();
-            setStatus("Audio connected.");
-            showTransientPlayerPrompt("Audio enabled");
-        };
-        audioWs.onmessage = ev => playAudio(ev.data);
-        audioWs.onclose = () => {
-            if (audioEnabled) {
-                setStatus("Audio disconnected.", "warn");
-                showTransientPlayerEvent("Audio stream disconnected.", "warn", 2800, "Playback update");
-            }
-        };
+        showTransientPlayerPrompt("Audio enabled");
     }
 
     async function disableAudio() {
         audioEnabled = false;
-        audioStartTime = 0;
-        playAudio.lastSequence = Number.NaN;
-        if (audioWs) {
-            try { audioWs.close(); } catch { }
-        }
-        audioWs = null;
         if (rtcTrackAudio) {
             rtcTrackAudio.muted = true;
             try { rtcTrackAudio.pause?.(); } catch { }
-        }
-        if (audioCtx?.state === "running") {
-            try { await audioCtx.suspend(); } catch { }
         }
         setAudioDisabledUi();
         setStatus("Audio muted.", "good");
@@ -1447,9 +1189,6 @@
         if (rtcTrackAudio) {
             rtcTrackAudio.volume = normalized;
         }
-        if (audioGainNode) {
-            audioGainNode.gain.value = normalized;
-        }
         setVolumeSliderUi(normalized);
         if (persist) {
             localStorage.setItem(volumeStorageKey, String(normalized));
@@ -1492,54 +1231,6 @@
         applyAudioVolume(false);
     }
 
-    function playAudio(buffer) {
-        if (!audioCtx || !audioEnabled) return;
-        const data = new DataView(buffer);
-        if (data.byteLength < 34 || magic(data, 0) !== "NBA0") return;
-        const sequence = readU64LittleEndian(data, 4);
-        const sentAtUs = readU64LittleEndian(data, 12);
-        const sampleRate = data.getUint32(20, true);
-        const channels = data.getUint8(24);
-        const sampleFormat = data.getUint8(25);
-        const frameCount = data.getUint32(26, true);
-        const payloadLen = data.getUint32(30, true);
-        const offset = 34;
-        if (sampleFormat !== 0 || channels < 1 || channels > 2 || sampleRate < 8_000 || sampleRate > 192_000) return;
-        if (data.byteLength < offset + payloadLen) return;
-        const bytesPerFrame = channels * 2;
-        if (payloadLen < frameCount * bytesPerFrame) return;
-
-        const audioBuffer = audioCtx.createBuffer(channels, frameCount, sampleRate);
-        for (let channelIndex = 0; channelIndex < channels; channelIndex++) {
-            const output = audioBuffer.getChannelData(channelIndex);
-            for (let frameIndex = 0; frameIndex < frameCount; frameIndex++) {
-                const sampleOffset = offset + frameIndex * bytesPerFrame + channelIndex * 2;
-                output[frameIndex] = data.getInt16(sampleOffset, true) / 32768;
-            }
-        }
-
-        const packetDuration = frameCount / sampleRate;
-        const targetLead = 0.03;
-        const maxLead = 0.18;
-        const currentTime = audioCtx.currentTime;
-        const queueLead = audioStartTime - currentTime;
-        const senderSkewSeconds = (Date.now() * 1000 - sentAtUs) / 1_000_000;
-        const sequenceGap = Number.isFinite(playAudio.lastSequence) ? sequence - playAudio.lastSequence : 1;
-        if (sequenceGap > 1 || queueLead < -0.02 || queueLead > maxLead || senderSkewSeconds > 0.5) {
-            audioStartTime = currentTime + targetLead;
-        } else {
-            audioStartTime = Math.max(currentTime + 0.005, audioStartTime);
-        }
-
-        const src = audioCtx.createBufferSource();
-        src.buffer = audioBuffer;
-        src.connect(audioGainNode ?? audioCtx.destination);
-        src.start(audioStartTime);
-        audioStartTime += packetDuration;
-        playAudio.lastSequence = sequence;
-    }
-    playAudio.lastSequence = Number.NaN;
-
     function setOverlayEnabled(enabled, persist = true) {
         overlaysEnabled = enabled;
         shell.classList.toggle("overlays-hidden", !enabled);
@@ -1560,158 +1251,6 @@
         setOverlayEnabled(next);
         setStatus(next ? "Overlay visible." : "Overlay hidden for kiosk mode.", "good");
         showTransientPlayerPrompt(next ? "Overlay on" : "Overlay off");
-    }
-
-    function magic(view, offset) {
-        return String.fromCharCode(view.getUint8(offset), view.getUint8(offset + 1), view.getUint8(offset + 2), view.getUint8(offset + 3));
-    }
-
-    function readU64LittleEndian(view, offset) {
-        if (typeof view.getBigUint64 === "function") return Number(view.getBigUint64(offset, true));
-        return view.getUint32(offset + 4, true) * 4294967296 + view.getUint32(offset, true);
-    }
-
-    function decodeRtcPayload(map, eventData) {
-        if (!(eventData instanceof ArrayBuffer)) return null;
-        const chunk = decodeRtcChunk(eventData);
-        if (!chunk) return null;
-        pruneRtcChunkMap(map);
-        let entry = map.get(chunk.messageId);
-        if (!entry) {
-            entry = {
-                totalChunks: chunk.totalChunks,
-                parts: new Array(chunk.totalChunks).fill(null),
-                received: 0,
-                totalBytes: 0,
-                createdAt: performance.now()
-            };
-            map.set(chunk.messageId, entry);
-        }
-        if (entry.totalChunks !== chunk.totalChunks) {
-            map.delete(chunk.messageId);
-            return null;
-        }
-        if (!entry.parts[chunk.chunkIndex]) {
-            entry.parts[chunk.chunkIndex] = chunk.payload;
-            entry.received += 1;
-            entry.totalBytes += chunk.payload.length;
-        }
-        if (entry.received !== entry.totalChunks) return null;
-        const out = new Uint8Array(entry.totalBytes);
-        let outOffset = 0;
-        for (const part of entry.parts) {
-            if (!part) {
-                map.delete(chunk.messageId);
-                return null;
-            }
-            out.set(part, outOffset);
-            outOffset += part.length;
-        }
-        map.delete(chunk.messageId);
-        return out.buffer;
-    }
-
-    function pruneRtcChunkMap(map) {
-        const now = performance.now();
-        for (const [messageId, entry] of map.entries()) {
-            if (now - entry.createdAt > RTC_CHUNK_TTL_MS) map.delete(messageId);
-        }
-    }
-
-    function decodeRtcChunk(buffer) {
-        const view = new DataView(buffer);
-        if (view.byteLength < RTC_CHUNK_HEADER_LEN) return null;
-        if (view.getUint32(0, true) !== RTC_CHUNK_MAGIC) return null;
-        const messageId = view.getUint32(4, true);
-        const chunkIndex = view.getUint16(8, true);
-        const totalChunks = view.getUint16(10, true);
-        if (totalChunks < 1 || chunkIndex >= totalChunks) return null;
-        return {
-            messageId,
-            chunkIndex,
-            totalChunks,
-            payload: new Uint8Array(buffer, RTC_CHUNK_HEADER_LEN, view.byteLength - RTC_CHUNK_HEADER_LEN).slice()
-        };
-    }
-
-    function decodeVp8VideoPacket(buffer) {
-        const view = new DataView(buffer);
-        if (view.byteLength < VP8_VIDEO_HEADER_LEN) return null;
-        if (view.getUint32(0, true) !== VP8_VIDEO_MAGIC) return null;
-        const ptsUs = readU64LittleEndian(view, 4);
-        const durationUs = view.getUint32(12, true);
-        const flags = view.getUint8(16);
-        const payloadLen = view.getUint32(17, true);
-        if (VP8_VIDEO_HEADER_LEN + payloadLen > view.byteLength) return null;
-        return {
-            ptsUs,
-            durationUs,
-            keyframe: (flags & 0x01) !== 0,
-            payload: new Uint8Array(buffer, VP8_VIDEO_HEADER_LEN, payloadLen)
-        };
-    }
-
-    function probeVp8WebCodecDecode() {
-        if (rtcVp8DecodeSupported !== null) return rtcVp8DecodeSupported;
-        if (typeof VideoDecoder === "undefined" || typeof EncodedVideoChunk === "undefined") {
-            rtcVp8DecodeSupported = false;
-            return false;
-        }
-        try {
-            const decoder = new VideoDecoder({ output: frame => frame.close(), error: () => { } });
-            decoder.configure({ codec: "vp8", optimizeForLatency: true, hardwareAcceleration: "prefer-hardware" });
-            decoder.close();
-            rtcVp8DecodeSupported = true;
-        } catch {
-            rtcVp8DecodeSupported = false;
-        }
-        return rtcVp8DecodeSupported;
-    }
-
-    function ensureRtcVideoDecoder() {
-        if (!probeVp8WebCodecDecode()) return false;
-        if (rtcVideoDecoderReady && rtcVideoDecoder) return true;
-        try {
-            rtcVideoDecoder = new VideoDecoder({
-                output: frame => {
-                    if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
-                        canvas.width = frame.displayWidth;
-                        canvas.height = frame.displayHeight;
-                        fitCanvasToShell();
-                    }
-                    ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
-                    videoRenderMs = 0;
-                    frame.close();
-                },
-                error: () => {
-                    rtcVideoDecoderReady = false;
-                }
-            });
-            rtcVideoDecoder.configure({ codec: "vp8", optimizeForLatency: true, hardwareAcceleration: "prefer-hardware" });
-            rtcVideoDecoderReady = true;
-            return true;
-        } catch {
-            rtcVideoDecoder = null;
-            rtcVideoDecoderReady = false;
-            return false;
-        }
-    }
-
-    function decodeVp8WebCodecFrame(packet) {
-        if (!ensureRtcVideoDecoder() || !rtcVideoDecoder) return false;
-        try {
-            const chunk = new EncodedVideoChunk({
-                type: packet.keyframe ? "key" : "delta",
-                timestamp: packet.ptsUs,
-                duration: packet.durationUs,
-                data: packet.payload
-            });
-            rtcVideoDecoder.decode(chunk);
-            return true;
-        } catch {
-            rtcVideoDecoderReady = false;
-            return false;
-        }
     }
 
     function waitForIceGatheringComplete(peer) {

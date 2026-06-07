@@ -204,10 +204,6 @@ public sealed class AdminController(
             StreamSettings = new AdminStreamSettingsViewModel
             {
                 PreferredVideoTransport = streamSettings.PreferredVideoTransport,
-                WebSocketVideoCompression = streamSettings.WebSocketVideoCompression,
-                WebRtcVideoEncoder = streamSettings.WebRtcVideoEncoder,
-                WebRtcVideoEncoderArgs = streamSettings.WebRtcVideoEncoderArgs,
-                FfmpegBinary = streamSettings.FfmpegBinary,
                 MediaBackend = streamSettings.MediaBackend
             },
             NosebleedRuntimeProcesses = runtimeProcesses
@@ -221,10 +217,6 @@ public sealed class AdminController(
         var saved = streamSettingsStore.Save(new NosebleedStreamSettings
         {
             PreferredVideoTransport = model.PreferredVideoTransport,
-            WebSocketVideoCompression = model.WebSocketVideoCompression,
-            WebRtcVideoEncoder = model.WebRtcVideoEncoder,
-            WebRtcVideoEncoderArgs = model.WebRtcVideoEncoderArgs,
-            FfmpegBinary = model.FfmpegBinary,
             MediaBackend = model.MediaBackend
         });
 

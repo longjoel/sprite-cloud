@@ -143,31 +143,6 @@
                     <input class="form-control" id="streamMediaBackend" type="text" value="@Model.StreamSettings.MediaBackend" readonly />
                     <div class="form-text">GStreamer is the only media backend supported by Nosebleed.</div>
                 </div>
-                <div class="col-md-6 col-xl-3">
-                    <label class="form-label" for="streamWebSocketCompression">WebSocket frame mode</label>
-                    <select class="form-select" id="streamWebSocketCompression" name="WebSocketVideoCompression">
-                        <option value="balanced" selected="@(Model.StreamSettings.WebSocketVideoCompression == "balanced")">JPEG balanced</option>
-                        <option value="crisp" selected="@(Model.StreamSettings.WebSocketVideoCompression == "crisp")">JPEG crisp</option>
-                        <option value="compact" selected="@(Model.StreamSettings.WebSocketVideoCompression == "compact")">JPEG compact</option>
-                        <option value="raw" selected="@(Model.StreamSettings.WebSocketVideoCompression == "raw")">Raw frames</option>
-                    </select>
-                    <div class="form-text">JPEG is lighter on the network; raw avoids JPEG encoding cost.</div>
-                </div>
-                <div class="col-md-6 col-xl-3">
-                    <label class="form-label" for="streamWebRtcVideoEncoder">WebRTC VP8 encoder</label>
-                    <input class="form-control" id="streamWebRtcVideoEncoder" name="WebRtcVideoEncoder" value="@Model.StreamSettings.WebRtcVideoEncoder" placeholder="libvpx" />
-                    <div class="form-text">Examples: <code>libvpx</code>, <code>vp8_vaapi</code>. Nosebleed currently expects VP8 output.</div>
-                </div>
-                <div class="col-md-6 col-xl-3">
-                    <label class="form-label" for="streamFfmpegBinary">ffmpeg binary</label>
-                    <input class="form-control" id="streamFfmpegBinary" name="FfmpegBinary" value="@Model.StreamSettings.FfmpegBinary" placeholder="ffmpeg" />
-                    <div class="form-text">Override when a server needs a custom ffmpeg build/path.</div>
-                </div>
-                <div class="col-12">
-                    <label class="form-label" for="streamWebRtcVideoEncoderArgs">Extra encoder args</label>
-                    <input class="form-control font-monospace" id="streamWebRtcVideoEncoderArgs" name="WebRtcVideoEncoderArgs" value="@Model.StreamSettings.WebRtcVideoEncoderArgs" placeholder="-deadline realtime -cpu-used 8" />
-                    <div class="form-text">Passed to <code>NOSEBLEED_WEBRTC_VIDEO_ENCODER_ARGS</code>. Leave blank for Nosebleed defaults. Running sessions must be restarted to pick up encoder/env changes.</div>
-                </div>
                 <div class="col-12 d-flex justify-content-end">
                     <button type="submit" class="btn btn-primary">Save stream settings</button>
                 </div>
