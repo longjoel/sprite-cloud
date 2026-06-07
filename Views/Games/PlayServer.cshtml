@@ -1147,35 +1147,35 @@
 
                     /* D-pad — anchored to the left-center of the bottom half */
                     .touch-gamepad .pad-cluster {
-                        position: absolute !important;
-                        left: max(.75rem, env(safe-area-inset-left)) !important;
-                        top: 50% !important;
-                        transform: translateY(-50%) !important;
-                        width: 8.5rem !important;
-                        height: 8.5rem !important;
-                        bottom: auto !important;
+                        position: absolute;
+                        left: max(.75rem, env(safe-area-inset-left));
+                        top: 50%;
+                        transform: translateY(-50%);
+                        width: 8.5rem;
+                        height: 8.5rem;
+                        bottom: auto;
                     }
 
                     /* Face buttons — anchored to the right-center of the bottom half */
                     .touch-gamepad .face-cluster {
-                        position: absolute !important;
-                        right: max(.75rem, env(safe-area-inset-right)) !important;
-                        top: 50% !important;
-                        transform: translateY(-50%) !important;
-                        width: 9.5rem !important;
-                        height: 7.5rem !important;
-                        bottom: auto !important;
+                        position: absolute;
+                        right: max(.75rem, env(safe-area-inset-right));
+                        top: 50%;
+                        transform: translateY(-50%);
+                        width: 9.5rem;
+                        height: 7.5rem;
+                        bottom: auto;
                     }
 
                     /* Menu cluster — centered at top of bottom half */
                     .touch-gamepad .menu-cluster {
-                        position: absolute !important;
-                        left: 50% !important;
-                        top: max(.5rem, env(safe-area-inset-top)) !important;
-                        bottom: auto !important;
-                        transform: translateX(-50%) !important;
-                        display: flex !important;
-                        gap: .65rem !important;
+                        position: absolute;
+                        left: 50%;
+                        top: max(.5rem, env(safe-area-inset-top));
+                        bottom: auto;
+                        transform: translateX(-50%);
+                        display: flex;
+                        gap: .65rem;
                     }
 
                     /* Slightly smaller touch targets for portrait */
@@ -1373,17 +1373,6 @@
                         outline-offset: .2rem !important;
                     }
 
-                    /* Layout editing: let JS inline styles override portrait positioning */
-                    .server-player-shell.layout-editing .touch-gamepad .pad-cluster,
-                    .server-player-shell.layout-editing .touch-gamepad .face-cluster,
-                    .server-player-shell.layout-editing .touch-gamepad .menu-cluster {
-                        left: auto !important;
-                        top: auto !important;
-                        right: auto !important;
-                        bottom: auto !important;
-                        transform: none !important;
-                    }
-
                     /* Layout editing: gamepad overlays full shell so coordinate system
                        matches landscape — JS computes percentages vs shell, applies
                        them vs containing block. They must be the same size. */
@@ -1425,14 +1414,14 @@
 
                     /* Genesis: A/B/C row */
                     .touch-gamepad.layout-genesis .face-cluster {
-                        position: absolute !important;
-                        right: max(.5rem, env(safe-area-inset-right)) !important;
-                        top: 50% !important;
-                        transform: translateY(-50%) !important;
-                        width: auto !important;
-                        height: auto !important;
-                        bottom: auto !important;
-                        pointer-events: auto !important;
+                        position: absolute;
+                        right: max(.5rem, env(safe-area-inset-right));
+                        top: 50%;
+                        transform: translateY(-50%);
+                        width: auto;
+                        height: auto;
+                        bottom: auto;
+                        pointer-events: auto;
                     }
 
                     .touch-gamepad.layout-genesis .touch-btn.face {
