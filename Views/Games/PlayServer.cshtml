@@ -1239,15 +1239,16 @@
                         font-size: .7rem !important;
                     }
 
-                    /* Bottom bar: sound/volume/view-mode — centered between game and controls */
+                    /* Bottom bar: sound/volume/view-mode — bottom area, above gamepad controls */
                     .player-bottom-bar {
-                        position: absolute !important;
-                        left: .5rem !important;
-                        right: .5rem !important;
-                        bottom: calc(50% + .5rem) !important;
-                        top: auto !important;
-                        z-index: 6 !important;
-                        justify-content: center !important;
+                        position: absolute;
+                        left: .5rem;
+                        right: .5rem;
+                        bottom: max(10rem, calc(env(safe-area-inset-bottom) + 8.5rem));
+                        top: auto;
+                        z-index: 6;
+                        justify-content: center;
+                        pointer-events: auto;
                     }
 
                     .player-control-cluster {
@@ -1544,7 +1545,7 @@
                             <button id="nosebleed-save-state-load" class="player-state-action is-success" type="button" aria-label="Load state">Load</button>
                         </div>
                     }
-                    <div id="nosebleed-player-bottom-bar" class="player-bottom-bar">
+                    <div id="nosebleed-player-bottom-bar" class="player-bottom-bar" data-control-group="bottom-bar">
                         <div class="player-control-cluster">
                             <div class="player-audio-controls">
                                 <button id="nosebleed-audio-overlay" class="player-control-button" type="button" data-control-group="sound" aria-label="Enable sound" title="Enable sound">
