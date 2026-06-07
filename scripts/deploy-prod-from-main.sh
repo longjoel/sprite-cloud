@@ -62,15 +62,16 @@ sshpass -p "$VPS_SSH_PASSWORD" ssh -o StrictHostKeyChecking=no "$VPS_SSH_TARGET"
 echo "==> Rsync publish output"
 rsync -az --delete --partial \
   --exclude 'wwwroot/webplayer/' \
+  --exclude 'App_Data/' \
   -e "sshpass -p '$VPS_SSH_PASSWORD' ssh -o StrictHostKeyChecking=no" \
   "$PUBLISH_DIR/" "$VPS_SSH_TARGET:/opt/games-vault/"
 
 echo "==> Ensure runtime dirs + marker + restart"
 sshpass -p "$VPS_SSH_PASSWORD" ssh -o StrictHostKeyChecking=no "$VPS_SSH_TARGET" \
-  "echo '$HEAD_SHA' | sudo tee /opt/games-vault/RELEASE_COMMIT >/dev/null && \
-   sudo mkdir -p /opt/games-vault/App_Data /opt/games-vault/wwwroot /var/lib/games-vault /srv/storage/games-vault && \
+  "sudo mkdir -p /opt/games-vault/App_Data /opt/games-vault/wwwroot /var/lib/games-vault /srv/storage/games-vault && \
+   echo '$HEAD_SHA' | sudo tee /opt/games-vault/RELEASE_COMMIT >/dev/null && \
    sudo chown -R games-vault:games-vault /opt/games-vault /var/lib/games-vault /srv/storage/games-vault && \
-   sudo systemctl restart games-vault && sleep 3 && systemctl is-active games-vault"
+   sudo systemctl reset-failed games-vault 2>/dev/null; sudo systemctl restart games-vault && sleep 4 && systemctl is-active games-vault"
 
 echo "==> Verify prod endpoints"
 curl -fsS "https://lngnckr.tech/a45ee611-d6ae-41dd-b3ba-37712a2b954d/" >/dev/null
