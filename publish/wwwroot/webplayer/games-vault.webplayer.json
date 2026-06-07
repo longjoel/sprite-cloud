@@ -1,5 +1,0 @@
-{
-  "installedUtc": "2026-06-01T12:36:54.4136935Z",
-  "source": "https://buildbot.libretro.com/nightly/emscripten/RetroArch.7z",
-  "patch": "games-vault:retroarch-webplayer-sync:v5"
-}

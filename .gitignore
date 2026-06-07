@@ -32,3 +32,6 @@ wwwroot/webplayer/
 # Optional: local appsettings overrides (often contain secrets)
 appsettings.*.json
 !appsettings.json
+
+# Publish output (CI publishes to /tmp; never commit build artifacts)
+publish/
