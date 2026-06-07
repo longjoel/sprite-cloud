@@ -1092,11 +1092,9 @@
                     }
                 }
 
-                /* --- Portrait mobile: split shell into game (top) + controls (bottom) --- */
+                /* --- Portrait mobile: gamepad overlays full shell, game on top --- */
                 @@media (max-width: 767.98px) and (orientation: portrait) {
                     .server-player-shell {
-                        display: flex !important;
-                        flex-direction: column !important;
                         padding: 0 !important;
                         border-radius: 0 !important;
                         overflow: hidden !important;
@@ -1104,11 +1102,10 @@
                         min-height: 100dvh;
                     }
 
-                    /* Game screen fills the top portion */
+                    /* Game screen: full width, top portion, visible through transparent gamepad */
                     #nosebleed-screen {
-                        flex: 0 0 auto !important;
-                        max-height: 45vh !important;
-                        max-height: 45dvh !important;
+                        max-height: 48vh !important;
+                        max-height: 48dvh !important;
                         width: 100% !important;
                         border-radius: 0 !important;
                         border: 0 !important;
@@ -1119,9 +1116,8 @@
 
                     #nosebleed-screen-video:not(.d-none) {
                         display: block !important;
-                        flex: 0 0 auto !important;
-                        max-height: 45vh !important;
-                        max-height: 45dvh !important;
+                        max-height: 48vh !important;
+                        max-height: 48dvh !important;
                         width: 100% !important;
                         border-radius: 0 !important;
                         border: 0 !important;
@@ -1129,51 +1125,53 @@
                         background: #000 !important;
                     }
 
-                    /* Touch gamepad: move out of absolute overlay into the bottom half */
+                    /* Gamepad: full-shell overlay. pointer-events: none lets touches
+                       pass through to canvas in the top half where there are no controls.
+                       NO background — game screen is visible underneath. */
                     .touch-gamepad {
-                        position: relative !important;
-                        inset: auto !important;
-                        flex: 1 1 auto !important;
-                        display: flex !important;
-                        pointer-events: auto !important;
-                        background: #0f172a !important;
-                        min-height: 0 !important;
+                        position: absolute !important;
+                        inset: 0 !important;
+                        pointer-events: none !important;
+                        background: none !important;
                         z-index: 2 !important;
                     }
 
                     .touch-gamepad.is-visible {
-                        display: flex !important;
+                        display: block !important;
                     }
 
-                    /* D-pad — anchored to the left-center of the bottom half */
+                    /* D-pad — bottom-left */
                     .touch-gamepad .pad-cluster {
                         position: absolute;
                         left: max(.75rem, env(safe-area-inset-left));
-                        top: 50%;
-                        transform: translateY(-50%);
+                        bottom: max(.85rem, env(safe-area-inset-bottom));
+                        top: auto;
+                        transform: none;
+                        pointer-events: auto;
                         width: 8.5rem;
                         height: 8.5rem;
-                        bottom: auto;
                     }
 
-                    /* Face buttons — anchored to the right-center of the bottom half */
+                    /* Face buttons — bottom-right */
                     .touch-gamepad .face-cluster {
                         position: absolute;
                         right: max(.75rem, env(safe-area-inset-right));
-                        top: 50%;
-                        transform: translateY(-50%);
+                        bottom: max(1.05rem, env(safe-area-inset-bottom));
+                        top: auto;
+                        transform: none;
+                        pointer-events: auto;
                         width: 9.5rem;
                         height: 7.5rem;
-                        bottom: auto;
                     }
 
-                    /* Menu cluster — centered at top of bottom half */
+                    /* Menu cluster — centered above D-pad/face area */
                     .touch-gamepad .menu-cluster {
                         position: absolute;
                         left: 50%;
-                        top: max(.5rem, env(safe-area-inset-top));
-                        bottom: auto;
+                        bottom: max(10rem, calc(env(safe-area-inset-bottom) + 8rem));
+                        top: auto;
                         transform: translateX(-50%);
+                        pointer-events: auto;
                         display: flex;
                         gap: .65rem;
                     }
@@ -1196,25 +1194,25 @@
                         font-size: .8rem !important;
                     }
 
-                    /* Chrome overlay: confine to the top (game) area only */
+                    /* Chrome overlay: confine to top (game) area */
                     .player-chrome {
                         position: absolute !important;
                         top: 0 !important;
                         left: 0 !important;
                         right: 0 !important;
-                        height: 45vh !important;
-                        height: 45dvh !important;
+                        height: 48vh !important;
+                        height: 48dvh !important;
                         bottom: auto !important;
                         z-index: 3 !important;
                     }
 
-                    /* Hide chrome gradients — no need to shade game screen */
+                    /* Hide chrome gradients */
                     .player-chrome-gradient-top,
                     .player-chrome-gradient-bottom {
                         display: none !important;
                     }
 
-                    /* Health indicator — compact badge, top-right of game area */
+                    /* Health indicator — compact, top-right */
                     .player-status-corner {
                         top: max(.35rem, env(safe-area-inset-top)) !important;
                         right: max(.35rem, env(safe-area-inset-right)) !important;
@@ -1225,13 +1223,13 @@
                         font-size: .7rem !important;
                     }
 
-                    /* Bottom bar with sound/view-mode: above the gamepad in the controls area */
+                    /* Bottom bar: sound/volume/view-mode — centered between game and controls */
                     .player-bottom-bar {
                         position: absolute !important;
                         left: .5rem !important;
                         right: .5rem !important;
-                        bottom: auto !important;
-                        top: calc(50% - 5.5rem) !important;
+                        bottom: calc(50% + .5rem) !important;
+                        top: auto !important;
                         z-index: 6 !important;
                         justify-content: center !important;
                     }
@@ -1239,7 +1237,7 @@
                     .player-control-cluster {
                         padding: .35rem !important;
                         gap: .3rem !important;
-                        background: rgba(15, 23, 42, .85) !important;
+                        background: rgba(15, 23, 42, .82) !important;
                     }
 
                     .player-control-button {
@@ -1270,12 +1268,12 @@
                         flex-wrap: nowrap !important;
                     }
 
-                    /* Layout lock/reset buttons — compact, just above gamepad controls */
+                    /* Layout lock/reset — just above the controls divider */
                     .player-overlay-action.layout-lock-action,
                     .player-overlay-action.layout-reset-action {
                         position: absolute !important;
                         top: auto !important;
-                        bottom: calc(50% + 3.2rem) !important;
+                        bottom: calc(50% + 3rem) !important;
                         z-index: 7 !important;
                         font-size: .68rem !important;
                         padding: .22rem .45rem !important;
@@ -1292,11 +1290,12 @@
                         top: auto !important;
                     }
 
-                    /* Save state pill — centered just above the controls divider */
+                    /* Save state pill — centered above controls */
                     .player-state-pill {
                         position: absolute !important;
                         left: 50% !important;
-                        bottom: calc(50% + 3.2rem) !important;
+                        bottom: calc(50% + 3rem) !important;
+                        top: auto !important;
                         transform: translateX(-50%) !important;
                         z-index: 6 !important;
                     }
@@ -1315,7 +1314,7 @@
                         font-size: .75rem !important;
                     }
 
-                    /* Log panel — compact, top-left overlay on game screen */
+                    /* Log panel — top-left overlay */
                     .player-log-panel {
                         top: max(.35rem, env(safe-area-inset-top)) !important;
                         left: max(.35rem, env(safe-area-inset-left)) !important;
@@ -1324,7 +1323,7 @@
                         font-size: .75rem !important;
                     }
 
-                    /* Player events — centered on game screen */
+                    /* Player events — centered on game area */
                     .player-events {
                         top: max(2.2rem, calc(env(safe-area-inset-top) + 2.2rem)) !important;
                         width: min(24rem, calc(100% - 1rem)) !important;
@@ -1343,12 +1342,17 @@
 
                     .server-player-shell.player-chrome-hidden .touch-gamepad {
                         opacity: 1 !important;
+                    }
+
+                    .server-player-shell.player-chrome-hidden .touch-gamepad .pad-cluster,
+                    .server-player-shell.player-chrome-hidden .touch-gamepad .face-cluster,
+                    .server-player-shell.player-chrome-hidden .touch-gamepad .menu-cluster {
                         pointer-events: auto !important;
                     }
 
-                    /* Overlays-hidden: only hide chrome things, not the gamepad */
+                    /* Overlays-hidden: keep gamepad visible, hide chrome */
                     .server-player-shell.overlays-hidden .touch-gamepad.is-visible {
-                        display: flex !important;
+                        display: block !important;
                     }
 
                     .server-player-shell.overlays-hidden .touch-gamepad .pad-cluster,
@@ -1362,33 +1366,14 @@
                         display: block !important;
                     }
 
-                    /* Ensure the gamepad container itself blocks nothing */
-                    .touch-gamepad.is-visible {
-                        display: flex !important;
-                    }
-
-                    /* Ensure layout editing outlines work in portrait */
+                    /* Layout editing: no special CSS needed — gamepad already covers
+                       full shell, so JS coordinate system is always consistent. */
                     .server-player-shell.layout-editing [data-control-group] {
                         outline: 2px dashed rgba(255,255,255,.65) !important;
                         outline-offset: .2rem !important;
                     }
 
-                    /* Layout editing: gamepad overlays full shell so coordinate system
-                       matches landscape — JS computes percentages vs shell, applies
-                       them vs containing block. They must be the same size. */
-                    .server-player-shell.layout-editing .touch-gamepad {
-                        position: absolute !important;
-                        inset: 0 !important;
-                        flex: none !important;
-                        background: rgba(15, 23, 42, .72) !important;
-                        z-index: 5 !important;
-                    }
-
-                    .server-player-shell.layout-editing .touch-gamepad .touch-btn {
-                        opacity: .88;
-                    }
-
-                    /* Theater mode — still collapse sidebar on small screens */
+                    /* Theater mode — collapse sidebar */
                     .playserver-live-grid {
                         grid-template-columns: 1fr !important;
                     }
@@ -1396,7 +1381,7 @@
 
                 /* --- Portrait layout adjustments per gamepad variant --- */
                 @@media (max-width: 767.98px) and (orientation: portrait) {
-                    /* Game Gear: 2-button */
+                    /* Game Gear */
                     .touch-gamepad.layout-game-gear .face-cluster {
                         width: 7.5rem !important;
                         height: 4.5rem !important;
@@ -1412,18 +1397,7 @@
                         bottom: 0 !important;
                     }
 
-                    /* Genesis: A/B/C row */
-                    .touch-gamepad.layout-genesis .face-cluster {
-                        position: absolute;
-                        right: max(.5rem, env(safe-area-inset-right));
-                        top: 50%;
-                        transform: translateY(-50%);
-                        width: auto;
-                        height: auto;
-                        bottom: auto;
-                        pointer-events: auto;
-                    }
-
+                    /* Genesis */
                     .touch-gamepad.layout-genesis .touch-btn.face {
                         width: 3.5rem !important;
                         height: 3.5rem !important;
@@ -1443,9 +1417,11 @@
                         flex-direction: column !important;
                         gap: .35rem !important;
                         align-items: center !important;
+                        width: auto !important;
+                        height: auto !important;
                     }
 
-                    /* Arcade 4-button: stacked */
+                    /* Arcade */
                     .touch-gamepad.layout-arcade .face-cluster {
                         width: 13rem !important;
                         height: 6rem !important;
@@ -1462,7 +1438,7 @@
                     .touch-gamepad.layout-arcade .touch-btn.face[data-button="y"] { left: 6.6rem !important; bottom: 1rem !important; }
                     .touch-gamepad.layout-arcade .touch-btn.face[data-button="x"] { left: 9.9rem !important; bottom: 1.5rem !important; }
 
-                    /* NES portrait: 2-button horizontal, compact */
+                    /* NES */
                     .touch-gamepad.layout-nes .face-cluster {
                         width: 8rem !important;
                         height: 4.5rem !important;
@@ -1478,7 +1454,7 @@
                         bottom: 0 !important;
                     }
 
-                    /* SNES portrait: 4-button diamond, tweaked for bottom-half space */
+                    /* SNES */
                     .touch-gamepad.layout-snes .face-cluster {
                         width: 9.5rem !important;
                         height: 8.5rem !important;
