@@ -92,6 +92,7 @@
     let selectedVideoCompression = defaultVideoCompression;
     let rtcTrackFrameCallbackActive = false;
     let rtcTrackAudioReady = false;
+    let playbackDeferred = false;
     let inputSeq = 0;
     let inputTimer = 0;
     /** @type {Worker|null} */
@@ -437,6 +438,13 @@
         });
     }
 
+    function startPlayback() {
+        if (!playbackDeferred) return;
+        playbackDeferred = false;
+        if (rtcTrackVideo) rtcTrackVideo.play?.().catch(() => { });
+        if (rtcTrackAudio) rtcTrackAudio.play?.().catch(() => { });
+    }
+
     function startHudTimers() {
         stopHudTimers();
         fpsTimer = window.setInterval(() => {
@@ -752,7 +760,6 @@
                     if (audioEnabled && rtcTrackAudio) {
                         rtcTrackAudio.muted = false;
                         applyAudioVolume(false);
-                        rtcTrackAudio.play?.().catch(() => { });
                         setAudioEnabledUi();
                         setStatus("Audio connected (webrtc track).", "good");
                     }
@@ -768,7 +775,7 @@
                 scheduleRtcTrackFrameCallbacks();
                 updateChip(chips.video, "Video live (track)", "good");
                 setStatus("Video connected (webrtc track).", "good");
-                rtcTrackVideo.play?.().catch(() => { });
+                playbackDeferred = true;
             };
 
             // Incoming data channels from the server - "input" for low-latency input
@@ -835,6 +842,7 @@
         rtcInputDc = null;
         rtcPeer = null;
         rtcTrackAudioReady = false;
+        playbackDeferred = false;
         if (rtcTrackAudio) {
             try { rtcTrackAudio.pause?.(); } catch { }
             rtcTrackAudio.muted = true;
@@ -1573,8 +1581,14 @@
     window.addEventListener("pointermove", () => wakePlayerChrome());
     window.addEventListener("focus", () => wakePlayerChrome(2400));
     window.addEventListener("mousemove", () => wakePlayerChrome());
-    window.addEventListener("pointerdown", primePreconnectedGamepads, { capture: true });
-    window.addEventListener("keydown", primePreconnectedGamepads, { capture: true });
+    window.addEventListener("pointerdown", ev => {
+        primePreconnectedGamepads(ev);
+        startPlayback();
+    }, { capture: true });
+    window.addEventListener("keydown", ev => {
+        primePreconnectedGamepads(ev);
+        startPlayback();
+    }, { capture: true });
     shell.addEventListener("pointerdown", ev => {
         focusPlayerSurface();
         if (!ev.target?.closest?.("#touch-gamepad")) {
@@ -1683,6 +1697,7 @@
     connectButton?.addEventListener("click", () => {
         wakePlayerChrome(3200);
         showTransientPlayerPrompt("Reconnecting…", 1700);
+        startPlayback();
         connect();
     });
     viewWindowedButton?.addEventListener("click", () => {
