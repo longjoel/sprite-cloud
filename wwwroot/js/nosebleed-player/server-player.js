@@ -1064,7 +1064,7 @@
                 if (ev.data?.type === "gamepad-state") {
                     // Store the first connected pad that matches our selection preference
                     const pads = ev.data.pads || [];
-                    const selected = getActiveGamepadIndex();
+                    const selected = selectedGamepadIndex;
                     const match = selected !== null
                         ? pads.find(p => p.index === selected)
                         : pads[0] || null;
