@@ -90,6 +90,8 @@
     let audioWs = null;
     let rtcPeer = null;
     let rtcVideoDc = null;
+    /** @type {RTCDataChannel|null} */
+    let rtcInputDc = null;
     let rtcVideoChunkMap = new Map();
     let rtcVp8DecodeSupported = null;
     let rtcVideoDecoder = null;
@@ -820,6 +822,18 @@
                 rtcTrackVideo.play?.().catch(() => { });
             };
 
+            // Incoming data channels from the server — "input" for low-latency input
+            rtcPeer.ondatachannel = (ev) => {
+                if (ev.channel.label === "input") {
+                    rtcInputDc = ev.channel;
+                    rtcInputDc.binaryType = "arraybuffer";
+                    rtcInputDc.onopen = () => updateChip(chips.input, "Input (rtc)", "good");
+                    rtcInputDc.onclose = () => {
+                        if (rtcInputDc === ev.channel) rtcInputDc = null;
+                    };
+                }
+            };
+
             const offer = await rtcPeer.createOffer();
             await rtcPeer.setLocalDescription(offer);
             await waitForIceGatheringComplete(rtcPeer);
@@ -864,6 +878,19 @@
                     return;
                 }
                 queueVideoFrame(payload);
+            };
+
+            // Incoming data channels from the server — "input" for low-latency input
+            rtcPeer.ondatachannel = (ev) => {
+                if (ev.channel.label === "input") {
+                    rtcInputDc = ev.channel;
+                    rtcInputDc.binaryType = "arraybuffer";
+                    rtcInputDc.onopen = () => updateChip(chips.input, "Input (rtc)", "good");
+                    rtcInputDc.onclose = () => {
+                        if (rtcInputDc === ev.channel) rtcInputDc = null;
+                    };
+                    // No onmessage needed — input is send-only from client
+                }
             };
 
             const offer = await rtcPeer.createOffer();
@@ -911,8 +938,10 @@
             try { ws?.close(); } catch { }
         }
         try { rtcVideoDc?.close(); } catch { }
+        try { rtcInputDc?.close(); } catch { }
         try { rtcPeer?.close(); } catch { }
         rtcVideoDc = null;
+        rtcInputDc = null;
         rtcPeer = null;
         rtcTrackFrameCallbackActive = false;
         rtcTrackAudioReady = false;
@@ -1103,7 +1132,11 @@
      * Wire format: 34 bytes (little-endian) — see InputBinary in nosebleed.
      */
     function sendBinaryInput() {
-        if (isSpectator || assignedPort === null || !inputWs || inputWs.readyState !== WebSocket.OPEN) return;
+        if (isSpectator || assignedPort === null) return;
+        // Prefer WebRTC data channel (lower latency), fall back to WebSocket
+        if (!rtcInputDc || rtcInputDc.readyState !== "open") {
+            if (!inputWs || inputWs.readyState !== WebSocket.OPEN) return;
+        }
         const pad = latestWorkerGamepadState ?? getActivePadFromMainThread();
         const buf = new ArrayBuffer(34);
         const dv = new DataView(buf);
@@ -1151,7 +1184,11 @@
         dv.setFloat32(26, pad?.buttons?.[6]?.value ?? 0, true);  // lt (L2)
         dv.setFloat32(30, pad?.buttons?.[7]?.value ?? 0, true);  // rt (R2)
 
-        inputWs.send(buf);
+        if (rtcInputDc?.readyState === "open") {
+            rtcInputDc.send(buf);
+        } else {
+            inputWs.send(buf);
+        }
     }
 
     /**
