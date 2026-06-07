@@ -1373,6 +1373,17 @@
                         outline-offset: .2rem !important;
                     }
 
+                    /* Layout editing: let JS inline styles override portrait positioning */
+                    .server-player-shell.layout-editing .touch-gamepad .pad-cluster,
+                    .server-player-shell.layout-editing .touch-gamepad .face-cluster,
+                    .server-player-shell.layout-editing .touch-gamepad .menu-cluster {
+                        left: auto !important;
+                        top: auto !important;
+                        right: auto !important;
+                        bottom: auto !important;
+                        transform: none !important;
+                    }
+
                     /* Theater mode — still collapse sidebar on small screens */
                     .playserver-live-grid {
                         grid-template-columns: 1fr !important;

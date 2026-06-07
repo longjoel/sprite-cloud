@@ -2024,13 +2024,17 @@
     window.addEventListener("mousemove", () => wakePlayerChrome());
     window.addEventListener("pointerdown", primePreconnectedGamepads, { capture: true });
     window.addEventListener("keydown", primePreconnectedGamepads, { capture: true });
-    shell.addEventListener("pointerdown", () => {
+    shell.addEventListener("pointerdown", ev => {
         focusPlayerSurface();
-        wakePlayerChrome(2800);
+        if (!ev.target?.closest?.("#touch-gamepad")) {
+            wakePlayerChrome(2800);
+        }
     });
-    shell.addEventListener("touchstart", () => {
+    shell.addEventListener("touchstart", ev => {
         focusPlayerSurface();
-        wakePlayerChrome(2800);
+        if (!ev.target?.closest?.("#touch-gamepad")) {
+            wakePlayerChrome(2800);
+        }
     }, { passive: true });
     window.addEventListener("gamepadconnected", event => {
         primePreconnectedGamepads(event);
