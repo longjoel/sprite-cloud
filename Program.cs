@@ -126,12 +126,9 @@ app.UseMiddleware<ProfileSessionEnforcementMiddleware>();
 
 app.UseAuthorization();
 
-app.MapStaticAssets();
-
 app.MapControllerRoute(
     name: "default",
-    pattern: "{controller=Home}/{action=Index}/{id?}")
-    .WithStaticAssets();
+    pattern: "{controller=Home}/{action=Index}/{id?}");
 
 await using (var scope = app.Services.CreateAsyncScope())
 {
