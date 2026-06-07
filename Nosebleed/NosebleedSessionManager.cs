@@ -334,18 +334,6 @@ public sealed class NosebleedSessionManager(
             psi.Environment["NOSEBLEED_MEDIA_BACKEND"] = streamSettings.MediaBackend;
             psi.Environment["NOSEBLEED_FFMPEG_BIN"] = streamSettings.FfmpegBinary;
             psi.Environment["NOSEBLEED_WEBRTC_VIDEO_ENCODER"] = streamSettings.WebRtcVideoEncoder;
-            // Map games-vault's encoder name (e.g. "libvpx") to GStreamer element name
-            // when using the GStreamer media backend
-            var gstEncoder = streamSettings.WebRtcVideoEncoder?.ToLowerInvariant() switch
-            {
-                "libvpx" or "vp8" => "vp8",
-                "x264" or "libx264" => "x264",
-                _ => null
-            };
-            if (gstEncoder != null)
-            {
-                psi.Environment["NOSEBLEED_VIDEO_ENCODER"] = gstEncoder;
-            }
             if (!string.IsNullOrWhiteSpace(streamSettings.WebRtcVideoEncoderArgs))
             {
                 psi.Environment["NOSEBLEED_WEBRTC_VIDEO_ENCODER_ARGS"] = streamSettings.WebRtcVideoEncoderArgs;
