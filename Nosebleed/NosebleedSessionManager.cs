@@ -331,6 +331,7 @@ public sealed class NosebleedSessionManager(
             }
             var streamSettings = GetStreamSettings();
             psi.Environment["NOSEBLEED_SAVE_DIR"] = runtimeSaveDirectory;
+            psi.Environment["NOSEBLEED_MEDIA_BACKEND"] = streamSettings.MediaBackend;
             psi.Environment["NOSEBLEED_FFMPEG_BIN"] = streamSettings.FfmpegBinary;
             psi.Environment["NOSEBLEED_WEBRTC_VIDEO_ENCODER"] = streamSettings.WebRtcVideoEncoder;
             if (!string.IsNullOrWhiteSpace(streamSettings.WebRtcVideoEncoderArgs))

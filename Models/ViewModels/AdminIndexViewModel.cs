@@ -24,4 +24,5 @@ public sealed class AdminStreamSettingsViewModel
     public string WebRtcVideoEncoder { get; set; } = "libvpx";
     public string? WebRtcVideoEncoderArgs { get; set; }
     public string FfmpegBinary { get; set; } = "ffmpeg";
+    public string MediaBackend { get; set; } = "legacy";
 }
