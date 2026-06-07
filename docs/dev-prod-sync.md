@@ -17,7 +17,7 @@ This script does:
 2. Fast-forward from `origin/main`.
 3. Build/publish release artifact.
 4. Backup prod DB.
-5. Rsync artifact to VPS (`--exclude wwwroot/webplayer/`).
+5. Rsync artifact to VPS.
 6. Ensure runtime dirs (including `App_Data`) + correct ownership.
 7. Restart service.
 8. Verify `/` and `/Arcade` on prod path-base URL.
