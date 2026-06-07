@@ -822,7 +822,7 @@
                 rtcTrackVideo.play?.().catch(() => { });
             };
 
-            // Incoming data channels from the server — "input" for low-latency input
+            // Incoming data channels from the server - "input" for low-latency input
             rtcPeer.ondatachannel = (ev) => {
                 if (ev.channel.label === "input") {
                     rtcInputDc = ev.channel;
@@ -833,6 +833,13 @@
                     };
                 }
             };
+
+            // Create input data channel so gamepad/keyboard input can flow over WebRTC.
+            // Created BEFORE createOffer so it is included in the offer SDP.
+            rtcInputDc = rtcPeer.createDataChannel("input", { negotiated: true, id: 0 });
+            rtcInputDc.binaryType = "arraybuffer";
+            rtcInputDc.onopen = () => updateChip(chips.input, "Input (rtc)", "good");
+            rtcInputDc.onclose = () => { rtcInputDc = null; };
 
             const offer = await rtcPeer.createOffer();
             await rtcPeer.setLocalDescription(offer);
