@@ -14,6 +14,10 @@
         || systemName.Contains("FinalBurn", StringComparison.OrdinalIgnoreCase)
         || systemName.Contains("FBNeo", StringComparison.OrdinalIgnoreCase)
         || systemName.Contains("Neo Geo", StringComparison.OrdinalIgnoreCase);
+    var isNes = systemName.Equals("Nintendo - Nintendo Entertainment System", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("Nintendo Entertainment System", StringComparison.OrdinalIgnoreCase);
+    var isSnes = systemName.Equals("Nintendo - Super Nintendo Entertainment System", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("Super Nintendo", StringComparison.OrdinalIgnoreCase);
     var isArcadeRoom = Model.IsArcadeRoom;
     var hideSaveStateUi = isArcadeRoom;
     var streamSettings = StreamSettingsStore.Get();
@@ -23,7 +27,11 @@
             ? "Sega Genesis"
             : isArcadeSystem
                 ? "Arcade 4-Button"
-                : "Generic Retropad";
+                : isNes
+                    ? "Nintendo NES"
+                    : isSnes
+                        ? "Nintendo SNES"
+                        : "Generic Retropad";
     var hasLiveSession = string.IsNullOrWhiteSpace(Model.Error) && !string.IsNullOrWhiteSpace(Model.BaseUrl);
     var sessionTitle = game.Name;
     var canManageBatterySaves = !hideSaveStateUi
@@ -349,6 +357,92 @@
                     min-width: 4rem;
                     padding: .45rem .72rem;
                     font-size: .9rem;
+                }
+
+                /* --- NES layout: 2-button horizontal, like the original controller --- */
+                .touch-gamepad.layout-nes .face-cluster {
+                    width: 9rem;
+                    height: 5rem;
+                    right: max(1.2rem, env(safe-area-inset-right));
+                    bottom: max(1.65rem, env(safe-area-inset-bottom));
+                }
+
+                .touch-gamepad.layout-nes .touch-btn.face {
+                    width: 4.35rem;
+                    height: 4.35rem;
+                    font-size: 1.35rem;
+                    border-radius: 999px;
+                }
+
+                .touch-gamepad.layout-nes .touch-btn.face[data-button="b"] {
+                    left: 0;
+                    bottom: 0;
+                }
+
+                .touch-gamepad.layout-nes .touch-btn.face[data-button="a"] {
+                    right: 0;
+                    bottom: 0;
+                }
+
+                .touch-gamepad.layout-nes .menu-cluster {
+                    left: auto;
+                    right: max(1.9rem, env(safe-area-inset-right));
+                    bottom: max(6.6rem, calc(env(safe-area-inset-bottom) + 6.6rem));
+                    transform: none;
+                }
+
+                .touch-gamepad.layout-nes .touch-btn.menu {
+                    min-width: 4rem;
+                    padding: .4rem .75rem;
+                    font-size: .9rem;
+                    opacity: .82;
+                }
+
+                /* --- SNES layout: 4-button diamond with Nintendo-style concavity hints --- */
+                .touch-gamepad.layout-snes .face-cluster {
+                    width: 10.5rem;
+                    height: 9rem;
+                    right: max(1.2rem, env(safe-area-inset-right));
+                    bottom: max(1.1rem, env(safe-area-inset-bottom));
+                }
+
+                .touch-gamepad.layout-snes .touch-btn.face {
+                    width: 3.9rem;
+                    height: 3.9rem;
+                    font-size: 1.18rem;
+                    border-radius: 999px;
+                }
+
+                .touch-gamepad.layout-snes .touch-btn.face[data-button="y"] {
+                    left: 3.3rem;
+                    top: 0;
+                }
+
+                .touch-gamepad.layout-snes .touch-btn.face[data-button="x"] {
+                    left: 0;
+                    top: 3.1rem;
+                }
+
+                .touch-gamepad.layout-snes .touch-btn.face[data-button="b"] {
+                    left: 3.3rem;
+                    bottom: 0;
+                }
+
+                .touch-gamepad.layout-snes .touch-btn.face[data-button="a"] {
+                    right: 0;
+                    top: 3.1rem;
+                }
+
+                .touch-gamepad.layout-snes .menu-cluster {
+                    left: 50%;
+                    bottom: max(1rem, env(safe-area-inset-bottom));
+                    transform: translateX(-50%);
+                }
+
+                .touch-gamepad.layout-snes .touch-btn.menu {
+                    min-width: 4.5rem;
+                    padding: .5rem .8rem;
+                    font-size: .88rem;
                 }
 
                 .player-overlay-action {
@@ -1352,6 +1446,54 @@
                     .touch-gamepad.layout-arcade .touch-btn.face[data-button="a"] { left: 3.3rem !important; bottom: .5rem !important; }
                     .touch-gamepad.layout-arcade .touch-btn.face[data-button="y"] { left: 6.6rem !important; bottom: 1rem !important; }
                     .touch-gamepad.layout-arcade .touch-btn.face[data-button="x"] { left: 9.9rem !important; bottom: 1.5rem !important; }
+
+                    /* NES portrait: 2-button horizontal, compact */
+                    .touch-gamepad.layout-nes .face-cluster {
+                        width: 8rem !important;
+                        height: 4.5rem !important;
+                    }
+
+                    .touch-gamepad.layout-nes .touch-btn.face {
+                        width: 3.8rem !important;
+                        height: 3.8rem !important;
+                    }
+
+                    .touch-gamepad.layout-nes .touch-btn.face[data-button="a"],
+                    .touch-gamepad.layout-nes .touch-btn.face[data-button="b"] {
+                        bottom: 0 !important;
+                    }
+
+                    /* SNES portrait: 4-button diamond, tweaked for bottom-half space */
+                    .touch-gamepad.layout-snes .face-cluster {
+                        width: 9.5rem !important;
+                        height: 8.5rem !important;
+                    }
+
+                    .touch-gamepad.layout-snes .touch-btn.face {
+                        width: 3.5rem !important;
+                        height: 3.5rem !important;
+                        font-size: 1.05rem !important;
+                    }
+
+                    .touch-gamepad.layout-snes .touch-btn.face[data-button="y"] {
+                        left: 2.8rem !important;
+                        top: 0 !important;
+                    }
+
+                    .touch-gamepad.layout-snes .touch-btn.face[data-button="x"] {
+                        left: 0 !important;
+                        top: 2.8rem !important;
+                    }
+
+                    .touch-gamepad.layout-snes .touch-btn.face[data-button="b"] {
+                        left: 2.8rem !important;
+                        bottom: 0 !important;
+                    }
+
+                    .touch-gamepad.layout-snes .touch-btn.face[data-button="a"] {
+                        right: 0 !important;
+                        top: 2.8rem !important;
+                    }
                 }
             </style>
 
@@ -1427,7 +1569,7 @@
                 </div>
                 @if (!Model.IsSpectator)
                 {
-                    <div id="touch-gamepad" class="touch-gamepad is-visible @(isGameGear ? "layout-game-gear" : isGenesis ? "layout-genesis" : isArcadeSystem ? "layout-arcade" : "layout-generic")" aria-label="On-screen @touchLayoutName gamepad">
+                    <div id="touch-gamepad" class="touch-gamepad is-visible @(isGameGear ? "layout-game-gear" : isGenesis ? "layout-genesis" : isArcadeSystem ? "layout-arcade" : isNes ? "layout-nes" : isSnes ? "layout-snes" : "layout-generic")" aria-label="On-screen @touchLayoutName gamepad">
                         <div class="pad-cluster" data-control-group="dpad" aria-label="Directional pad">
                             <button class="touch-btn dpad" type="button" data-button="up" aria-label="Up">▲</button>
                             <button class="touch-btn dpad" type="button" data-button="left" aria-label="Left">◀</button>
@@ -1452,6 +1594,18 @@
                                 <button class="touch-btn face" type="button" data-button="a" aria-label="Arcade button 2">2</button>
                                 <button class="touch-btn face" type="button" data-button="y" aria-label="Arcade button 3">3</button>
                                 <button class="touch-btn face" type="button" data-button="x" aria-label="Arcade button 4">4</button>
+                            }
+                            else if (isNes)
+                            {
+                                <button class="touch-btn face" type="button" data-button="b" aria-label="B">B</button>
+                                <button class="touch-btn face" type="button" data-button="a" aria-label="A">A</button>
+                            }
+                            else if (isSnes)
+                            {
+                                <button class="touch-btn face" type="button" data-button="y" aria-label="Y">Y</button>
+                                <button class="touch-btn face" type="button" data-button="x" aria-label="X">X</button>
+                                <button class="touch-btn face" type="button" data-button="b" aria-label="B">B</button>
+                                <button class="touch-btn face" type="button" data-button="a" aria-label="A">A</button>
                             }
                             else
                             {
