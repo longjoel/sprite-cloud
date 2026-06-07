@@ -39,6 +39,18 @@ git pull --ff-only origin main
 HEAD_SHA="$(git rev-parse HEAD)"
 echo "==> Deploying commit $HEAD_SHA"
 
+echo "==> dotnet test"
+dotnet test --configuration Release
+
+echo "==> JS syntax check (node -c)"
+while IFS= read -r js; do
+  if ! node -c "$js" 2>&1; then
+    echo "ERROR: JS syntax error in $js" >&2
+    exit 1
+  fi
+done < <(find wwwroot -name '*.js' -type f 2>/dev/null)
+echo "  all JS files pass syntax check"
+
 echo "==> Build + publish"
 dotnet publish games-vault.csproj -c Release -r linux-x64 --self-contained true -o "$PUBLISH_DIR"
 

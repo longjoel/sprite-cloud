@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Pre-commit hook: check JS syntax on all staged JavaScript files.
+set -euo pipefail
+
+STAGED_JS=$(git diff --cached --name-only --diff-filter=ACM | grep '\.js$' || true)
+
+if [[ -z "$STAGED_JS" ]]; then
+  exit 0
+fi
+
+FAILED=0
+while IFS= read -r file; do
+  if ! node -c "$file" 2>/dev/null; then
+    echo "[pre-commit] JS syntax error in $file" >&2
+    FAILED=1
+  fi
+done <<< "$STAGED_JS"
+
+if [[ $FAILED -ne 0 ]]; then
+  echo "[pre-commit] JS syntax check failed — commit aborted" >&2
+  exit 1
+fi
+
+echo "[pre-commit] JS syntax check passed ($(echo "$STAGED_JS" | wc -l) file(s))"
