@@ -207,7 +207,8 @@ public sealed class AdminController(
                 WebSocketVideoCompression = streamSettings.WebSocketVideoCompression,
                 WebRtcVideoEncoder = streamSettings.WebRtcVideoEncoder,
                 WebRtcVideoEncoderArgs = streamSettings.WebRtcVideoEncoderArgs,
-                FfmpegBinary = streamSettings.FfmpegBinary
+                FfmpegBinary = streamSettings.FfmpegBinary,
+                MediaBackend = streamSettings.MediaBackend
             },
             NosebleedRuntimeProcesses = runtimeProcesses
         });
@@ -223,10 +224,11 @@ public sealed class AdminController(
             WebSocketVideoCompression = model.WebSocketVideoCompression,
             WebRtcVideoEncoder = model.WebRtcVideoEncoder,
             WebRtcVideoEncoderArgs = model.WebRtcVideoEncoderArgs,
-            FfmpegBinary = model.FfmpegBinary
+            FfmpegBinary = model.FfmpegBinary,
+            MediaBackend = model.MediaBackend
         });
 
-        TempData["AdminMessage"] = $"Stream settings saved. New sessions will use {saved.PreferredVideoTransport} with {saved.WebSocketVideoCompression} websocket compression.";
+        TempData["AdminMessage"] = $"Stream settings saved. New sessions will use {saved.MediaBackend} backend with {saved.PreferredVideoTransport} transport.";
         return Redirect($"{Url.Action(nameof(Index))}#admin-stream-settings");
     }
 }
