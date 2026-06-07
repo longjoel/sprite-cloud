@@ -42,6 +42,7 @@ public sealed class NosebleedProcessInspector(IOptions<NosebleedOptions> options
             }
 
             var parsed = ParseArguments(args);
+            var usage = ReadUsage(pid);
             snapshots.Add(new NosebleedProcessSnapshot(
                 pid,
                 args[0],
@@ -50,7 +51,9 @@ public sealed class NosebleedProcessInspector(IOptions<NosebleedOptions> options
                 parsed.Listen,
                 ExtractPort(parsed.Listen),
                 parsed.CorePath,
-                parsed.ContentPath));
+                parsed.ContentPath,
+                usage.AverageCpuPercent,
+                usage.WorkingSetBytes));
         }
 
         return snapshots.OrderBy(x => x.ProcessId).ToList();
@@ -221,6 +224,32 @@ public sealed class NosebleedProcessInspector(IOptions<NosebleedOptions> options
         }
     }
 
+    private static NosebleedProcessUsageSnapshot ReadUsage(int pid)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(pid);
+            if (process.HasExited)
+            {
+                return new NosebleedProcessUsageSnapshot(null, null);
+            }
+
+            var elapsed = DateTime.UtcNow - process.StartTime.ToUniversalTime();
+            var cpuTime = process.TotalProcessorTime;
+            double? averageCpuPercent = null;
+            if (elapsed > TimeSpan.Zero)
+            {
+                averageCpuPercent = Math.Round(cpuTime.TotalMilliseconds / elapsed.TotalMilliseconds * 100d, 1);
+            }
+
+            return new NosebleedProcessUsageSnapshot(averageCpuPercent, process.WorkingSet64);
+        }
+        catch
+        {
+            return new NosebleedProcessUsageSnapshot(null, null);
+        }
+    }
+
     private static IReadOnlyList<string> ReadProcCmdline(int pid)
     {
         try
@@ -253,4 +282,10 @@ public sealed record NosebleedProcessSnapshot(
     string? Listen,
     int? Port,
     string? CorePath,
-    string? ContentPath);
+    string? ContentPath,
+    double? AverageCpuPercent,
+    long? WorkingSetBytes);
+
+public sealed record NosebleedProcessUsageSnapshot(
+    double? AverageCpuPercent,
+    long? WorkingSetBytes);

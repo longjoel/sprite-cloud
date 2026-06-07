@@ -64,6 +64,8 @@ public sealed class AdminIndexViewMarkupTests
         Assert.Contains("id=\"admin-nosebleed-runtime\"", content);
         Assert.Contains("Nosebleed process survey", content);
         Assert.Contains("@foreach (var process in Model.NosebleedRuntimeProcesses)", content);
+        Assert.Contains("CPU / Mem", content);
+        Assert.Contains("FormatBytes(process.WorkingSetBytes.Value)", content);
         Assert.Contains("asp-action=\"StopNosebleedSession\"", content);
         Assert.Contains("asp-action=\"KillNosebleedProcess\"", content);
         Assert.Contains(">Terminate</button>", content);
