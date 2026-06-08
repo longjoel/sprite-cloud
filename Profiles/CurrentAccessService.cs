@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.DataProtection;
+using System.Security.Cryptography;
 
 namespace games_vault.Profiles;
 
@@ -6,9 +8,11 @@ public sealed class CurrentAccessService(
     CurrentProfileService currentProfile,
     IConfiguration configuration,
     IHttpContextAccessor httpContextAccessor,
-    games_vault.Data.AppDbContext db)
+    games_vault.Data.AppDbContext db,
+    IDataProtectionProvider dataProtection)
 {
     public const string AdminCookieName = "gv.admin";
+    private readonly IDataProtector _adminCookieProtector = dataProtection.CreateProtector("GamesVault.AdminCookie");
 
     public async Task<AccessMode> GetAccessModeAsync(CancellationToken ct)
     {
@@ -98,8 +102,24 @@ public sealed class CurrentAccessService(
         }
 
         var http = httpContextAccessor.HttpContext;
-        return http is not null
-            && http.Request.Cookies.TryGetValue(AdminCookieName, out var raw)
-            && string.Equals(raw, "1", StringComparison.Ordinal);
+        if (http is null)
+        {
+            return false;
+        }
+
+        if (!http.Request.Cookies.TryGetValue(AdminCookieName, out var raw))
+        {
+            return false;
+        }
+
+        try
+        {
+            _adminCookieProtector.Unprotect(raw);
+            return true;
+        }
+        catch (CryptographicException)
+        {
+            return false;
+        }
     }
 }

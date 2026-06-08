@@ -7,6 +7,7 @@ using games_vault.Models;
 using games_vault.Models.ViewModels;
 using games_vault.Nosebleed;
 using games_vault.Profiles;
+using Microsoft.AspNetCore.DataProtection;
 using System.Diagnostics;
 using System.Reflection;
 using Microsoft.AspNetCore.Hosting;
@@ -413,7 +414,7 @@ public sealed class ArcadeControllerTests
             var fileStorage = new GameFileStorage(env, Options.Create(new LibraryStorageOptions { RootPath = Path.GetTempPath() }));
             var fileResolver = new ArcadeGameFileResolver(Db, fileStorage);
             var currentProfile = new CurrentProfileService(Db, HttpContextAccessor);
-            var currentAccess = new CurrentAccessService(currentProfile, Configuration, HttpContextAccessor, Db);
+            var currentAccess = new CurrentAccessService(currentProfile, Configuration, HttpContextAccessor, Db, new EphemeralDataProtectionProvider());
             var roomService = new GamePlayRoomService(
                 Db,
                 new RoomCodeGenerator(),
