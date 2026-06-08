@@ -22,6 +22,7 @@ public sealed class NosebleedSessionManager(
 
     public IReadOnlyList<NosebleedSessionSnapshot> GetSessions()
     {
+        CleanupExitedSessions(disposeRemoved: false);
         return _sessions.Values
             .Select(ToSnapshot)
             .OrderBy(x => x.StartedUtc)

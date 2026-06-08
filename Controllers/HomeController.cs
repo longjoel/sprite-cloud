@@ -48,7 +48,6 @@ public class HomeController(
         var localFoldersCount = await db.LocalFolders.AsNoTracking().CountAsync(cancellationToken);
         var webSourcesCount = await db.WebSources.AsNoTracking().CountAsync(cancellationToken);
 
-        nosebleedSessions.Cleanup();
         var activeSessions = nosebleedSessions.GetSessions();
         await gamePlayTelemetry.ReconcileActiveExternalSessionsAsync(
             "nosebleed",
