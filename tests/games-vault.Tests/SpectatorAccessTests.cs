@@ -10,6 +10,7 @@ using games_vault.Models;
 using games_vault.Models.ViewModels;
 using games_vault.Nosebleed;
 using games_vault.Profiles;
+using Microsoft.AspNetCore.DataProtection;
 using games_vault.Web;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -731,7 +732,7 @@ public sealed class SpectatorAccessTests
         public GamePlayRoomService CreateRoomService()
         {
             var currentProfile = new CurrentProfileService(Db, _httpContextAccessor);
-            var currentAccess = new CurrentAccessService(currentProfile, _configuration, _httpContextAccessor, Db);
+            var currentAccess = new CurrentAccessService(currentProfile, _configuration, _httpContextAccessor, Db, new EphemeralDataProtectionProvider());
             return new GamePlayRoomService(
                 Db,
                 new RoomCodeGenerator(),
@@ -753,7 +754,7 @@ public sealed class SpectatorAccessTests
         public GamesController CreateGamesController()
         {
             var currentProfile = new CurrentProfileService(Db, _httpContextAccessor);
-            var currentAccess = new CurrentAccessService(currentProfile, _configuration, _httpContextAccessor, Db);
+            var currentAccess = new CurrentAccessService(currentProfile, _configuration, _httpContextAccessor, Db, new EphemeralDataProtectionProvider());
             var roomService = CreateRoomService();
 
             var controller = new GamesController(

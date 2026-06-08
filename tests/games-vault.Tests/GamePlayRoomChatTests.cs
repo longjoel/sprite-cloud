@@ -2,6 +2,7 @@ using games_vault.Data;
 using games_vault.Gameplay;
 using games_vault.Models;
 using games_vault.Profiles;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -138,7 +139,7 @@ public sealed class GamePlayRoomChatTests
     private static GamePlayRoomService CreateService(AppDbContext db, IHttpContextAccessor httpContextAccessor)
     {
         var currentProfile = new CurrentProfileService(db, httpContextAccessor);
-        var currentAccess = new CurrentAccessService(currentProfile, new ConfigurationBuilder().Build(), httpContextAccessor, db);
+        var currentAccess = new CurrentAccessService(currentProfile, new ConfigurationBuilder().Build(), httpContextAccessor, db, new EphemeralDataProtectionProvider());
         return new GamePlayRoomService(
             db,
             new RoomCodeGenerator(),

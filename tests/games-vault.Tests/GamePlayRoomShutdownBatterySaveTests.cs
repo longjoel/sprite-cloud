@@ -6,6 +6,7 @@ using games_vault.Libretro.Import;
 using games_vault.Models;
 using games_vault.Nosebleed;
 using games_vault.Profiles;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -140,7 +141,8 @@ public sealed class GamePlayRoomShutdownBatterySaveTests
                 new CurrentProfileService(fixture.Db, accessor),
                 new ConfigurationBuilder().Build(),
                 accessor,
-                fixture.Db),
+                fixture.Db,
+                new EphemeralDataProtectionProvider()),
             new TestHttpClientFactory())
         {
             ControllerContext = new ControllerContext { HttpContext = httpContext }
@@ -250,7 +252,7 @@ public sealed class GamePlayRoomShutdownBatterySaveTests
         httpContext.Request.Headers.Cookie = $"{CurrentProfileService.CookieName}={profile.Id}";
         var accessor = new TestHttpContextAccessor(httpContext);
         var currentProfile = new CurrentProfileService(db, accessor);
-        var currentAccess = new CurrentAccessService(currentProfile, new ConfigurationBuilder().Build(), accessor, db);
+        var currentAccess = new CurrentAccessService(currentProfile, new ConfigurationBuilder().Build(), accessor, db, new EphemeralDataProtectionProvider());
 
         var nosebleedOptions = Options.Create(new NosebleedOptions
         {
