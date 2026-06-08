@@ -1,12 +1,10 @@
 using System.IO.Compression;
 using games_vault.BackgroundJobs;
-using games_vault.Data;
 using games_vault.Libretro;
 using games_vault.Libretro.Dat;
 using games_vault.Libretro.Import;
 using games_vault.Models;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
@@ -15,7 +13,7 @@ using Microsoft.Extensions.Options;
 
 namespace games_vault.Tests;
 
-public sealed class LibretroZipImportTests
+public sealed class LibretroZipImportTests : GamesVaultTestBase
 {
     [Fact]
     public async Task ScanPathsAsync_includes_outer_zip_and_nested_member_entries()
@@ -45,7 +43,6 @@ public sealed class LibretroZipImportTests
         var memberCrc = await ComputeCrcAsync(Path.Combine(CreateExtractDirectory(zipPath), "3006-19.7b"));
         CreateLibretroDatabase(contentRoot, outerCrc, new FileInfo(zipPath).Length, memberCrc, memberBytes.Length);
 
-        await using var fixture = await CreateFixtureAsync(contentRoot);
         var environment = new FakeEnvironment(contentRoot);
         var storageOptions = Options.Create(new LibraryStorageOptions { RootPath = libraryRoot });
         var databaseOptions = Options.Create(new LibretroDatabaseOptions { RootPath = "libretro-db" });
@@ -54,7 +51,7 @@ public sealed class LibretroZipImportTests
         var parser = new LibretroDatParser();
         var builder = new LibretroDatIndexBuilder(store, parser, LoggerFactory.Create(_ => { }).CreateLogger<LibretroDatIndexBuilder>());
         var importer = new GameUploadImporter(
-            fixture.Db,
+            Db,
             new UploadFileScanner(),
             builder,
             fileStorage,
@@ -68,12 +65,12 @@ public sealed class LibretroZipImportTests
             Status = BackgroundJobStatus.Queued,
             PayloadJson = "{}"
         };
-        fixture.Db.BackgroundJobs.Add(job);
-        await fixture.Db.SaveChangesAsync();
+        Db.BackgroundJobs.Add(job);
+        await Db.SaveChangesAsync();
 
         var context = new BackgroundJobExecutionContext(
             job,
-            fixture.Db,
+            Db,
             new ServiceCollection().BuildServiceProvider(),
             LoggerFactory.Create(_ => { }).CreateLogger("test"));
 
@@ -82,7 +79,7 @@ public sealed class LibretroZipImportTests
         Assert.Equal(2, result.TotalScannedFileCount);
         Assert.Equal(1, result.TotalMatchedFileCount);
 
-        var game = await fixture.Db.Games.Include(x => x.Files).SingleAsync();
+        var game = await Db.Games.Include(x => x.Files).SingleAsync();
         var file = Assert.Single(game.Files);
         Assert.Equal("MAME 2003-Plus", game.SystemName);
         Assert.Equal("Joust (White-Green label)", game.Name);
@@ -109,7 +106,6 @@ public sealed class LibretroZipImportTests
         var memberCrc = await ComputeCrcAsync(Path.Combine(CreateExtractDirectory(zipPath), "3006-19.7b"));
         CreateLibretroDatabaseWithoutOuterZipCrc(contentRoot, memberCrc, memberBytes.Length);
 
-        await using var fixture = await CreateFixtureAsync(contentRoot);
         var environment = new FakeEnvironment(contentRoot);
         var storageOptions = Options.Create(new LibraryStorageOptions { RootPath = libraryRoot });
         var databaseOptions = Options.Create(new LibretroDatabaseOptions { RootPath = "libretro-db" });
@@ -118,7 +114,7 @@ public sealed class LibretroZipImportTests
         var parser = new LibretroDatParser();
         var builder = new LibretroDatIndexBuilder(store, parser, LoggerFactory.Create(_ => { }).CreateLogger<LibretroDatIndexBuilder>());
         var importer = new GameUploadImporter(
-            fixture.Db,
+            Db,
             new UploadFileScanner(),
             builder,
             fileStorage,
@@ -132,12 +128,12 @@ public sealed class LibretroZipImportTests
             Status = BackgroundJobStatus.Queued,
             PayloadJson = "{}"
         };
-        fixture.Db.BackgroundJobs.Add(job);
-        await fixture.Db.SaveChangesAsync();
+        Db.BackgroundJobs.Add(job);
+        await Db.SaveChangesAsync();
 
         var context = new BackgroundJobExecutionContext(
             job,
-            fixture.Db,
+            Db,
             new ServiceCollection().BuildServiceProvider(),
             LoggerFactory.Create(_ => { }).CreateLogger("test"));
 
@@ -146,7 +142,7 @@ public sealed class LibretroZipImportTests
         Assert.Equal(2, result.TotalScannedFileCount);
         Assert.Equal(1, result.TotalMatchedFileCount);
 
-        var game = await fixture.Db.Games.Include(x => x.Files).SingleAsync();
+        var game = await Db.Games.Include(x => x.Files).SingleAsync();
         var file = Assert.Single(game.Files);
         Assert.Equal("MAME 2003-Plus", game.SystemName);
         Assert.Equal("Joust (White-Green label)", game.Name);
@@ -169,7 +165,6 @@ public sealed class LibretroZipImportTests
         var memberCrc = await ComputeCrcAsync(Path.Combine(CreateExtractDirectory(zipPath), "3006-19.7b"));
         CreateLibretroDatabaseWithoutOuterZipCrc(contentRoot, memberCrc, memberBytes.Length);
 
-        await using var fixture = await CreateFixtureAsync(contentRoot);
         var environment = new FakeEnvironment(contentRoot);
         var storageOptions = Options.Create(new LibraryStorageOptions { RootPath = libraryRoot });
         var databaseOptions = Options.Create(new LibretroDatabaseOptions { RootPath = "libretro-db" });
@@ -178,7 +173,7 @@ public sealed class LibretroZipImportTests
         var parser = new LibretroDatParser();
         var builder = new LibretroDatIndexBuilder(store, parser, LoggerFactory.Create(_ => { }).CreateLogger<LibretroDatIndexBuilder>());
         var importer = new GameUploadImporter(
-            fixture.Db,
+            Db,
             new UploadFileScanner(),
             builder,
             fileStorage,
@@ -192,12 +187,12 @@ public sealed class LibretroZipImportTests
             Status = BackgroundJobStatus.Queued,
             PayloadJson = "{}"
         };
-        fixture.Db.BackgroundJobs.Add(job);
-        await fixture.Db.SaveChangesAsync();
+        Db.BackgroundJobs.Add(job);
+        await Db.SaveChangesAsync();
 
         var context = new BackgroundJobExecutionContext(
             job,
-            fixture.Db,
+            Db,
             new ServiceCollection().BuildServiceProvider(),
             LoggerFactory.Create(_ => { }).CreateLogger("test"));
 
@@ -206,7 +201,7 @@ public sealed class LibretroZipImportTests
         Assert.Equal(2, result.TotalScannedFileCount);
         Assert.Equal(1, result.TotalMatchedFileCount);
 
-        var game = await fixture.Db.Games.Include(x => x.Files).SingleAsync();
+        var game = await Db.Games.Include(x => x.Files).SingleAsync();
         var file = Assert.Single(game.Files);
         Assert.Equal("joust.zip", file.Name);
         Assert.Equal("joust(1).zip", file.OriginalFileName);
@@ -298,20 +293,6 @@ game (
         return (await Crc32.ComputeAsync(stream, CancellationToken.None)).ToString("X8");
     }
 
-    private static async Task<TestFixture> CreateFixtureAsync(string contentRoot)
-    {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(connection)
-            .Options;
-
-        var db = new AppDbContext(options);
-        await db.Database.EnsureCreatedAsync();
-        return new TestFixture(connection, db, contentRoot);
-    }
-
     private static string CreateTempDirectory()
     {
         var path = Path.Combine(Path.GetTempPath(), "games-vault-tests", Guid.NewGuid().ToString("N"));
@@ -327,18 +308,5 @@ game (
         public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
         public string ContentRootPath { get; set; } = contentRootPath;
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
-    }
-
-    private sealed class TestFixture(SqliteConnection connection, AppDbContext db, string contentRoot) : IAsyncDisposable
-    {
-        public SqliteConnection Connection { get; } = connection;
-        public AppDbContext Db { get; } = db;
-        public string ContentRoot { get; } = contentRoot;
-
-        public async ValueTask DisposeAsync()
-        {
-            await Db.DisposeAsync();
-            await Connection.DisposeAsync();
-        }
     }
 }

@@ -11,12 +11,12 @@ using games_vault.Models.ViewModels;
 using games_vault.Nosebleed;
 using games_vault.Profiles;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Data.Sqlite;
 using games_vault.Web;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,7 +26,7 @@ using Microsoft.Extensions.Options;
 
 namespace games_vault.Tests;
 
-public sealed class SpectatorAccessTests
+public sealed class SpectatorAccessTests : GamesVaultTestBase
 {
     [Fact]
     public void Assign_WithAllowPlayerFalse_KeepsViewerAsSpectatorEvenWhenSeatIsOpen()
@@ -47,7 +47,7 @@ public sealed class SpectatorAccessTests
     [Fact]
     public async Task JoinByCodeAsync_ReturnsSpectatorForViewerEvenWhenPlayerSeatIsOpen()
     {
-        await using var fixture = await SpectatorFixture.CreateAsync();
+        await using var fixture = await CreateSpectatorFixtureAsync();
         var roomService = fixture.CreateRoomService();
 
         var result = await roomService.JoinByCodeAsync(fixture.Room.Code, fixture.ViewerId, CancellationToken.None);
@@ -66,7 +66,7 @@ public sealed class SpectatorAccessTests
     [Fact]
     public async Task KeepAliveServerSession_DoesNotPromoteViewerToPlayer()
     {
-        await using var fixture = await SpectatorFixture.CreateAsync();
+        await using var fixture = await CreateSpectatorFixtureAsync();
         var controller = fixture.CreateGamesController();
 
         var result = await controller.KeepAliveServerSession(fixture.Session.Id, CancellationToken.None);
@@ -81,7 +81,7 @@ public sealed class SpectatorAccessTests
     [Fact]
     public async Task KeepAliveServerSession_KeepsSignedInPlayerOnStandaloneSession()
     {
-        await using var fixture = await SpectatorFixture.CreateAsync();
+        await using var fixture = await CreateSpectatorFixtureAsync();
         fixture.Db.GamePlayRooms.Remove(fixture.Room);
         await fixture.Db.SaveChangesAsync();
 
@@ -105,7 +105,7 @@ public sealed class SpectatorAccessTests
     [Fact]
     public async Task CreateRoomAsync_ReusesExistingStandaloneRoomForSameProfileAndGame()
     {
-        await using var fixture = await SpectatorFixture.CreateAsync();
+        await using var fixture = await CreateSpectatorFixtureAsync();
         var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
         var localProfiles = new LocalProfileService(fixture.Db, currentProfile);
         var profile = await localProfiles.CreateAsync("Player One", "player-one", "password123", "#198754", CancellationToken.None);
@@ -132,7 +132,7 @@ public sealed class SpectatorAccessTests
     [Fact]
     public async Task CreateRoomAsync_ClosesOtherStandaloneRoomsOwnedByProfile()
     {
-        await using var fixture = await SpectatorFixture.CreateAsync();
+        await using var fixture = await CreateSpectatorFixtureAsync();
         var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
         var localProfiles = new LocalProfileService(fixture.Db, currentProfile);
         var profile = await localProfiles.CreateAsync("Player One", "player-one", "password123", "#198754", CancellationToken.None);
@@ -193,7 +193,7 @@ public sealed class SpectatorAccessTests
     [Fact]
     public async Task DisconnectRoomParticipantSessionAsync_ClosesStandaloneRoomWhenNoPlayersRemain()
     {
-        await using var fixture = await SpectatorFixture.CreateAsync();
+        await using var fixture = await CreateSpectatorFixtureAsync();
         var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
         var localProfiles = new LocalProfileService(fixture.Db, currentProfile);
         var profile = await localProfiles.CreateAsync("Player One", "player-one", "password123", "#198754", CancellationToken.None);
@@ -219,7 +219,7 @@ public sealed class SpectatorAccessTests
     [Fact]
     public async Task DisconnectRoomParticipantSessionAsync_RemovesRoomChatWhenStandaloneRoomCloses()
     {
-        await using var fixture = await SpectatorFixture.CreateAsync();
+        await using var fixture = await CreateSpectatorFixtureAsync();
         var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
         var localProfiles = new LocalProfileService(fixture.Db, currentProfile);
         var profile = await localProfiles.CreateAsync("Player One", "player-one", "password123", "#198754", CancellationToken.None);
@@ -251,7 +251,7 @@ public sealed class SpectatorAccessTests
     [Fact]
     public async Task PlayServer_Maps_Battery_Save_Diagnostics_Into_The_Player_Model()
     {
-        await using var fixture = await SpectatorFixture.CreateAsync();
+        await using var fixture = await CreateSpectatorFixtureAsync();
         var controller = fixture.CreateGamesController();
         controller.ControllerContext.RouteData = new Microsoft.AspNetCore.Routing.RouteData();
         controller.ControllerContext.RouteData.Values["code"] = fixture.Room.Code;
@@ -275,7 +275,7 @@ public sealed class SpectatorAccessTests
     [Fact]
     public async Task PlayServer_RedirectsSignedInPlayerToTheirExistingStandaloneRoom()
     {
-        await using var fixture = await SpectatorFixture.CreateAsync();
+        await using var fixture = await CreateSpectatorFixtureAsync();
         var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
         var localProfiles = new LocalProfileService(fixture.Db, currentProfile);
         var profile = await localProfiles.CreateAsync("Player One", "player-one", "password123", "#198754", CancellationToken.None);
@@ -302,7 +302,7 @@ public sealed class SpectatorAccessTests
     [Fact]
     public async Task PlayServer_WithFreshStandaloneRoomCode_JoinsRoomBeforePlayerlessCleanupRuns()
     {
-        await using var fixture = await SpectatorFixture.CreateAsync();
+        await using var fixture = await CreateSpectatorFixtureAsync();
         var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
         var localProfiles = new LocalProfileService(fixture.Db, currentProfile);
         var profile = await localProfiles.CreateAsync("Player One", "player-one", "password123", "#198754", CancellationToken.None);
@@ -334,7 +334,7 @@ public sealed class SpectatorAccessTests
     [Fact]
     public async Task JoinByCodeAsync_RejoiningSameRoomFromNewViewerId_DoesNotConsumeSecondPlayerSeat()
     {
-        await using var fixture = await SpectatorFixture.CreateAsync();
+        await using var fixture = await CreateSpectatorFixtureAsync();
         var currentProfile = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
         var localProfiles = new LocalProfileService(fixture.Db, currentProfile);
         var profile = await localProfiles.CreateAsync("Player One", "player-one", "password123", "#198754", CancellationToken.None);
@@ -377,7 +377,7 @@ public sealed class SpectatorAccessTests
     [Fact]
     public async Task PlayServer_WithMissingRoomCode_RedirectsBackToGamesIndex()
     {
-        await using var fixture = await SpectatorFixture.CreateAsync();
+        await using var fixture = await CreateSpectatorFixtureAsync();
 
         var controller = fixture.CreateGamesController();
         controller.ControllerContext.RouteData = new Microsoft.AspNetCore.Routing.RouteData();
@@ -392,7 +392,7 @@ public sealed class SpectatorAccessTests
     [Fact]
     public async Task JoinByShareTokenAsync_ReturnsPlayerSeatForEphemeralGuestWhenPlayerLinkIsRedeemed()
     {
-        await using var fixture = await SpectatorFixture.CreateAsync();
+        await using var fixture = await CreateSpectatorFixtureAsync();
         var localProfiles = new LocalProfileService(fixture.Db, new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor));
         var host = await localProfiles.CreateAsync("Joel", "joel", "password123", "#198754", CancellationToken.None);
         fixture.Room.CreatedByProfileId = host.Id;
@@ -420,7 +420,7 @@ public sealed class SpectatorAccessTests
     [Fact]
     public async Task CreateRoomAsync_RejectsEphemeralGuestEvenAfterPlayerShareLinkRedemption()
     {
-        await using var fixture = await SpectatorFixture.CreateAsync();
+        await using var fixture = await CreateSpectatorFixtureAsync();
         var localProfiles = new LocalProfileService(fixture.Db, new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor));
         var host = await localProfiles.CreateAsync("Joel", "joel", "password123", "#198754", CancellationToken.None);
         fixture.Room.CreatedByProfileId = host.Id;
@@ -452,7 +452,7 @@ public sealed class SpectatorAccessTests
     [Fact]
     public async Task JoinByCodeAsync_ReturnsSpectatorForEphemeralGuestOutsideRedeemedRoom()
     {
-        await using var fixture = await SpectatorFixture.CreateAsync();
+        await using var fixture = await CreateSpectatorFixtureAsync();
         var localProfiles = new LocalProfileService(fixture.Db, new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor));
         var host = await localProfiles.CreateAsync("Joel", "joel", "password123", "#198754", CancellationToken.None);
         fixture.Room.CreatedByProfileId = host.Id;
@@ -509,7 +509,7 @@ public sealed class SpectatorAccessTests
     [Fact]
     public async Task PlayServer_ShareLinkGuestShowsChatIdentityLabel()
     {
-        await using var fixture = await SpectatorFixture.CreateAsync();
+        await using var fixture = await CreateSpectatorFixtureAsync();
         var localProfiles = new LocalProfileService(fixture.Db, new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor));
         var host = await localProfiles.CreateAsync("Joel", "joel", "password123", "#198754", CancellationToken.None);
         fixture.Room.CreatedByProfileId = host.Id;
@@ -531,6 +531,11 @@ public sealed class SpectatorAccessTests
         var view = Assert.IsType<ViewResult>(result);
         var model = Assert.IsType<ServerGamePlayViewModel>(view.Model);
         Assert.Equal("Chatting as guest of Joel", model.ChatIdentityLabel);
+    }
+
+    private async Task<SpectatorFixture> CreateSpectatorFixtureAsync()
+    {
+        return await SpectatorFixture.CreateAsync(_connection, Db);
     }
 
     private static Process StartLongRunningProcess()
@@ -628,16 +633,8 @@ public sealed class SpectatorAccessTests
         public DefaultHttpContext HttpContext => (DefaultHttpContext)_httpContextAccessor.HttpContext!;
         public IHttpContextAccessor HttpContextAccessor => _httpContextAccessor;
 
-        public static async Task<SpectatorFixture> CreateAsync()
+        public static async Task<SpectatorFixture> CreateAsync(SqliteConnection connection, AppDbContext db)
         {
-            var connection = new SqliteConnection("Data Source=:memory:");
-            await connection.OpenAsync();
-            var options = new DbContextOptionsBuilder<AppDbContext>()
-                .UseSqlite(connection)
-                .Options;
-            var db = new AppDbContext(options);
-            await db.Database.EnsureCreatedAsync();
-
             var tempRoot = Path.Combine(Path.GetTempPath(), "games-vault-spectator-tests", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempRoot);
             var romPath = Path.Combine(tempRoot, "viewer-test.bin");
@@ -800,8 +797,7 @@ public sealed class SpectatorAccessTests
                 // SessionManager.Dispose() already tore down the seeded process.
             }
 
-            await Db.DisposeAsync();
-            await _connection.DisposeAsync();
+            // Connection and Db are owned by GamesVaultTestBase — don't dispose them here.
         }
 
         private static Process StartLongRunningProcess()

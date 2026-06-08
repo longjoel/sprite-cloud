@@ -3,21 +3,21 @@ using games_vault.Gameplay;
 using games_vault.Models;
 using games_vault.Profiles;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace games_vault.Tests;
 
-public sealed class ProfileShareLinkServiceTests
+public sealed class ProfileShareLinkServiceTests : GamesVaultTestBase
 {
     [Fact]
     public async Task CreateAsync_CreatesSingleUseShareLinkForRoomWithoutPersistingRawToken()
     {
-        await using var fixture = await CreateFixtureAsync();
-        var localProfiles = new LocalProfileService(fixture.Db, new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor));
+        var httpContextAccessor = CreateHttpContextAccessor();
+        var httpContext = (DefaultHttpContext)httpContextAccessor.HttpContext!;
+        var localProfiles = new LocalProfileService(Db, new CurrentProfileService(Db, httpContextAccessor));
         var host = await localProfiles.CreateAsync("Joel", "joel", "password123", "#198754", CancellationToken.None);
-        var room = await fixture.CreateRoomAsync(host.Id);
-        var service = fixture.CreateShareLinkService();
+        var room = await CreateRoomAsync(host.Id);
+        var service = CreateShareLinkService(httpContextAccessor);
 
         var created = await service.CreateAsync(room.Id, host.Id, RoomShareGrantMode.Player, CancellationToken.None);
 
@@ -34,14 +34,15 @@ public sealed class ProfileShareLinkServiceTests
     [Fact]
     public async Task RedeemAsync_CreatesEphemeralChildProfileAndConsumesOneTimeLink()
     {
-        await using var fixture = await CreateFixtureAsync();
-        var localProfiles = new LocalProfileService(fixture.Db, new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor));
+        var httpContextAccessor = CreateHttpContextAccessor();
+        var httpContext = (DefaultHttpContext)httpContextAccessor.HttpContext!;
+        var localProfiles = new LocalProfileService(Db, new CurrentProfileService(Db, httpContextAccessor));
         var host = await localProfiles.CreateAsync("Joel", "joel", "password123", "#198754", CancellationToken.None);
-        var room = await fixture.CreateRoomAsync(host.Id);
-        var service = fixture.CreateShareLinkService();
+        var room = await CreateRoomAsync(host.Id);
+        var service = CreateShareLinkService(httpContextAccessor);
         var created = await service.CreateAsync(room.Id, host.Id, RoomShareGrantMode.Spectator, CancellationToken.None);
 
-        fixture.HttpContext.Response.Headers.Clear();
+        httpContext.Response.Headers.Clear();
 
         var redeemed = await service.RedeemAsync(created.RawToken, CancellationToken.None);
 
@@ -52,62 +53,34 @@ public sealed class ProfileShareLinkServiceTests
         Assert.Equal(redeemed.Profile.Id, redeemed.ShareLink.RedeemedByProfileId);
         Assert.Equal(1, redeemed.ShareLink.UseCount);
         Assert.NotNull(redeemed.ShareLink.LastUsedUtc);
-        Assert.Contains($"{CurrentProfileService.CookieName}={redeemed.Profile.Id}", fixture.HttpContext.Response.Headers.SetCookie.ToString());
+        Assert.Contains($"{CurrentProfileService.CookieName}={redeemed.Profile.Id}", httpContext.Response.Headers.SetCookie.ToString());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.RedeemAsync(created.RawToken, CancellationToken.None));
     }
 
-    private static async Task<TestFixture> CreateFixtureAsync()
+    private ProfileShareLinkService CreateShareLinkService(IHttpContextAccessor httpContextAccessor)
     {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(connection)
-            .Options;
-        var db = new AppDbContext(options);
-        await db.Database.EnsureCreatedAsync();
-        var httpContext = new DefaultHttpContext();
-        var accessor = new TestHttpContextAccessor(httpContext);
-        return new TestFixture(connection, db, httpContext, accessor);
+        var currentProfile = new CurrentProfileService(Db, httpContextAccessor);
+        var localProfiles = new LocalProfileService(Db, currentProfile);
+        return new ProfileShareLinkService(Db, localProfiles);
     }
 
-    private sealed class TestHttpContextAccessor(HttpContext httpContext) : IHttpContextAccessor
+    private async Task<GamePlayRoom> CreateRoomAsync(int createdByProfileId)
     {
-        public HttpContext? HttpContext { get; set; } = httpContext;
-    }
-
-    private sealed record TestFixture(SqliteConnection Connection, AppDbContext Db, DefaultHttpContext HttpContext, IHttpContextAccessor HttpContextAccessor) : IAsyncDisposable
-    {
-        public ProfileShareLinkService CreateShareLinkService()
+        var game = new Game { Name = "Sonic", SystemName = "Sega - Game Gear" };
+        var file = new GameFile { Game = game, Name = "sonic.gg", StoragePath = "/tmp/sonic.gg" };
+        var room = new GamePlayRoom
         {
-            var currentProfile = new CurrentProfileService(Db, HttpContextAccessor);
-            var localProfiles = new LocalProfileService(Db, currentProfile);
-            return new ProfileShareLinkService(Db, localProfiles);
-        }
+            Code = "ABCD",
+            Game = game,
+            GameFile = file,
+            CreatedByProfileId = createdByProfileId,
+            Status = GamePlayRoomStatus.Active,
+            NosebleedSessionId = "session-1"
+        };
 
-        public async Task<GamePlayRoom> CreateRoomAsync(int createdByProfileId)
-        {
-            var game = new Game { Name = "Sonic", SystemName = "Sega - Game Gear" };
-            var file = new GameFile { Game = game, Name = "sonic.gg", StoragePath = "/tmp/sonic.gg" };
-            var room = new GamePlayRoom
-            {
-                Code = "ABCD",
-                Game = game,
-                GameFile = file,
-                CreatedByProfileId = createdByProfileId,
-                Status = GamePlayRoomStatus.Active,
-                NosebleedSessionId = "session-1"
-            };
-
-            Db.GamePlayRooms.Add(room);
-            await Db.SaveChangesAsync();
-            return room;
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            await Db.DisposeAsync();
-            await Connection.DisposeAsync();
-        }
+        Db.GamePlayRooms.Add(room);
+        await Db.SaveChangesAsync();
+        return room;
     }
 }
