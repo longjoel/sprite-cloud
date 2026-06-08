@@ -1284,18 +1284,34 @@
 
     function waitForIceGatheringComplete(peer) {
         if (peer.iceGatheringState === "complete") return Promise.resolve();
-        return new Promise(resolve => {
-            const timeout = window.setTimeout(() => {
+        // If we already have host candidates (they're collected synchronously),
+        // don't wait for TURN/STUN candidates — return immediately.
+        var sdp = (peer.localDescription && peer.localDescription.sdp) || "";
+        if (sdp.indexOf("a=candidate") !== -1) return Promise.resolve();
+        return new Promise(function (resolve) {
+            const timeout = window.setTimeout(function () {
+                peer.removeEventListener("icecandidate", onCandidate);
                 peer.removeEventListener("icegatheringstatechange", onState);
                 resolve();
-            }, 1800);
-            const onState = () => {
-                if (peer.iceGatheringState === "complete") {
+            }, 500);
+            const onCandidate = function (event) {
+                if (event.candidate) {
+                    // Got our first ICE candidate (typically host) — good enough to start
                     window.clearTimeout(timeout);
+                    peer.removeEventListener("icecandidate", onCandidate);
                     peer.removeEventListener("icegatheringstatechange", onState);
                     resolve();
                 }
             };
+            const onState = function () {
+                if (peer.iceGatheringState === "complete") {
+                    window.clearTimeout(timeout);
+                    peer.removeEventListener("icecandidate", onCandidate);
+                    peer.removeEventListener("icegatheringstatechange", onState);
+                    resolve();
+                }
+            };
+            peer.addEventListener("icecandidate", onCandidate);
             peer.addEventListener("icegatheringstatechange", onState);
         });
     }
