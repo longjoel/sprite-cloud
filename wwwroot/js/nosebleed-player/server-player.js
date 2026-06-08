@@ -778,6 +778,22 @@
                 playbackDeferred = true;
             };
 
+            rtcPeer.onconnectionstatechange = () => {
+                console.log(`[nosebleed] PC state: ${rtcPeer.connectionState}`);
+                if (rtcPeer.connectionState === "failed") {
+                    console.warn("[nosebleed] ICE connection failed — UDP likely blocked");
+                    setStatus("WebRTC connection failed (VPN blocking UDP?)", "bad");
+                }
+            };
+            rtcPeer.oniceconnectionstatechange = () => {
+                console.log(`[nosebleed] ICE state: ${rtcPeer.iceConnectionState}`);
+            };
+            rtcPeer.onicecandidate = (event) => {
+                if (event.candidate) {
+                    console.log(`[nosebleed] ICE candidate: ${event.candidate.candidate}`);
+                }
+            };
+
             // Incoming data channels from the server - "input" for low-latency input
             rtcPeer.ondatachannel = (ev) => {
                 if (ev.channel.label === "input") {
