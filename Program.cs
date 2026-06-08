@@ -32,6 +32,7 @@ builder.Services.AddBackgroundJobs();
 builder.Services.AddHttpClient();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddDataProtection();
 builder.Services.AddScoped<CurrentProfileService>();
 builder.Services.AddScoped<ProfileAuthSessionService>();
 builder.Services.AddScoped<CurrentAccessService>();
