@@ -750,7 +750,7 @@
             rtcPeer = new RTCPeerConnection({
                 iceServers: [
                     { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
-                    { urls: ["turns:lngnckr.tech:5349?transport=tcp"], username: "nosebleed", credential: "118e21c57679b3293d7a0b9adfd90ea7" }
+                    { urls: ["turns:lngnckr.tech:443?transport=tcp", "turns:lngnckr.tech:5349?transport=tcp"], username: "nosebleed", credential: "118e21c57679b3293d7a0b9adfd90ea7" }
                 ]
             });
             rtcPeer.addTransceiver("video", { direction: "recvonly" });
