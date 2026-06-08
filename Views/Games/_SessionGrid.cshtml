@@ -12,18 +12,18 @@
     <canvas id="nosebleed-screen" class="rounded border border-secondary"></canvas>
     <video id="nosebleed-screen-video" class="rounded border border-secondary d-none" autoplay playsinline webkit-playsinline muted></video>
     <audio id="nosebleed-rtc-audio" class="d-none" autoplay playsinline webkit-playsinline muted></audio>
-    @await Html.PartialAsync("_PlayerHUD", Model)
-    @await Html.PartialAsync("_ConnectionDiagnostics", Model)
-    @await Html.PartialAsync("_TouchLayout", Model)
+    @await Html.PartialAsync("~/Views/Games/_PlayerHUD.cshtml", Model)
+    @await Html.PartialAsync("~/Views/Games/_ConnectionDiagnostics.cshtml", Model)
+    @await Html.PartialAsync("~/Views/Games/_TouchLayout.cshtml", Model)
 </div>
 
-@await Html.PartialAsync("_ArcadeSeatPanel", Model)
+@await Html.PartialAsync("~/Views/Games/_ArcadeSeatPanel.cshtml", Model)
 
         </div>
 
         <aside class="playserver-sidebar-column">
-            @await Html.PartialAsync("_RoomChat", Model)
-            @await Html.PartialAsync("_SessionConfig", Model)
+            @await Html.PartialAsync("~/Views/Games/_RoomChat.cshtml", Model)
+            @await Html.PartialAsync("~/Views/Games/_SessionConfig.cshtml", Model)
         </aside>
 
     </div>

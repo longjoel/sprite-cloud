@@ -18,7 +18,7 @@
 <div class="playserver-hero mb-4">
     <div class="d-flex flex-wrap justify-content-between gap-3 align-items-start">
         <div><h1 class="h2 mb-1">@sessionTitle</h1></div>
-        @await Html.PartialAsync("_InviteLinks", Model)
+        @await Html.PartialAsync("~/Views/Games/_InviteLinks.cshtml", Model)
     </div>
 </div>
 
@@ -27,7 +27,7 @@
     <div class="alert alert-info alert-dismissible fade show" role="alert">@msg<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>
 }
 
-@await Html.PartialAsync("_BatterySaveModal", Model)
+@await Html.PartialAsync("~/Views/Games/_BatterySaveModal.cshtml", Model)
 
 @if (!string.IsNullOrWhiteSpace(Model.Error))
 {
@@ -42,7 +42,7 @@
 
 <div class="card playserver-session-surface">
     <div class="card-body p-lg-4">
-        @await Html.PartialAsync("_SessionGrid", Model)
+        @await Html.PartialAsync("~/Views/Games/_SessionGrid.cshtml", Model)
     </div>
 </div>
 
