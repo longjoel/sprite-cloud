@@ -1,0 +1,98 @@
+@model games_vault.Models.ViewModels.ServerGamePlayViewModel
+@{
+    var systemName = Model.Game.SystemName ?? string.Empty;
+    var isGameGear = systemName.Equals("Sega - Game Gear", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("Game Gear", StringComparison.OrdinalIgnoreCase);
+    var isGenesis = systemName.Equals("Sega - Mega Drive - Genesis", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("Mega Drive", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("Genesis", StringComparison.OrdinalIgnoreCase);
+    var isArcadeSystem = systemName.Contains("Arcade", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("MAME", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("FinalBurn", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("FBNeo", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("Neo Geo", StringComparison.OrdinalIgnoreCase);
+    var isNes = systemName.Equals("Nintendo - Nintendo Entertainment System", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("Nintendo Entertainment System", StringComparison.OrdinalIgnoreCase);
+    var isSnes = systemName.Equals("Nintendo - Super Nintendo Entertainment System", StringComparison.OrdinalIgnoreCase)
+        || systemName.Contains("Super Nintendo", StringComparison.OrdinalIgnoreCase);
+    var touchLayoutName = isGameGear
+        ? "Sega Game Gear"
+        : isGenesis
+            ? "Sega Genesis"
+            : isArcadeSystem
+                ? "Arcade 4-Button"
+                : isNes
+                    ? "Nintendo NES"
+                    : isSnes
+                        ? "Nintendo SNES"
+                        : "Generic Retropad";
+}
+@if (!Model.IsSpectator)
+{
+    <div id="touch-gamepad" class="touch-gamepad is-visible @(isGameGear ? "layout-game-gear" : isGenesis ? "layout-genesis" : isArcadeSystem ? "layout-arcade" : isNes ? "layout-nes" : isSnes ? "layout-snes" : "layout-generic")" aria-label="On-screen @touchLayoutName gamepad">
+        <div class="pad-cluster" data-control-group="dpad" aria-label="Directional pad">
+            <button class="touch-btn dpad" type="button" data-button="up" aria-label="Up">▲</button>
+            <button class="touch-btn dpad" type="button" data-button="left" aria-label="Left">◀</button>
+            <button class="touch-btn dpad" type="button" data-button="right" aria-label="Right">▶</button>
+            <button class="touch-btn dpad" type="button" data-button="down" aria-label="Down">▼</button>
+        </div>
+        <div class="face-cluster" @(isGenesis ? "" : "data-control-group=\"face\"") aria-label="Action buttons">
+            @if (isGameGear)
+            {
+                <button class="touch-btn face" type="button" data-button="b" aria-label="Button 1">1</button>
+                <button class="touch-btn face" type="button" data-button="a" aria-label="Button 2">2</button>
+            }
+            else if (isGenesis)
+            {
+                <button class="touch-btn face" type="button" data-button="y" data-control-group="genesis-a" aria-label="Genesis A">A</button>
+                <button class="touch-btn face" type="button" data-button="b" data-control-group="genesis-b" aria-label="Genesis B">B</button>
+                <button class="touch-btn face" type="button" data-button="a" data-control-group="genesis-c" aria-label="Genesis C">C</button>
+            }
+            else if (isArcadeSystem)
+            {
+                <button class="touch-btn face" type="button" data-button="b" aria-label="Arcade button 1">1</button>
+                <button class="touch-btn face" type="button" data-button="a" aria-label="Arcade button 2">2</button>
+                <button class="touch-btn face" type="button" data-button="y" aria-label="Arcade button 3">3</button>
+                <button class="touch-btn face" type="button" data-button="x" aria-label="Arcade button 4">4</button>
+            }
+            else if (isNes)
+            {
+                <button class="touch-btn face" type="button" data-button="b" aria-label="B">B</button>
+                <button class="touch-btn face" type="button" data-button="a" aria-label="A">A</button>
+            }
+            else if (isSnes)
+            {
+                <button class="touch-btn face" type="button" data-button="y" aria-label="Y">Y</button>
+                <button class="touch-btn face" type="button" data-button="x" aria-label="X">X</button>
+                <button class="touch-btn face" type="button" data-button="b" aria-label="B">B</button>
+                <button class="touch-btn face" type="button" data-button="a" aria-label="A">A</button>
+            }
+            else
+            {
+                <button class="touch-btn face" type="button" data-button="y" aria-label="Y">Y</button>
+                <button class="touch-btn face" type="button" data-button="x" aria-label="X">X</button>
+                <button class="touch-btn face" type="button" data-button="b" aria-label="B">B</button>
+                <button class="touch-btn face" type="button" data-button="a" aria-label="A">A</button>
+            }
+        </div>
+        <div class="menu-cluster" data-control-group="menu" aria-label="Menu buttons">
+            @if (isArcadeSystem)
+            {
+                <button class="touch-btn menu" type="button" data-command="insert_coin" aria-label="Insert coin">Coin</button>
+                <button class="touch-btn menu" type="button" data-button="start" aria-label="Start">Start</button>
+                <button class="touch-btn menu" type="button" data-command="reset" aria-label="Reset machine">Reset</button>
+            }
+            else if (!isGameGear && !isGenesis)
+            {
+                <button class="touch-btn menu" type="button" data-button="select" aria-label="Select">Select</button>
+                <button class="touch-btn menu" type="button" data-button="start" aria-label="Start">Start</button>
+            }
+            else
+            {
+                <button class="touch-btn menu" type="button" data-button="start" aria-label="Start">Start</button>
+            }
+        </div>
+    </div>
+}
+<button id="nosebleed-layout-lock" class="player-overlay-action layout-lock-action" type="button" aria-label="Unlock control layout">Unlock layout</button>
+<button id="nosebleed-layout-reset" class="player-overlay-action layout-reset-action" type="button" aria-label="Reset control layout">Reset</button>

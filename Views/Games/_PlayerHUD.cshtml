@@ -1,0 +1,63 @@
+@model games_vault.Models.ViewModels.ServerGamePlayViewModel
+@{
+    var hideSaveStateUi = Model.IsArcadeRoom;
+    var canManageBatterySaves = !hideSaveStateUi
+        && Model.File is not null
+        && !string.IsNullOrWhiteSpace(Model.CurrentProfileDisplayName)
+        && !Model.CurrentProfileIsEphemeralGuest;
+}
+<div id="nosebleed-player-chrome" class="player-chrome" aria-live="polite">
+    <div class="player-chrome-gradient-top"></div>
+    <div class="player-chrome-gradient-bottom"></div>
+    <div class="player-status-corner">
+        <div id="nosebleed-player-health" class="player-health is-warn"><span class="player-health-dot" aria-hidden="true"></span><span id="nosebleed-player-health-text">Connecting&hellip;</span></div>
+    </div>
+    <div class="player-prompt-wrap">
+        <div id="nosebleed-player-prompt" class="player-prompt" aria-live="polite"></div>
+    </div>
+    <div id="nosebleed-player-events" class="player-events" aria-live="polite"></div>
+    @if (!hideSaveStateUi)
+    {
+        <div id="nosebleed-save-state-pill" class="player-state-pill" aria-label="Save state controls">
+            <label class="visually-hidden" for="nosebleed-save-state-slot">Save state slot</label>
+            <select id="nosebleed-save-state-slot" class="player-state-slot" aria-label="Save state slot">
+                <option value="1">Slot 1</option>
+                <option value="2">Slot 2</option>
+                <option value="3">Slot 3</option>
+                <option value="4">Slot 4</option>
+                <option value="5">Slot 5</option>
+            </select>
+            <button id="nosebleed-save-state-save" class="player-state-action is-primary" type="button" aria-label="Save state">Save</button>
+            <button id="nosebleed-save-state-load" class="player-state-action is-success" type="button" aria-label="Load state">Load</button>
+        </div>
+    }
+    <div id="nosebleed-player-bottom-bar" class="player-bottom-bar" data-control-group="bottom-bar">
+        <div class="player-control-cluster">
+            <div class="player-audio-controls">
+                <button id="nosebleed-audio-overlay" class="player-control-button" type="button" data-control-group="sound" aria-label="Enable sound" title="Enable sound">
+                    <span class="player-control-icon player-audio-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                            <path d="M5 9v6h4l5 4V5l-5 4H5z"></path>
+                            <path class="audio-wave" d="M17 9.5a4.5 4.5 0 0 1 0 5"></path>
+                            <path class="audio-wave" d="M19.5 7a8 8 0 0 1 0 10"></path>
+                            <path class="audio-mute-cross" d="M16 9l5 6"></path>
+                            <path class="audio-mute-cross" d="M21 9l-5 6"></path>
+                        </svg>
+                    </span>
+                    <span class="player-control-label">Sound</span>
+                </button>
+                <label class="visually-hidden" for="nosebleed-volume">Volume</label>
+                <div id="nosebleed-volume" class="player-volume-slider" role="slider" tabindex="0" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100" aria-valuetext="100 percent" autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-bwignore="true" data-form-type="other">
+                    <span class="player-volume-track" aria-hidden="true"><span class="player-volume-fill"></span></span>
+                    <span class="player-volume-thumb" aria-hidden="true"></span>
+                </div>
+            </div>
+            <div class="player-view-mode-buttons">
+                <button id="nosebleed-view-windowed" class="player-control-button" type="button" aria-label="Windowed view" title="Windowed view"><span class="player-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><rect x="5" y="6" width="14" height="12" rx="1.5"></rect></svg></span><span class="player-control-label">Windowed</span></button>
+                <button id="nosebleed-view-theater" class="player-control-button" type="button" aria-label="Theater view" title="Theater view"><span class="player-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 7.5h18"></path><rect x="4" y="7.5" width="16" height="9.5" rx="1.5"></rect></svg></span><span class="player-control-label">Theater</span></button>
+                <button id="nosebleed-fullscreen" class="player-control-button" type="button" aria-label="Full screen" title="Full screen"><span class="player-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M8 4H4v4"></path><path d="M16 4h4v4"></path><path d="M20 16v4h-4"></path><path d="M4 16v4h4"></path></svg></span></button>
+                <button id="nosebleed-logging-toggle" class="player-control-button" type="button" aria-label="Toggle logging overlay" title="Toggle logging overlay"><span class="player-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M7 6h10"></path><path d="M7 12h10"></path><path d="M7 18h10"></path><path d="M5 6h.01"></path><path d="M5 12h.01"></path><path d="M5 18h.01"></path></svg></span></button>
+            </div>
+        </div>
+    </div>
+</div>

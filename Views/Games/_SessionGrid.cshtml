@@ -1,0 +1,34 @@
+@model games_vault.Models.ViewModels.ServerGamePlayViewModel
+@{
+    var hasLiveSession = string.IsNullOrWhiteSpace(Model.Error) && !string.IsNullOrWhiteSpace(Model.BaseUrl);
+}
+
+@if (hasLiveSession)
+{
+    <div id="playserver-session-grid" class="playserver-live-grid">
+        <div class="playserver-main-column">
+
+<div id="server-player-shell" class="server-player-shell bg-dark rounded p-2" tabindex="0" aria-label="Game player surface">
+    <canvas id="nosebleed-screen" class="rounded border border-secondary"></canvas>
+    <video id="nosebleed-screen-video" class="rounded border border-secondary d-none" autoplay playsinline webkit-playsinline muted></video>
+    <audio id="nosebleed-rtc-audio" class="d-none" autoplay playsinline webkit-playsinline muted></audio>
+    @await Html.PartialAsync("_PlayerHUD", Model)
+    @await Html.PartialAsync("_ConnectionDiagnostics", Model)
+    @await Html.PartialAsync("_TouchLayout", Model)
+</div>
+
+@await Html.PartialAsync("_ArcadeSeatPanel", Model)
+
+        </div>
+
+        <aside class="playserver-sidebar-column">
+            @await Html.PartialAsync("_RoomChat", Model)
+            @await Html.PartialAsync("_SessionConfig", Model)
+        </aside>
+
+    </div>
+}
+else
+{
+    <div class="text-muted">Once configured, the server-side player will appear here.</div>
+}
