@@ -1,0 +1,26 @@
+@model games_vault.Models.ViewModels.ServerGamePlayViewModel
+<div class="playserver-seat-panel border rounded-4 p-3 mt-3 bg-body-tertiary" id="room-presence-panel">
+    <div class="d-flex flex-wrap justify-content-between gap-2 align-items-center mb-2">
+        <div class="fw-semibold">Seats</div>
+        <div class="small text-muted" id="room-presence-summary">Loading presence&hellip;</div>
+    </div>
+    <div class="playserver-seat-strip" id="room-seat-strip">
+        <div class="border rounded px-3 py-2 small text-muted bg-body" data-seat-placeholder="true">Loading seats&hellip;</div>
+    </div>
+    @if (Model.CurrentRoomId is int kickRoomId)
+    {
+        <form asp-controller="Games" asp-action="KickRoomPlayer" asp-route-roomId="@kickRoomId" method="post" class="d-none" id="room-kick-form">
+            @Html.AntiForgeryToken()
+        </form>
+    }
+    @if (!Model.IsSpectator && !string.IsNullOrWhiteSpace(Model.SessionId))
+    {
+        <form asp-controller="Games" asp-action="LeaveServerSession" method="post" class="d-none" id="leave-seat-form">
+            <input type="hidden" name="sessionId" value="@Model.SessionId" />
+            @if (!string.IsNullOrWhiteSpace(Model.LeaveSessionReturnUrl))
+            {
+                <input type="hidden" name="returnUrl" value="@Model.LeaveSessionReturnUrl" />
+            }
+        </form>
+    }
+</div>

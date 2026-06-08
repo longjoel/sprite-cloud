@@ -1,0 +1,23 @@
+@model games_vault.Models.ViewModels.ServerGamePlayViewModel
+
+@if (Model.CurrentRoomId is int shareRoomId && Model.CanCreateShareLinks)
+{
+    <div class="playserver-invite-links border rounded-4 p-3 bg-body-tertiary" id="playserver-invite-links">
+        <div class="fw-semibold small mb-2">Invite links</div>
+        <div class="d-flex flex-wrap gap-2">
+            <form asp-action="CreateRoomShareLink" method="post" asp-antiforgery="true" data-share-link-form>
+                <input type="hidden" name="roomId" value="@shareRoomId" /><input type="hidden" name="grantMode" value="Spectator" />
+                <button type="submit" class="btn btn-sm btn-outline-secondary">Spectator link</button>
+            </form>
+            <form asp-action="CreateRoomShareLink" method="post" asp-antiforgery="true" data-share-link-form>
+                <input type="hidden" name="roomId" value="@shareRoomId" /><input type="hidden" name="grantMode" value="Player" />
+                <button type="submit" class="btn btn-sm btn-outline-primary">Player link</button>
+            </form>
+        </div>
+        <div class="input-group input-group-sm mt-2@(string.IsNullOrWhiteSpace(Model.GeneratedShareLink) ? " d-none" : string.Empty)" data-share-link-copy-row>
+            <input class="form-control font-monospace" type="text" value="@Model.GeneratedShareLink" readonly aria-label="Generated @Model.GeneratedShareGrantMode invite link" data-share-link-copy-value />
+            <button type="button" class="btn btn-outline-success" data-share-link-copy-button>Copy</button>
+        </div>
+        <div class="small text-muted mt-1" data-share-link-status></div>
+    </div>
+}
