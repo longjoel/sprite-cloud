@@ -292,11 +292,6 @@ public class HomeController(
     [HttpGet]
     public async Task<IActionResult> NosebleedPreviewVideo(string sessionId, CancellationToken cancellationToken = default)
     {
-        if (!HttpContext.WebSockets.IsWebSocketRequest)
-        {
-            return BadRequest("This endpoint requires a WebSocket request.");
-        }
-
         if (string.IsNullOrWhiteSpace(sessionId))
         {
             return BadRequest("No Nosebleed session id was provided.");
@@ -310,35 +305,49 @@ public class HomeController(
         }
 
         var token = nosebleedTickets.CreateSpectatorToken(session.SessionId, "games-vault-dashboard");
-        var target = BuildNosebleedWebSocketUri(session.BaseUrl, "/ws/video", token);
+        var target = BuildNosebleedSnapshotUri(session.BaseUrl, token);
         if (target is null)
         {
             return StatusCode(StatusCodes.Status502BadGateway);
         }
 
-        using var upstream = new ClientWebSocket();
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
         try
         {
-            await upstream.ConnectAsync(target, cancellationToken);
+            using var upstreamResponse = await http.GetAsync(target, cancellationToken);
+            if (!upstreamResponse.IsSuccessStatusCode)
+            {
+                return StatusCode((int)upstreamResponse.StatusCode);
+            }
+
+            var contentType = upstreamResponse.Content.Headers.ContentType?.ToString() ?? "image/png";
+            var bytes = await upstreamResponse.Content.ReadAsByteArrayAsync(cancellationToken);
+            return File(bytes, contentType);
+        }
+        catch (TaskCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return StatusCode(499); // Client Closed Request
         }
         catch
         {
             return StatusCode(StatusCodes.Status502BadGateway);
         }
+    }
 
-        using var downstream = await HttpContext.WebSockets.AcceptWebSocketAsync();
-        try
+    private static Uri? BuildNosebleedSnapshotUri(string baseUrl, string? token)
+    {
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri))
         {
-            await NosebleedWebSocketRelay.PumpLatestOnlyAsync(upstream, downstream, "video", nosebleedRelayMetrics, cancellationToken);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (WebSocketException)
-        {
+            return null;
         }
 
-        return new EmptyResult();
+        var builder = new UriBuilder(new Uri(baseUri, "/session/snapshot"));
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            builder.Query = $"token={Uri.EscapeDataString(token)}";
+        }
+
+        return builder.Uri;
     }
 
     private static Uri? BuildNosebleedWebSocketUri(string baseUrl, string path, string? token)
