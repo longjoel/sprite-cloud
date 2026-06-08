@@ -36,5 +36,7 @@ public sealed class NosebleedOptions
 
     public float Fps { get; set; } = 60;
 
+    public string? TurnSecret { get; set; }
+
     public Dictionary<string, string> SystemCores { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
