@@ -1,0 +1,14 @@
+using games_vault.Models;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace games_vault.Data.Configurations;
+
+public class LocalFolderConfiguration : IEntityTypeConfiguration<LocalFolder>
+{
+    public void Configure(EntityTypeBuilder<LocalFolder> entity)
+    {
+        entity.Property(x => x.Name).HasMaxLength(100);
+        entity.Property(x => x.RootPath).HasMaxLength(500);
+    }
+}
