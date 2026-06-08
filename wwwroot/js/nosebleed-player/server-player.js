@@ -747,7 +747,12 @@
         try {
             activeVideoTransport = "webrtc-track";
             hideRtcTrackVideo();
-            rtcPeer = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+            rtcPeer = new RTCPeerConnection({
+                iceServers: [
+                    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+                    { urls: ["turn:72.62.243.69:3478?transport=tcp"], username: "nosebleed", credential: "118e21c57679b3293d7a0b9adfd90ea7" }
+                ]
+            });
             rtcPeer.addTransceiver("video", { direction: "recvonly" });
             rtcPeer.addTransceiver("audio", { direction: "recvonly" });
             rtcPeer.ontrack = event => {
