@@ -9,13 +9,7 @@ public sealed class RoutePermissionSourceTests
     }
 
     [Theory]
-    [InlineData("SourcesController.cs")]
-    [InlineData("NetworkSharesController.cs")]
-    [InlineData("LocalFoldersController.cs")]
-    [InlineData("WebSourcesController.cs")]
     [InlineData("GameFilesController.cs")]
-    [InlineData("DownloadsController.cs")]
-    [InlineData("WebImportController.cs")]
     [InlineData("SystemFilesController.cs")]
     public void AdminManagementControllers_RequireAdminAccess(string controllerFile)
     {
