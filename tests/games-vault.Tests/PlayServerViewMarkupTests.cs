@@ -150,7 +150,7 @@ public sealed class PlayServerViewMarkupTests
     {
         var content = ReadPlayServerView();
 
-        Assert.Contains("@@media (hover:hover) and (pointer:fine)", content);
+        Assert.Contains("@media (hover:hover) and (pointer:fine)", content);
         Assert.Contains(".layout-lock-action,", content);
         Assert.Contains(".layout-reset-action", content);
         Assert.Contains("justify-content:flex-end;", content);
