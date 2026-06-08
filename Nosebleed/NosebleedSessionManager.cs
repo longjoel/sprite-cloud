@@ -334,6 +334,11 @@ public sealed class NosebleedSessionManager(
             psi.Environment["NOSEBLEED_SAVE_DIR"] = runtimeSaveDirectory;
             psi.Environment["NOSEBLEED_MEDIA_BACKEND"] = streamSettings.MediaBackend;
 
+            if (!string.IsNullOrEmpty(_options.TurnSecret))
+            {
+                psi.Environment["NOSEBLEED_TURN_SECRET"] = _options.TurnSecret;
+            }
+
             if (_options.RequireAuth)
             {
                 psi.ArgumentList.Add("--require-auth");
