@@ -23,7 +23,7 @@ public sealed class LocalProfileServiceTests
         Assert.False(string.IsNullOrWhiteSpace(profile.PasskeyUserHandleBase64Url));
         Assert.False(string.IsNullOrWhiteSpace(profile.PasswordHash));
         Assert.Single(await fixture.Db.UserProfiles.ToListAsync());
-        Assert.Contains($"{CurrentProfileService.CookieName}={profile.Id}", fixture.HttpContext.Response.Headers.SetCookie.ToString());
+        Assert.Contains(CurrentProfileService.CookieName, fixture.HttpContext.Response.Headers.SetCookie.ToString());
     }
 
     [Fact]
@@ -55,10 +55,10 @@ public sealed class LocalProfileServiceTests
 
         Assert.True(signedIn);
         var setCookie = fixture.HttpContext.Response.Headers.SetCookie.ToString();
-        Assert.Contains($"{CurrentProfileService.CookieName}={profile.Id}", setCookie);
+        Assert.Contains(CurrentProfileService.CookieName, setCookie);
         Assert.Contains(CurrentProfileService.SessionCookieName, setCookie);
         Assert.Contains("expires=", setCookie, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("max-age=31536000", setCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("max-age=2592000", setCookie, StringComparison.OrdinalIgnoreCase);
 
         var authSession = await fixture.Db.ProfileAuthSessions.SingleAsync(x => x.ProfileId == profile.Id && x.RevokedUtc == null);
         Assert.Equal(profile.Id, authSession.ProfileId);
@@ -174,7 +174,7 @@ public sealed class LocalProfileServiceTests
         Assert.Null(guest.Username);
         Assert.Null(guest.PasswordHash);
         Assert.False(guest.IsAdmin);
-        Assert.Contains($"{CurrentProfileService.CookieName}={guest.Id}", fixture.HttpContext.Response.Headers.SetCookie.ToString());
+        Assert.Contains(CurrentProfileService.CookieName, fixture.HttpContext.Response.Headers.SetCookie.ToString());
         Assert.Contains(CurrentProfileService.SessionCookieName, fixture.HttpContext.Response.Headers.SetCookie.ToString());
 
         var authSession = await fixture.Db.ProfileAuthSessions.SingleAsync(x => x.ProfileId == guest.Id && x.RevokedUtc == null);

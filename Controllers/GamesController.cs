@@ -642,6 +642,7 @@ public class GamesController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> CreateBatch(string name, string? returnUrl, CancellationToken cancellationToken)
     {
+        if (!await currentAccess.IsAdminAsync(cancellationToken)) return Forbid();
         name = (name ?? "").Trim();
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -674,6 +675,7 @@ public class GamesController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> RenameBatch(int batchId, string? name, string? returnUrl, CancellationToken cancellationToken)
     {
+        if (!await currentAccess.IsAdminAsync(cancellationToken)) return Forbid();
         if (batchId <= 0)
         {
             TempData["Message"] = "Batch not found.";
@@ -764,6 +766,7 @@ public class GamesController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> DeleteBatch(int batchId, string? returnUrl, CancellationToken cancellationToken)
     {
+        if (!await currentAccess.IsAdminAsync(cancellationToken)) return Forbid();
         if (batchId <= 0)
         {
             TempData["Message"] = "Batch not found.";
@@ -799,6 +802,7 @@ public class GamesController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> AddSelectedToBatch(int[] ids, int? batchId, string? returnUrl, CancellationToken cancellationToken)
     {
+        if (!await currentAccess.IsAdminAsync(cancellationToken)) return Forbid();
         ids = (ids ?? Array.Empty<int>()).Where(x => x > 0).Distinct().ToArray();
         if (ids.Length == 0)
         {
@@ -994,6 +998,7 @@ public class GamesController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> BulkDelete(int[] ids, string? q, int page = 1, int pageSize = 25, int? batchId = null, CancellationToken cancellationToken = default)
     {
+        if (!await currentAccess.IsAdminAsync(cancellationToken)) return Forbid();
         if (ids.Length == 0)
         {
             TempData["Message"] = "No games selected.";
@@ -1304,6 +1309,7 @@ public class GamesController(
     }
 
     [HttpPost]
+    [ValidateAntiForgeryToken]
     public async Task<IActionResult> KeepAliveServerSession(string sessionId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(sessionId) ||
@@ -1540,6 +1546,7 @@ public class GamesController(
     }
 
     [HttpPost]
+    [ValidateAntiForgeryToken]
     public async Task<IActionResult> NosebleedWebRtcSession(string sessionId, CancellationToken cancellationToken = default)
     {
         if (!IsAllowedWebSocketOrigin(Request))
@@ -1910,6 +1917,7 @@ public class GamesController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Create(GameUploadCreateViewModel model, CancellationToken cancellationToken)
     {
+        if (!await currentAccess.IsAdminAsync(cancellationToken)) return Forbid();
         model.LibretroAvailable = libretroStore.HasDatFiles();
 
         async Task<GameUploadCreateViewModel> RebuildForViewAsync()
@@ -1983,6 +1991,7 @@ public class GamesController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Edit(int id, Game game, string? returnUrl = null)
     {
+        if (!await currentAccess.IsAdminAsync(HttpContext.RequestAborted)) return Forbid();
         if (id != game.Id)
         {
             return BadRequest();
@@ -2036,6 +2045,7 @@ public class GamesController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> DeleteConfirmed(int id)
     {
+        if (!await currentAccess.IsAdminAsync(HttpContext.RequestAborted)) return Forbid();
         var game = await db.Games.FindAsync(id);
         if (game is null)
         {

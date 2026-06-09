@@ -17,6 +17,7 @@
 
 <div class="playserver-hero mb-4">
     <meta name="game-system" content="@systemName" />
+    @Html.AntiForgeryToken()
     <div class="d-flex flex-wrap justify-content-between gap-3 align-items-start">
         <div><h1 class="h2 mb-1">@sessionTitle</h1></div>
         @await Html.PartialAsync("~/Views/Games/_InviteLinks.cshtml", Model)
