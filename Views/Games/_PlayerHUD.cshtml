@@ -57,7 +57,18 @@
                 <button id="nosebleed-view-theater" class="player-control-button" type="button" aria-label="Theater view" title="Theater view"><span class="player-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 7.5h18"></path><rect x="4" y="7.5" width="16" height="9.5" rx="1.5"></rect></svg></span><span class="player-control-label">Theater</span></button>
                 <button id="nosebleed-fullscreen" class="player-control-button" type="button" aria-label="Full screen" title="Full screen"><span class="player-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M8 4H4v4"></path><path d="M16 4h4v4"></path><path d="M20 16v4h-4"></path><path d="M4 16v4h4"></path></svg></span></button>
                 <button id="nosebleed-logging-toggle" class="player-control-button" type="button" aria-label="Toggle logging overlay" title="Toggle logging overlay"><span class="player-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M7 6h10"></path><path d="M7 12h10"></path><path d="M7 18h10"></path><path d="M5 6h.01"></path><path d="M5 12h.01"></path><path d="M5 18h.01"></path></svg></span></button>
+                <button id="nosebleed-keyboard-help" class="player-control-button" type="button" aria-label="Keyboard controls" title="Keyboard controls"><span class="player-control-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"></rect><path d="M6 10h2"></path><path d="M10 10h4"></path><path d="M16 10h2"></path><path d="M6 14h12"></path><path d="M6 12h2"></path><path d="M16 12h2"></path></svg></span><span class="player-control-label">Keys</span></button>
             </div>
         </div>
+    </div>
+</div>
+<div id="nosebleed-keyboard-overlay" class="keyboard-overlay" hidden>
+    <div class="keyboard-overlay-backdrop"></div>
+    <div class="keyboard-overlay-panel">
+        <div class="keyboard-overlay-header">
+            <h3 class="keyboard-overlay-title">Keyboard Controls</h3>
+            <button id="nosebleed-keyboard-overlay-close" class="keyboard-overlay-close" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div id="nosebleed-keyboard-mapping" class="keyboard-mapping"></div>
     </div>
 </div>

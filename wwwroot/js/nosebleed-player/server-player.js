@@ -1876,4 +1876,75 @@
     setAudioDisabledUi();
     startGamepadPolling();
     updatePadChip();
+
+    // Keyboard reference overlay
+    const keyboardOverlay = document.getElementById("nosebleed-keyboard-overlay");
+    const keyboardHelpBtn = document.getElementById("nosebleed-keyboard-help");
+    const keyboardOverlayClose = document.getElementById("nosebleed-keyboard-overlay-close");
+    const keyboardMappingEl = document.getElementById("nosebleed-keyboard-mapping");
+
+    const KEYBOARD_MAPS = {
+        "Nintendo - Nintendo 64": [
+            { s: "Movement", k: "Arrow keys", l: "D-Pad" },
+            { s: "Actions", k: "Z", l: "A" },
+            { k: "X", l: "B" },
+            { k: "A", l: "L shoulder" },
+            { k: "S", l: "R shoulder" },
+            { k: "D", l: "Z trigger" },
+            { k: "Enter", l: "Start" },
+            { s: "C-Buttons", k: "I", l: "C-Up" },
+            { k: "K", l: "C-Down" },
+            { k: "J", l: "C-Left" },
+            { k: "L", l: "C-Right" },
+            { s: "Commands", k: "C", l: "Insert Coin" },
+            { k: "R", l: "Reset" },
+        ],
+        "default": [
+            { s: "Movement", k: "Arrow keys", l: "D-Pad" },
+            { s: "Actions", k: "Z", l: "A" },
+            { k: "X", l: "B" },
+            { k: "Enter", l: "Start" },
+            { k: "Shift", l: "Select" },
+            { s: "Commands", k: "C", l: "Insert Coin" },
+            { k: "R", l: "Reset" },
+        ],
+    };
+
+    function buildKeyboardMapping(systemName) {
+        const map = KEYBOARD_MAPS[systemName] || KEYBOARD_MAPS["default"];
+        let html = "";
+        let lastSection = null;
+        for (const row of map) {
+            if (row.s && row.s !== lastSection) {
+                html += `<div class="km-section">${row.s}</div>`;
+                lastSection = row.s;
+            }
+            html += `<span class="km-key">${row.k}</span><span class="km-label">${row.l}</span>`;
+        }
+        keyboardMappingEl.innerHTML = html;
+    }
+
+    function showKeyboardOverlay() {
+        if (!keyboardOverlay) return;
+        keyboardOverlay.removeAttribute("hidden");
+    }
+
+    function hideKeyboardOverlay() {
+        if (!keyboardOverlay) return;
+        keyboardOverlay.setAttribute("hidden", "");
+    }
+
+    const systemName = document.querySelector("meta[name=\"game-system\"]")?.content
+        || document.querySelector("[data-game-system]")?.dataset.gameSystem
+        || "";
+    buildKeyboardMapping(systemName);
+
+    keyboardHelpBtn?.addEventListener("click", showKeyboardOverlay);
+    keyboardOverlayClose?.addEventListener("click", hideKeyboardOverlay);
+    keyboardOverlay?.querySelector(".keyboard-overlay-backdrop")?.addEventListener("click", hideKeyboardOverlay);
+    window.addEventListener("keydown", ev => {
+        if (ev.key === "Escape" && !keyboardOverlay?.hasAttribute("hidden")) {
+            hideKeyboardOverlay();
+        }
+    });
 })();
