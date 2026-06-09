@@ -1,0 +1,57 @@
+@model games_vault.Models.ViewModels.ProfileDeleteViewModel
+@{
+    ViewData["Title"] = "Delete Profile";
+}
+
+<div class="d-flex align-items-center gap-3 mb-4">
+    <span class="rounded-circle d-inline-block" style="width:3rem;height:3rem;background:@Model.Color"></span>
+    <div>
+        <h1 class="mb-0">Delete @Model.DisplayName</h1>
+        <div class="text-muted">This action cannot be undone.</div>
+    </div>
+</div>
+
+@if (Model.GameSaveCount > 0 || Model.GameSessionCount > 0 || Model.AuthSessionCount > 0)
+{
+    <div class="alert alert-warning mb-4">
+        <strong>This profile has associated data that will be permanently removed:</strong>
+        <ul class="mb-0 mt-2">
+            @if (Model.GameSaveCount > 0)
+            {
+                <li>@Model.GameSaveCount game save(s)</li>
+            }
+            @if (Model.GameSessionCount > 0)
+            {
+                <li>@Model.GameSessionCount play session(s) — these will be anonymized (profile reference removed, history preserved)</li>
+            }
+            @if (Model.AuthSessionCount > 0)
+            {
+                <li>@Model.AuthSessionCount active auth session(s)</li>
+            }
+        </ul>
+    </div>
+}
+else
+{
+    <div class="alert alert-info mb-4">
+        This profile has no game saves or play sessions. Deleting will remove auth sessions and passkeys.
+    </div>
+}
+
+@if (Model.IsCurrent)
+{
+    <div class="alert alert-danger mb-4">
+        <strong>Warning:</strong> You are currently signed in as this profile. Deleting it will sign you out.
+    </div>
+}
+
+<form method="post" asp-action="DeleteConfirmed" asp-route-id="@Model.Id">
+    @Html.AntiForgeryToken()
+
+    <div class="d-flex gap-2">
+        <button type="submit" class="btn btn-danger" onclick="return confirm('Are you sure you want to permanently delete @Model.DisplayName and all associated data? This cannot be undone.');">
+            Delete Profile
+        </button>
+        <a asp-action="Details" asp-route-id="@Model.Id" class="btn btn-outline-secondary">Cancel</a>
+    </div>
+</form>

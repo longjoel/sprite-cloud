@@ -18,4 +18,7 @@ public sealed class ProfileAuthSession
 
     public DateTime LastSeenUtc { get; set; } = DateTime.UtcNow;
     public DateTime? RevokedUtc { get; set; }
+
+    [Timestamp]
+    public byte[]? ConcurrencyToken { get; set; }
 }

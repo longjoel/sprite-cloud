@@ -348,6 +348,12 @@ public sealed class ArcadeControllerTests
         await db.SaveChangesAsync();
 
         var httpContext = new DefaultHttpContext();
+        if (adminAlways)
+        {
+            // Set a profile cookie so AdminAlways auth guard can validate
+            // the user is "authenticated" in test context.
+            httpContext.Request.Headers["Cookie"] = "gv.profile=test-admin-profile";
+        }
         var accessor = new TestHttpContextAccessor(httpContext);
         var config = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>

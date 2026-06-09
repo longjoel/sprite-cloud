@@ -191,6 +191,114 @@ public sealed class ProfilesController(
         return RedirectToAction(nameof(Index));
     }
 
+    [ServiceFilter(typeof(AdminOnlyFilter))]
+    public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken = default)
+    {
+        var profile = await db.UserProfiles.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == id && !x.IsArchived, cancellationToken);
+        if (profile is null) return NotFound();
+
+        var current = await currentProfile.GetCurrentAsync(cancellationToken);
+        var (saveCount, sessionCount, authCount) = await CountAssociatedDataAsync(id, cancellationToken);
+
+        return View(new ProfileDeleteViewModel
+        {
+            Id = profile.Id,
+            DisplayName = profile.DisplayName,
+            Username = profile.Username,
+            Color = profile.Color,
+            IsCurrent = current?.Id == profile.Id,
+            GameSaveCount = saveCount,
+            GameSessionCount = sessionCount,
+            AuthSessionCount = authCount
+        });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    [ServiceFilter(typeof(AdminOnlyFilter))]
+    public async Task<IActionResult> DeleteConfirmed(int id, CancellationToken cancellationToken = default)
+    {
+        var profile = await db.UserProfiles
+            .FirstOrDefaultAsync(x => x.Id == id && !x.IsArchived, cancellationToken);
+        if (profile is null) return NotFound();
+
+        // If admin is deleting their own active profile, sign them out first.
+        var current = await currentProfile.GetCurrentAsync(cancellationToken);
+        if (current?.Id == id)
+        {
+            currentProfile.ClearCurrent();
+        }
+
+        // Remove all associated data in a single transaction.
+        await using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            // Auth sessions
+            await db.ProfileAuthSessions
+                .Where(x => x.ProfileId == id)
+                .ExecuteDeleteAsync(cancellationToken);
+
+            // Game saves + revisions (cascade handles revisions)
+            var saves = await db.ProfileGameSaves
+                .Include(x => x.Revisions)
+                .Where(x => x.ProfileId == id)
+                .ToListAsync(cancellationToken);
+            db.ProfileGameSaves.RemoveRange(saves);
+
+            // Share link redemptions
+            var redemptions = await db.ProfileShareLinks
+                .Where(x => x.RedeemedByProfileId == id)
+                .ToListAsync(cancellationToken);
+            db.ProfileShareLinks.RemoveRange(redemptions);
+
+            // Game play sessions (set profile reference to null instead of deleting history)
+            await db.GamePlaySessions
+                .Where(x => x.ProfileId == id)
+                .ExecuteUpdateAsync(
+                    s => s.SetProperty(x => x.ProfileId, (int?)null),
+                    cancellationToken);
+
+            // Invite codes used by this profile
+            var invites = await db.ProfileInviteCodes
+                .Where(x => x.UsedByProfileId == id)
+                .ToListAsync(cancellationToken);
+            foreach (var invite in invites)
+            {
+                invite.UsedByProfileId = null;
+                invite.UsedUtc = null;
+            }
+
+            // Passkeys
+            var passkeys = await db.UserProfilePasskeys
+                .Where(x => x.ProfileId == id)
+                .ToListAsync(cancellationToken);
+            db.UserProfilePasskeys.RemoveRange(passkeys);
+
+            // Finally, archive (not hard-delete) the profile
+            profile.IsArchived = true;
+            await db.SaveChangesAsync(cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+
+            TempData["Message"] = $"Profile '{profile.DisplayName}' has been archived and all associated data removed.";
+        }
+        catch
+        {
+            await tx.RollbackAsync(cancellationToken);
+            throw;
+        }
+
+        return RedirectToAction(nameof(Index));
+    }
+
+    private async Task<(int SaveCount, int SessionCount, int AuthCount)> CountAssociatedDataAsync(int profileId, CancellationToken ct)
+    {
+        var saveCount = await db.ProfileGameSaves.CountAsync(x => x.ProfileId == profileId, ct);
+        var sessionCount = await db.GamePlaySessions.CountAsync(x => x.ProfileId == profileId, ct);
+        var authCount = await db.ProfileAuthSessions.CountAsync(x => x.ProfileId == profileId, ct);
+        return (saveCount, sessionCount, authCount);
+    }
+
     private async Task<ProfileDetailsViewModel?> BuildDetailsViewModelAsync(int id, ProfileChangePasswordViewModel? changePasswordModel, CancellationToken cancellationToken)
     {
         var profile = await db.UserProfiles.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && !x.IsArchived, cancellationToken);

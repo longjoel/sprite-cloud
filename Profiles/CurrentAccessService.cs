@@ -97,13 +97,29 @@ public sealed class CurrentAccessService(
 
     private bool IsAdminOverrideEnabled()
     {
+        var http = httpContextAccessor.HttpContext;
+
         if (configuration.GetValue("Access:AdminAlways", false))
         {
-            logger.LogWarning("Access:AdminAlways is ENABLED. All requests will be treated as admin. This should ONLY be active in development environments.");
-            return true;
+            // AdminAlways is enabled — verify the user is actually authenticated before
+            // granting admin. This prevents accidental AdminAlways=true in production
+            // from granting admin to unauthenticated/anonymous requests.
+            if (http is null)
+            {
+                return false;
+            }
+
+            // If the user has a valid profile cookie (authenticated), grant admin.
+            if (http.Request.Cookies.TryGetValue(CurrentProfileService.CookieName, out _))
+            {
+                logger.LogWarning("Access:AdminAlways is ENABLED. All requests will be treated as admin. This should ONLY be active in development environments.");
+                return true;
+            }
+
+            // If AdminAlways is enabled but the user doesn't have a profile cookie,
+            // don't grant admin — fall through to the admin cookie check.
         }
 
-        var http = httpContextAccessor.HttpContext;
         if (http is null)
         {
             return false;
