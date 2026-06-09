@@ -225,7 +225,8 @@
                     var res = await fetch('/Games/Bank?' + qs.toString(), { cache: 'no-store', credentials: 'same-origin' });
                     if (!res.ok) return;
                     var html = await res.text();
-                    bankContainer.innerHTML = html;
+                    bankContainer.textContent = '';
+                    bankContainer.insertAdjacentHTML('beforeend', html);
                     var total = res.headers.get('X-Games-TotalCount');
                     if (totalCountEl && total) totalCountEl.textContent = total + " total";
                 } catch (e) { }
