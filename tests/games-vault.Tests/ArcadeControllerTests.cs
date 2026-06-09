@@ -414,7 +414,7 @@ public sealed class ArcadeControllerTests
             var fileStorage = new GameFileStorage(env, Options.Create(new LibraryStorageOptions { RootPath = Path.GetTempPath() }));
             var fileResolver = new ArcadeGameFileResolver(Db, fileStorage);
             var currentProfile = new CurrentProfileService(Db, HttpContextAccessor);
-            var currentAccess = new CurrentAccessService(currentProfile, Configuration, HttpContextAccessor, Db, new EphemeralDataProtectionProvider());
+            var currentAccess = new CurrentAccessService(currentProfile, Configuration, HttpContextAccessor, Db, new EphemeralDataProtectionProvider(), NullLogger<CurrentAccessService>.Instance);
             var roomService = new GamePlayRoomService(
                 Db,
                 new RoomCodeGenerator(),

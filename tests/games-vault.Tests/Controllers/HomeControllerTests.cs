@@ -263,7 +263,7 @@ public sealed class HomeControllerTests : GamesVaultTestBase
             }!)
             .Build();
         var currentAccess = new CurrentAccessService(
-            currentProfile, config, httpContextAccessor, Db, new EphemeralDataProtectionProvider());
+            currentProfile, config, httpContextAccessor, Db, new EphemeralDataProtectionProvider(), NullLogger<CurrentAccessService>.Instance);
 
         // --- Gameplay telemetry ---
         var telemetry = new GamePlayTelemetryService(Db);

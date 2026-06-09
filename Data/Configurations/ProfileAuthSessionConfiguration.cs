@@ -14,7 +14,7 @@ public class ProfileAuthSessionConfiguration : IEntityTypeConfiguration<ProfileA
         entity.HasOne(x => x.Profile)
             .WithMany()
             .HasForeignKey(x => x.ProfileId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.Restrict);
 
         entity.HasIndex(x => x.SessionNonce).IsUnique();
         entity.HasIndex(x => x.ProfileId)

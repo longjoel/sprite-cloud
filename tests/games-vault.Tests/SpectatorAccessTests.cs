@@ -729,7 +729,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
         public GamePlayRoomService CreateRoomService()
         {
             var currentProfile = new CurrentProfileService(Db, _httpContextAccessor);
-            var currentAccess = new CurrentAccessService(currentProfile, _configuration, _httpContextAccessor, Db, new EphemeralDataProtectionProvider());
+            var currentAccess = new CurrentAccessService(currentProfile, _configuration, _httpContextAccessor, Db, new EphemeralDataProtectionProvider(), NullLogger<CurrentAccessService>.Instance);
             return new GamePlayRoomService(
                 Db,
                 new RoomCodeGenerator(),
@@ -751,7 +751,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
         public GamesController CreateGamesController()
         {
             var currentProfile = new CurrentProfileService(Db, _httpContextAccessor);
-            var currentAccess = new CurrentAccessService(currentProfile, _configuration, _httpContextAccessor, Db, new EphemeralDataProtectionProvider());
+            var currentAccess = new CurrentAccessService(currentProfile, _configuration, _httpContextAccessor, Db, new EphemeralDataProtectionProvider(), NullLogger<CurrentAccessService>.Instance);
             var roomService = CreateRoomService();
 
             var controller = new GamesController(

@@ -223,12 +223,12 @@ public sealed class NosebleedSessionManager(
 
         if (!File.Exists(_options.BinaryPath))
         {
-            return NosebleedStartResult.Fail($"Nosebleed binary not found at '{_options.BinaryPath}'. Build/install nosebleed first.");
+            return NosebleedStartResult.Fail("Streaming service is not available. The streaming binary has not been installed.");
         }
 
         if (!File.Exists(contentPath))
         {
-            return NosebleedStartResult.Fail($"ROM file not found at '{contentPath}'.");
+            return NosebleedStartResult.Fail("The requested game file could not be found. It may have been moved or deleted.");
         }
 
         await using var scope = scopeFactory.CreateAsyncScope();

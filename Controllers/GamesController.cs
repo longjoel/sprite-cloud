@@ -1411,8 +1411,8 @@ public class GamesController(
         {
             messages = snapshot.Messages.Select(x => new
             {
-                displayName = x.DisplayName,
-                message = x.Message,
+                displayName = System.Web.HttpUtility.HtmlEncode(x.DisplayName),
+                message = System.Web.HttpUtility.HtmlEncode(x.Message),
                 createdUtc = x.CreatedUtc.ToString("O", CultureInfo.InvariantCulture)
             })
         });
@@ -1455,8 +1455,9 @@ public class GamesController(
             ok = true,
             message = new
             {
-                displayName = string.IsNullOrWhiteSpace(result.Message.DisplayNameSnapshot) ? "Player" : result.Message.DisplayNameSnapshot.Trim(),
-                message = result.Message.Message,
+                displayName = System.Web.HttpUtility.HtmlEncode(
+                    string.IsNullOrWhiteSpace(result.Message.DisplayNameSnapshot) ? "Player" : result.Message.DisplayNameSnapshot.Trim()),
+                message = System.Web.HttpUtility.HtmlEncode(result.Message.Message ?? ""),
                 createdUtc = DateTime.SpecifyKind(result.Message.CreatedUtc, DateTimeKind.Utc).ToString("O", CultureInfo.InvariantCulture)
             }
         });
@@ -1513,6 +1514,21 @@ public class GamesController(
 
         if (channel == "input")
         {
+            // Verify the viewer belongs to an active room for this session.
+            var isMember = await db.GamePlayRooms
+                .AsNoTracking()
+                .Where(r => r.NosebleedSessionId == sessionId && r.Status == GamePlayRoomStatus.Active)
+                .Join(db.GamePlayRoomParticipants.AsNoTracking(),
+                    r => r.Id,
+                    p => p.RoomId,
+                    (r, p) => p.ViewerId)
+                .AnyAsync(v => v == viewerId, cancellationToken);
+
+            if (!isMember)
+            {
+                return Forbid();
+            }
+
             if (!canPlay ||
                 seat.Kind != NosebleedSeatKind.Player ||
                 seat.Port is null)
@@ -2023,7 +2039,9 @@ public class GamesController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Edit(int id, Game game, string? returnUrl = null)
+    public async Task<IActionResult> Edit(int id,
+        [Bind("SystemName,Name,ReleaseDate,NumberOfPlayers,Genre,CriticRating,UserRating,CriticGenre")] Game game,
+        string? returnUrl = null)
     {
         if (!await currentAccess.IsAdminAsync(HttpContext.RequestAborted)) return Forbid();
         if (id != game.Id)
