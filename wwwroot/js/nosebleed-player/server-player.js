@@ -417,10 +417,27 @@
     }
 
     function fitRtcTrackVideoToShell() {
-        // CSS aspect-ratio + object-fit:contain handles sizing for the
-        // video element — no explicit pixel dimensions needed. The server
-        // sends raw pixel data and the browser letterboxes it to the
-        // correct display aspect ratio.
+        if (!rtcTrackVideo) return;
+        const shellRect = shell.getBoundingClientRect();
+        const theaterMode = preferredViewMode === "theater" && !isFullscreenActive();
+        const maxHeight = isFullscreenActive()
+            ? window.innerHeight
+            : theaterMode
+                ? Math.min(window.innerHeight * 0.82, Math.max(1, shellRect.width * 0.85))
+                : Math.min(window.innerHeight * 0.70, Math.max(1, shellRect.width));
+        const availableWidth = Math.max(1, shellRect.width - 16);
+        const availableHeight = Math.max(1, maxHeight);
+        // Use target aspect ratio (from system mapping) instead of raw
+        // video dimensions — the server sends native pixel data which may
+        // not be at the correct display aspect ratio.
+        const targetAR = (SYSTEM_ASPECT_RATIOS[systemName] || DEFAULT_ASPECT_RATIO)
+            .split(" / ").map(Number);
+        const targetW = targetAR[0];
+        const targetH = targetAR[1];
+        const size = playerHelpers?.calculateContainedSize?.(targetW, targetH, availableWidth, availableHeight)
+            || { width: availableWidth, height: availableHeight };
+        rtcTrackVideo.style.width = `${size.width}px`;
+        rtcTrackVideo.style.height = `${size.height}px`;
     }
 
     function scheduleRtcTrackFrameCallbacks() {
