@@ -19,6 +19,7 @@ public sealed class NosebleedSessionManager(
     private readonly ConcurrentDictionary<string, ManagedSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _lock = new(1, 1);
     private int _nextPortOffset;
+    private readonly CancellationTokenSource _drainCts = new();
 
     public IReadOnlyList<NosebleedSessionSnapshot> GetSessions()
     {
@@ -272,6 +273,14 @@ public sealed class NosebleedSessionManager(
             }
         }
 
+        // Validate contentPath — defense-in-depth: ensure the file actually
+        // exists before launching nosebleed with it as game content.
+        var resolvedContent = Path.GetFullPath(contentPath);
+        if (!File.Exists(resolvedContent))
+        {
+            return NosebleedStartResult.Fail($"Content file not found at '{resolvedContent}'.");
+        }
+
         var key = string.IsNullOrWhiteSpace(instanceKey)
             ? $"{gameId}:{fileId}:{corePath}:{contentPath}"
             : instanceKey.Trim();
@@ -363,8 +372,8 @@ public sealed class NosebleedSessionManager(
                 return NosebleedStartResult.Fail("Failed to start Nosebleed process.");
             }
 
-            _ = Task.Run(() => DrainAsync(process.StandardOutput, sessionId, false));
-            _ = Task.Run(() => DrainAsync(process.StandardError, sessionId, true));
+            _ = Task.Run(() => DrainAsync(process.StandardOutput, sessionId, false, _drainCts.Token), _drainCts.Token);
+            _ = Task.Run(() => DrainAsync(process.StandardError, sessionId, true, _drainCts.Token), _drainCts.Token);
 
             var healthy = await WaitForHealthAsync(baseUrl, process, cancellationToken);
             if (!healthy)
@@ -535,11 +544,11 @@ public sealed class NosebleedSessionManager(
         return chars.Length == 0 ? "session" : new string(chars);
     }
 
-    private async Task DrainAsync(StreamReader reader, string sessionId, bool error)
+    private async Task DrainAsync(StreamReader reader, string sessionId, bool error, CancellationToken ct)
     {
         try
         {
-            while (await reader.ReadLineAsync() is { } line)
+            while (!ct.IsCancellationRequested && await reader.ReadLineAsync(ct) is { } line)
             {
                 if (error)
                 {
@@ -574,6 +583,9 @@ public sealed class NosebleedSessionManager(
 
     public void Dispose()
     {
+        // Signal drain tasks to stop before killing processes.
+        _drainCts.Cancel();
+        _drainCts.Dispose();
         _lock.Dispose();
         foreach (var session in _sessions.Values)
         {

@@ -49,6 +49,24 @@ public sealed class ArcadeCabinetSupervisor(
             .OrderBy(x => x.SortOrder)
             .ToListAsync(cancellationToken);
 
+        // Stop sessions for cabinets that have been disabled since last tick.
+        var allCabinets = await db.ArcadeCabinets
+            .Where(x => !x.IsEnabled && x.RuntimeSessionId != null)
+            .ToListAsync(cancellationToken);
+        foreach (var disabledCabinet in allCabinets)
+        {
+            if (!string.IsNullOrWhiteSpace(disabledCabinet.RuntimeSessionId))
+            {
+                logger.LogInformation(
+                    "Stopping session {SessionId} for disabled cabinet {CabinetId}",
+                    disabledCabinet.RuntimeSessionId, disabledCabinet.Id);
+                nosebleedSessions.TryStop(disabledCabinet.RuntimeSessionId, "cabinet-disabled");
+                disabledCabinet.RuntimeSessionId = null;
+                disabledCabinet.LastSeenAliveUtc = null;
+                disabledCabinet.LastStartedUtc = null;
+            }
+        }
+
         foreach (var cabinet in cabinets)
         {
             if (!cabinet.AutoRestart && string.IsNullOrWhiteSpace(cabinet.RuntimeSessionId))
