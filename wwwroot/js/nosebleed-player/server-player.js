@@ -417,7 +417,10 @@
     }
 
     function fitRtcTrackVideoToShell() {
-        fitSurfaceToShell(rtcTrackVideo?.videoWidth || 0, rtcTrackVideo?.videoHeight || 0, rtcTrackVideo);
+        // CSS aspect-ratio + object-fit:contain handles sizing for the
+        // video element — no explicit pixel dimensions needed. The server
+        // sends raw pixel data and the browser letterboxes it to the
+        // correct display aspect ratio.
     }
 
     function scheduleRtcTrackFrameCallbacks() {
@@ -1910,6 +1913,19 @@
         ],
     };
 
+    const SYSTEM_ASPECT_RATIOS = {
+        "Nintendo - Nintendo 64": "4 / 3",
+        "Nintendo - Super Nintendo Entertainment System": "4 / 3",
+        "Nintendo - Nintendo Entertainment System": "4 / 3",
+        "Nintendo - Game Boy": "10 / 9",
+        "Nintendo - Game Boy Color": "10 / 9",
+        "Nintendo - Game Boy Advance": "3 / 2",
+        "Sega - Genesis/Mega Drive": "4 / 3",
+        "Sega - Mega Drive": "4 / 3",
+        "Sony - PlayStation": "4 / 3",
+    };
+    const DEFAULT_ASPECT_RATIO = "4 / 3";
+
     function buildKeyboardMapping(systemName) {
         const map = KEYBOARD_MAPS[systemName] || KEYBOARD_MAPS["default"];
         let html = "";
@@ -1938,6 +1954,10 @@
         || document.querySelector("[data-game-system]")?.dataset.gameSystem
         || "";
     buildKeyboardMapping(systemName);
+    if (rtcTrackVideo && systemName) {
+        const ar = SYSTEM_ASPECT_RATIOS[systemName] || DEFAULT_ASPECT_RATIO;
+        rtcTrackVideo.style.aspectRatio = ar;
+    }
 
     keyboardHelpBtn?.addEventListener("click", showKeyboardOverlay);
     keyboardOverlayClose?.addEventListener("click", hideKeyboardOverlay);

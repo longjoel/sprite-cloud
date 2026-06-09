@@ -1,6 +1,6 @@
 .server-player-shell { position:relative; overflow:hidden; touch-action:none; user-select:none; }
 #nosebleed-screen { display:block; image-rendering:pixelated; background:#000; max-width:100%; max-height:70vh; width:auto; height:auto; margin-inline:auto; touch-action:none; object-fit:contain; }
-#nosebleed-screen-video { display:block; background:#000; max-width:100%; max-height:70vh; width:auto; height:auto; margin-inline:auto; object-fit:contain; }
+#nosebleed-screen-video { display:block; background:#000; max-width:100%; max-height:70vh; width:100%; height:auto; margin-inline:auto; object-fit:contain; aspect-ratio:4/3; }
 .server-player-shell:fullscreen,.server-player-shell.is-ios-fullscreen { width:100vw; height:100vh; height:100dvh; border-radius:0!important; padding:0!important; display:flex; align-items:center; justify-content:center; background:#000!important; }
 .server-player-shell.is-ios-fullscreen { position:fixed; inset:0; z-index:2147483000; }
 html.games-vault-player-fullscreen,body.games-vault-player-fullscreen { overflow:hidden!important; overscroll-behavior:none; }
