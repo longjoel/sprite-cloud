@@ -34,6 +34,10 @@ public sealed class UserProfile
     public int? CreatedFromShareLinkId { get; set; }
     public ProfileShareLink? CreatedFromShareLink { get; set; }
 
+    public int FailedLoginAttempts { get; set; }
+
+    public DateTime? LoginLockoutUntilUtc { get; set; }
+
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;

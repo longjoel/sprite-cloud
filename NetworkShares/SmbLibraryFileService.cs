@@ -1,11 +1,19 @@
 using SMBLibrary;
 using SMBLibrary.Client;
 using games_vault.Models;
+using Microsoft.AspNetCore.DataProtection;
 
 namespace games_vault.NetworkShares;
 
 public sealed class SmbLibraryFileService : ISmbFileService
 {
+    private readonly PasswordProtector _passwordProtector;
+
+    public SmbLibraryFileService(IDataProtectionProvider dataProtection)
+    {
+        _passwordProtector = new PasswordProtector(dataProtection);
+    }
+
     public async Task<IReadOnlyList<SmbFileEntry>> SearchAsync(NetworkShare share, string? query, int maxResults, Func<string, Task>? log, CancellationToken cancellationToken)
     {
         var smbRoot = share.RootPath;
@@ -21,7 +29,8 @@ public sealed class SmbLibraryFileService : ISmbFileService
             await log($"SMB search: root={share.RootPath} host={loc.Host} share={loc.Share} subPath='{loc.SubPath}' query='{query ?? ""}' maxResults={maxResults}");
         }
 
-        await using var session = await SmbSession.ConnectAsync(loc.Host, share.Username, share.Password, cancellationToken);
+        var password = _passwordProtector.Unprotect(share.Password);
+        await using var session = await SmbSession.ConnectAsync(loc.Host, share.Username, password, cancellationToken);
         var store = session.TreeConnect(loc.Share);
 
         // BFS traversal starting at subpath
@@ -108,7 +117,8 @@ public sealed class SmbLibraryFileService : ISmbFileService
             await log($"SMB copy: src={smbFileUri} dest={destinationPath} relative='{relative}'");
         }
 
-        await using var session = await SmbSession.ConnectAsync(loc.Host, share.Username, share.Password, cancellationToken);
+        var copyPassword = _passwordProtector.Unprotect(share.Password);
+        await using var session = await SmbSession.ConnectAsync(loc.Host, share.Username, copyPassword, cancellationToken);
         var store = session.TreeConnect(loc.Share);
 
         var smbPath = NormalizeToSmbPath(CombineUrlPath(loc.SubPath, relative));

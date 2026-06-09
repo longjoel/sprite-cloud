@@ -17,7 +17,8 @@ public sealed class SystemFilesController(
     AppDbContext db,
     SystemFileStorage storage,
     SystemDatIndexProvider systemDat,
-    IInternalJobsClient internalJobs) : Controller
+    IInternalJobsClient internalJobs,
+    IWebHostEnvironment env) : Controller
 {
     public async Task<IActionResult> Index(string? q, int page = 1, int pageSize = 50, CancellationToken cancellationToken = default)
     {
@@ -408,6 +409,18 @@ public sealed class SystemFilesController(
         var abs = !string.IsNullOrWhiteSpace(file.TargetPath)
             ? storage.GetAbsoluteSystemPath(file.TargetPath)
             : storage.GetAbsolutePath(file.StoragePath);
+
+        // Belt-and-suspenders: ensure resolved path cannot escape the system root,
+        // even if GetAbsoluteSystemPath's internal validation were bypassed (e.g.
+        // via DB tamper). PhysicalFile would serve anything.
+        var systemRoot = Path.GetFullPath(Path.Combine(
+            env.ContentRootPath,
+            "App_Data/library/system")).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        if (!abs.StartsWith(systemRoot, StringComparison.OrdinalIgnoreCase))
+        {
+            return NotFound();
+        }
+
         if (!System.IO.File.Exists(abs))
         {
             return NotFound("File bytes not available.");
