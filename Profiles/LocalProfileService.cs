@@ -78,15 +78,46 @@ public sealed class LocalProfileService(
         return profile;
     }
 
+    private const int MaxFailedAttempts = 5;
+    private static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
+
     public async Task<bool> SignInAsync(string? username, string? password, CancellationToken ct)
     {
         var normalizedUsername = NormalizeUsername(username);
         var profile = await db.UserProfiles
-            .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Username == normalizedUsername && !x.IsArchived, ct);
-        if (profile is null || !VerifyPassword(profile.PasswordHash, password))
+        if (profile is null)
         {
             return false;
+        }
+
+        // Check lockout
+        if (profile.LoginLockoutUntilUtc.HasValue && profile.LoginLockoutUntilUtc.Value > DateTime.UtcNow)
+        {
+            return false;
+        }
+
+        if (!VerifyPassword(profile.PasswordHash, password))
+        {
+            // Track failed attempt
+            profile.FailedLoginAttempts++;
+            if (profile.FailedLoginAttempts >= MaxFailedAttempts)
+            {
+                profile.LoginLockoutUntilUtc = DateTime.UtcNow.Add(LockoutDuration);
+                profile.FailedLoginAttempts = 0;
+            }
+            profile.UpdatedUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+            return false;
+        }
+
+        // Successful login — reset failed attempts
+        if (profile.FailedLoginAttempts > 0 || profile.LoginLockoutUntilUtc.HasValue)
+        {
+            profile.FailedLoginAttempts = 0;
+            profile.LoginLockoutUntilUtc = null;
+            profile.UpdatedUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
         }
 
         var authSession = await CreateAuthSessionAsync(profile.Id, ct);

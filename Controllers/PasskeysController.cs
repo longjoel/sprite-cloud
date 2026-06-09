@@ -1,4 +1,5 @@
 using games_vault.Profiles;
+using games_vault.Web;
 using Microsoft.AspNetCore.Mvc;
 
 namespace games_vault.Controllers;
@@ -8,6 +9,7 @@ namespace games_vault.Controllers;
 public sealed class PasskeysController(PasskeyService passkeys, CurrentProfileService currentProfile) : ControllerBase
 {
     [HttpPost("Register/Options")]
+    [RateLimit(permitLimit: 10, windowSeconds: 60)]
     public ActionResult BeginRegistration([FromBody] BeginPasskeyRegistrationRequest request)
     {
         try
@@ -22,6 +24,7 @@ public sealed class PasskeysController(PasskeyService passkeys, CurrentProfileSe
     }
 
     [HttpPost("Register/Complete")]
+    [RateLimit(permitLimit: 10, windowSeconds: 60)]
     public async Task<ActionResult> CompleteRegistration([FromBody] PasskeyAttestationDto request, CancellationToken cancellationToken)
     {
         try
@@ -36,6 +39,7 @@ public sealed class PasskeysController(PasskeyService passkeys, CurrentProfileSe
     }
 
     [HttpPost("Login/Options")]
+    [RateLimit(permitLimit: 30, windowSeconds: 60)]
     public ActionResult BeginLogin()
     {
         var options = passkeys.BeginLogin();
@@ -43,6 +47,7 @@ public sealed class PasskeysController(PasskeyService passkeys, CurrentProfileSe
     }
 
     [HttpPost("Login/Complete")]
+    [RateLimit(permitLimit: 30, windowSeconds: 60)]
     public async Task<ActionResult> CompleteLogin([FromBody] PasskeyAssertionDto request, CancellationToken cancellationToken)
     {
         try

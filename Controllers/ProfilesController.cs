@@ -2,6 +2,7 @@ using games_vault.Data;
 using games_vault.Models;
 using games_vault.Models.ViewModels;
 using games_vault.Profiles;
+using games_vault.Web;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -89,6 +90,7 @@ public sealed class ProfilesController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [RateLimit(permitLimit: 10, windowSeconds: 60)]
     public async Task<IActionResult> SignIn(string username, string password, CancellationToken cancellationToken = default)
     {
         if (await localProfiles.SignInAsync(username, password, cancellationToken))
@@ -127,6 +129,13 @@ public sealed class ProfilesController(
 
     public async Task<IActionResult> Details(int id, CancellationToken cancellationToken = default)
     {
+        var current = await currentProfile.GetCurrentAsync(cancellationToken);
+        var isAdmin = await currentAccess.IsAdminAsync(cancellationToken);
+        if (current?.Id != id && !isAdmin)
+        {
+            return NotFound();
+        }
+
         var model = await BuildDetailsViewModelAsync(id, null, cancellationToken);
         if (model is null) return NotFound();
         return View(model);
