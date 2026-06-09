@@ -1,9 +1,10 @@
 .server-player-shell { position:relative; overflow:hidden; touch-action:none; user-select:none; }
 #nosebleed-screen { display:block; image-rendering:pixelated; background:#000; max-width:100%; max-height:70vh; width:auto; height:auto; margin-inline:auto; touch-action:none; object-fit:contain; }
+#nosebleed-screen-video { display:block; background:#000; max-width:100%; max-height:70vh; width:auto; height:auto; margin-inline:auto; object-fit:contain; }
 .server-player-shell:fullscreen,.server-player-shell.is-ios-fullscreen { width:100vw; height:100vh; height:100dvh; border-radius:0!important; padding:0!important; display:flex; align-items:center; justify-content:center; background:#000!important; }
 .server-player-shell.is-ios-fullscreen { position:fixed; inset:0; z-index:2147483000; }
 html.games-vault-player-fullscreen,body.games-vault-player-fullscreen { overflow:hidden!important; overscroll-behavior:none; }
-.server-player-shell:fullscreen #nosebleed-screen,.server-player-shell.is-ios-fullscreen #nosebleed-screen { width:100vw!important; height:100vh!important; height:100dvh!important; max-height:none!important; object-fit:contain; border:0!important; border-radius:0!important; }
+.server-player-shell:fullscreen #nosebleed-screen,.server-player-shell:fullscreen #nosebleed-screen-video,.server-player-shell.is-ios-fullscreen #nosebleed-screen,.server-player-shell.is-ios-fullscreen #nosebleed-screen-video { width:100vw!important; height:100vh!important; height:100dvh!important; max-height:none!important; object-fit:contain; border:0!important; border-radius:0!important; }
 .touch-gamepad { position:absolute; inset:0; display:none; pointer-events:none; z-index:5; }
 .touch-gamepad.is-visible { display:block; }
 .touch-gamepad .pad-cluster,.touch-gamepad .face-cluster,.touch-gamepad .menu-cluster { position:absolute; pointer-events:auto; }
