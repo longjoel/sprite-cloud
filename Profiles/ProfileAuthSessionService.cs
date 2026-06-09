@@ -52,9 +52,7 @@ public sealed class ProfileAuthSessionService(
 
     /// <summary>
     /// Validates the session nonce and updates LastSeenUtc.
-    /// Uses an atomic SQL UPDATE so concurrent requests don't race.
-    /// Nonce is NOT rotated on every request — rotation happens only on
-    /// login (CreateSessionAsync) where old sessions are revoked.
+    /// Uses a standard read-then-write approach.
     /// </summary>
     public async Task<bool> ValidateSessionAsync(int profileId, string? sessionNonce, CancellationToken ct)
     {
@@ -63,28 +61,16 @@ public sealed class ProfileAuthSessionService(
             return false;
         }
 
-        var now = DateTime.UtcNow;
-
-        // Atomic UPDATE — succeeds only if the current nonce still matches
-        // (no race between read and write). Does not change the nonce value.
-        try
+        var authSession = await db.ProfileAuthSessions
+            .FirstOrDefaultAsync(x => x.ProfileId == profileId && x.SessionNonce == sessionNonce, ct);
+        if (authSession is null || authSession.RevokedUtc is not null)
         {
-            var rows = await db.Database.ExecuteSqlRawAsync(
-                """
-                UPDATE ProfileAuthSessions
-                SET LastSeenUtc = {0}
-                WHERE ProfileId = {1} AND SessionNonce = {2} AND RevokedUtc IS NULL
-                """,
-                now, profileId, sessionNonce);
+            return false;
+        }
 
-            return rows > 0;
-        }
-        catch
-        {
-            // Fallback for providers that don't support ExecuteSqlRaw (test in-memory).
-            return await db.ProfileAuthSessions
-                .AnyAsync(x => x.ProfileId == profileId && x.SessionNonce == sessionNonce && x.RevokedUtc == null, ct);
-        }
+        authSession.LastSeenUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync(ct);
+        return true;
     }
 
     private static bool IsUniqueConstraintViolation(DbUpdateException ex)
