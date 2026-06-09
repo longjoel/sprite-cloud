@@ -23,7 +23,8 @@
     try {
       var response = await fetch(url + '?' + params.toString(), { cache: 'no-store', credentials: 'same-origin' });
       if (!response.ok) throw new Error('HTTP ' + response.status);
-      resultsHost.innerHTML = await response.text();
+      resultsHost.textContent = '';
+      resultsHost.insertAdjacentHTML('beforeend', await response.text());
     } catch (err) {
       var warning = document.createElement('div');
       warning.className = 'alert alert-warning small mb-3';
