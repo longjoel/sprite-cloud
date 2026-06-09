@@ -37,6 +37,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<GamePlayRoomParticipant> GamePlayRoomParticipants => Set<GamePlayRoomParticipant>();
     public DbSet<GamePlayRoomChatMessage> GamePlayRoomChatMessages => Set<GamePlayRoomChatMessage>();
     public DbSet<ProfileAuthSession> ProfileAuthSessions => Set<ProfileAuthSession>();
+    public DbSet<ProfileShareRedeemSession> ProfileShareRedeemSessions => Set<ProfileShareRedeemSession>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
