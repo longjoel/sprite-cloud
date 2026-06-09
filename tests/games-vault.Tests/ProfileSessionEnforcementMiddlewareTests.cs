@@ -4,6 +4,7 @@ using games_vault.Profiles;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace games_vault.Tests;
 
@@ -38,7 +39,7 @@ public sealed class ProfileSessionEnforcementMiddlewareTests
         fixture.HttpContext.Request.Headers.Cookie =
             $"{CurrentProfileService.CookieName}={profile.Id}; {CurrentProfileService.SessionCookieName}=revoked-session";
 
-        var middleware = new ProfileSessionEnforcementMiddleware(_ => Task.CompletedTask);
+        var middleware = new ProfileSessionEnforcementMiddleware(_ => Task.CompletedTask, NullLogger<ProfileSessionEnforcementMiddleware>.Instance);
 
         await middleware.InvokeAsync(
             fixture.HttpContext,
@@ -84,7 +85,7 @@ public sealed class ProfileSessionEnforcementMiddlewareTests
         {
             var downstreamCurrent = new CurrentProfileService(fixture.Db, fixture.HttpContextAccessor);
             profileSeenDownstream = await downstreamCurrent.GetCurrentAsync(CancellationToken.None);
-        });
+        }, NullLogger<ProfileSessionEnforcementMiddleware>.Instance);
 
         await middleware.InvokeAsync(
             fixture.HttpContext,
@@ -122,7 +123,7 @@ public sealed class ProfileSessionEnforcementMiddlewareTests
         fixture.HttpContext.Request.Headers.Cookie =
             $"{CurrentProfileService.CookieName}={profile.Id}; {CurrentProfileService.SessionCookieName}=valid-session";
 
-        var middleware = new ProfileSessionEnforcementMiddleware(_ => Task.CompletedTask);
+        var middleware = new ProfileSessionEnforcementMiddleware(_ => Task.CompletedTask, NullLogger<ProfileSessionEnforcementMiddleware>.Instance);
 
         await middleware.InvokeAsync(
             fixture.HttpContext,
