@@ -18,6 +18,19 @@
     const canvas = document.getElementById("nosebleed-screen");
     const rtcTrackVideo = document.getElementById("nosebleed-screen-video");
     const rtcTrackAudio = document.getElementById("nosebleed-rtc-audio");
+
+    const SYSTEM_ASPECT_RATIOS = {
+        "Nintendo - Nintendo 64": "4 / 3",
+        "Nintendo - Super Nintendo Entertainment System": "4 / 3",
+        "Nintendo - Nintendo Entertainment System": "4 / 3",
+        "Nintendo - Game Boy": "10 / 9",
+        "Nintendo - Game Boy Color": "10 / 9",
+        "Nintendo - Game Boy Advance": "3 / 2",
+        "Sega - Genesis/Mega Drive": "4 / 3",
+        "Sega - Mega Drive": "4 / 3",
+        "Sony - PlayStation": "4 / 3",
+    };
+    const DEFAULT_ASPECT_RATIO = "4 / 3";
     const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
     const connectButton = document.getElementById("nosebleed-connect");
     const audioButton = document.getElementById("nosebleed-audio");
@@ -1929,19 +1942,6 @@
             { k: "R", l: "Reset" },
         ],
     };
-
-    const SYSTEM_ASPECT_RATIOS = {
-        "Nintendo - Nintendo 64": "4 / 3",
-        "Nintendo - Super Nintendo Entertainment System": "4 / 3",
-        "Nintendo - Nintendo Entertainment System": "4 / 3",
-        "Nintendo - Game Boy": "10 / 9",
-        "Nintendo - Game Boy Color": "10 / 9",
-        "Nintendo - Game Boy Advance": "3 / 2",
-        "Sega - Genesis/Mega Drive": "4 / 3",
-        "Sega - Mega Drive": "4 / 3",
-        "Sony - PlayStation": "4 / 3",
-    };
-    const DEFAULT_ASPECT_RATIO = "4 / 3";
 
     function buildKeyboardMapping(systemName) {
         const map = KEYBOARD_MAPS[systemName] || KEYBOARD_MAPS["default"];
