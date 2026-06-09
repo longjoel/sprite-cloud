@@ -53,7 +53,7 @@ public sealed class ProfileShareLinkServiceTests : GamesVaultTestBase
         Assert.Equal(redeemed.Profile.Id, redeemed.ShareLink.RedeemedByProfileId);
         Assert.Equal(1, redeemed.ShareLink.UseCount);
         Assert.NotNull(redeemed.ShareLink.LastUsedUtc);
-        Assert.Contains($"{CurrentProfileService.CookieName}={redeemed.Profile.Id}", httpContext.Response.Headers.SetCookie.ToString());
+        Assert.Contains(CurrentProfileService.CookieName, httpContext.Response.Headers.SetCookie.ToString());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.RedeemAsync(created.RawToken, CancellationToken.None));
     }

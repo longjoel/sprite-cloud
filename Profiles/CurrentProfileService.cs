@@ -1,18 +1,33 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using games_vault.Data;
 using games_vault.Models;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 
 namespace games_vault.Profiles;
 
-public sealed class CurrentProfileService(AppDbContext db, IHttpContextAccessor httpContextAccessor)
+public sealed class CurrentProfileService
 {
+    private readonly AppDbContext db;
+    private readonly IHttpContextAccessor httpContextAccessor;
+    private readonly IDataProtector _protector;
+
     public const string CookieName = "gv.profile";
     public const string SessionCookieName = "gv.profile_session";
-    public static readonly TimeSpan CookieLifetime = TimeSpan.FromDays(365);
+    public static readonly TimeSpan CookieLifetime = TimeSpan.FromDays(30);
     private const string ClearedRequestStateKey = "gv.current-profile.cleared";
     private const string RequestProfileIdKey = "gv.current-profile.id";
     private const string RequestSessionNonceKey = "gv.current-profile.session";
+    private const string ProtectionPurpose = "GamesVault.Profile";
+
+    public CurrentProfileService(AppDbContext db, IHttpContextAccessor httpContextAccessor, IDataProtectionProvider? dataProtection = null)
+    {
+        this.db = db;
+        this.httpContextAccessor = httpContextAccessor;
+        _protector = (dataProtection ?? DataProtectionProvider.Create("GamesVault"))
+            .CreateProtector(ProtectionPurpose);
+    }
 
     public async Task<UserProfile?> GetCurrentAsync(CancellationToken ct)
     {
@@ -52,7 +67,27 @@ public sealed class CurrentProfileService(AppDbContext db, IHttpContextAccessor 
             return false;
         }
 
-        return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out profileId);
+        // Try new protected format first, then fall back to legacy plaintext
+        try
+        {
+            var unprotected = _protector.Unprotect(raw);
+            return int.TryParse(unprotected, NumberStyles.Integer, CultureInfo.InvariantCulture, out profileId);
+        }
+        catch (CryptographicException)
+        {
+            // Legacy plaintext cookie — migrate silently
+            if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out profileId))
+            {
+                // Re-write with protection so next read uses the new format
+                var nonce = GetCurrentSessionNonce();
+                if (nonce is not null)
+                {
+                    WriteCurrentCookies(http, profileId, nonce);
+                }
+                return true;
+            }
+            return false;
+        }
     }
 
     public string? GetCurrentSessionNonce()
@@ -124,23 +159,20 @@ public sealed class CurrentProfileService(AppDbContext db, IHttpContextAccessor 
         http.Response.Cookies.Delete(SessionCookieName);
     }
 
-    private static void WriteCurrentCookies(HttpContext http, int profileId, string sessionNonce)
+    private void WriteCurrentCookies(HttpContext http, int profileId, string sessionNonce)
     {
         var cookieOptions = new CookieOptions
         {
             HttpOnly = true,
             SameSite = SameSiteMode.Lax,
             IsEssential = true,
+            Secure = true,
             MaxAge = CookieLifetime,
             Expires = DateTimeOffset.UtcNow.Add(CookieLifetime)
         };
 
-        if (http.Request.IsHttps)
-        {
-            cookieOptions.Secure = true;
-        }
-
-        http.Response.Cookies.Append(CookieName, profileId.ToString(CultureInfo.InvariantCulture), cookieOptions);
+        var protectedId = _protector.Protect(profileId.ToString(CultureInfo.InvariantCulture));
+        http.Response.Cookies.Append(CookieName, protectedId, cookieOptions);
         http.Response.Cookies.Append(SessionCookieName, sessionNonce, cookieOptions);
     }
 }
