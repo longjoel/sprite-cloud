@@ -166,7 +166,7 @@ public sealed class CurrentProfileService
             HttpOnly = true,
             SameSite = SameSiteMode.Lax,
             IsEssential = true,
-            Secure = true,
+            Secure = http.Request.IsHttps,
             MaxAge = CookieLifetime,
             Expires = DateTimeOffset.UtcNow.Add(CookieLifetime)
         };
