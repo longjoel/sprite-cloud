@@ -22,7 +22,7 @@ public sealed class RoutePermissionSourceTests
     [Fact]
     public void NosebleedTransportRoutes_UseSessionScopedPlayChecks()
     {
-        var content = ReadController("GamesController.cs");
+        var content = ReadController("SessionController.cs");
 
         Assert.Contains("NosebleedProxy", content);
         Assert.Contains("NosebleedWebRtcSession", content);

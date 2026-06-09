@@ -109,45 +109,23 @@ public sealed class GamePlayRoomShutdownBatterySaveTests
         var httpContext = new DefaultHttpContext();
         httpContext.Request.Headers.Cookie = $"games_vault_nosebleed_viewer={fixture.ViewerId}";
         var accessor = new HttpContextAccessor { HttpContext = httpContext };
-        var controller = new games_vault.Controllers.GamesController(
-            fixture.Db,
-            null!,
-            null!,
-            null!,
-            null!,
-            null!,
-            null!,
-            null!,
-            Options.Create(new NosebleedOptions
-            {
-                Enabled = true,
-                RequireAuth = false,
-                SessionRoot = Path.Combine(fixture.TempRoot, "nosebleed-sessions"),
-                AuthSecretPath = Path.Combine(fixture.TempRoot, "nosebleed.secret")
-            }),
-            fixture.SessionManager,
-            fixture.SeatManager,
-            new NosebleedTicketSigner(Options.Create(new NosebleedOptions
-            {
-                Enabled = true,
-                RequireAuth = false,
-                SessionRoot = Path.Combine(fixture.TempRoot, "nosebleed-sessions"),
-                AuthSecretPath = Path.Combine(fixture.TempRoot, "nosebleed.secret")
-            }), NullLogger<NosebleedTicketSigner>.Instance),
-            new GamePlayTelemetryService(fixture.Db),
-            fixture.RoomService,
-            null!,
-            new CurrentProfileService(fixture.Db, accessor),
-            new CurrentAccessService(
-                new CurrentProfileService(fixture.Db, accessor),
-                new ConfigurationBuilder().Build(),
-                accessor,
-                fixture.Db,
-                new EphemeralDataProtectionProvider(),
-                NullLogger<CurrentAccessService>.Instance),
-            new TestHttpClientFactory())
+
+        var services = new ServiceCollection();
+        services.AddSingleton(fixture.SeatManager);
+        services.AddSingleton(fixture.RoomService);
+        services.AddSingleton<Microsoft.AspNetCore.Mvc.Routing.IUrlHelperFactory>(new Microsoft.AspNetCore.Mvc.Routing.UrlHelperFactory());
+        var sp = services.BuildServiceProvider();
+        httpContext.RequestServices = sp;
+
+        var controller = new games_vault.Controllers.SessionController(
+            fixture.Db)
         {
-            ControllerContext = new ControllerContext { HttpContext = httpContext }
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = httpContext,
+                RouteData = new Microsoft.AspNetCore.Routing.RouteData(),
+                ActionDescriptor = new Microsoft.AspNetCore.Mvc.Controllers.ControllerActionDescriptor()
+            }
         };
 
         var result = await controller.LeaveServerSession(fixture.Session.Id);
