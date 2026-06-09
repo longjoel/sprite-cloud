@@ -11,12 +11,14 @@ using games_vault.Models;
 using games_vault.Models.ViewModels;
 using games_vault.Nosebleed;
 using games_vault.Profiles;
+using games_vault.Libretro.Import;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Data.Sqlite;
 using games_vault.Web;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -68,7 +70,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
     public async Task KeepAliveServerSession_DoesNotPromoteViewerToPlayer()
     {
         await using var fixture = await CreateSpectatorFixtureAsync();
-        var controller = fixture.CreateGamesController();
+        var controller = fixture.CreateSessionController();
 
         var result = await controller.KeepAliveServerSession(fixture.Session.Id, CancellationToken.None);
 
@@ -91,7 +93,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
         var profile = await localProfiles.CreateAsync("Player One", "player-one", "password123", "#198754", CancellationToken.None);
         currentProfile.SetCurrent(profile.Id, "session-nonce-1");
 
-        var controller = fixture.CreateGamesController();
+        var controller = fixture.CreateSessionController();
 
         var result = await controller.KeepAliveServerSession(fixture.Session.Id, CancellationToken.None);
 
@@ -253,7 +255,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
     public async Task PlayServer_Maps_Battery_Save_Diagnostics_Into_The_Player_Model()
     {
         await using var fixture = await CreateSpectatorFixtureAsync();
-        var controller = fixture.CreateGamesController();
+        var controller = fixture.CreateSessionController();
         controller.ControllerContext.RouteData = new Microsoft.AspNetCore.Routing.RouteData();
         controller.ControllerContext.RouteData.Values["code"] = fixture.Room.Code;
         controller.TempData = new TempDataDictionary(fixture.HttpContextAccessor.HttpContext!, new TestTempDataProvider())
@@ -289,7 +291,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
         Assert.True(joined.Success);
         Assert.Equal(NosebleedSeatKind.Player, joined.Seat!.Kind);
 
-        var controller = fixture.CreateGamesController();
+        var controller = fixture.CreateSessionController();
         controller.ControllerContext.RouteData = new Microsoft.AspNetCore.Routing.RouteData();
         var result = await controller.PlayServer(fixture.Game.Id, cancellationToken: CancellationToken.None);
 
@@ -311,7 +313,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
         fixture.Room.CreatedByProfileId = profile.Id;
         await fixture.Db.SaveChangesAsync();
 
-        var controller = fixture.CreateGamesController();
+        var controller = fixture.CreateSessionController();
         controller.ControllerContext.RouteData = new Microsoft.AspNetCore.Routing.RouteData();
         controller.ControllerContext.RouteData.Values["code"] = fixture.Room.Code;
         var result = await controller.PlayServer(fixture.Game.Id, fixture.Room.Code, cancellationToken: CancellationToken.None);
@@ -380,7 +382,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
     {
         await using var fixture = await CreateSpectatorFixtureAsync();
 
-        var controller = fixture.CreateGamesController();
+        var controller = fixture.CreateSessionController();
         controller.ControllerContext.RouteData = new Microsoft.AspNetCore.Routing.RouteData();
         controller.ControllerContext.RouteData.Values["code"] = "ZZZZ99";
         var result = await controller.PlayServer(fixture.Game.Id, "ZZZZ99", cancellationToken: CancellationToken.None);
@@ -523,7 +525,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
         var joined = await roomService.JoinByShareTokenAsync(created.RawToken, fixture.ViewerId, CancellationToken.None);
         Assert.True(joined.Success);
 
-        var controller = fixture.CreateGamesController();
+        var controller = fixture.CreateSessionController();
         controller.ControllerContext.RouteData = new Microsoft.AspNetCore.Routing.RouteData();
         controller.ControllerContext.RouteData.Values["code"] = fixture.Room.Code;
 
@@ -749,34 +751,48 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
             return new ProfileShareLinkService(Db, localProfiles, new MemoryCache(new MemoryCacheOptions()));
         }
 
-        public GamesController CreateGamesController()
+        public SessionController CreateSessionController()
         {
-            var currentProfile = new CurrentProfileService(Db, _httpContextAccessor);
-            var currentAccess = new CurrentAccessService(currentProfile, _configuration, _httpContextAccessor, Db, new EphemeralDataProtectionProvider(), NullLogger<CurrentAccessService>.Instance);
-            var roomService = CreateRoomService();
-
-            var controller = new GamesController(
-                Db,
-                null!,
-                null!,
-                null!,
-                null!,
-                null!,
-                null!,
-                null!,
-                _nosebleedOptions,
-                SessionManager,
-                SeatManager,
-                _ticketSigner,
-                new GamePlayTelemetryService(Db),
-                roomService,
-                CreateShareLinkService(),
-                currentProfile,
-                currentAccess,
-                new TestHttpClientFactory())
+            var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+            services.AddSingleton(Db);
+            services.AddSingleton(_nosebleedOptions);
+            services.AddSingleton(SessionManager);
+            services.AddSingleton(SeatManager);
+            services.AddSingleton(_ticketSigner);
+            services.AddSingleton<GamePlayRoomService>(_ => CreateRoomService());
+            services.AddSingleton<ProfileShareLinkService>(_ => CreateShareLinkService());
+            services.AddSingleton<CurrentProfileService>(_ => new CurrentProfileService(Db, _httpContextAccessor));
+            services.AddSingleton<ILogger<CurrentAccessService>>(NullLogger<CurrentAccessService>.Instance);
+            services.AddSingleton(_configuration);
+            services.AddSingleton(_httpContextAccessor);
+            services.AddSingleton<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+            services.AddSingleton<Microsoft.AspNetCore.Mvc.Routing.IUrlHelperFactory>(new Microsoft.AspNetCore.Mvc.Routing.UrlHelperFactory());
+            services.AddSingleton<CurrentAccessService>(sp =>
             {
-                ControllerContext = new ControllerContext { HttpContext = _httpContextAccessor.HttpContext! },
-                TempData = new TempDataDictionary(_httpContextAccessor.HttpContext!, new TestTempDataProvider())
+                var cp = sp.GetRequiredService<CurrentProfileService>();
+                var cfg = sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
+                var acc = sp.GetRequiredService<IHttpContextAccessor>();
+                var dp = sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>();
+                var log = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CurrentAccessService>>();
+                return new CurrentAccessService(cp, cfg, acc, Db, dp, log);
+            });
+            services.AddSingleton<GamePlayTelemetryService>(_ => new GamePlayTelemetryService(Db));
+            // GameFileStorage needs an IWebHostEnvironment.
+            services.AddSingleton<GameFileStorage>(_ =>
+            {
+                var fakeEnv = new FakeEnvironment(System.IO.Path.GetTempPath());
+                return new GameFileStorage(fakeEnv, Microsoft.Extensions.Options.Options.Create(
+                    new games_vault.Libretro.Import.LibraryStorageOptions { RootPath = System.IO.Path.GetTempPath() }));
+            });
+            var serviceProvider = services.BuildServiceProvider();
+
+            var httpContext = _httpContextAccessor.HttpContext!;
+            httpContext.RequestServices = serviceProvider;
+
+            var controller = new SessionController(Db)
+            {
+                ControllerContext = new ControllerContext { HttpContext = httpContext },
+                TempData = new TempDataDictionary(httpContext, new TestTempDataProvider())
             };
 
             return controller;

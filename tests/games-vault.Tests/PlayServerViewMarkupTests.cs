@@ -239,7 +239,7 @@ public sealed class PlayServerViewMarkupTests
     {
         var content = ReadPlayServerView();
         var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
-        var controller = File.ReadAllText(Path.Combine(repoRoot, "Controllers", "GamesController.cs")).Replace("\r\n", "\n");
+        var controller = File.ReadAllText(Path.Combine(repoRoot, "Controllers", "RoomController.cs")).Replace("\r\n", "\n");
 
         Assert.Contains("id=\"room-kick-form\"", content);
         Assert.Contains("asp-action=\"KickRoomPlayer\"", content);

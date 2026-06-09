@@ -6,7 +6,7 @@ public sealed class RoomShareLinkAjaxMarkupTests
     public void CreateRoomShareLink_Returns_Json_For_Ajax_And_Retains_Form_Fallback()
     {
         var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
-        var controller = File.ReadAllText(Path.Combine(repoRoot, "Controllers", "GamesController.cs")).Replace("\r\n", "\n");
+        var controller = File.ReadAllText(Path.Combine(repoRoot, "Controllers", "RoomController.cs")).Replace("\r\n", "\n");
 
         Assert.Contains("public async Task<IActionResult> CreateRoomShareLink", controller);
         Assert.Contains("var shareLink = Url.RouteUrl(", controller);

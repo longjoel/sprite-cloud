@@ -84,17 +84,18 @@ public sealed class GamesIndexViewMarkupTests
         var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
         var bankViewModel = File.ReadAllText(Path.Combine(repoRoot, "Models", "ViewModels", "GamesBankViewModel.cs")).Replace("\r\n", "\n");
         var controllerContent = File.ReadAllText(Path.Combine(repoRoot, "Controllers", "GamesController.cs")).Replace("\r\n", "\n");
+        var sessionContent = File.ReadAllText(Path.Combine(repoRoot, "Controllers", "SessionController.cs")).Replace("\r\n", "\n");
 
         Assert.Contains("public sealed record GamesLibraryActiveRoomOption(string Code, string PlayerName);", bankViewModel);
         Assert.Contains("ActiveRoomsByGameId = Model.ActiveRoomsByGameId", indexContent);
         Assert.Contains("ActiveRoomsByGameId = activeRoomsByGameId", controllerContent);
-        Assert.Contains("nosebleedSessions.Cleanup();", controllerContent);
-        Assert.Contains("var liveNosebleedSessionIds = nosebleedSessions", controllerContent);
-        Assert.Contains("liveSessionIdList.Contains(r.NosebleedSessionId)", controllerContent);
-        Assert.Contains("liveSessionIdList.Contains(c.RuntimeSessionId)", controllerContent);
-        Assert.Contains("var staleStandaloneRooms = await db.GamePlayRooms", controllerContent);
-        Assert.Contains("room.Status = GamePlayRoomStatus.Closed;", controllerContent);
-        Assert.Contains("room.ClosedUtc = closedUtc;", controllerContent);
+        Assert.Contains("nosebleedSessions.Cleanup();", sessionContent);
+        Assert.Contains("nosebleedSessions.GetSessions()", sessionContent);
+        Assert.Contains("x.NosebleedSessionId == sessionId", sessionContent);
+        Assert.Contains("NosebleedSessionId == sessionId && x.Status == GamePlayRoomStatus.Active", sessionContent);
+        Assert.Contains("var roomId = await _db.GamePlayRooms", sessionContent);
+        Assert.Contains("x.Status == GamePlayRoomStatus.Active", sessionContent);
+        Assert.Contains("roomService.TouchRoomParticipantSessionAsync", sessionContent);
         Assert.Contains("var activeRooms = Model.ActiveRoomsByGameId.TryGetValue(game.Id, out var rooms)", bankContent);
         Assert.Contains("Join an in-progress room", bankContent);
         Assert.Contains("asp-route-code=\"@room.Code\"", bankContent);
