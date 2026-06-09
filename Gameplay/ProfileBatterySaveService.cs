@@ -379,66 +379,77 @@ public sealed class ProfileBatterySaveService(AppDbContext db, ProfileGameSaveSt
                 && x.FileName == normalizedFileName,
                 cancellationToken);
 
-        if (save is null)
+        using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
+        try
         {
-            save = new ProfileGameSave
+            if (save is null)
             {
-                ProfileId = profileId,
-                GameId = gameId,
-                GameFileId = gameFileId,
-                SystemName = normalizedSystemName,
-                CoreKey = normalizedCoreKey,
-                Kind = normalizedKind,
-                Key = normalizedKey,
-                FileName = normalizedFileName,
-                CreatedUtc = timestampUtc,
-                UpdatedUtc = timestampUtc
+                save = new ProfileGameSave
+                {
+                    ProfileId = profileId,
+                    GameId = gameId,
+                    GameFileId = gameFileId,
+                    SystemName = normalizedSystemName,
+                    CoreKey = normalizedCoreKey,
+                    Kind = normalizedKind,
+                    Key = normalizedKey,
+                    FileName = normalizedFileName,
+                    CreatedUtc = timestampUtc,
+                    UpdatedUtc = timestampUtc
+                };
+                db.ProfileGameSaves.Add(save);
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
+            if (save.LatestRevision is not null
+                && save.LatestRevision.SizeBytes == bytes.LongLength
+                && string.Equals(save.LatestRevision.Sha256, sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                await tx.CommitAsync(cancellationToken);
+                return save.LatestRevision;
+            }
+
+            var storagePath = await storage.StoreRevisionAsync(
+                () => new MemoryStream(bytes, writable: false),
+                profileId,
+                gameId,
+                gameFileId,
+                save.Id,
+                timestampUtc,
+                sha256[..8],
+                Path.GetExtension(normalizedFileName),
+                cancellationToken);
+
+            var revision = new ProfileGameSaveRevision
+            {
+                ProfileGameSaveId = save.Id,
+                RevisionTimestampUtc = timestampUtc,
+                StoragePath = storagePath,
+                SizeBytes = bytes.LongLength,
+                Sha256 = sha256,
+                Source = normalizedSource,
+                OriginalUploadFileName = normalizedUploadFileName,
+                CreatedUtc = timestampUtc
             };
-            db.ProfileGameSaves.Add(save);
+
+            db.ProfileGameSaveRevisions.Add(revision);
             await db.SaveChangesAsync(cancellationToken);
+
+            save.LatestRevisionId = revision.Id;
+            save.LatestRevision = revision;
+            save.SystemName = normalizedSystemName;
+            save.CoreKey = normalizedCoreKey;
+            save.UpdatedUtc = timestampUtc;
+            await db.SaveChangesAsync(cancellationToken);
+
+            await tx.CommitAsync(cancellationToken);
+            return revision;
         }
-
-        if (save.LatestRevision is not null
-            && save.LatestRevision.SizeBytes == bytes.LongLength
-            && string.Equals(save.LatestRevision.Sha256, sha256, StringComparison.OrdinalIgnoreCase))
+        catch
         {
-            return save.LatestRevision;
+            await tx.RollbackAsync(CancellationToken.None);
+            throw;
         }
-
-        var storagePath = await storage.StoreRevisionAsync(
-            () => new MemoryStream(bytes, writable: false),
-            profileId,
-            gameId,
-            gameFileId,
-            save.Id,
-            timestampUtc,
-            sha256[..8],
-            Path.GetExtension(normalizedFileName),
-            cancellationToken);
-
-        var revision = new ProfileGameSaveRevision
-        {
-            ProfileGameSaveId = save.Id,
-            RevisionTimestampUtc = timestampUtc,
-            StoragePath = storagePath,
-            SizeBytes = bytes.LongLength,
-            Sha256 = sha256,
-            Source = normalizedSource,
-            OriginalUploadFileName = normalizedUploadFileName,
-            CreatedUtc = timestampUtc
-        };
-
-        db.ProfileGameSaveRevisions.Add(revision);
-        await db.SaveChangesAsync(cancellationToken);
-
-        save.LatestRevisionId = revision.Id;
-        save.LatestRevision = revision;
-        save.SystemName = normalizedSystemName;
-        save.CoreKey = normalizedCoreKey;
-        save.UpdatedUtc = timestampUtc;
-        await db.SaveChangesAsync(cancellationToken);
-
-        return revision;
     }
 
     private static async Task<byte[]> ReadAllBytesAsync(Stream content, CancellationToken cancellationToken)

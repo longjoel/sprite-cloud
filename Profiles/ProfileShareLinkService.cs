@@ -10,6 +10,7 @@ namespace games_vault.Profiles;
 public sealed class ProfileShareLinkService(AppDbContext db, LocalProfileService localProfiles)
 {
     private static readonly TimeSpan DefaultLifetime = TimeSpan.FromHours(12);
+    private static readonly TimeSpan RedeemSessionLifetime = TimeSpan.FromHours(1);
 
     public async Task<ProfileShareLinkCreateResult> CreateAsync(int roomId, int createdByProfileId, RoomShareGrantMode grantMode, CancellationToken ct)
     {
@@ -114,6 +115,104 @@ public sealed class ProfileShareLinkService(AppDbContext db, LocalProfileService
             ? "player"
             : parentDisplayName.Trim();
         return $"Guest of {owner}";
+    }
+
+    /// <summary>
+    /// Creates a short-lived, single-use redeem session that maps a URL-safe
+    /// session code to an existing ProfileShareLink. The session code (not the
+    /// raw token) goes in the share URL, preventing token leakage via referer
+    /// headers, access logs, and browser history.
+    /// </summary>
+    public async Task<string> CreateRedeemSessionAsync(int shareLinkId, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var sessionCode = GenerateSessionCode();
+        var session = new ProfileShareRedeemSession
+        {
+            ProfileShareLinkId = shareLinkId,
+            SessionCode = sessionCode,
+            CreatedUtc = now,
+            ExpiresUtc = now.Add(RedeemSessionLifetime)
+        };
+
+        db.ProfileShareRedeemSessions.Add(session);
+        await db.SaveChangesAsync(ct);
+        return sessionCode;
+    }
+
+    /// <summary>
+    /// Redeems a share link by session code (the short code from the URL)
+    /// rather than by raw token. The session is consumed on first use.
+    /// </summary>
+    public async Task<ProfileShareLinkRedeemResult> RedeemBySessionCodeAsync(string sessionCode, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(sessionCode))
+        {
+            throw new InvalidOperationException("Session code is required.");
+        }
+
+        var session = await db.ProfileShareRedeemSessions
+            .Include(s => s.ShareLink)
+                .ThenInclude(sl => sl.Room)
+            .Include(s => s.ShareLink)
+                .ThenInclude(sl => sl.ParentProfile)
+            .FirstOrDefaultAsync(s => s.SessionCode == sessionCode.Trim(), ct)
+            ?? throw new InvalidOperationException("Share session was not found.");
+
+        if (session.IsConsumed)
+        {
+            throw new InvalidOperationException("That share session has already been used.");
+        }
+
+        if (session.IsExpired)
+        {
+            throw new InvalidOperationException("That share session has expired.");
+        }
+
+        var shareLink = session.ShareLink;
+
+        if (shareLink.RevokedUtc is not null)
+        {
+            throw new InvalidOperationException("That share link has been revoked.");
+        }
+
+        if (shareLink.ExpiresUtc <= DateTime.UtcNow)
+        {
+            throw new InvalidOperationException("That share link has expired.");
+        }
+
+        if (shareLink.UseCount >= shareLink.MaxUses)
+        {
+            throw new InvalidOperationException("That share link has already been used.");
+        }
+
+        if (shareLink.Room.Status != GamePlayRoomStatus.Active)
+        {
+            throw new InvalidOperationException("That room is no longer active.");
+        }
+
+        var parent = shareLink.ParentProfile;
+        if (parent is null || parent.IsArchived)
+        {
+            throw new InvalidOperationException("Parent profile was not found.");
+        }
+
+        var guestDisplayName = BuildGuestDisplayName(parent.DisplayName);
+        var guest = await localProfiles.CreateGuestChildAsync(parent.Id, guestDisplayName, parent.Color, ct, shareLink.Id);
+
+        session.ConsumedUtc = DateTime.UtcNow;
+        shareLink.UseCount++;
+        shareLink.LastUsedUtc = DateTime.UtcNow;
+        shareLink.RedeemedByProfileId = guest.Id;
+        await db.SaveChangesAsync(ct);
+
+        return new ProfileShareLinkRedeemResult(shareLink, guest);
+    }
+
+    private static string GenerateSessionCode()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(16);
+        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 }
 
