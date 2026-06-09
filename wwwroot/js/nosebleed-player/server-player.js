@@ -943,6 +943,11 @@
      *
      * Wire format: 34 bytes (little-endian) — see InputBinary in nosebleed.
      */
+    function clampAxis(v) {
+        if (Math.abs(v) < 0.15) return 0;
+        return Math.max(-1, Math.min(1, v));
+    }
+
     function sendBinaryInput() {
         if (isSpectator || assignedPort === null) return;
         // Prefer WebRTC data channel (lower latency), fall back to WebSocket
@@ -974,12 +979,12 @@
         if (keys.has("KeyZ") || touchControls.has("a") || pad?.buttons?.[1]?.pressed) buttons |= 1 << 8;
         // retro_id 9 (X): gamepad button 2
         if (touchControls.has("x") || pad?.buttons?.[2]?.pressed) buttons |= 1 << 9;
-        // retro_id 10 (L): gamepad button 10
-        if (touchControls.has("l") || pad?.buttons?.[10]?.pressed) buttons |= 1 << 10;
-        // retro_id 11 (R): gamepad button 11
-        if (touchControls.has("r") || pad?.buttons?.[11]?.pressed) buttons |= 1 << 11;
-        // retro_id 12 (L2): gamepad button 6
-        if (pad?.buttons?.[6]?.pressed) buttons |= 1 << 12;
+        // retro_id 10 (L1 / N64 L): gamepad button 10, keyboard A
+        if (keys.has("KeyA") || touchControls.has("l") || pad?.buttons?.[10]?.pressed) buttons |= 1 << 10;
+        // retro_id 11 (R1 / N64 R): gamepad button 11, keyboard S
+        if (keys.has("KeyS") || touchControls.has("r") || pad?.buttons?.[11]?.pressed) buttons |= 1 << 11;
+        // retro_id 12 (L2 / N64 Z): gamepad button 6, keyboard D
+        if (keys.has("KeyD") || pad?.buttons?.[6]?.pressed) buttons |= 1 << 12;
         // retro_id 13 (R2): gamepad button 7
         if (pad?.buttons?.[7]?.pressed) buttons |= 1 << 13;
 
@@ -989,10 +994,18 @@
         // Row 1: buttons bitmask (u32 LE)
         dv.setUint32(6, buttons, true);
         // Rows 2-4: axes (f32 LE)
-        dv.setFloat32(10, pad?.axes?.[0] ?? 0, true);  // lx
-        dv.setFloat32(14, pad?.axes?.[1] ?? 0, true);  // ly
-        dv.setFloat32(18, pad?.axes?.[2] ?? 0, true);  // rx
-        dv.setFloat32(22, pad?.axes?.[3] ?? 0, true);  // ry
+        // Left stick: gamepad left stick or arrow keys (digital → ±1.0)
+        let lx = pad?.axes?.[0] ?? 0;
+        let ly = pad?.axes?.[1] ?? 0;
+        dv.setFloat32(10, lx, true);  // lx
+        dv.setFloat32(14, ly, true);  // ly
+        // Right stick / N64 C-buttons: gamepad right stick or I/J/K/L keys
+        let rkx = (keys.has("KeyJ") ? -1.0 : 0.0) + (keys.has("KeyL") ? 1.0 : 0.0);
+        let rky = (keys.has("KeyI") ? -1.0 : 0.0) + (keys.has("KeyK") ? 1.0 : 0.0);
+        let rx = clampAxis(pad?.axes?.[2] ?? 0) || rkx;
+        let ry = clampAxis(pad?.axes?.[3] ?? 0) || rky;
+        dv.setFloat32(18, rx, true);  // rx (C-Left/C-Right)
+        dv.setFloat32(22, ry, true);  // ry (C-Up/C-Down)
         dv.setFloat32(26, pad?.buttons?.[6]?.value ?? 0, true);  // lt (L2)
         dv.setFloat32(30, pad?.buttons?.[7]?.value ?? 0, true);  // rt (R2)
 
