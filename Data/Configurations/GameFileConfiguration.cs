@@ -14,6 +14,8 @@ public class GameFileConfiguration : IEntityTypeConfiguration<GameFile>
         entity.Property(x => x.StoragePath).HasMaxLength(1000);
         entity.Property(x => x.ExternalPath).HasMaxLength(2000);
 
+        entity.HasIndex(x => x.Crc32);
+
         entity.HasOne(x => x.Game)
             .WithMany(x => x.Files)
             .HasForeignKey(x => x.GameId)

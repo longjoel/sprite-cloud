@@ -1564,8 +1564,8 @@ public class GamesController(
 
         using var downstream = await HttpContext.WebSockets.AcceptWebSocketAsync();
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, HttpContext.RequestAborted);
-        var clientToUpstream = PumpWebSocketAsync(downstream, upstream, linkedCts.Token);
-        var upstreamToClient = PumpWebSocketAsync(upstream, downstream, linkedCts.Token);
+        var clientToUpstream = NosebleedWebSocketRelay.PumpOrderedAsync(downstream, upstream, "input", metrics: null, linkedCts.Token);
+        var upstreamToClient = NosebleedWebSocketRelay.PumpOrderedAsync(upstream, downstream, "output", metrics: null, linkedCts.Token);
         await Task.WhenAny(clientToUpstream, upstreamToClient);
         await linkedCts.CancelAsync();
 
@@ -1814,35 +1814,6 @@ public class GamesController(
         }
 
         return builder.Uri;
-    }
-
-    private static async Task PumpWebSocketAsync(WebSocket source, WebSocket destination, CancellationToken cancellationToken)
-    {
-        var buffer = new byte[64 * 1024];
-        while (!cancellationToken.IsCancellationRequested &&
-               source.State == WebSocketState.Open &&
-               destination.State == WebSocketState.Open)
-        {
-            var result = await source.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
-            if (result.MessageType == WebSocketMessageType.Close)
-            {
-                if (destination.State == WebSocketState.Open || destination.State == WebSocketState.CloseReceived)
-                {
-                    await destination.CloseAsync(
-                        result.CloseStatus ?? WebSocketCloseStatus.NormalClosure,
-                        result.CloseStatusDescription,
-                        cancellationToken);
-                }
-
-                break;
-            }
-
-            await destination.SendAsync(
-                new ArraySegment<byte>(buffer, 0, result.Count),
-                result.MessageType,
-                result.EndOfMessage,
-                cancellationToken);
-        }
     }
 
     private static bool IsAllowedWebSocketOrigin(HttpRequest request)

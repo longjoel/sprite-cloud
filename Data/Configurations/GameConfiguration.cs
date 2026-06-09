@@ -15,5 +15,10 @@ public class GameConfiguration : IEntityTypeConfiguration<Game>
         entity.Property(x => x.CriticGenre).HasMaxLength(100);
         entity.Property(x => x.CriticRating).HasPrecision(5, 2);
         entity.Property(x => x.UserRating).HasPrecision(5, 2);
+
+        entity.HasIndex(x => x.SystemName);
+        entity.HasIndex(x => x.Name);
+        entity.HasIndex(x => x.Crc32);
+        entity.HasIndex(x => x.CreatedUtc);
     }
 }

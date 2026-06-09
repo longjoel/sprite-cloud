@@ -1,4 +1,5 @@
 using games_vault.Data;
+using Microsoft.Extensions.Caching.Memory;
 using games_vault.Gameplay;
 using games_vault.Models;
 using games_vault.Profiles;
@@ -62,7 +63,7 @@ public sealed class ProfileShareLinkServiceTests : GamesVaultTestBase
     {
         var currentProfile = new CurrentProfileService(Db, httpContextAccessor);
         var localProfiles = new LocalProfileService(Db, currentProfile);
-        return new ProfileShareLinkService(Db, localProfiles);
+        return new ProfileShareLinkService(Db, localProfiles, new MemoryCache(new MemoryCacheOptions()));
     }
 
     private async Task<GamePlayRoom> CreateRoomAsync(int createdByProfileId)
