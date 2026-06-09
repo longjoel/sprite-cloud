@@ -1,4 +1,5 @@
 using games_vault.Arcade;
+using Microsoft.Extensions.Caching.Memory;
 using games_vault.Controllers;
 using games_vault.Data;
 using games_vault.Gameplay;
@@ -423,7 +424,7 @@ public sealed class ArcadeControllerTests
                 new NosebleedTicketSigner(NosebleedOptions, NullLogger<NosebleedTicketSigner>.Instance),
                 currentAccess,
                 currentProfile,
-                new ProfileShareLinkService(Db, new LocalProfileService(Db, currentProfile)));
+                new ProfileShareLinkService(Db, new LocalProfileService(Db, currentProfile), new MemoryCache(new MemoryCacheOptions())));
 
             return new ArcadeController(
                 Db,

@@ -125,7 +125,7 @@ public static class EverDriveGbExportCommon
             var srcAbs = GetSourceAbsolutePath(storage, f);
             if (!File.Exists(srcAbs))
             {
-                logWarn($"Missing file for {f.Name} (crc={f.Crc32}) at {(f.StoragePath ?? f.ExternalPath ?? "(unknown)")}").GetAwaiter().GetResult();
+                Task.Run(() => logWarn($"Missing file for {f.Name} (crc={f.Crc32}) at {(f.StoragePath ?? f.ExternalPath ?? "(unknown)")}")).GetAwaiter().GetResult();
                 continue;
             }
 

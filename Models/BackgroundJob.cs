@@ -21,6 +21,7 @@ public class BackgroundJob
     public string Command { get; set; } = "";
 
     [Required]
+    [StringLength(100000)]
     public string PayloadJson { get; set; } = "{}";
 
     public BackgroundJobStatus Status { get; set; } = BackgroundJobStatus.Queued;

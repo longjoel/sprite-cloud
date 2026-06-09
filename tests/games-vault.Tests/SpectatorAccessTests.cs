@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Caching.Memory;
 using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
@@ -745,7 +746,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
         {
             var currentProfile = new CurrentProfileService(Db, _httpContextAccessor);
             var localProfiles = new LocalProfileService(Db, currentProfile);
-            return new ProfileShareLinkService(Db, localProfiles);
+            return new ProfileShareLinkService(Db, localProfiles, new MemoryCache(new MemoryCacheOptions()));
         }
 
         public GamesController CreateGamesController()

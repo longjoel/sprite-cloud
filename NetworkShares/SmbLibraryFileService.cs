@@ -374,7 +374,7 @@ internal static class SmbDirectoryEnumerator
         {
             if (log is not null)
             {
-                log($"SMB list: failed to open dir {smbPath} ({nt})").GetAwaiter().GetResult();
+                Task.Run(() => log($"SMB list: failed to open dir {smbPath} ({nt})")).GetAwaiter().GetResult();
             }
             throw new InvalidOperationException($"SMB list: failed to open directory '{openedPath}' ({nt})");
         }
@@ -388,7 +388,7 @@ internal static class SmbDirectoryEnumerator
             {
                 if (log is not null)
                 {
-                    log($"SMB list: query failed {openedPath} ({status})").GetAwaiter().GetResult();
+                    Task.Run(() => log($"SMB list: query failed {openedPath} ({status})")).GetAwaiter().GetResult();
                 }
                 throw new InvalidOperationException($"SMB list: query failed for directory '{openedPath}' ({status})");
             }
@@ -397,7 +397,7 @@ internal static class SmbDirectoryEnumerator
             {
                 if (log is not null && status == NTStatus.STATUS_NO_MORE_FILES)
                 {
-                    log($"SMB list: no entries {openedPath} ({status})").GetAwaiter().GetResult();
+                    Task.Run(() => log($"SMB list: no entries {openedPath} ({status})")).GetAwaiter().GetResult();
                 }
                 return Array.Empty<QueryDirectoryFileInformation>();
             }

@@ -10,5 +10,8 @@ public class BackgroundJobConfiguration : IEntityTypeConfiguration<BackgroundJob
     {
         entity.Property(x => x.Command).HasMaxLength(200);
         entity.Property(x => x.LockedBy).HasMaxLength(100);
+        entity.Property(x => x.PayloadJson).HasMaxLength(100000);
+
+        entity.HasIndex(x => x.Status);
     }
 }
