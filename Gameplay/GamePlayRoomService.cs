@@ -70,8 +70,10 @@ public sealed class GamePlayRoomService(
         var diagnostics = new List<ProfileBatterySaveLogEntry>();
         var batterySavePolicy = (batterySavePolicyResolver ?? new BatterySavePolicyResolver()).Resolve(room, profile);
         var sessionId = nosebleedSessions.CreateSessionId(gameId, gameFileId);
+        string? runtimeSaveDir = null;
         if (batterySaveRuntimeSyncService is not null)
         {
+            runtimeSaveDir = batterySaveRuntimeSyncService.GetRuntimeSaveDirectory(sessionId);
             var restoredCount = await batterySaveRuntimeSyncService.PrepareRuntimeSaveDirectoryAsync(
                 batterySavePolicy,
                 gameId,
@@ -114,6 +116,13 @@ public sealed class GamePlayRoomService(
                 room.ClosedUtc = DateTime.UtcNow;
                 await db.SaveChangesAsync(ct);
                 await tx.CommitAsync(ct);
+                // Clean up the runtime save directory that was prepared
+                // before the start attempt — no session to use it.
+                if (runtimeSaveDir is not null && Directory.Exists(runtimeSaveDir))
+                {
+                    try { Directory.Delete(runtimeSaveDir, recursive: true); }
+                    catch { /* best-effort cleanup */ }
+                }
                 return RoomCreateResult.Fail(start.Error ?? "Failed to start room session.");
             }
 
@@ -127,6 +136,11 @@ public sealed class GamePlayRoomService(
         catch
         {
             await tx.RollbackAsync(CancellationToken.None);
+            if (runtimeSaveDir is not null && Directory.Exists(runtimeSaveDir))
+            {
+                try { Directory.Delete(runtimeSaveDir, recursive: true); }
+                catch { /* best-effort cleanup */ }
+            }
             throw;
         }
     }
