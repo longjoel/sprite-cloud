@@ -51,58 +51,39 @@ public sealed class ProfileAuthSessionService(
     }
 
     /// <summary>
-    /// Validates the session nonce, then rotates it (generates a new one).
+    /// Validates the session nonce and updates LastSeenUtc.
     /// Uses an atomic SQL UPDATE so concurrent requests don't race.
-    /// Returns (isValid, newNonce). A stolen nonce is only valid for one
-    /// request/response cycle.
+    /// Nonce is NOT rotated on every request — rotation happens only on
+    /// login (CreateSessionAsync) where old sessions are revoked.
     /// </summary>
-    public async Task<(bool Valid, string? NewNonce)> ValidateSessionAsync(int profileId, string? sessionNonce, CancellationToken ct)
+    public async Task<bool> ValidateSessionAsync(int profileId, string? sessionNonce, CancellationToken ct)
     {
         if (profileId <= 0 || string.IsNullOrWhiteSpace(sessionNonce))
         {
-            return (false, null);
+            return false;
         }
 
-        var newNonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
         var now = DateTime.UtcNow;
 
-        // Try atomic SQL UPDATE first (works with real SQLite).
-        // Fall back to read-then-write for in-memory test providers.
+        // Atomic UPDATE — succeeds only if the current nonce still matches
+        // (no race between read and write). Does not change the nonce value.
         try
         {
             var rows = await db.Database.ExecuteSqlRawAsync(
                 """
                 UPDATE ProfileAuthSessions
-                SET SessionNonce = {0}, LastSeenUtc = {1}
-                WHERE ProfileId = {2} AND SessionNonce = {3} AND RevokedUtc IS NULL
+                SET LastSeenUtc = {0}
+                WHERE ProfileId = {1} AND SessionNonce = {2} AND RevokedUtc IS NULL
                 """,
-                newNonce, now, profileId, sessionNonce, ct);
+                now, profileId, sessionNonce);
 
-            if (rows <= 0)
-            {
-                return (false, null);
-            }
-
-            return (true, newNonce);
-        }
-        catch (Exception) when (ct.IsCancellationRequested)
-        {
-            return (false, null);
+            return rows > 0;
         }
         catch
         {
-            // Fallback for test providers that don't support ExecuteSqlRaw.
-            var authSession = await db.ProfileAuthSessions
-                .FirstOrDefaultAsync(x => x.ProfileId == profileId && x.SessionNonce == sessionNonce, ct);
-            if (authSession is null || authSession.RevokedUtc is not null)
-            {
-                return (false, null);
-            }
-
-            authSession.SessionNonce = newNonce;
-            authSession.LastSeenUtc = now;
-            await db.SaveChangesAsync(ct);
-            return (true, newNonce);
+            // Fallback for providers that don't support ExecuteSqlRaw (test in-memory).
+            return await db.ProfileAuthSessions
+                .AnyAsync(x => x.ProfileId == profileId && x.SessionNonce == sessionNonce && x.RevokedUtc == null, ct);
         }
     }
 
