@@ -228,8 +228,13 @@ else
                 downloadLink.href = button.getAttribute('data-save-download-url') || '#';
             });
         })();
+    </script>
+    <script type="application/json" id="battery-save-diagnostics">
+        @System.Text.Json.JsonSerializer.Serialize(Model.Diagnostics, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))
+    </script>
+    <script>
         (() => {
-            const BatterySaveDiagnostics = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Diagnostics, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
+            const BatterySaveDiagnostics = JSON.parse(document.getElementById('battery-save-diagnostics').textContent);
             if (!BatterySaveDiagnostics.length || window.parent === window) {
                 return;
             }
