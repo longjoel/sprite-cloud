@@ -1114,9 +1114,10 @@ public class GamesController(
         }
 
         var created = await shareLinkService.CreateAsync(room.Id, profile.Id, grantMode, cancellationToken);
+        var sessionCode = await shareLinkService.CreateRedeemSessionAsync(created.ShareLink.Id, cancellationToken);
         var shareLink = Url.RouteUrl(
             "PlayServerRoom",
-            new { id = room.GameId, code = room.Code, share = created.RawToken },
+            new { id = room.GameId, code = room.Code, share = sessionCode },
             Request.Scheme) ?? string.Empty;
         var grantModeLabel = grantMode.ToString();
 
@@ -1182,19 +1183,28 @@ public class GamesController(
             try
             {
                 var viewerId = GetOrCreateNosebleedViewerId();
-                var joinResult = await roomService.JoinByShareTokenAsync(share, viewerId, cancellationToken);
-                if (joinResult.Success && joinResult.Room is not null && joinResult.Session is not null)
+                var redeemed = await shareLinkService.RedeemBySessionCodeAsync(share, cancellationToken);
+                if (redeemed.ShareLink?.Room is not null)
                 {
-                    currentSignedInProfile = await currentProfile.GetCurrentAsync(cancellationToken);
-                    currentRoomId = joinResult.Room.Id;
-                    session = joinResult.Session;
-                    seat = joinResult.Seat;
-                    token = joinResult.Token;
-                    await gamePlayTelemetry.StartAsync(joinResult.Room.GameId, joinResult.Room.GameFileId, "nosebleed-share", session.Id, currentSignedInProfile?.Id, cancellationToken);
+                    var joinResult = await roomService.JoinByShareTokenAsync(redeemed.ShareLink, redeemed.Profile, viewerId, cancellationToken);
+                    if (joinResult.Success && joinResult.Room is not null && joinResult.Session is not null)
+                    {
+                        currentSignedInProfile = await currentProfile.GetCurrentAsync(cancellationToken);
+                        currentRoomId = joinResult.Room.Id;
+                        session = joinResult.Session;
+                        seat = joinResult.Seat;
+                        token = joinResult.Token;
+                        await gamePlayTelemetry.StartAsync(joinResult.Room.GameId, joinResult.Room.GameFileId, "nosebleed-share", session.Id, currentSignedInProfile?.Id, cancellationToken);
+                    }
+                    else
+                    {
+                        TempData["Message"] = joinResult.Error ?? "Unable to join the requested room.";
+                        return RedirectToAction(nameof(Index));
+                    }
                 }
                 else
                 {
-                    TempData["Message"] = joinResult.Error ?? "Unable to redeem the requested share link.";
+                    TempData["Message"] = "Unable to redeem the requested share link.";
                     return RedirectToAction(nameof(Index));
                 }
             }

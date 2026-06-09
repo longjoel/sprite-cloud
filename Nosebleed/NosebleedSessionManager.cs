@@ -290,6 +290,18 @@ public sealed class NosebleedSessionManager(
                 return NosebleedStartResult.Ok(existing.Session);
             }
 
+            // If forceNew, kill any existing session for this key before starting a fresh one.
+            // Prevents orphaned processes when concurrent StartFreshAsync calls race.
+            if (forceNew && _sessions.TryGetValue(key, out var toReplace) && !toReplace.Process.HasExited)
+            {
+                logger.LogInformation(
+                    "Replacing existing Nosebleed session {SessionId} ({Reason})",
+                    toReplace.Session.Id, "forceNew");
+                _sessions.TryRemove(key, out _);
+                TryKill(toReplace.Process);
+                toReplace.Process.Dispose();
+            }
+
             if (!allowOverCapacity && _sessions.Count >= Math.Max(1, _options.MaxSessions))
             {
                 return NosebleedStartResult.Fail($"Nosebleed session limit reached ({_options.MaxSessions}). Stop an existing session and try again.");

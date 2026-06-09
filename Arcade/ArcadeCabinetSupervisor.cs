@@ -87,6 +87,21 @@ public sealed class ArcadeCabinetSupervisor(
                 cabinet.LastStartedUtc ??= result.Session.StartedUtc;
                 cabinet.LastSeenAliveUtc = DateTimeOffset.UtcNow;
                 cabinet.LastError = null;
+
+                // Propagate the new RuntimeSessionId to the associated GamePlayRoom
+                // so joining players reach the correct (fresh) session.
+                var room = await db.GamePlayRooms
+                    .Where(x => x.ArcadeCabinetId == cabinet.Id && x.Status == GamePlayRoomStatus.Active)
+                    .OrderBy(x => x.Id)
+                    .FirstOrDefaultAsync(cancellationToken);
+                if (room is not null && room.NosebleedSessionId != result.Session.Id)
+                {
+                    room.NosebleedSessionId = result.Session.Id;
+                    logger.LogInformation(
+                        "Updated GamePlayRoom {RoomId} NosebleedSessionId to {SessionId} " +
+                        "after cabinet {CabinetId} restart",
+                        room.Id, result.Session.Id, cabinet.Id);
+                }
             }
             else
             {

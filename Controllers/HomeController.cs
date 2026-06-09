@@ -74,7 +74,8 @@ public class HomeController(
             .Select(x => x.Game.Name)
             .FirstOrDefaultAsync(cancellationToken);
         var playRowsQuery = db.GamePlaySessions
-            .AsNoTracking();
+            .AsNoTracking()
+            .Where(x => x.StartedUtc >= DateTime.UtcNow.AddDays(-90));
         if (currentUserProfile is not null)
         {
             playRowsQuery = playRowsQuery.Where(x => x.ProfileId == currentUserProfile.Id);

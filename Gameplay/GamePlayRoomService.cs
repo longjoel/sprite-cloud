@@ -96,28 +96,39 @@ public sealed class GamePlayRoomService(
             }
         }
 
-        var start = await nosebleedSessions.StartOrReuseAsync(
-            gameId,
-            gameFileId,
-            systemName,
-            contentPath,
-            ct,
-            $"room:{room.Id}",
-            sessionId);
-
-        if (!start.Success || start.Session is null)
+        using var tx = await db.Database.BeginTransactionAsync(ct);
+        try
         {
-            room.Status = GamePlayRoomStatus.Closed;
-            room.ClosedUtc = DateTime.UtcNow;
+            var start = await nosebleedSessions.StartOrReuseAsync(
+                gameId,
+                gameFileId,
+                systemName,
+                contentPath,
+                ct,
+                $"room:{room.Id}",
+                sessionId);
+
+            if (!start.Success || start.Session is null)
+            {
+                room.Status = GamePlayRoomStatus.Closed;
+                room.ClosedUtc = DateTime.UtcNow;
+                await db.SaveChangesAsync(ct);
+                await tx.CommitAsync(ct);
+                return RoomCreateResult.Fail(start.Error ?? "Failed to start room session.");
+            }
+
+            room.NosebleedSessionId = start.Session.Id;
+            room.LastActiveUtc = DateTime.UtcNow;
             await db.SaveChangesAsync(ct);
-            return RoomCreateResult.Fail(start.Error ?? "Failed to start room session.");
+            await tx.CommitAsync(ct);
+
+            return RoomCreateResult.Ok(room, start.Session, diagnostics);
         }
-
-        room.NosebleedSessionId = start.Session.Id;
-        room.LastActiveUtc = DateTime.UtcNow;
-        await db.SaveChangesAsync(ct);
-
-        return RoomCreateResult.Ok(room, start.Session, diagnostics);
+        catch
+        {
+            await tx.RollbackAsync(CancellationToken.None);
+            throw;
+        }
     }
 
     public async Task<RoomJoinResult> JoinByCodeAsync(string rawCode, string viewerId, CancellationToken ct)
@@ -155,6 +166,21 @@ public sealed class GamePlayRoomService(
         }
 
         return await JoinRoomAsync(room, viewerId, ct, allowPlayerOverride: redeemed.ShareLink.GrantMode == RoomShareGrantMode.Player);
+    }
+
+    public async Task<RoomJoinResult> JoinByShareTokenAsync(ProfileShareLink shareLink, UserProfile guest, string viewerId, CancellationToken ct)
+    {
+        var room = await db.GamePlayRooms
+            .Include(x => x.Game)
+            .Include(x => x.GameFile)
+            .FirstOrDefaultAsync(x => x.Id == shareLink.RoomId && x.Status == GamePlayRoomStatus.Active, ct);
+
+        if (room is null)
+        {
+            return RoomJoinResult.Fail("That room is no longer active.");
+        }
+
+        return await JoinRoomAsync(room, viewerId, ct, allowPlayerOverride: shareLink.GrantMode == RoomShareGrantMode.Player);
     }
 
     public async Task<RoomJoinResult> JoinArcadeCabinetAsync(ArcadeCabinet cabinet, NosebleedSession session, string viewerId, CancellationToken ct)

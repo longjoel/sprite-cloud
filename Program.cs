@@ -98,6 +98,7 @@ if (!string.IsNullOrWhiteSpace(configuredPathBase))
 app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Robots-Tag"] = "noindex, nofollow, noarchive";
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
     await next();
 });
 

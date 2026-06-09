@@ -14,14 +14,14 @@ public sealed class ProfileSessionEnforcementMiddleware(RequestDelegate next)
         }
 
         var sessionNonce = currentProfile.GetCurrentSessionNonce();
-        var isValid = await authSessions.ValidateSessionAsync(profileId, sessionNonce, context.RequestAborted);
+        var (isValid, newNonce) = await authSessions.ValidateSessionAsync(profileId, sessionNonce, context.RequestAborted);
         if (!isValid)
         {
             currentProfile.ClearCurrent();
         }
-        else if (!string.IsNullOrWhiteSpace(sessionNonce))
+        else if (!string.IsNullOrWhiteSpace(newNonce))
         {
-            currentProfile.RefreshCurrent(profileId, sessionNonce);
+            currentProfile.SetCurrent(profileId, newNonce);
         }
 
         await next(context);
