@@ -368,20 +368,22 @@ public sealed class ProfileBatterySaveService(AppDbContext db, ProfileGameSaveSt
         var bytes = await ReadAllBytesAsync(content, cancellationToken);
         var sha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
-        var save = await db.ProfileGameSaves
-            .Include(x => x.LatestRevision)
-            .SingleOrDefaultAsync(x => x.ProfileId == profileId
-                && x.GameId == gameId
-                && x.GameFileId == gameFileId
-                && x.CoreKey == normalizedCoreKey
-                && x.Kind == normalizedKind
-                && x.Key == normalizedKey
-                && x.FileName == normalizedFileName,
-                cancellationToken);
-
+        // Query and create inside the transaction to prevent concurrent
+        // creation races (TOCTOU between check and insert).
         using var tx = await db.Database.BeginTransactionAsync(cancellationToken);
         try
         {
+            var save = await db.ProfileGameSaves
+                .Include(x => x.LatestRevision)
+                .SingleOrDefaultAsync(x => x.ProfileId == profileId
+                    && x.GameId == gameId
+                    && x.GameFileId == gameFileId
+                    && x.CoreKey == normalizedCoreKey
+                    && x.Kind == normalizedKind
+                    && x.Key == normalizedKey
+                    && x.FileName == normalizedFileName,
+                    cancellationToken);
+
             if (save is null)
             {
                 save = new ProfileGameSave

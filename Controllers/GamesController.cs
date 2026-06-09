@@ -1499,6 +1499,18 @@ public class GamesController(
         var canPlay = await currentAccess.CanPlaySessionAsync(sessionId, cancellationToken);
         var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow, allowPlayer: canPlay);
         string? token;
+
+        // Touch/create participant DB record for cleanup and presence tracking.
+        var roomId = await db.GamePlayRooms
+            .AsNoTracking()
+            .Where(x => x.NosebleedSessionId == sessionId && x.Status == GamePlayRoomStatus.Active)
+            .Select(x => (int?)x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (roomId is int rid)
+        {
+            await roomService.TouchRoomParticipantSessionAsync(rid, viewerId, seat, cancellationToken);
+        }
+
         if (channel == "input")
         {
             if (!canPlay ||
@@ -1584,6 +1596,18 @@ public class GamesController(
         var canPlay = await currentAccess.CanPlaySessionAsync(sessionId, cancellationToken);
         var seat = nosebleedSeats.Assign(sessionId, viewerId, DateTimeOffset.UtcNow, allowPlayer: canPlay);
         string? token;
+
+        // Touch/create participant DB record for cleanup and presence tracking.
+        var roomId = await db.GamePlayRooms
+            .AsNoTracking()
+            .Where(x => x.NosebleedSessionId == sessionId && x.Status == GamePlayRoomStatus.Active)
+            .Select(x => (int?)x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (roomId is int rid)
+        {
+            await roomService.TouchRoomParticipantSessionAsync(rid, viewerId, seat, cancellationToken);
+        }
+
         if (canPlay && seat.Kind == NosebleedSeatKind.Player && seat.Port is not null)
         {
             token = nosebleedTickets.CreatePlayerToken(sessionId, viewerId, seat.Port.Value);
