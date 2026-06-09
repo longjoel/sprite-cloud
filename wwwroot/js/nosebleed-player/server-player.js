@@ -838,7 +838,10 @@
 
             const response = await fetch(new URL(webrtcSessionUrl, window.location.href).toString(), {
                 method: "POST",
-                headers: { "content-type": "application/json" },
+                headers: { 
+                    "content-type": "application/json",
+                    "X-CSRF-TOKEN": document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? ''
+                },
                 body: JSON.stringify({ type: rtcPeer.localDescription.type, sdp: rtcPeer.localDescription.sdp, video_mode: "track-vp8" })
             });
             if (!response.ok) throw new Error(`webrtc signaling failed: ${response.status}`);
@@ -1118,9 +1121,13 @@
     async function sendSeatKeepAlive() {
         if (!sessionId || !keepAliveUrl) return;
         try {
+            const csrfToken = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
             const response = await fetch(keepAliveUrl, {
                 method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                headers: { 
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "X-CSRF-TOKEN": csrfToken
+                },
                 body: new URLSearchParams({ sessionId }),
                 credentials: "same-origin"
             });

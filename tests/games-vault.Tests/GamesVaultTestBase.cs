@@ -1,7 +1,9 @@
 using games_vault.Data;
+using games_vault.Profiles;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.DataProtection;
 
 namespace games_vault.Tests;
 
@@ -58,5 +60,11 @@ public class GamesVaultTestBase : IAsyncDisposable
     private sealed class TestHttpContextAccessor(HttpContext httpContext) : IHttpContextAccessor
     {
         public HttpContext? HttpContext { get; set; } = httpContext;
+    }
+
+    protected static CurrentProfileService CreateCurrentProfileService(AppDbContext db, IHttpContextAccessor http)
+    {
+        var provider = DataProtectionProvider.Create("GamesVault.Tests");
+        return new CurrentProfileService(db, http, provider);
     }
 }

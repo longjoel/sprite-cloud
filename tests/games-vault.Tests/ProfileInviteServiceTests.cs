@@ -41,7 +41,7 @@ public sealed class ProfileInviteServiceTests
         Assert.False(await profileService.VerifyPasswordAsync(profile.Id, "wrong-password", CancellationToken.None));
         Assert.True((await fixture.Db.ProfileInviteCodes.SingleAsync()).IsUsed);
         Assert.Equal(profile.Id, (await fixture.Db.ProfileInviteCodes.SingleAsync()).UsedByProfileId);
-        Assert.Contains($"{CurrentProfileService.CookieName}={profile.Id}", fixture.HttpContext.Response.Headers.SetCookie.ToString());
+        Assert.Contains(CurrentProfileService.CookieName, fixture.HttpContext.Response.Headers.SetCookie.ToString());
     }
 
     [Fact]

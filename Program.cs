@@ -26,6 +26,10 @@ builder.Services.AddControllersWithViews(options =>
 {
     options.Filters.Add<CurrentProfileViewDataFilter>();
 });
+builder.Services.AddAntiforgery(options =>
+{
+    options.HeaderName = "X-CSRF-TOKEN";
+});
 builder.Services.AddDbContext<games_vault.Data.AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddBackgroundJobs();

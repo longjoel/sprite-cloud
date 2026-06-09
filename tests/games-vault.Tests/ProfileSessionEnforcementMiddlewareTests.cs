@@ -130,10 +130,10 @@ public sealed class ProfileSessionEnforcementMiddlewareTests
             new ProfileAuthSessionService(fixture.Db, fixture.HttpContextAccessor));
 
         var setCookie = fixture.HttpContext.Response.Headers.SetCookie.ToString();
-        Assert.Contains($"{CurrentProfileService.CookieName}={profile.Id}", setCookie);
+        Assert.Contains(CurrentProfileService.CookieName, setCookie);
         Assert.Contains($"{CurrentProfileService.SessionCookieName}=valid-session", setCookie);
         Assert.Contains("expires=", setCookie, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("max-age=31536000", setCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("max-age=2592000", setCookie, StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<TestFixture> CreateFixtureAsync()
