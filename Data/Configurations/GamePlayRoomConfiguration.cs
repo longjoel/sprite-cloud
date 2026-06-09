@@ -8,7 +8,7 @@ public class GamePlayRoomConfiguration : IEntityTypeConfiguration<GamePlayRoom>
 {
     public void Configure(EntityTypeBuilder<GamePlayRoom> entity)
     {
-        entity.Property(x => x.Code).HasMaxLength(4);
+        entity.Property(x => x.Code).HasMaxLength(6);
         entity.Property(x => x.NosebleedSessionId).HasMaxLength(200);
 
         entity.HasOne(x => x.Game)

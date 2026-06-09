@@ -74,7 +74,7 @@ public sealed class ArcadeControllerTests
         var redirect = Assert.IsType<RedirectToRouteResult>(result);
         Assert.Equal("ArcadeRoom", redirect.RouteName);
         Assert.NotNull(redirect.RouteValues);
-        Assert.True(redirect.RouteValues!["code"] is string code && code.Length == 4);
+        Assert.True(redirect.RouteValues!["code"] is string code && code.Length == 6);
     }
 
     [Fact]
@@ -153,7 +153,7 @@ public sealed class ArcadeControllerTests
         var redirect = Assert.IsType<RedirectToRouteResult>(result);
         Assert.Equal("ArcadeRoom", redirect.RouteName);
         Assert.NotNull(redirect.RouteValues);
-        Assert.True(redirect.RouteValues!["code"] is string code && code.Length == 4);
+        Assert.True(redirect.RouteValues!["code"] is string code && code.Length == 6);
 
         fixture.Db.ChangeTracker.Clear();
         var persisted = await fixture.Db.ArcadeCabinets.AsNoTracking().SingleAsync(x => x.Id == fixture.Cabinet.Id);

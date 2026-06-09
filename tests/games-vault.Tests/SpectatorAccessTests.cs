@@ -148,7 +148,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
         var otherSessionId = "games-vault-other-session";
         var otherRoom = new GamePlayRoom
         {
-            Code = "WXYZ",
+            Code = "WXYZAB",
             GameId = otherGame.Id,
             GameFileId = otherFile.Id,
             CreatedByProfileId = profile.Id,
@@ -381,12 +381,12 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
 
         var controller = fixture.CreateGamesController();
         controller.ControllerContext.RouteData = new Microsoft.AspNetCore.Routing.RouteData();
-        controller.ControllerContext.RouteData.Values["code"] = "ZZZZ";
-        var result = await controller.PlayServer(fixture.Game.Id, "ZZZZ", cancellationToken: CancellationToken.None);
+        controller.ControllerContext.RouteData.Values["code"] = "ZZZZ99";
+        var result = await controller.PlayServer(fixture.Game.Id, "ZZZZ99", cancellationToken: CancellationToken.None);
 
         var redirect = Assert.IsType<RedirectToActionResult>(result);
         Assert.Equal(nameof(GamesController.Index), redirect.ActionName);
-        Assert.Equal("No active room found for that code.", controller.TempData["Message"]);
+        Assert.Equal("Session code must be exactly 6 letters.", controller.TempData["Message"]);
     }
 
     [Fact]
@@ -474,7 +474,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
         var otherSessionId = "games-vault-other-share-session";
         var otherRoom = new GamePlayRoom
         {
-            Code = "QWER",
+            Code = "QWERTY",
             GameId = otherGame.Id,
             GameFileId = otherFile.Id,
             CreatedByProfileId = host.Id,
@@ -654,7 +654,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
 
             var room = new GamePlayRoom
             {
-                Code = "ABCD",
+                Code = "ABCDEF",
                 GameId = game.Id,
                 GameFileId = file.Id,
                 Status = GamePlayRoomStatus.Active,
