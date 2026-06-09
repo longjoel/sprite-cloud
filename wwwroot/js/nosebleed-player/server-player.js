@@ -443,7 +443,10 @@
         // Use target aspect ratio (from system mapping) instead of raw
         // video dimensions — the server sends native pixel data which may
         // not be at the correct display aspect ratio.
-        const targetAR = (SYSTEM_ASPECT_RATIOS[systemName] || DEFAULT_ASPECT_RATIO)
+        const sys = document.querySelector("meta[name=\"game-system\"]")?.content
+            || document.querySelector("[data-game-system]")?.dataset.gameSystem
+            || "";
+        const targetAR = (SYSTEM_ASPECT_RATIOS[sys] || DEFAULT_ASPECT_RATIO)
             .split(" / ").map(Number);
         const targetW = targetAR[0];
         const targetH = targetAR[1];
