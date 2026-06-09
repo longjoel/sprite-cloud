@@ -4,13 +4,37 @@ using games_vault.Data;
 using games_vault.Models;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace games_vault.Profiles;
 
-public sealed class ProfileShareLinkService(AppDbContext db, LocalProfileService localProfiles)
+public sealed class ProfileShareLinkService(AppDbContext db, LocalProfileService localProfiles, IMemoryCache cache)
 {
     private static readonly TimeSpan DefaultLifetime = TimeSpan.FromHours(12);
     private static readonly TimeSpan RedeemSessionLifetime = TimeSpan.FromHours(1);
+    private const int MaxGuestCreationsPerRoomPerHour = 10;
+
+    private void CheckGuestCreationRateLimit(int roomId)
+    {
+        var cacheKey = $"guest-creation-rate:{roomId}";
+        var count = cache.GetOrCreate(cacheKey, entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1);
+            entry.SlidingExpiration = TimeSpan.FromMinutes(10);
+            return 0;
+        });
+
+        if (count >= MaxGuestCreationsPerRoomPerHour)
+        {
+            throw new InvalidOperationException("Too many guest profiles created for this room in the last hour. Please try again later.");
+        }
+
+        cache.Set(cacheKey, count + 1, new MemoryCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1),
+            SlidingExpiration = TimeSpan.FromMinutes(10)
+        });
+    }
 
     public async Task<ProfileShareLinkCreateResult> CreateAsync(int roomId, int createdByProfileId, RoomShareGrantMode grantMode, CancellationToken ct)
     {
@@ -80,6 +104,8 @@ public sealed class ProfileShareLinkService(AppDbContext db, LocalProfileService
         {
             throw new InvalidOperationException("Parent profile was not found.");
         }
+
+        CheckGuestCreationRateLimit(shareLink.RoomId);
 
         var guestDisplayName = BuildGuestDisplayName(parent.DisplayName);
         var guest = await localProfiles.CreateGuestChildAsync(parent.Id, guestDisplayName, parent.Color, ct, shareLink.Id);
@@ -196,6 +222,8 @@ public sealed class ProfileShareLinkService(AppDbContext db, LocalProfileService
         {
             throw new InvalidOperationException("Parent profile was not found.");
         }
+
+        CheckGuestCreationRateLimit(shareLink.RoomId);
 
         var guestDisplayName = BuildGuestDisplayName(parent.DisplayName);
         var guest = await localProfiles.CreateGuestChildAsync(parent.Id, guestDisplayName, parent.Color, ct, shareLink.Id);

@@ -95,6 +95,12 @@ public sealed class ProfilesController(
     [RateLimit(permitLimit: 10, windowSeconds: 60)]
     public async Task<IActionResult> SignIn(string username, string password, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(username))
+        {
+            TempData["Error"] = "Invalid username or password.";
+            return RedirectToAction(nameof(Index));
+        }
+
         if (await localProfiles.SignInAsync(username, password, cancellationToken))
         {
             TempData["Message"] = "Profile selected.";

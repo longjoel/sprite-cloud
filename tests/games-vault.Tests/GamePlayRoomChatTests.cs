@@ -1,4 +1,5 @@
 using games_vault.Data;
+using Microsoft.Extensions.Caching.Memory;
 using games_vault.Gameplay;
 using games_vault.Models;
 using games_vault.Profiles;
@@ -149,7 +150,7 @@ public sealed class GamePlayRoomChatTests
             null!,
             currentAccess,
             currentProfile,
-            new ProfileShareLinkService(db, new LocalProfileService(db, currentProfile)));
+            new ProfileShareLinkService(db, new LocalProfileService(db, currentProfile), new MemoryCache(new MemoryCacheOptions())));
     }
 
     private static async Task<TestFixture> CreateFixtureAsync()

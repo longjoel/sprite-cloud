@@ -107,6 +107,11 @@
     let rtcTrackAudioReady = false;
     let playbackDeferred = false;
     let inputSeq = 0;
+    /** Auto-reconnect state */
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 10;
+    let reconnectTimer = null;
+    let intentionalDisconnect = false;
     let inputTimer = 0;
     /** @type {Worker|null} */
     let gamepadWorker = null;
@@ -746,6 +751,7 @@
                 setPlayerHealth("Controller offline", "bad");
                 showTransientPlayerEvent("Controller socket disconnected.", "bad", 3200, "Connection issue");
                 stopInputLoop();
+                scheduleReconnect();
             };
         } else {
             updateChip(chips.input, "Spectator", "warn");
@@ -905,7 +911,37 @@
         saveVideoPreferences();
         setStatus(message, "good");
         showTransientPlayerEvent(message, "good", 2400, "Stream updated");
+        clearReconnect();
         connect().catch(() => { });
+    }
+
+    function clearReconnect() {
+        intentionalDisconnect = true;
+        reconnectAttempts = 0;
+        if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+        }
+    }
+
+    function scheduleReconnect() {
+        if (intentionalDisconnect) {
+            intentionalDisconnect = false;
+            return;
+        }
+        if (reconnectAttempts >= maxReconnectAttempts) {
+            setStatus("Max reconnect attempts reached. Click Connect to retry.", "bad");
+            return;
+        }
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000) + Math.round(Math.random() * 1000);
+        reconnectAttempts++;
+        setStatus(`Reconnecting in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts}/${maxReconnectAttempts})…`, "warn");
+        reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            if (!intentionalDisconnect) {
+                connect().catch(() => scheduleReconnect());
+            }
+        }, delay);
     }
 
     function fitCanvasToShell() {
@@ -1765,6 +1801,7 @@
     });
 
     connectButton?.addEventListener("click", () => {
+        clearReconnect();
         wakePlayerChrome(3200);
         showTransientPlayerPrompt("Reconnecting…", 1700);
         startPlayback();

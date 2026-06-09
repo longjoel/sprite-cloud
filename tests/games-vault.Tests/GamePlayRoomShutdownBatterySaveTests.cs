@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft.Extensions.Caching.Memory;
 using System.Reflection;
 using games_vault.Data;
 using games_vault.Gameplay;
@@ -291,7 +292,7 @@ public sealed class GamePlayRoomShutdownBatterySaveTests
             ticketSigner,
             currentAccess,
             currentProfile,
-            new ProfileShareLinkService(db, new LocalProfileService(db, currentProfile)),
+            new ProfileShareLinkService(db, new LocalProfileService(db, currentProfile), new MemoryCache(new MemoryCacheOptions())),
             new BatterySavePolicyResolver(),
             runtimeSyncService);
 

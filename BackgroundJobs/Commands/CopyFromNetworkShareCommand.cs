@@ -65,7 +65,7 @@ public sealed class CopyFromNetworkShareCommand(
 
                 lastP = p;
                 lastWriteUtc = now;
-                context.SetProgressPermilleAsync(p, cancellationToken).GetAwaiter().GetResult();
+                Task.Run(() => context.SetProgressPermilleAsync(p, cancellationToken)).GetAwaiter().GetResult();
             });
             await smb.CopyFileToAsync(
                 share,
