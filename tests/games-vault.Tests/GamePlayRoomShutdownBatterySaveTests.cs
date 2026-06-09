@@ -142,7 +142,8 @@ public sealed class GamePlayRoomShutdownBatterySaveTests
                 new ConfigurationBuilder().Build(),
                 accessor,
                 fixture.Db,
-                new EphemeralDataProtectionProvider()),
+                new EphemeralDataProtectionProvider(),
+                NullLogger<CurrentAccessService>.Instance),
             new TestHttpClientFactory())
         {
             ControllerContext = new ControllerContext { HttpContext = httpContext }
@@ -252,7 +253,7 @@ public sealed class GamePlayRoomShutdownBatterySaveTests
         httpContext.Request.Headers.Cookie = $"{CurrentProfileService.CookieName}={profile.Id}";
         var accessor = new TestHttpContextAccessor(httpContext);
         var currentProfile = new CurrentProfileService(db, accessor);
-        var currentAccess = new CurrentAccessService(currentProfile, new ConfigurationBuilder().Build(), accessor, db, new EphemeralDataProtectionProvider());
+        var currentAccess = new CurrentAccessService(currentProfile, new ConfigurationBuilder().Build(), accessor, db, new EphemeralDataProtectionProvider(), NullLogger<CurrentAccessService>.Instance);
 
         var nosebleedOptions = Options.Create(new NosebleedOptions
         {

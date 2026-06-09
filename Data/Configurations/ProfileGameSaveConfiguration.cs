@@ -17,17 +17,17 @@ public class ProfileGameSaveConfiguration : IEntityTypeConfiguration<ProfileGame
         entity.HasOne(x => x.Profile)
             .WithMany()
             .HasForeignKey(x => x.ProfileId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.Restrict);
 
         entity.HasOne(x => x.Game)
             .WithMany()
             .HasForeignKey(x => x.GameId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.Restrict);
 
         entity.HasOne(x => x.GameFile)
             .WithMany()
             .HasForeignKey(x => x.GameFileId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.Restrict);
 
         entity.HasOne(x => x.LatestRevision)
             .WithMany()

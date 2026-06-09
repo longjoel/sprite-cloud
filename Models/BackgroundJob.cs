@@ -45,4 +45,7 @@ public class BackgroundJob
     public DateTime? CompletedUtc { get; set; }
 
     public DateTime? UpdatedUtc { get; set; }
+
+    [Timestamp]
+    public byte[]? ConcurrencyToken { get; set; }
 }

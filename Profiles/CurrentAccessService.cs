@@ -9,7 +9,8 @@ public sealed class CurrentAccessService(
     IConfiguration configuration,
     IHttpContextAccessor httpContextAccessor,
     games_vault.Data.AppDbContext db,
-    IDataProtectionProvider dataProtection)
+    IDataProtectionProvider dataProtection,
+    ILogger<CurrentAccessService> logger)
 {
     public const string AdminCookieName = "gv.admin";
     private readonly IDataProtector _adminCookieProtector = dataProtection.CreateProtector("GamesVault.AdminCookie");
@@ -98,6 +99,7 @@ public sealed class CurrentAccessService(
     {
         if (configuration.GetValue("Access:AdminAlways", false))
         {
+            logger.LogWarning("Access:AdminAlways is ENABLED. All requests will be treated as admin. This should ONLY be active in development environments.");
             return true;
         }
 
