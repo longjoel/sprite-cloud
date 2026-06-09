@@ -69,7 +69,15 @@ public sealed class ProfileAuthSessionService(
         }
 
         authSession.LastSeenUtc = DateTime.UtcNow;
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Another request updated this session concurrently — the write we
+            // attempted is lost, but the session is still valid. Return true.
+        }
         return true;
     }
 
