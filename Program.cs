@@ -99,6 +99,16 @@ app.Use(async (context, next) =>
 {
     context.Response.Headers["X-Robots-Tag"] = "noindex, nofollow, noarchive";
     context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    context.Response.Headers["X-Frame-Options"] = "DENY";
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["Content-Security-Policy"] =
+        "default-src 'self'; " +
+        "script-src 'self' 'unsafe-inline'; " +
+        "style-src 'self' 'unsafe-inline'; " +
+        "img-src 'self' data:; " +
+        "frame-ancestors 'none'; " +
+        "connect-src 'self' ws: wss:; " +
+        "media-src 'self';";
     await next();
 });
 

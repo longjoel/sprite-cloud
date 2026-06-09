@@ -150,7 +150,7 @@ public sealed class GamePlayRoomService(
         var code = NormalizeCode(rawCode);
         if (code is null)
         {
-            return RoomJoinResult.Fail("Session code must be exactly 4 letters.");
+            return RoomJoinResult.Fail("Session code must be exactly 6 letters.");
         }
 
         var room = await db.GamePlayRooms
@@ -651,8 +651,8 @@ public sealed class GamePlayRoomService(
             return null;
         }
 
-        var normalized = new string(code.Trim().ToUpperInvariant().Where(char.IsLetter).ToArray());
-        return normalized.Length == 4 ? normalized : null;
+        var normalized = new string(code.Trim().ToUpperInvariant().Where(c => c >= 'A' && c <= 'Z').ToArray());
+        return normalized.Length == 6 ? normalized : null;
     }
 
     public async Task<RoomChatPostResult> AddChatMessageAsync(int roomId, string? rawMessage, CancellationToken ct)

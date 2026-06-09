@@ -13,7 +13,7 @@ public sealed class GamePlayRoom
     public int Id { get; set; }
 
     [Required]
-    [StringLength(4)]
+    [StringLength(6)]
     public string Code { get; set; } = string.Empty;
 
     public int GameId { get; set; }

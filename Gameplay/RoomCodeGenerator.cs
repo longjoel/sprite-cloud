@@ -6,7 +6,7 @@ public sealed class RoomCodeGenerator
 
     public string NextCode()
     {
-        Span<char> chars = stackalloc char[4];
+        Span<char> chars = stackalloc char[6];
         for (var i = 0; i < chars.Length; i++)
         {
             chars[i] = Alphabet[Random.Shared.Next(Alphabet.Length)];
