@@ -62,6 +62,7 @@ sshpass -p "$VPS_SSH_PASSWORD" ssh -o StrictHostKeyChecking=no "$VPS_SSH_TARGET"
 echo "==> Rsync publish output"
 rsync -az --delete --partial \
   --exclude 'App_Data/' \
+  --exclude 'wwwroot/webplayer/' \
   -e "sshpass -p '$VPS_SSH_PASSWORD' ssh -o StrictHostKeyChecking=no" \
   "$PUBLISH_DIR/" "$VPS_SSH_TARGET:/opt/games-vault/"
 
