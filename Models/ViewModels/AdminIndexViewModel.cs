@@ -15,10 +15,29 @@ public sealed class AdminIndexViewModel
     public int CoreMappingsCount { get; set; }
     public AdminStreamSettingsViewModel StreamSettings { get; set; } = new();
     public IReadOnlyList<NosebleedRuntimeProcessViewModel> NosebleedRuntimeProcesses { get; set; } = [];
+    public IReadOnlyList<AdminRecentGameRow> RecentGames { get; set; } = [];
+    public IReadOnlyList<AdminRecentJobRow> RecentJobs { get; set; } = [];
 }
 
 public sealed class AdminStreamSettingsViewModel
 {
     public string PreferredVideoTransport { get; set; } = "webrtc-track";
-    public string MediaBackend { get; set; } = "legacy";
+    public string MediaBackend { get; set; } = "GStreamer";
+}
+
+public sealed class AdminRecentGameRow
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = "";
+    public string SystemName { get; set; } = "";
+    public DateTime CreatedUtc { get; set; }
+}
+
+public sealed class AdminRecentJobRow
+{
+    public int Id { get; set; }
+    public string Command { get; set; } = "";
+    public string Status { get; set; } = "";
+    public DateTime CreatedUtc { get; set; }
+    public int? ProgressPermille { get; set; }
 }

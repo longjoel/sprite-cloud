@@ -16,8 +16,7 @@ public sealed class ProfilesIndexViewMarkupTests
 
         Assert.Contains("id=\"profiles-hero\"", content);
         Assert.Contains("id=\"profiles-sign-in-required-card\"", content);
-        Assert.Contains("id=\"profiles-why-sign-in-card\"", content);
-        Assert.Contains(">Sign in to play<", content);
+        Assert.Contains(">Sign in<", content);
         Assert.Contains(">Browse first<", content);
     }
 
@@ -29,7 +28,7 @@ public sealed class ProfilesIndexViewMarkupTests
         Assert.Contains("@if (isViewer && Model.Profiles.Count > 0)", content);
         Assert.Contains("id=\"profiles-sign-in-card\"", content);
         Assert.Contains(">Existing profile<", content);
-        Assert.Contains("persistent cookies on this device", content);
+        Assert.Contains("Persistent cookie", content);
     }
 
     [Fact]

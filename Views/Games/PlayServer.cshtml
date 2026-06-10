@@ -24,10 +24,7 @@
     </div>
 </div>
 
-@if (TempData["Message"] is string msg && !string.IsNullOrWhiteSpace(msg))
-{
-    <div class="alert alert-info alert-dismissible fade show" role="alert">@msg<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>
-}
+
 
 @await Html.PartialAsync("~/Views/Games/_BatterySaveModal.cshtml", Model)
 

@@ -58,7 +58,7 @@ public sealed class GamesIndexViewMarkupTests
         Assert.DoesNotContain("dropdown-menu", bankContent);
         Assert.DoesNotContain(">Actions<", bankContent);
         Assert.Contains("<div class=\"games-primary-actions d-flex flex-wrap gap-2 mt-auto\">", bankContent);
-        Assert.Contains(">Play</a>", bankContent);
+        Assert.Contains("@(isGuest ? \"Watch\" : \"Play\")", bankContent);
     }
 
     [Fact]

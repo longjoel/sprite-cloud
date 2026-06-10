@@ -81,25 +81,61 @@
     }
 }
 
-@if (TempData["Message"] is string message)
+@* ── Guest Hero — clean, dark, focused ── *@
+@if (Model.CurrentProfileId is null)
 {
-    <div class="alert alert-info alert-dismissible fade show" role="alert">
-        @message
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-    </div>
+    <section class="guest-hero">
+        <div>
+            <h1>Games Vault</h1>
+            <p>Watch live arcades or sign in to play.</p>
+            <div class="d-flex gap-3 justify-content-center">
+                <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#signInModal">Sign in / join</button>
+                <a class="btn btn-outline-secondary" asp-controller="Arcade" asp-action="Index">Watch active machines</a>
+            </div>
+        </div>
+    </section>
+
+    @if (Model.ActiveNosebleedSessions.Count > 0)
+    {
+        <section class="guest-machines">
+            <div class="container">
+                <h2>Running now</h2>
+                <div class="row g-3">
+                    @foreach (var session in Model.ActiveNosebleedSessions)
+                    {
+                        <div class="col-lg-4 col-md-6">
+                            <div class="guest-machine-card" data-nosebleed-preview-card data-preview-url="@Url.Action("NosebleedPreviewVideo", "Home", new { sessionId = session.SessionId })">
+                                <div class="ratio ratio-16x9">
+                                    <canvas data-nosebleed-preview-canvas class="w-100 h-100" style="image-rendering: pixelated;"></canvas>
+                                </div>
+                                <div class="card-body">
+                                    <h3>@(session.ArcadeCabinetName ?? session.GameName)</h3>
+                                    <div class="meta">@(session.IsArcadeCabinet ? "Arcade" : "Library") · @FormatDuration(session.Runtime)</div>
+                                    <div class="mt-2 d-flex gap-2 flex-wrap">
+                                        <a class="btn btn-sm btn-primary" asp-controller="Games" asp-action="PlayServer" asp-route-id="@session.GameId" asp-route-code="@session.RoomCode">Watch</a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </section>
+    }
 }
 
-<div hidden="@(!Model.ShowDashboard)">
+@if (Model.CurrentProfileId is not null && Model.ShowDashboard)
+{
     <section id="home-hero" class="home-hero card border-0 shadow-sm mb-4 overflow-hidden">
         <div class="card-body p-4 p-lg-5">
             <div class="row g-4 align-items-stretch">
                 <div class="col-xl-7">
                     <div class="text-uppercase text-primary-emphasis small fw-semibold mb-2">Games Vault</div>
-                    <h1 class="display-5 mb-3">@(Model.CurrentProfileName is null ? "Your arcade floor and game library in one place." : $"Welcome back, {Model.CurrentProfileName}.")</h1>
+                    <h1 class="display-5 mb-3">@(Model.CurrentProfileName is null ? "Games Vault" : $"Welcome back, {Model.CurrentProfileName}.")</h1>
                     <p class="lead text-muted mb-3">
                         @(Model.CurrentProfileName is null
-                            ? "Browse your collection, watch active machines, and sign in with a player profile when you want to jump into the action."
-                            : "Jump back into the library, watch live cabinets, or keep building out the arcade floor.")
+                            ? "Browse the library, watch live cabinets, or sign in to play."
+                            : "Browse the library, watch live cabinets, or keep building the arcade.")
                     </p>
                     <div class="d-flex gap-2 flex-wrap mb-4">
                         @if (Model.CurrentProfileId is null)
@@ -124,7 +160,7 @@
                             <div class="home-stat-tile rounded-4 border h-100 p-3">
                                 <div class="text-muted small text-uppercase fw-semibold">Access</div>
                                 <div class="h4 mb-1">@FormatAccessLabel(Model.AccessMode)</div>
-                                <div class="small text-muted">@(Model.CurrentProfileName ?? "Sign in to play")</div>
+                                <div class="small text-muted">@(Model.CurrentProfileName ?? "Player")</div>
                             </div>
                         </div>
                         <div class="col-sm-6 col-xl-3">
@@ -207,9 +243,9 @@
             <div>
                 <div class="text-uppercase text-muted small fw-semibold mb-1">Live now</div>
                 <h2 class="h3 mb-1">Active machines</h2>
-                <div class="text-muted">Arcade cabinets and library sessions that people can watch or join right now.</div>
+                <div class="text-muted">Live cabinets and sessions.</div>
             </div>
-            <a class="btn btn-outline-secondary" asp-controller="Arcade" asp-action="Index">Open full arcade floor</a>
+            <a class="btn btn-outline-secondary" asp-controller="Arcade" asp-action="Index">Open arcade</a>
         </div>
         @if (Model.ActiveNosebleedSessions.Count == 0)
         {
@@ -260,13 +296,13 @@
         }
     </section>
 
-</div>
+}
 
-<div class="row" hidden="@(Model.ShowDashboard)">
+<div class="row" hidden="@(Model.CurrentProfileId is null || !Model.ShowDashboard)">
         <div class="col-lg-9">
             <h1 class="display-6 mb-3">Setup</h1>
             <p class="text-muted">
-                Use this page as a quick install/tutorial checklist. Each step queues a background job; monitor progress under
+                Installation checklist. Each step queues a background job; progress under
                 @if (canManageLibrary)
                 {
                     <a asp-controller="Jobs" asp-action="Index">Jobs</a><text>.</text>

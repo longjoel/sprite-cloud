@@ -11,6 +11,7 @@ public class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
         entity.Property(x => x.DisplayName).HasMaxLength(80);
         entity.Property(x => x.Username).HasMaxLength(32);
         entity.Property(x => x.AvatarKey).HasMaxLength(32);
+        entity.Property(x => x.Bio).HasMaxLength(500);
         entity.Property(x => x.Color).HasMaxLength(20);
         entity.Property(x => x.PasskeyUserHandleBase64Url).HasMaxLength(128);
         entity.Property(x => x.PasswordHash).HasMaxLength(256);

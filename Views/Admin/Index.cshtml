@@ -28,100 +28,74 @@
             ? $"{bytes / GiB:0.00} GiB"
             : $"{bytes / MiB:0.0} MiB";
     }
+
+    private static string FormatTimeAgo(DateTime utc)
+    {
+        var delta = DateTime.UtcNow - utc;
+        if (delta.TotalSeconds < 60) return "just now";
+        if (delta.TotalMinutes < 60) return $"{Math.Max(1, (int)delta.TotalMinutes)}m ago";
+        if (delta.TotalHours < 24) return $"{Math.Max(1, (int)delta.TotalHours)}h ago";
+        if (delta.TotalDays < 7) return $"{Math.Max(1, (int)delta.TotalDays)}d ago";
+        return utc.ToLocalTime().ToString("MMM d");
+    }
 }
-
-<section id="admin-backend-hero" class="card border-0 shadow-sm mb-4">
-    <div class="card-body p-4 p-lg-5">
-        <div class="text-uppercase text-primary-emphasis small fw-semibold mb-2">Administrative backend</div>
-        <h1 class="display-6 mb-3">One place for everything behind the curtain.</h1>
-        <p class="lead text-muted mb-0">Use this page for library management, imports, profiles, jobs, runtime operations, and system configuration. Playing, watching, and logging in stay on their own surfaces.</p>
-    </div>
-</section>
-
-<section id="admin-backend-sections" class="row g-3 mb-4">
-    <div class="col-md-6 col-xl-4">
-        <div class="card h-100 shadow-sm border-0">
-            <div class="card-body">
-                <div class="text-uppercase small text-muted fw-semibold mb-2">Library</div>
-                <h2 class="h5">Games and files</h2>
-                <p class="text-muted small">@Model.GamesCount games · @Model.GameFilesCount game files</p>
-                <div class="d-flex gap-2 flex-wrap">
-                    <a class="btn btn-sm btn-primary" asp-controller="Games" asp-action="Index">Manage games</a>
-                    <a class="btn btn-sm btn-outline-secondary" asp-controller="GameFiles" asp-action="Index">Game files</a>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-md-6 col-xl-4">
-        <div class="card h-100 shadow-sm border-0">
-            <div class="card-body">
-                <div class="text-uppercase small text-muted fw-semibold mb-2">Imports</div>
-                <h2 class="h5">Sources and downloads</h2>
-                <p class="text-muted small">@Model.NetworkSharesCount network · @Model.LocalFoldersCount local · @Model.WebSourcesCount web</p>
-                <div class="d-flex gap-2 flex-wrap">
-                    <a class="btn btn-sm btn-primary" asp-controller="Sources" asp-action="Index">Sources</a>
-                    <a class="btn btn-sm btn-outline-secondary" asp-controller="Downloads" asp-action="Index">Downloads</a>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-md-6 col-xl-4">
-        <div class="card h-100 shadow-sm border-0">
-            <div class="card-body">
-                <div class="text-uppercase small text-muted fw-semibold mb-2">Runtime</div>
-                <h2 class="h5">Jobs and Nosebleed</h2>
-                <p class="text-muted small">@Model.JobsQueuedOrRunningCount queued/running jobs · @Model.NosebleedRuntimeProcesses.Count Nosebleed processes</p>
-                <div class="d-flex gap-2 flex-wrap">
-                    <a class="btn btn-sm btn-primary" asp-controller="Jobs" asp-action="Index">Jobs</a>
-                    <a class="btn btn-sm btn-outline-secondary" href="#admin-stream-settings">Stream settings</a>
-                    <a class="btn btn-sm btn-outline-secondary" href="#admin-nosebleed-runtime">Nosebleed survey</a>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-md-6 col-xl-4">
-        <div class="card h-100 shadow-sm border-0">
-            <div class="card-body">
-                <div class="text-uppercase small text-muted fw-semibold mb-2">Profiles</div>
-                <h2 class="h5">Users and invites</h2>
-                <p class="text-muted small">@Model.ProfilesCount active profiles · @Model.ProfileInviteCodesCount invite codes</p>
-                <div class="d-flex gap-2 flex-wrap">
-                    <a class="btn btn-sm btn-primary" asp-controller="Profiles" asp-action="Index">Profiles</a>
-                    <a class="btn btn-sm btn-outline-secondary" asp-controller="Profiles" asp-action="Invites">Invites</a>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="col-md-6 col-xl-4">
-        <div class="card h-100 shadow-sm border-0">
-            <div class="card-body">
-                <div class="text-uppercase small text-muted fw-semibold mb-2">System</div>
-                <h2 class="h5">BIOS and cores</h2>
-                <p class="text-muted small">@Model.SystemFilesCount system files · @Model.CoreMappingsCount core mappings</p>
-                <div class="d-flex gap-2 flex-wrap">
-                    <a class="btn btn-sm btn-primary" asp-controller="SystemFiles" asp-action="Index">System files</a>
-                    <a class="btn btn-sm btn-outline-secondary" asp-controller="SystemCoreMappings" asp-action="Index">Core mappings</a>
-                </div>
-            </div>
-        </div>
-    </div>
-</section>
 
 @if (TempData["AdminMessage"] is string adminMessage && !string.IsNullOrWhiteSpace(adminMessage))
 {
     <div class="alert alert-success" role="status">@adminMessage</div>
 }
 
+@* ── Quick nav ── *@
+<div class="d-flex flex-wrap gap-2 mb-4">
+    <a class="btn btn-sm btn-outline-secondary" href="#admin-library">Library</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#admin-stream-settings">Stream</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#admin-nosebleed-runtime">Nosebleed</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#admin-jobs">Jobs</a>
+    <a class="btn btn-sm btn-primary" asp-controller="Sources" asp-action="Index">Sources</a>
+    <a class="btn btn-sm btn-outline-primary" asp-controller="SystemFiles" asp-action="Index">System files</a>
+    <a class="btn btn-sm btn-outline-primary" asp-controller="SystemCoreMappings" asp-action="Index">Core mappings</a>
+    <a class="btn btn-sm btn-outline-primary" asp-controller="Profiles" asp-action="Index">Profiles</a>
+    <a class="btn btn-sm btn-outline-primary" asp-controller="Profiles" asp-action="Invites">Invites</a>
+    <a class="btn btn-sm btn-outline-primary" asp-controller="Downloads" asp-action="Index">Downloads</a>
+    <a class="btn btn-sm btn-outline-primary" asp-controller="GameFiles" asp-action="Index">Game files</a>
+</div>
+
+@* ── Library overview (inline) ── *@
+<section id="admin-library" class="mb-4">
+    <div class="d-flex justify-content-between align-items-end gap-3 flex-wrap mb-3">
+        <div>
+            <div class="text-uppercase text-muted small fw-semibold mb-1">Library</div>
+            <h2 class="h3 mb-1">Games and files</h2>
+            <div class="text-muted">@Model.GamesCount games · @Model.GameFilesCount game files · @Model.SystemFilesCount system files</div>
+        </div>
+        <a class="btn btn-sm btn-primary" asp-controller="Games" asp-action="Index">Manage games</a>
+    </div>
+
+    @if (Model.RecentGames.Count > 0)
+    {
+        <div class="card border-0 shadow-sm">
+            <div class="card-body">
+                <div class="text-muted small fw-semibold mb-2">Recently added</div>
+                <div class="d-flex flex-wrap gap-2">
+                    @foreach (var game in Model.RecentGames)
+                    {
+                        <a class="btn btn-sm btn-outline-secondary" asp-controller="Games" asp-action="Details" asp-route-id="@game.Id" title="@game.SystemName · @FormatTimeAgo(game.CreatedUtc)">
+                            @game.Name
+                        </a>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+</section>
+
+@* ── Stream settings ── *@
 <section id="admin-stream-settings" class="mb-4">
     <div class="d-flex justify-content-between align-items-end gap-3 flex-wrap mb-3">
         <div>
             <div class="text-uppercase text-muted small fw-semibold mb-1">Runtime configuration</div>
             <h2 class="h3 mb-1">Stream settings</h2>
-            <div class="text-muted">Choose the default transport for new player pages and the ffmpeg encoder used by new Nosebleed sessions.</div>
+            <div class="text-muted">Default video transport for new player pages. Nosebleed always encodes via GStreamer.</div>
         </div>
         <span class="badge text-bg-light">New sessions only</span>
     </div>
@@ -139,9 +113,8 @@
                     <div class="form-text">Use WebSocket frames when a box should skip WebRTC encoding and just push raw/JPEG frames.</div>
                 </div>
                 <div class="col-md-6 col-xl-3">
-                    <label class="form-label" for="streamMediaBackend">Media backend</label>
-                    <input class="form-control" id="streamMediaBackend" type="text" value="@Model.StreamSettings.MediaBackend" readonly />
-                    <div class="form-text">GStreamer is the only media backend supported by Nosebleed.</div>
+                    <label class="form-label">Media backend</label>
+                    <div class="form-control-plaintext text-light">GStreamer <span class="text-muted small">(only available backend)</span></div>
                 </div>
                 <div class="col-12 d-flex justify-content-end">
                     <button type="submit" class="btn btn-primary">Save stream settings</button>
@@ -151,14 +124,14 @@
     </div>
 </section>
 
+@* ── Nosebleed process survey ── *@
 <section id="admin-nosebleed-runtime" class="mb-4">
     <div class="d-flex justify-content-between align-items-end gap-3 flex-wrap mb-3">
         <div>
             <div class="text-uppercase text-muted small fw-semibold mb-1">Runtime operations</div>
             <h2 class="h3 mb-1">Nosebleed process survey</h2>
-            <div class="text-muted">Running Nosebleed processes, linked users, and termination controls.</div>
+            <div class="text-muted">@Model.NosebleedRuntimeProcesses.Count running</div>
         </div>
-        <span class="badge text-bg-light">@Model.NosebleedRuntimeProcesses.Count running</span>
     </div>
 
     @if (Model.NosebleedRuntimeProcesses.Count == 0)
@@ -230,6 +203,67 @@
                                         </form>
                                     }
                                 </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</section>
+
+@* ── Recent jobs ── *@
+<section id="admin-jobs" class="mb-4">
+    <div class="d-flex justify-content-between align-items-end gap-3 flex-wrap mb-3">
+        <div>
+            <div class="text-uppercase text-muted small fw-semibold mb-1">Background jobs</div>
+            <h2 class="h3 mb-1">Recent jobs</h2>
+            <div class="text-muted">@Model.JobsQueuedOrRunningCount queued or running</div>
+        </div>
+        <a class="btn btn-sm btn-outline-secondary" asp-controller="Jobs" asp-action="Index">All jobs</a>
+    </div>
+
+    @if (Model.RecentJobs.Count == 0)
+    {
+        <div class="alert alert-secondary mb-0">No background jobs yet.</div>
+    }
+    else
+    {
+        <div class="card border-0 shadow-sm">
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th scope="col">#</th>
+                            <th scope="col">Command</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Created</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var job in Model.RecentJobs)
+                        {
+                            <tr>
+                                <td><a asp-controller="Jobs" asp-action="Details" asp-route-id="@job.Id">@job.Id</a></td>
+                                <td>@job.Command</td>
+                                <td>
+                                    @if (job.ProgressPermille is int permille)
+                                    {
+                                        <span class="badge text-bg-info">@((permille / 10.0).ToString("0.#"))%</span>
+                                        <span class="small text-muted">@job.Status</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge text-bg-@(job.Status switch {
+                                            "Succeeded" => "success",
+                                            "Failed" => "danger",
+                                            "Running" => "primary",
+                                            "Queued" => "secondary",
+                                            _ => "light"
+                                        })">@job.Status</span>
+                                    }
+                                </td>
+                                <td class="small text-muted">@FormatTimeAgo(job.CreatedUtc)</td>
                             </tr>
                         }
                     </tbody>

@@ -16,6 +16,9 @@ public sealed class UserProfile
     [StringLength(32)]
     public string? AvatarKey { get; set; }
 
+    [StringLength(500)]
+    public string? Bio { get; set; }
+
     [StringLength(20)]
     public string Color { get; set; } = "#0d6efd";
 
