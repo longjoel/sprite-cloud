@@ -208,7 +208,7 @@ public sealed class ArcadeControllerTests
         Assert.True(model.IsArcadeRoom);
         Assert.False(model.ShowRoomControls);
         Assert.Equal("/Arcade", model.LeaveSessionReturnUrl);
-        Assert.True(model.IsSpectator);
+        Assert.False(model.IsSpectator);
         Assert.False(model.CanChat);
 
         fixture.Db.ChangeTracker.Clear();
