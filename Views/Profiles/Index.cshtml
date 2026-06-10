@@ -250,7 +250,7 @@
     </section>
 }
 
-@if (!isViewer)
+@if (canManageLibrary)
 {
     @if (Model.Profiles.Count == 0)
     {

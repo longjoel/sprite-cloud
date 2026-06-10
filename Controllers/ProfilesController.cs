@@ -19,9 +19,13 @@ public sealed class ProfilesController(
     {
         var current = await currentProfile.GetCurrentAsync(cancellationToken);
         var mode = await currentAccess.GetAccessModeAsync(cancellationToken);
+        var canManageLibrary = mode is AccessMode.Admin;
         var now = DateTime.UtcNow;
-        var profiles = await db.UserProfiles.AsNoTracking().Where(x => !x.IsArchived).OrderBy(x => x.DisplayName).ToListAsync(cancellationToken);
-        var profileStats = await db.GamePlaySessions
+        var profiles = canManageLibrary
+            ? await db.UserProfiles.AsNoTracking().Where(x => !x.IsArchived).OrderBy(x => x.DisplayName).ToListAsync(cancellationToken)
+            : [];
+        var profileStats = canManageLibrary
+            ? await db.GamePlaySessions
             .AsNoTracking()
             .Where(x => x.ProfileId != null)
             .GroupBy(x => x.ProfileId!.Value)
@@ -32,7 +36,8 @@ public sealed class ProfilesController(
                 TotalSeconds = g.Sum(x => x.EndedUtc != null ? x.DurationSeconds : 0),
                 LastPlayedUtc = g.Max(x => x.StartedUtc)
             })
-            .ToListAsync(cancellationToken);
+            .ToListAsync(cancellationToken)
+            : [];
         var statsMap = profileStats.ToDictionary(x => x.ProfileId);
         return View(new ProfilesIndexViewModel
         {
