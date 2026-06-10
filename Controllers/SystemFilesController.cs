@@ -1,5 +1,4 @@
 using games_vault.Data;
-using games_vault.BackgroundJobs;
 using games_vault.Libretro;
 using games_vault.Libretro.Dat;
 using games_vault.Libretro.Import;
@@ -17,7 +16,6 @@ public sealed class SystemFilesController(
     AppDbContext db,
     SystemFileStorage storage,
     SystemDatIndexProvider systemDat,
-    IInternalJobsClient internalJobs,
     IWebHostEnvironment env) : Controller
 {
     public async Task<IActionResult> Index(string? q, int page = 1, int pageSize = 50, CancellationToken cancellationToken = default)
@@ -46,21 +44,13 @@ public sealed class SystemFilesController(
             .Take(pageSize)
             .ToListAsync(cancellationToken);
 
-        var recentJobs = await db.BackgroundJobs
-            .AsNoTracking()
-            .Where(x => x.Command == "systemfiles.local" || x.Command == "systemfiles.share")
-            .OrderByDescending(x => x.CreatedUtc)
-            .Take(10)
-            .ToListAsync(cancellationToken);
-
         return View(new SystemFilesIndexViewModel
         {
             Files = files,
             Query = q,
             Page = page,
             PageSize = pageSize,
-            TotalCount = totalCount,
-            RecentJobs = recentJobs
+            TotalCount = totalCount
         });
     }
 
@@ -238,38 +228,6 @@ public sealed class SystemFilesController(
             .ToListAsync(cancellationToken);
 
         return View();
-    }
-
-    [HttpPost]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> StartLocalSourceScan(int localFolderId, string? q, bool overwrite = false, int maxFiles = 50_000, bool onlyMissing = false, CancellationToken cancellationToken = default)
-    {
-        if (localFolderId <= 0)
-        {
-            TempData["Message"] = "Select a local folder.";
-            return RedirectToAction(onlyMissing ? nameof(Missing) : nameof(ImportSource));
-        }
-
-        maxFiles = Math.Clamp(maxFiles, 1, 200_000);
-        var jobId = await internalJobs.EnqueueSystemFilesImportFromLocalFolderAsync(localFolderId, q, overwrite, maxFiles, onlyMissing, cancellationToken);
-        TempData["Message"] = $"Queued system files scan job #{jobId}.";
-        return RedirectToAction(nameof(JobsController.Details), "Jobs", new { id = jobId });
-    }
-
-    [HttpPost]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> StartNetworkSourceScan(int networkShareId, string? q, bool overwrite = false, int maxFiles = 50_000, bool onlyMissing = false, CancellationToken cancellationToken = default)
-    {
-        if (networkShareId <= 0)
-        {
-            TempData["Message"] = "Select a network share.";
-            return RedirectToAction(onlyMissing ? nameof(Missing) : nameof(ImportSource));
-        }
-
-        maxFiles = Math.Clamp(maxFiles, 1, 200_000);
-        var jobId = await internalJobs.EnqueueSystemFilesImportFromNetworkShareAsync(networkShareId, q, overwrite, maxFiles, onlyMissing, cancellationToken);
-        TempData["Message"] = $"Queued system files scan job #{jobId}.";
-        return RedirectToAction(nameof(JobsController.Details), "Jobs", new { id = jobId });
     }
 
     [HttpPost]

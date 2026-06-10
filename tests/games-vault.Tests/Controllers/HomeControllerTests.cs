@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Reflection;
-using games_vault.BackgroundJobs;
 using games_vault.Controllers;
 using games_vault.Gameplay;
 using games_vault.Libretro;
@@ -283,17 +282,14 @@ public sealed class HomeControllerTests : GamesVaultTestBase
         var relayMetrics = new NosebleedRelayMetrics();
         var processInspector = new NosebleedProcessInspector(nosebleedOptions);
 
-        // --- Mock internal jobs client (not used in Index) ---
-        var mockJobs = new Moq.Mock<IInternalJobsClient>();
-
         var controller = new HomeController(
             Db,
-            mockJobs.Object,
             telemetry,
             sessionManager,
             nosebleedTicketSigner,
             relayMetrics,
             processInspector,
+            null!,
             currentProfile,
             currentAccess)
         {

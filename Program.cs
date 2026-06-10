@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using games_vault.Arcade;
-using games_vault.BackgroundJobs;
 using games_vault.Gameplay;
 using Microsoft.Data.Sqlite;
 using games_vault.Libretro;
@@ -32,7 +31,7 @@ builder.Services.AddAntiforgery(options =>
 });
 builder.Services.AddDbContext<games_vault.Data.AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
-builder.Services.AddBackgroundJobs();
+builder.Services.AddSingleton<LibretroDatabaseSyncService>();
 builder.Services.AddHttpClient();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
@@ -179,7 +178,7 @@ await using (var scope = app.Services.CreateAsyncScope())
         }
     }
 
-    // Improve SQLite concurrency for app background jobs and live session activity.
+    // Improve SQLite concurrency for live session activity.
     try
     {
         await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;");
