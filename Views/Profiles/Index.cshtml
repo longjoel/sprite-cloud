@@ -16,14 +16,6 @@
         };
 }
 
-@if (TempData["Message"] is string message && !string.IsNullOrWhiteSpace(message))
-{
-    <div class="alert alert-info alert-dismissible fade show" role="alert">
-        @message
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-    </div>
-}
-
 @if (TempData["Error"] is string error && !string.IsNullOrWhiteSpace(error))
 {
     <div class="alert alert-danger">@error</div>
@@ -33,61 +25,57 @@
     <div class="col-xl-7">
         <section id="profiles-hero" class="home-hero card border-0 shadow-sm overflow-hidden">
             <div class="card-body p-4 p-lg-5">
-                <div class="text-uppercase text-primary-emphasis small fw-semibold mb-2">Profiles</div>
-                <h1 class="display-5 mb-3">@(isViewer ? "Sign in to play. Join with an invite." : "Your arcade identity is active.")</h1>
-                <p class="lead text-muted mb-4">@(isViewer
-                    ? "Viewers can browse and watch. Player profiles unlock game start, room chat, telemetry, and long-term arcade identity."
-                    : "You're already signed in, so this page focuses on your active profile, account controls, and the rest of the vault roster.")</p>
+                @if (isViewer)
+                {
+                    <div class="text-center py-4">
+                        <h1 class="display-5 mb-3">Sign in</h1>
+                        <p class="lead text-muted mb-0" style="max-width:24rem;margin:0 auto;">Enter your username and password.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="text-uppercase text-primary-emphasis small fw-semibold mb-2">Profiles</div>
+                    <h1 class="display-5 mb-3">@(currentProfile?.DisplayName ?? ViewData["CurrentProfileName"] ?? "Profile")</h1>
+                    <p class="lead text-muted mb-4">Profile controls and vault roster.</p>
 
-                <div class="row g-3 mb-4">
-                    <div class="col-sm-4">
-                        <div class="home-stat-tile rounded-4 border h-100 p-3">
-                            <div class="text-muted small text-uppercase fw-semibold">Current mode</div>
-                            <div class="h4 mb-1">@FormatAccessLabel(Model.AccessMode)</div>
-                            <div class="small text-muted">@(isViewer ? "Sign in required for play" : "Signed in")</div>
+                    <div class="row g-3 mb-4">
+                        <div class="col-sm-4">
+                            <div class="home-stat-tile rounded-4 border h-100 p-3">
+                                <div class="text-muted small text-uppercase fw-semibold">Current mode</div>
+                                <div class="h4 mb-1">@FormatAccessLabel(Model.AccessMode)</div>
+                                <div class="small text-muted">Signed in</div>
+                            </div>
                         </div>
-                    </div>
-                    <div class="col-sm-4">
-                        <div class="home-stat-tile rounded-4 border h-100 p-3">
-                            <div class="text-muted small text-uppercase fw-semibold">Profiles</div>
-                            <div class="h4 mb-1">@Model.Profiles.Count</div>
-                            <div class="small text-muted">Available on this vault</div>
+                        <div class="col-sm-4">
+                            <div class="home-stat-tile rounded-4 border h-100 p-3">
+                                <div class="text-muted small text-uppercase fw-semibold">Profiles</div>
+                                <div class="h4 mb-1">@Model.Profiles.Count</div>
+                                <div class="small text-muted">Available on this vault</div>
+                            </div>
                         </div>
-                    </div>
-                    <div class="col-sm-4">
-                        <div class="home-stat-tile rounded-4 border h-100 p-3">
-                            <div class="text-muted small text-uppercase fw-semibold">Invites</div>
-                            <div class="h4 mb-1">@(canManageLibrary ? "Admin" : "Needed")</div>
-                            <div class="small text-muted">Required for registration</div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="d-grid gap-3">
-                    <div id="profiles-sign-in-required-card" class="card border-0 shadow-sm">
-                        <div class="card-body">
-                            <h2 class="h5">Sign in to play</h2>
-                            <p class="text-muted small mb-3">You can still watch active machines and browse the library before signing in, but game start and room participation stay behind a player profile.</p>
-                            <div class="d-flex gap-2 flex-wrap">
-                                <a class="btn btn-outline-secondary" asp-controller="Home" asp-action="Index">Browse first</a>
-                                @if (Model.CurrentProfileId is not null)
-                                {
-                                    <form method="post" asp-action="Clear" class="d-inline">
-                                        @Html.AntiForgeryToken()
-                                        <button class="btn btn-outline-secondary">Sign out</button>
-                                    </form>
-                                }
+                        <div class="col-sm-4">
+                            <div class="home-stat-tile rounded-4 border h-100 p-3">
+                                <div class="text-muted small text-uppercase fw-semibold">Invites</div>
+                                <div class="h4 mb-1">@(canManageLibrary ? "Admin" : "Needed")</div>
+                                <div class="small text-muted">Required for registration</div>
                             </div>
                         </div>
                     </div>
+                }
 
-                    <div id="profiles-why-sign-in-card" class="card border-0 shadow-sm">
+                @if (isViewer)
+                {
+                    <div id="profiles-sign-in-required-card" class="card border-0 shadow-sm">
                         <div class="card-body">
-                            <h2 class="h5">Why sign in?</h2>
-                            <p class="text-muted small mb-0">Keep play history, claim a seat, chat in rooms, and eventually attach saves and high scores to your long-term arcade identity.</p>
+                            <h2 class="h5">Sign in</h2>
+                            <p class="text-muted small mb-3">Watch or browse without signing in. Playing requires a profile.</p>
+                            <div class="d-flex gap-2 flex-wrap">
+                                <a class="btn btn-outline-secondary" asp-controller="Home" asp-action="Index">Browse first</a>
+                            </div>
                         </div>
                     </div>
-                </div>
+                }
+
             </div>
         </section>
     </div>
@@ -119,7 +107,7 @@
                                 }
                             </div>
                             <div class="col-12">
-                                <div class="form-text">Sign-in uses persistent cookies on this device, so you should not need to log in every visit.</div>
+                                <div class="form-text">Persistent cookie — you stay signed in.</div>
                             </div>
                         </form>
                     </div>
@@ -262,26 +250,28 @@
     </section>
 }
 
-@if (Model.Profiles.Count == 0)
+@if (!isViewer)
 {
-    <div class="card border-0 shadow-sm mt-4">
-        <div class="card-body text-center py-5">
-            <h2 class="h4">No profiles yet</h2>
-            <p class="text-muted">Ask an admin for an invite link to create the first player profile.</p>
-            <a class="btn btn-primary" asp-action="Create">Create profile</a>
-        </div>
-    </div>
-}
-else
-{
-    <section class="mt-4">
-        <div class="d-flex justify-content-between align-items-end gap-3 flex-wrap mb-3">
-            <div>
-                <div class="text-uppercase text-muted small fw-semibold mb-1">Available players</div>
-                <h2 class="h3 mb-1">Profiles on this vault</h2>
-                <div class="text-muted">Existing player identities, admin badges, and recent play totals.</div>
+    @if (Model.Profiles.Count == 0)
+    {
+        <div class="card border-0 shadow-sm mt-4">
+            <div class="card-body text-center py-5">
+                <h2 class="h4">No profiles yet</h2>
+                <p class="text-muted">Ask an admin for an invite link to create the first player profile.</p>
+                <a class="btn btn-primary" asp-action="Create">Create profile</a>
             </div>
         </div>
+    }
+    else
+    {
+        <section class="mt-4">
+            <div class="d-flex justify-content-between align-items-end gap-3 flex-wrap mb-3">
+                <div>
+                    <div class="text-uppercase text-muted small fw-semibold mb-1">Available players</div>
+                    <h2 class="h3 mb-1">Profiles on this vault</h2>
+                    <div class="text-muted">Existing player identities, admin badges, and recent play totals.</div>
+                </div>
+            </div>
 
         <div class="row g-3">
             @foreach (var profile in Model.Profiles)
@@ -325,4 +315,5 @@ else
             }
         </div>
     </section>
+    }
 }

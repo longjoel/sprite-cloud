@@ -1,0 +1,35 @@
+@* ── Sign In Modal ── *@
+<div class="modal fade" id="signInModal" tabindex="-1" aria-labelledby="signInModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-0 pb-0">
+                <h2 class="modal-title h5" id="signInModalLabel">Sign in</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form method="post" asp-controller="Profiles" asp-action="SignIn" class="row g-3" autocomplete="off">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="returnUrl" value="@Context.Request.Path" />
+                    <div class="col-12">
+                        <label class="form-label" for="si-username">Username</label>
+                        <input class="form-control" id="si-username" name="username" maxlength="32"
+                               autocapitalize="none" spellcheck="false" required autofocus />
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label" for="si-password">Password</label>
+                        <input class="form-control" id="si-password" name="password" type="password" required />
+                    </div>
+                    <div class="col-12 d-flex gap-2 flex-wrap">
+                        <button class="btn btn-primary flex-fill">Sign in</button>
+                    </div>
+                    <div class="col-12">
+                        <div class="form-text small">
+                            Need an invite?
+                            <a asp-controller="Profiles" asp-action="Create">Create a profile</a>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

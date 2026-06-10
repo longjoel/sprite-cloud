@@ -7,10 +7,7 @@
     var pageSize = Model.PageSize;
 }
 
-@if (TempData["Message"] is string message && !string.IsNullOrWhiteSpace(message))
-{
-    <div class="alert alert-success">@message</div>
-}
+
 
 @if (Model.RecentJobs.Count > 0)
 {

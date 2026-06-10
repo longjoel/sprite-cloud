@@ -4,12 +4,29 @@
 }
 
 <div class="d-flex align-items-center gap-3 mb-4">
-    <span class="rounded-circle d-inline-block" style="width:3rem;height:3rem;background:@Model.Color"></span>
+    @if (!string.IsNullOrWhiteSpace(Model.AvatarKey))
+    {
+        <span class="rounded-circle d-inline-flex align-items-center justify-content-center" style="width:3rem;height:3rem;background:@Model.Color;font-size:1.5rem;">@Model.AvatarKey</span>
+    }
+    else
+    {
+        <span class="rounded-circle d-inline-block" style="width:3rem;height:3rem;background:@Model.Color"></span>
+    }
     <div>
         <h1 class="mb-0">@Model.DisplayName</h1>
         <div class="text-muted">@(Model.IsCurrent ? "Current player profile" : "Player profile")</div>
-        <div class="small text-muted">Username: <code>@("@" + (Model.Username ?? "not set"))</code></div>
+        <div class="small text-muted">Username: <code>@("@")@(Model.Username ?? "not set")</code></div>
+        @if (!string.IsNullOrWhiteSpace(Model.Bio))
+        {
+            <div class="small text-light-emphasis mt-1">@Model.Bio</div>
+        }
     </div>
+    @if (Model.IsCurrent)
+    {
+        <div class="ms-auto">
+            <a class="btn btn-outline-primary btn-sm" asp-action="Edit" asp-route-id="@Model.Id">Edit profile</a>
+        </div>
+    }
 </div>
 
 <div class="row g-3 mb-4">

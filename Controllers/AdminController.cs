@@ -206,7 +206,30 @@ public sealed class AdminController(
                 PreferredVideoTransport = streamSettings.PreferredVideoTransport,
                 MediaBackend = streamSettings.MediaBackend
             },
-            NosebleedRuntimeProcesses = runtimeProcesses
+            NosebleedRuntimeProcesses = runtimeProcesses,
+            RecentGames = await db.Games.AsNoTracking()
+                .OrderByDescending(x => x.CreatedUtc)
+                .Take(8)
+                .Select(x => new AdminRecentGameRow
+                {
+                    Id = x.Id,
+                    Name = x.Name,
+                    SystemName = x.SystemName,
+                    CreatedUtc = x.CreatedUtc
+                })
+                .ToListAsync(cancellationToken),
+            RecentJobs = await db.BackgroundJobs.AsNoTracking()
+                .OrderByDescending(x => x.Id)
+                .Take(10)
+                .Select(x => new AdminRecentJobRow
+                {
+                    Id = x.Id,
+                    Command = x.Command,
+                    Status = x.Status.ToString(),
+                    CreatedUtc = x.CreatedUtc,
+                    ProgressPermille = x.ProgressPermille
+                })
+                .ToListAsync(cancellationToken)
         });
     }
 
@@ -217,10 +240,10 @@ public sealed class AdminController(
         var saved = streamSettingsStore.Save(new NosebleedStreamSettings
         {
             PreferredVideoTransport = model.PreferredVideoTransport,
-            MediaBackend = model.MediaBackend
+            MediaBackend = "GStreamer"
         });
 
-        TempData["AdminMessage"] = $"Stream settings saved. New sessions will use {saved.MediaBackend} backend with {saved.PreferredVideoTransport} transport.";
+        TempData["AdminMessage"] = $"Stream settings saved. New sessions will use GStreamer with {saved.PreferredVideoTransport} transport.";
         return Redirect($"{Url.Action(nameof(Index))}#admin-stream-settings");
     }
 }

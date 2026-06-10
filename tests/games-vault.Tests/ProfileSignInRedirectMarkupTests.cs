@@ -8,8 +8,8 @@ public sealed class ProfileSignInRedirectMarkupTests
         var repoRoot = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
         var controller = File.ReadAllText(Path.Combine(repoRoot, "Controllers", "ProfilesController.cs")).Replace("\r\n", "\n");
 
-        Assert.Contains("public async Task<IActionResult> SignIn(string username, string password", controller);
-        Assert.Contains("return RedirectToAction(\"Index\", \"Home\");", controller);
+        Assert.Contains("public async Task<IActionResult> SignIn(string username, string password, string? returnUrl", controller);
+        Assert.Contains("return RedirectToLocalOrIndex(returnUrl);", controller);
         Assert.DoesNotContain("TempData[\"Message\"] = \"Profile selected.\";\n            return RedirectToAction(nameof(Index));", controller);
     }
 

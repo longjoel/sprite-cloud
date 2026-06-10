@@ -12,16 +12,16 @@
         <div class="text-muted">@game.SystemName</div>
     </div>
     <div class="d-flex gap-2">
-        <a class="btn btn-outline-dark" asp-action="PlayServer" asp-route-id="@game.Id">Play</a>
+        @{
+            var isGuest = ViewData["CurrentProfileId"] is not int;
+        }
+        <a class="btn btn-outline-dark" asp-action="PlayServer" asp-route-id="@game.Id">@(isGuest ? "Watch" : "Play")</a>
         <a class="btn btn-outline-secondary" asp-action="Edit" asp-route-id="@game.Id">Edit</a>
         <a class="btn btn-outline-danger" asp-action="Delete" asp-route-id="@game.Id">Delete</a>
     </div>
 </div>
 
-@if (TempData["Message"] is string message && !string.IsNullOrWhiteSpace(message))
-{
-    <div class="alert alert-success">@message</div>
-}
+
 
 <dl class="row">
     <dt class="col-sm-3">Created</dt>
