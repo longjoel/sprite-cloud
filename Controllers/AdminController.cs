@@ -213,7 +213,6 @@ public sealed class AdminController(
             DownloadsCount = await db.Artifacts.AsNoTracking().CountAsync(cancellationToken),
             ProfilesCount = await db.UserProfiles.AsNoTracking().CountAsync(x => !x.IsArchived, cancellationToken),
             ProfileInviteCodesCount = await db.ProfileInviteCodes.AsNoTracking().CountAsync(cancellationToken),
-            CoreMappingsCount = await db.SystemCoreMappings.AsNoTracking().CountAsync(cancellationToken),
             StreamSettings = new AdminStreamSettingsViewModel
             {
                 PreferredVideoTransport = streamSettings.PreferredVideoTransport,

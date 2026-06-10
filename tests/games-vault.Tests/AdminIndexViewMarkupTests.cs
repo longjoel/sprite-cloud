@@ -41,7 +41,6 @@ public sealed class AdminIndexViewMarkupTests
         Assert.Contains("asp-controller=\"Profiles\" asp-action=\"Index\">Profiles</a>", content);
         Assert.Contains("asp-controller=\"Profiles\" asp-action=\"Invites\">Invites</a>", content);
         Assert.Contains("asp-controller=\"SystemFiles\" asp-action=\"Index\">System files</a>", content);
-        Assert.Contains("asp-controller=\"SystemCoreMappings\" asp-action=\"Index\">Core mappings</a>", content);
         Assert.Contains("asp-controller=\"GameFiles\" asp-action=\"Index\">Game files</a>", content);
         Assert.Contains("asp-controller=\"Jobs\" asp-action=\"Index\">All jobs</a>", content);
     }

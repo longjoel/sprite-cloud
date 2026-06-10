@@ -385,7 +385,6 @@ public sealed class ArcadeControllerTests
             .AddSingleton<IHttpClientFactory, TestHttpClientFactory>()
             .AddSingleton(nosebleedOptions)
             .AddSingleton<SystemCoreMappingResolver>()
-            .AddSingleton<SystemCoreAutomapper>()
             .AddSingleton<Microsoft.Extensions.Logging.ILogger<LibretroCoreInstaller>>(NullLogger<LibretroCoreInstaller>.Instance)
             .AddSingleton<LibretroCoreInstaller>()
             .BuildServiceProvider();
@@ -394,6 +393,7 @@ public sealed class ArcadeControllerTests
             new TestServiceScopeFactory(serviceProvider),
             new NosebleedTicketSigner(nosebleedOptions, NullLogger<NosebleedTicketSigner>.Instance),
             new TestHttpClientFactory(),
+            serviceProvider.GetRequiredService<SystemCoreMappingResolver>(),
             NullLogger<NosebleedSessionManager>.Instance);
 
         return new TestFixture(connection, db, cabinet, accessor, config, nosebleedOptions, sessionManager, serviceProvider, tempRoot);

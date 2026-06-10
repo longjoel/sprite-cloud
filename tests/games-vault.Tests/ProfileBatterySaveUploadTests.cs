@@ -207,6 +207,7 @@ public sealed class ProfileBatterySaveUploadTests
             new EmptyServiceScopeFactory(),
             new NosebleedTicketSigner(Options.Create(new NosebleedOptions()), NullLogger<NosebleedTicketSigner>.Instance),
             new FakeHttpClientFactory(),
+            new SystemCoreMappingResolver(nosebleedOptions),
             NullLogger<NosebleedSessionManager>.Instance);
 
         return new TestFixture(connection, db, storage, fileStorage, accessor, currentProfile, batterySaveService, runtimeSync, policyResolver, sessionManager, contentRoot, profileSaveRoot);

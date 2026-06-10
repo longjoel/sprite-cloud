@@ -1,24 +1,12 @@
-using games_vault.Data;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace games_vault.Nosebleed;
 
-public sealed record DetectedSystemCoreMapping(
-    string SystemName,
-    string? NativeCoreFileName,
-    string? WebPlayerCoreKey,
-    bool IsEnabled,
-    int GameCount)
+public sealed class SystemCoreMappingResolver(IOptions<NosebleedOptions> nosebleedOptions)
 {
-    public bool HasNativeCoreMapping => IsEnabled && !string.IsNullOrWhiteSpace(NativeCoreFileName);
-}
+    private readonly NosebleedOptions _options = nosebleedOptions.Value ?? new NosebleedOptions();
 
-public sealed class SystemCoreMappingResolver(AppDbContext db, IOptions<NosebleedOptions> nosebleedOptions)
-{
-    private readonly NosebleedOptions _nosebleedOptions = nosebleedOptions.Value ?? new NosebleedOptions();
-
-    public async Task<string?> ResolveNativeCoreAsync(string systemName, CancellationToken cancellationToken = default)
+    public string? ResolveNativeCore(string systemName)
     {
         if (string.IsNullOrWhiteSpace(systemName))
         {
@@ -26,50 +14,37 @@ public sealed class SystemCoreMappingResolver(AppDbContext db, IOptions<Noseblee
         }
 
         var normalized = systemName.Trim();
-        var mapping = await db.SystemCoreMappings
-            .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.SystemName == normalized && x.IsEnabled, cancellationToken);
 
-        if (!string.IsNullOrWhiteSpace(mapping?.NativeCoreFileName))
+        // Check appsettings fallback first
+        if (_options.SystemCores.TryGetValue(normalized, out var configured) &&
+            !string.IsNullOrWhiteSpace(configured))
         {
-            return mapping.NativeCoreFileName.Trim();
+            return configured.Trim();
         }
 
-        return _nosebleedOptions.SystemCores.TryGetValue(normalized, out var fallback) && !string.IsNullOrWhiteSpace(fallback)
-            ? fallback.Trim()
-            : null;
+        // Look up from built-in compatibility catalog
+        var entry = CoreCompatibilityCatalog.Find(normalized);
+        if (entry is not null)
+        {
+            return entry.NativeCoreFileName;
+        }
+
+        return null;
     }
 
-    public async Task<IReadOnlyList<DetectedSystemCoreMapping>> GetDetectedSystemsAsync(CancellationToken cancellationToken = default)
+    public IReadOnlyList<string> GetInstalledNativeCores()
     {
-        var systems = await db.Games
-            .AsNoTracking()
-            .GroupBy(g => g.SystemName)
-            .Select(g => new { SystemName = g.Key, GameCount = g.Count() })
-            .OrderBy(x => x.SystemName)
-            .ToListAsync(cancellationToken);
-
-        var mappings = await db.SystemCoreMappings
-            .AsNoTracking()
-            .ToDictionaryAsync(x => x.SystemName, StringComparer.OrdinalIgnoreCase, cancellationToken);
-
-        return systems.Select(system =>
+        var root = _options.CoreRoot;
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
         {
-            mappings.TryGetValue(system.SystemName, out var mapping);
-            var nativeCore = mapping?.NativeCoreFileName;
-            if (string.IsNullOrWhiteSpace(nativeCore) &&
-                _nosebleedOptions.SystemCores.TryGetValue(system.SystemName, out var fallback) &&
-                !string.IsNullOrWhiteSpace(fallback))
-            {
-                nativeCore = fallback.Trim();
-            }
+            return [];
+        }
 
-            return new DetectedSystemCoreMapping(
-                system.SystemName,
-                nativeCore,
-                mapping?.WebPlayerCoreKey,
-                mapping?.IsEnabled ?? true,
-                system.GameCount);
-        }).ToList();
+        return Directory.EnumerateFiles(root, "*_libretro.so", SearchOption.TopDirectoryOnly)
+            .Select(Path.GetFileName)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x!)
+            .OrderBy(x => x)
+            .ToList();
     }
 }

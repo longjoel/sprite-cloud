@@ -28,7 +28,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<GamePlaySession> GamePlaySessions => Set<GamePlaySession>();
     public DbSet<global::games_vault.Models.Arcade> Arcades => Set<global::games_vault.Models.Arcade>();
     public DbSet<ArcadeCabinet> ArcadeCabinets => Set<ArcadeCabinet>();
-    public DbSet<SystemCoreMapping> SystemCoreMappings => Set<SystemCoreMapping>();
     public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
     public DbSet<UserProfilePasskey> UserProfilePasskeys => Set<UserProfilePasskey>();
     public DbSet<ProfileInviteCode> ProfileInviteCodes => Set<ProfileInviteCode>();
