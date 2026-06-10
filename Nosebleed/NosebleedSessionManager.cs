@@ -439,20 +439,6 @@ public sealed class NosebleedSessionManager(
         return _options.BaseListenPort + Random.Shared.Next(1000, 5000);
     }
 
-    private IReadOnlyList<string> GetInstalledNativeCores()
-    {
-        if (string.IsNullOrWhiteSpace(_options.CoreRoot) || !Directory.Exists(_options.CoreRoot))
-        {
-            return [];
-        }
-
-        return Directory.EnumerateFiles(_options.CoreRoot, "*_libretro.so", SearchOption.TopDirectoryOnly)
-            .Select(Path.GetFileName)
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Select(x => x!)
-            .ToList();
-    }
-
     private async Task<bool> WaitForHealthAsync(string baseUrl, Process process, CancellationToken cancellationToken)
     {
         var client = httpClientFactory.CreateClient();
