@@ -16,7 +16,7 @@
                 <div class="d-grid gap-2">
                     @if (!string.IsNullOrWhiteSpace(Model.SessionId) && !Model.IsSpectator)
                     {
-                        <form asp-controller="Games" asp-action="FlushServerSessionSave" method="post">
+                        <form asp-controller="Session" asp-action="FlushServerSessionSave" method="post">
                             <input type="hidden" name="roomId" value="@advancedRoomId" />
                             <input type="hidden" name="returnUrl" value="@(Context.Request.Path + Context.Request.QueryString)" />
                             <button type="submit" class="btn btn-outline-warning w-100">Flush save</button>

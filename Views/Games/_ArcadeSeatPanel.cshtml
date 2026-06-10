@@ -15,7 +15,7 @@
     }
     @if (!Model.IsSpectator && !string.IsNullOrWhiteSpace(Model.SessionId))
     {
-        <form asp-controller="Games" asp-action="LeaveServerSession" method="post" class="d-none" id="leave-seat-form">
+        <form asp-controller="Session" asp-action="LeaveServerSession" method="post" class="d-none" id="leave-seat-form">
             <input type="hidden" name="sessionId" value="@Model.SessionId" />
             @if (!string.IsNullOrWhiteSpace(Model.LeaveSessionReturnUrl))
             {
