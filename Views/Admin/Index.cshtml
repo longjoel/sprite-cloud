@@ -47,7 +47,6 @@
 
 @* ── Quick nav ── *@
 <div class="d-flex flex-wrap gap-2 mb-4">
-    <a class="btn btn-sm btn-outline-secondary" href="#admin-library">Library</a>
     <a class="btn btn-sm btn-outline-secondary" href="#admin-stream-settings">Stream</a>
     <a class="btn btn-sm btn-outline-secondary" href="#admin-nosebleed-runtime">Nosebleed</a>
     <a class="btn btn-sm btn-outline-secondary" href="#admin-setup">Setup</a>
@@ -60,34 +59,6 @@
     <a class="btn btn-sm btn-outline-primary" asp-controller="GameFiles" asp-action="Index">Game files</a>
 </div>
 
-@* ── Library overview (inline) ── *@
-<section id="admin-library" class="mb-4">
-    <div class="d-flex justify-content-between align-items-end gap-3 flex-wrap mb-3">
-        <div>
-            <div class="text-uppercase text-muted small fw-semibold mb-1">Library</div>
-            <h2 class="h3 mb-1">Games and files</h2>
-            <div class="text-muted">@Model.GamesCount games · @Model.GameFilesCount game files · @Model.SystemFilesCount system files</div>
-        </div>
-        <a class="btn btn-sm btn-primary" asp-controller="Games" asp-action="Index">Manage games</a>
-    </div>
-
-    @if (Model.RecentGames.Count > 0)
-    {
-        <div class="card border-0 shadow-sm">
-            <div class="card-body">
-                <div class="text-muted small fw-semibold mb-2">Recently added</div>
-                <div class="d-flex flex-wrap gap-2">
-                    @foreach (var game in Model.RecentGames)
-                    {
-                        <a class="btn btn-sm btn-outline-secondary" asp-controller="Games" asp-action="Details" asp-route-id="@game.Id" title="@game.SystemName · @FormatTimeAgo(game.CreatedUtc)">
-                            @game.Name
-                        </a>
-                    }
-                </div>
-            </div>
-        </div>
-    }
-</section>
 
 @* ── Stream settings ── *@
 <section id="admin-stream-settings" class="mb-4">
@@ -95,7 +66,6 @@
         <div>
             <div class="text-uppercase text-muted small fw-semibold mb-1">Runtime configuration</div>
             <h2 class="h3 mb-1">Stream settings</h2>
-            <div class="text-muted">Default video transport for new player pages. Nosebleed always encodes via GStreamer.</div>
         </div>
         <span class="badge text-bg-light">New sessions only</span>
     </div>
@@ -104,17 +74,12 @@
         <div class="card-body">
             <form asp-controller="Admin" asp-action="SaveStreamSettings" method="post" asp-antiforgery="true" class="row g-3">
                 <div class="col-md-6 col-xl-3">
-                    <label class="form-label" for="streamPreferredVideoTransport">Default video transport</label>
+                    <label class="form-label" for="streamPreferredVideoTransport">Video transport</label>
                     <select class="form-select" id="streamPreferredVideoTransport" name="PreferredVideoTransport">
                         <option value="webrtc-track" selected="@(Model.StreamSettings.PreferredVideoTransport == "webrtc-track")">WebRTC media track (VP8)</option>
                         <option value="webrtc" selected="@(Model.StreamSettings.PreferredVideoTransport == "webrtc")">WebRTC data channel</option>
                         <option value="websocket" selected="@(Model.StreamSettings.PreferredVideoTransport == "websocket")">WebSocket frames</option>
                     </select>
-                    <div class="form-text">Use WebSocket frames when a box should skip WebRTC encoding and just push raw/JPEG frames.</div>
-                </div>
-                <div class="col-md-6 col-xl-3">
-                    <label class="form-label">Media backend</label>
-                    <div class="form-control-plaintext text-light">GStreamer <span class="text-muted small">(only available backend)</span></div>
                 </div>
                 <div class="col-12 d-flex justify-content-end">
                     <button type="submit" class="btn btn-primary">Save stream settings</button>
@@ -277,9 +242,9 @@
 <section id="admin-setup" class="mb-4">
     <div class="d-flex justify-content-between align-items-end gap-3 flex-wrap mb-3">
         <div>
-            <div class="text-uppercase text-muted small fw-semibold mb-1">Setup</div>
+            <div class="text-uppercase text-muted small fw-semibold mb-1">Library</div>
             <h2 class="h3 mb-1">Library setup</h2>
-            <div class="text-muted">Installation checklist. Each step queues a background job; progress under <a asp-controller="Jobs" asp-action="Index">Jobs</a>.</div>
+            <div class="text-muted">@Model.GamesCount games · @Model.GameFilesCount game files · @Model.SystemFilesCount system files</div>
         </div>
     </div>
 
@@ -385,22 +350,6 @@
                     <input type="hidden" name="force" value="true" />
                     <button type="submit" class="btn btn-outline-danger">Force re-sync</button>
                 </form>
-            </div>
-        </div>
-    </div>
-
-    @* ── Quick start ── *@
-    <div class="card border-0 shadow-sm">
-        <div class="card-body">
-            <h2 class="h5 mb-2">Quick start</h2>
-            <div class="d-flex gap-2 flex-wrap">
-                <form asp-controller="Home" asp-action="StartInstallAll" method="post" asp-antiforgery="true">
-                    <button type="submit" class="btn btn-success">Run setup jobs</button>
-                </form>
-                <a class="btn btn-outline-secondary" asp-controller="Jobs" asp-action="Index">View jobs</a>
-                <a class="btn btn-outline-secondary" asp-controller="SystemFiles" asp-action="Index">System files</a>
-                <a class="btn btn-outline-secondary" asp-controller="Sources" asp-action="Index">Sources</a>
-                <a class="btn btn-outline-secondary" asp-controller="Games" asp-action="Index">Games</a>
             </div>
         </div>
     </div>
