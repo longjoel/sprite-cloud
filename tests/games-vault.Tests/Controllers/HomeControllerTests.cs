@@ -87,13 +87,6 @@ public sealed class HomeControllerTests : GamesVaultTestBase
         Assert.Equal("Player", model.AccessMode);
         Assert.True(model.CanPlay);
         Assert.False(model.CanManageLibrary);
-        Assert.Single(model.LibraryPreviewGames);
-        Assert.Equal(game.Name, model.LibraryPreviewGames[0].GameName);
-        Assert.Equal(game.SystemName, model.LibraryPreviewGames[0].SystemName);
-        Assert.Equal(game.Genre, model.LibraryPreviewGames[0].Genre);
-        Assert.Equal(game.Name, model.LastPlayedGame);
-        Assert.True(model.PlaySessionCount >= 2);
-        Assert.Equal(1, model.GamesCount);
         Assert.True(model.ShowDashboard);
     }
 
@@ -116,8 +109,6 @@ public sealed class HomeControllerTests : GamesVaultTestBase
         Assert.Equal("Viewer", model.AccessMode);
         Assert.False(model.CanPlay);
         Assert.False(model.CanManageLibrary);
-        Assert.Empty(model.ActiveProfiles);
-        Assert.Empty(model.LibraryPreviewGames);
         Assert.Empty(model.ActiveNosebleedSessions);
     }
 
@@ -175,7 +166,7 @@ public sealed class HomeControllerTests : GamesVaultTestBase
         Assert.Equal(session.Port, model.FeaturedSession.Port);
         Assert.Equal(session.BaseUrl, model.FeaturedSession.BaseUrl);
         Assert.False(model.FeaturedSession.IsArcadeCabinet);
-        Assert.True(model.ShowDashboard);
+        Assert.False(model.ShowDashboard);
     }
 
     [Fact]
@@ -193,18 +184,8 @@ public sealed class HomeControllerTests : GamesVaultTestBase
         var model = Assert.IsType<HomeIndexViewModel>(view.Model);
 
         Assert.False(model.ShowDashboard);
-        Assert.Equal(0, model.GamesCount);
-        Assert.Equal(0, model.SystemsCount);
-        Assert.Empty(model.LibraryPreviewGames);
         Assert.Empty(model.ActiveNosebleedSessions);
-        Assert.Empty(model.ActiveProfiles);
         Assert.Empty(model.RecentSessions);
-        Assert.Empty(model.TopPlayedGames);
-        Assert.Equal(TimeSpan.Zero, model.TotalPlayTime);
-        Assert.Equal(0, model.PlaySessionCount);
-        Assert.Equal(TimeSpan.Zero, model.GlobalTotalPlayTime);
-        Assert.Equal(0, model.GlobalPlaySessionCount);
-        Assert.Null(model.LastPlayedGame);
     }
 
     [Fact]

@@ -21,63 +21,11 @@
         return $"{Math.Max(0, (int)value.TotalSeconds)}s";
     }
 
-    private static string FormatBytes(long bytes)
-    {
-        string[] units = ["B", "KB", "MB", "GB", "TB"];
-        double value = Math.Max(0, bytes);
-        var unit = 0;
-        while (value >= 1024 && unit < units.Length - 1)
-        {
-            value /= 1024;
-            unit++;
-        }
-        return $"{value:0.#} {units[unit]}";
-    }
-
-    private static string ShortId(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return "—";
-        return value.Length <= 18 ? value : value[..18] + "…";
-    }
-
-    private static string FormatTimeAgo(DateTime utc)
-    {
-        var delta = DateTime.UtcNow - utc;
-        if (delta.TotalSeconds < 60) return "just now";
-        if (delta.TotalMinutes < 60) return $"{Math.Max(1, (int)delta.TotalMinutes)}m ago";
-        if (delta.TotalHours < 24) return $"{Math.Max(1, (int)delta.TotalHours)}h ago";
-        if (delta.TotalDays < 7) return $"{Math.Max(1, (int)delta.TotalDays)}d ago";
-        return utc.ToLocalTime().ToString("MMM d");
-    }
-
-    private static string FormatMode(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value)) return "Session";
-        return string.Join(' ', value.Split(['-', '_'], StringSplitOptions.RemoveEmptyEntries)
-            .Select(part => char.ToUpperInvariant(part[0]) + part[1..].ToLowerInvariant()));
-    }
-
     private static string FormatSessionLabel(games_vault.Models.ViewModels.ActiveNosebleedSessionViewModel session)
     {
         return session.IsArcadeCabinet
             ? $"Arcade cabinet · {session.ArcadeCabinetName ?? session.GameName}"
             : "Library session";
-    }
-
-    private static string FormatAccessLabel(string accessMode)
-        => accessMode switch
-        {
-            "Admin" => "Admin",
-            "Player" => "Player",
-            _ => "Viewer"
-        };
-
-    private static string FormatLibraryMeta(games_vault.Models.ViewModels.HomeLibraryPreviewGameViewModel game)
-    {
-        var parts = new List<string> { game.SystemName };
-        if (!string.IsNullOrWhiteSpace(game.Genre)) parts.Add(game.Genre!);
-        if (game.NumberOfPlayers is int players) parts.Add(players == 1 ? "1 player" : $"{players} players");
-        return string.Join(" · ", parts);
     }
 }
 
@@ -126,116 +74,15 @@
 
 @if (Model.CurrentProfileId is not null && Model.ShowDashboard)
 {
-    <section id="home-hero" class="home-hero card border-0 shadow-sm mb-4 overflow-hidden">
-        <div class="card-body p-4 p-lg-5">
-            <div class="row g-4 align-items-stretch">
-                <div class="col-xl-7">
-                    <div class="text-uppercase text-primary-emphasis small fw-semibold mb-2">Games Vault</div>
-                    <h1 class="display-5 mb-3">@(Model.CurrentProfileName is null ? "Games Vault" : $"Welcome back, {Model.CurrentProfileName}.")</h1>
-                    <p class="lead text-muted mb-3">
-                        @(Model.CurrentProfileName is null
-                            ? "Browse the library, watch live cabinets, or sign in to play."
-                            : "Browse the library, watch live cabinets, or keep building the arcade.")
-                    </p>
-                    <div class="d-flex gap-2 flex-wrap mb-4">
-                        @if (Model.CurrentProfileId is null)
-                        {
-                            <a class="btn btn-primary" asp-controller="Profiles" asp-action="Index">Sign in / join</a>
-                            <a class="btn btn-outline-secondary" asp-controller="Arcade" asp-action="Index">Watch active machines</a>
-                        }
-                        else
-                        {
-                            <a class="btn btn-primary" asp-controller="Games" asp-action="Index">Browse games</a>
-                            <a class="btn btn-outline-secondary" asp-controller="Arcade" asp-action="Index">Open arcade</a>
-                        }
-
-                        @if (canManageLibrary)
-                        {
-                            <a class="btn btn-outline-primary" asp-controller="Games" asp-action="Index" asp-route-openAdd="true">Add / import games</a>
-                        }
-                    </div>
-
-                    <div class="row g-3">
-                        <div class="col-sm-6 col-xl-3">
-                            <div class="home-stat-tile rounded-4 border h-100 p-3">
-                                <div class="text-muted small text-uppercase fw-semibold">Access</div>
-                                <div class="h4 mb-1">@FormatAccessLabel(Model.AccessMode)</div>
-                                <div class="small text-muted">@(Model.CurrentProfileName ?? "Player")</div>
-                            </div>
-                        </div>
-                        <div class="col-sm-6 col-xl-3">
-                            <div class="home-stat-tile rounded-4 border h-100 p-3">
-                                <div class="text-muted small text-uppercase fw-semibold">Active machines</div>
-                                <div class="h4 mb-1">@Model.ActiveNosebleedSessions.Count</div>
-                                <div class="small text-muted">@Model.ActiveArcadeCabinets.Count arcade · @Model.ActiveLibrarySessions.Count library</div>
-                            </div>
-                        </div>
-                        <div class="col-sm-6 col-xl-3">
-                            <div class="home-stat-tile rounded-4 border h-100 p-3">
-                                <div class="text-muted small text-uppercase fw-semibold">Library</div>
-                                <div class="h4 mb-1">@Model.GamesCount games</div>
-                                <div class="small text-muted">@Model.SystemsCount systems</div>
-                            </div>
-                        </div>
-                        <div class="col-sm-6 col-xl-3">
-                            <div class="home-stat-tile rounded-4 border h-100 p-3">
-                                <div class="text-muted small text-uppercase fw-semibold">Profiles online</div>
-                                <div class="h4 mb-1">@Model.ActiveProfiles.Count</div>
-                                <div class="small text-muted">Signed in right now</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-xl-5">
-                    <div class="home-feature-card rounded-4 border h-100 p-3 p-lg-4">
-                        <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
-                            <div>
-                                <div class="text-uppercase text-muted small fw-semibold">Featured</div>
-                                <div class="fw-semibold">@(featuredSession is null ? "No live machine yet" : FormatSessionLabel(featuredSession))</div>
-                            </div>
-                            @if (featuredSession is not null)
-                            {
-                                <span class="badge text-bg-primary">Live now</span>
-                            }
-                        </div>
-                        @if (featuredSession is null)
-                        {
-                            <div class="ratio ratio-16x9 rounded-4 overflow-hidden bg-dark border mb-3 d-flex align-items-center justify-content-center">
-                                <div class="text-muted">No active cabinets or sessions.</div>
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="ratio ratio-16x9 rounded-4 overflow-hidden bg-dark border mb-3"
-                                 data-nosebleed-preview-card
-                                 data-preview-url="@Url.Action("NosebleedPreviewVideo", "Home", new { sessionId = featuredSession.SessionId })"
-                                 data-stream-url="@Url.Action("NosebleedPreviewStream", "Home", new { sessionId = featuredSession.SessionId })">
-                                <canvas data-nosebleed-preview-canvas class="w-100 h-100" style="image-rendering: pixelated;"></canvas>
-                            </div>
-                        }
-                        @if (featuredSession is not null)
-                        {
-                            <h2 class="h4 mb-1">@(featuredSession.ArcadeCabinetName ?? featuredSession.GameName)</h2>
-                            <p class="text-muted mb-3">@featuredSession.GameName · runtime @FormatDuration(featuredSession.Runtime)</p>
-                            <div class="d-flex gap-2 flex-wrap">
-                                @if (featuredSession.IsArcadeCabinet && featuredSession.ArcadeCabinetId is not null)
-                                {
-                                    <a class="btn btn-primary" href="@Url.RouteUrl("ArcadeSession", new { sessionId = featuredSession.SessionId })">Open cabinet</a>
-                                }
-                                else if (!string.IsNullOrWhiteSpace(featuredSession.RoomCode))
-                                {
-                                    <a class="btn btn-primary" asp-controller="Games" asp-action="PlayServer" asp-route-id="@featuredSession.GameId" asp-route-code="@featuredSession.RoomCode">Play</a>
-                                }
-                                else
-                                {
-                                    <a class="btn btn-outline-secondary" asp-controller="Games" asp-action="Details" asp-route-id="@featuredSession.GameId">Details</a>
-                                }
-                                <a class="btn btn-outline-secondary" asp-controller="Arcade" asp-action="Index">Arcade floor</a>
-                            </div>
-                        }
-                    </div>
-                </div>
-            </div>
+    <section class="mb-4">
+        <h2 class="h5 mb-3">Continue playing</h2>
+        <div class="d-flex gap-2 flex-wrap">
+            @foreach (var session in Model.RecentSessions.Take(6))
+            {
+                <a class="btn btn-outline-secondary" asp-controller="Games" asp-action="PlayServer" asp-route-id="@session.GameId">
+                    @session.GameName
+                </a>
+            }
         </div>
     </section>
 
@@ -250,7 +97,8 @@
         </div>
         @if (Model.ActiveNosebleedSessions.Count == 0)
         {
-            <div class="alert alert-secondary mb-0">No active machines right now. Start a game from the library or boot a cabinet from Arcade.</div>
+            <p class="text-muted">No active machines right now.</p>
+            <a class="btn btn-primary" asp-controller="Games" asp-action="Index">Browse games</a>
         }
         else if (visibleActiveSessions.Count == 0)
         {
@@ -278,7 +126,7 @@
                                 <div class="mt-auto d-flex gap-2 flex-wrap">
                                     @if (session.IsArcadeCabinet && session.ArcadeCabinetId is not null)
                                     {
-                                        <a class="btn btn-sm btn-primary" href="@Url.RouteUrl("ArcadeSession", new { sessionId = session.SessionId })}">Watch / join</a>
+                                        <a class="btn btn-sm btn-primary" href="@Url.RouteUrl("ArcadeSession", new { sessionId = session.SessionId })">Watch / join</a>
                                     }
                                     else if (!string.IsNullOrWhiteSpace(session.RoomCode))
                                     {
