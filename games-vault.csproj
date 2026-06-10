@@ -14,11 +14,6 @@
     <None Remove="tests/**" />
   </ItemGroup>
 
-  <!-- Exclude SDK-provided Bootstrap/jQuery static web assets; using CDN instead -->
-  <ItemGroup>
-    <StaticWebAsset Remove="@(StaticWebAsset)" Condition="$([System.String]::Copy('%(Identity)').Contains('lib/bootstrap')) or $([System.String]::Copy('%(Identity)').Contains('lib/jquery'))" />
-  </ItemGroup>
-
   <ItemGroup>
     <PackageReference Include="Fido2" Version="4.*" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.1">
