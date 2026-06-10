@@ -694,6 +694,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
                 new TestServiceScopeFactory(),
                 ticketSigner,
                 new TestHttpClientFactory(),
+                new SystemCoreMappingResolver(nosebleedOptions),
                 NullLogger<NosebleedSessionManager>.Instance);
             var seatManager = new NosebleedSeatManager(nosebleedOptions);
 

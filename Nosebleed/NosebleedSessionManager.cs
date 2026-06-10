@@ -13,6 +13,7 @@ public sealed class NosebleedSessionManager(
     IServiceScopeFactory scopeFactory,
     NosebleedTicketSigner ticketSigner,
     IHttpClientFactory httpClientFactory,
+    SystemCoreMappingResolver coreMappingResolver,
     ILogger<NosebleedSessionManager> logger) : IDisposable
 {
     private readonly NosebleedOptions _options = options.Value ?? new NosebleedOptions();
@@ -231,23 +232,20 @@ public sealed class NosebleedSessionManager(
             return NosebleedStartResult.Fail("The requested game file could not be found. It may have been moved or deleted.");
         }
 
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var coreMappingResolver = scope.ServiceProvider.GetRequiredService<SystemCoreMappingResolver>();
-        var coreInstaller = scope.ServiceProvider.GetRequiredService<LibretroCoreInstaller>();
-        var automapper = scope.ServiceProvider.GetRequiredService<SystemCoreAutomapper>();
-        var coreName = await coreMappingResolver.ResolveNativeCoreAsync(systemName, cancellationToken);
+        var coreName = coreMappingResolver.ResolveNativeCore(systemName);
         var coreWasInstalledOnDemand = false;
+        await using var installerScope = scopeFactory.CreateAsyncScope();
+        var coreInstaller = installerScope.ServiceProvider.GetRequiredService<LibretroCoreInstaller>();
         if (string.IsNullOrWhiteSpace(coreName))
         {
             var ensureResult = await coreInstaller.EnsureCoreAvailableAsync(systemName, cancellationToken: cancellationToken);
             if (!ensureResult.Available)
             {
-                return NosebleedStartResult.Fail($"No native core mapping found for '{systemName}'. Admins can configure it under System Core Mappings.");
+                return NosebleedStartResult.Fail($"No native core mapping found for '{systemName}'.");
             }
 
             coreWasInstalledOnDemand = ensureResult.Installed;
-            await automapper.AutoMapDetectedSystemsAsync(GetInstalledNativeCores(), cancellationToken);
-            coreName = await coreMappingResolver.ResolveNativeCoreAsync(systemName, cancellationToken);
+            coreName = coreMappingResolver.ResolveNativeCore(systemName);
             if (string.IsNullOrWhiteSpace(coreName))
             {
                 return NosebleedStartResult.Fail($"No native core mapping found for '{systemName}' after installing the known core.");
