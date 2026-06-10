@@ -1,10 +1,11 @@
 @model games_vault.Models.ViewModels.ProfileEditViewModel
 @{
     ViewData["Title"] = "Create Profile";
+    var avatarOptions = new[] { "🎮", "🕹️", "👾", "🎯", "🎲", "🎪", "🚀", "⭐", "🦊", "🐉", "🦅", "👑", "⚡", "🔥", "💎", "🎨" };
 }
 
 <h1>Create player profile</h1>
-<p class="text-muted">Create a Games Vault profile from an admin invite link and choose the username/password the player will use to sign in.</p>
+<p class="text-muted">Create a profile from an invite link.</p>
 
 <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
 
@@ -36,9 +37,29 @@
             <input class="form-control form-control-color" asp-for="Color" name="color" type="color" value="#0d6efd" />
         </div>
         <div class="mb-3">
+            <label class="form-label">Avatar</label>
+            <div class="d-flex flex-wrap gap-2">
+                @foreach (var emoji in avatarOptions)
+                {
+                    <label class="avatar-option" style="cursor:pointer;padding:0.5rem;border:2px solid transparent;border-radius:0.5rem;font-size:1.5rem;transition:border-color .15s;">
+                        <input type="radio" name="avatarKey" value="@emoji" style="display:none"
+                               onchange="this.parentElement.style.borderColor=this.checked?'var(--bs-primary)':'transparent'" />
+                        <span>@emoji</span>
+                    </label>
+                }
+            </div>
+            <div class="form-text">Pick an icon for your profile.</div>
+            <input type="hidden" name="avatarKey" id="avatarKeyHidden" />
+        </div>
+        <div class="mb-3">
+            <label class="form-label" asp-for="Bio">Bio</label>
+            <textarea class="form-control" asp-for="Bio" name="bio" maxlength="500" rows="3" placeholder="A short bio or status line…"></textarea>
+            <span class="text-danger" asp-validation-for="Bio"></span>
+        </div>
+        <div class="mb-3">
             <label class="form-label" asp-for="InviteCode">Invite code</label>
             <input class="form-control" asp-for="InviteCode" name="inviteCode" maxlength="64" required />
-            <div class="form-text">Use the invite link/code an admin generated. Each invite can create one profile.</div>
+            <div class="form-text">Each invite can create one profile.</div>
         </div>
         <button type="submit" class="btn btn-primary">Create profile</button>
         <a class="btn btn-outline-secondary" asp-action="Index">Cancel</a>
@@ -47,4 +68,17 @@
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
+    <script>
+        document.querySelectorAll('.avatar-option input').forEach(function(radio) {
+            radio.addEventListener('change', function() {
+                document.querySelectorAll('.avatar-option').forEach(function(opt) {
+                    opt.style.borderColor = 'transparent';
+                });
+                if (this.checked) {
+                    this.parentElement.style.borderColor = 'var(--bs-primary)';
+                    document.getElementById('avatarKeyHidden').value = this.value;
+                }
+            });
+        });
+    </script>
 }

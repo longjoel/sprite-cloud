@@ -73,7 +73,7 @@ public sealed class HomeIndexViewMarkupTests
     {
         var content = ReadHomeView();
 
-        Assert.Contains("<div class=\"row\" hidden=\"@(Model.ShowDashboard)\">", content);
+        Assert.Contains("<div class=\"row\" hidden=\"@(Model.CurrentProfileId is null || !Model.ShowDashboard)\">", content);
         Assert.DoesNotContain("\n@else\n{", content);
         Assert.DoesNotContain("\n} else {", content);
         Assert.DoesNotContain("\n}\nelse\n{", content);

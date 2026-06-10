@@ -13,7 +13,7 @@
         @if (Model.Browse.PlayingNow)
         {
             <div class="fw-semibold mb-1">Nothing is being played right now.</div>
-            <div>Clear the playing-now filter to browse the full library, or open the Arcade to start something.</div>
+            <div>Clear the filter to browse the full library.</div>
             <div class="mt-3 d-flex gap-2 flex-wrap">
                 <a class="btn btn-sm btn-primary" asp-controller="Arcade" asp-action="Index">Open arcade</a>
                 <a class="btn btn-sm btn-outline-secondary" asp-action="Index" asp-route-pageSize="@pageSize">Clear filters</a>
@@ -131,7 +131,10 @@ else
                         </div>
 
                         <div class="games-primary-actions d-flex flex-wrap gap-2 mt-auto">
-                            <a class="btn btn-primary" asp-action="PlayServer" asp-route-id="@game.Id">Play</a>
+                            @{
+                                var isGuest = ViewData["CurrentProfileId"] is not int;
+                            }
+                            <a class="btn btn-primary" asp-action="PlayServer" asp-route-id="@game.Id">@(isGuest ? "Watch" : "Play")</a>
                             @if (canManageLibrary)
                             {
                                 <a class="btn btn-outline-secondary" asp-action="Details" asp-route-id="@game.Id">Open details</a>

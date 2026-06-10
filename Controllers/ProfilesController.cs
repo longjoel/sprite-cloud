@@ -75,6 +75,12 @@ public sealed class ProfilesController(
         try
         {
             var profile = await localProfiles.CreateWithInviteAsync(model.DisplayName, model.Username, model.Password, model.Color, model.InviteCode, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(model.AvatarKey) || !string.IsNullOrWhiteSpace(model.Bio))
+            {
+                profile.AvatarKey = model.AvatarKey;
+                profile.Bio = model.Bio;
+                await db.SaveChangesAsync(cancellationToken);
+            }
             TempData["Message"] = $"Created profile for {profile.DisplayName}. You are now signed in as @{profile.Username}.";
             return RedirectToAction(nameof(Details), new { id = profile.Id });
         }
@@ -93,22 +99,31 @@ public sealed class ProfilesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     [RateLimit(permitLimit: 10, windowSeconds: 60)]
-    public async Task<IActionResult> SignIn(string username, string password, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> SignIn(string username, string password, string? returnUrl, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(username))
         {
             TempData["Error"] = "Invalid username or password.";
-            return RedirectToAction(nameof(Index));
+            return RedirectToLocalOrIndex(returnUrl);
         }
 
         if (await localProfiles.SignInAsync(username, password, cancellationToken))
         {
             TempData["Message"] = "Profile selected.";
-            return RedirectToAction("Index", "Home");
+            return RedirectToLocalOrIndex(returnUrl);
         }
 
         TempData["Error"] = "Invalid username or password.";
-        return RedirectToAction(nameof(Index));
+        return RedirectToLocalOrIndex(returnUrl);
+    }
+
+    private static IActionResult RedirectToLocalOrIndex(string? returnUrl)
+    {
+        if (!string.IsNullOrWhiteSpace(returnUrl) && Uri.TryCreate(returnUrl, UriKind.Relative, out var uri))
+        {
+            return new RedirectResult(returnUrl);
+        }
+        return new RedirectToActionResult("Index", "Home", null);
     }
 
     public async Task<IActionResult> Invites(CancellationToken cancellationToken = default)
@@ -189,6 +204,63 @@ public sealed class ProfilesController(
         currentProfile.ClearCurrent();
         TempData["Message"] = "Signed out.";
         return RedirectToAction(nameof(Index));
+    }
+
+    [ServiceFilter(typeof(AdminOnlyFilter))]
+    public async Task<IActionResult> Edit(int id, CancellationToken cancellationToken = default)
+    {
+        var current = await currentProfile.GetCurrentAsync(cancellationToken);
+        var isAdmin = await currentAccess.IsAdminAsync(cancellationToken);
+        if (current?.Id != id && !isAdmin)
+        {
+            return NotFound();
+        }
+
+        var profile = await db.UserProfiles.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == id && !x.IsArchived, cancellationToken);
+        if (profile is null) return NotFound();
+
+        return View(new ProfileSettingsViewModel
+        {
+            Id = profile.Id,
+            DisplayName = profile.DisplayName,
+            Color = profile.Color,
+            AvatarKey = profile.AvatarKey,
+            Bio = profile.Bio
+        });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Edit(ProfileSettingsViewModel model, CancellationToken cancellationToken = default)
+    {
+        var current = await currentProfile.GetCurrentAsync(cancellationToken);
+        var isAdmin = await currentAccess.IsAdminAsync(cancellationToken);
+        if (current?.Id != model.Id && !isAdmin)
+        {
+            return Forbid();
+        }
+
+        if (!ModelState.IsValid)
+        {
+            return View(model);
+        }
+
+        var profile = await db.UserProfiles.FirstOrDefaultAsync(x => x.Id == model.Id && !x.IsArchived, cancellationToken);
+        if (profile is null) return NotFound();
+
+        var normalizedName = PasskeyService.NormalizeDisplayName(model.DisplayName);
+        var normalizedColor = PasskeyService.NormalizeColor(model.Color);
+
+        profile.DisplayName = normalizedName;
+        profile.Color = normalizedColor;
+        profile.AvatarKey = model.AvatarKey;
+        profile.Bio = model.Bio;
+        profile.UpdatedUtc = DateTime.UtcNow;
+
+        await db.SaveChangesAsync(cancellationToken);
+        TempData["Message"] = "Profile updated.";
+        return RedirectToAction(nameof(Details), new { id = model.Id });
     }
 
     [ServiceFilter(typeof(AdminOnlyFilter))]
@@ -333,6 +405,8 @@ public sealed class ProfilesController(
             Id = profile.Id,
             DisplayName = profile.DisplayName,
             Username = profile.Username,
+            AvatarKey = profile.AvatarKey,
+            Bio = profile.Bio,
             Color = profile.Color,
             IsCurrent = current?.Id == profile.Id,
             SessionCount = sessions.Count,

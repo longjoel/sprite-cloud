@@ -15,10 +15,7 @@
     </div>
 </div>
 
-@if (TempData["Message"] is string message && !string.IsNullOrWhiteSpace(message))
-{
-    <div class="alert alert-info">@message</div>
-}
+
 
 <div asp-validation-summary="ModelOnly" class="alert alert-danger"></div>
 

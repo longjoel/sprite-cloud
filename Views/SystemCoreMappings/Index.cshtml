@@ -7,7 +7,7 @@
 <div class="d-flex align-items-center justify-content-between gap-3 mb-3">
     <div>
         <h1 class="h3 mb-1">System Core Mappings</h1>
-        <p class="text-muted mb-0">Map imported game systems to native Nosebleed libretro cores. Appsettings mappings are used as fallback/bootstrap defaults.</p>
+        <p class="text-muted mb-0">Map game systems to Nosebleed libretro cores. Appsettings mappings are bootstrap defaults.</p>
     </div>
     <form method="post" asp-action="AutoMap">
         @Html.AntiForgeryToken()
@@ -16,7 +16,7 @@
 </div>
 
 <div class="alert alert-info">
-    Manual core selection uses the installed <code>*_libretro.so</code> files currently present under the configured Nosebleed core directory. The compatibility catalog is only used for automap/install suggestions, not to limit what you can select.
+    Core selection is limited to installed <code>*_libretro.so</code> files under the Nosebleed core directory. The compatibility catalog only suggests automap targets.
 </div>
 
 @if (Model.InstalledNativeCores.Count == 0)

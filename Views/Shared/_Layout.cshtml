@@ -5,13 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"] - games_vault</title>
     <script type="importmap"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/games_vault.styles.css" asp-append-version="true" />
+    <style>
+        /* Prevent FOUC — hide page until fonts load */
+        html { font-family: 'Inter', system-ui, sans-serif; }
+    </style>
 </head>
 <body>
     <header>
-        <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-light bg-white border-bottom box-shadow mb-3">
+        <nav class="navbar navbar-expand-sm navbar-dark">
             <div class="container-fluid">
                 <a class="navbar-brand" asp-area="" asp-controller="Home" asp-action="Index">games_vault</a>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
@@ -44,16 +51,18 @@
                         }
                     </ul>
                     <div class="navbar-nav ms-auto">
-                        <a class="nav-link text-dark" asp-controller="Profiles" asp-action="Index">
-                            @if (ViewData["CurrentProfileName"] is string profileName && !string.IsNullOrWhiteSpace(profileName))
-                            {
-                                <span>Playing as <strong>@profileName</strong></span>
-                            }
-                            else
-                            {
-                                <span>Sign in</span>
-                            }
-                        </a>
+                        @if (ViewData["CurrentProfileName"] is string profileName && !string.IsNullOrWhiteSpace(profileName))
+                        {
+                            <a class="btn-sign-in" asp-controller="Profiles" asp-action="Index">
+                                <span>@profileName</span>
+                            </a>
+                        }
+                        else
+                        {
+                            <button type="button" class="btn-sign-in" data-bs-toggle="modal" data-bs-target="#signInModal">
+                                Sign in
+                            </button>
+                        }
                     </div>
                 </div>
             </div>
@@ -63,7 +72,10 @@
         <main role="main" class="pb-3">
             @if (TempData["Message"] is string message && !string.IsNullOrWhiteSpace(message))
             {
-                <div class="alert alert-info mt-3" role="alert">@message</div>
+                <div class="alert alert-info alert-dismissible fade show mt-3" role="alert">
+                    @message
+                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                </div>
             }
             @RenderBody()
         </main>
@@ -86,6 +98,8 @@
             </div>
         </div>
     </div>
+
+    <partial name="_SignInModal" />
 
     <footer class="border-top footer text-muted">
         <div class="container">
