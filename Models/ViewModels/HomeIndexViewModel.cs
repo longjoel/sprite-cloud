@@ -160,35 +160,3 @@ public sealed class HomeLibraryPreviewGameViewModel
     public int? NumberOfPlayers { get; set; }
     public bool IsRunningNow { get; set; }
 }
-
-public sealed class BackgroundJobSummary
-{
-    public int Id { get; set; }
-    public string Command { get; set; } = "";
-    public BackgroundJobStatus Status { get; set; }
-    public int? ProgressPermille { get; set; }
-    public DateTime CreatedUtc { get; set; }
-    public DateTime? UpdatedUtc { get; set; }
-    public DateTime? CompletedUtc { get; set; }
-
-    public bool IsActive => Status is BackgroundJobStatus.Queued or BackgroundJobStatus.Running;
-
-    public static BackgroundJobSummary? From(BackgroundJob? job)
-    {
-        if (job is null)
-        {
-            return null;
-        }
-
-        return new BackgroundJobSummary
-        {
-            Id = job.Id,
-            Command = job.Command,
-            Status = job.Status,
-            ProgressPermille = job.ProgressPermille,
-            CreatedUtc = job.CreatedUtc,
-            UpdatedUtc = job.UpdatedUtc,
-            CompletedUtc = job.CompletedUtc
-        };
-    }
-}

@@ -1,4 +1,3 @@
-using games_vault.BackgroundJobs;
 using games_vault.Data;
 using games_vault.Models;
 using games_vault.Profiles;
@@ -15,8 +14,7 @@ namespace games_vault.Controllers;
 [ServiceFilter(typeof(AdminOnlyFilter))]
 public class ImportController(
     AppDbContext db,
-    CurrentAccessService currentAccess,
-    IInternalJobsClient internalJobs) : Controller
+    CurrentAccessService currentAccess) : Controller
 {
     [HttpPost]
     public async Task<IActionResult> CreateBatch(string name, string? returnUrl, CancellationToken cancellationToken)
@@ -251,52 +249,6 @@ public class ImportController(
         }
 
         return RedirectToAction(nameof(GamesController.Index), "Games", new { batchId = effectiveBatchId });
-    }
-
-    [HttpPost]
-    public async Task<IActionResult> StartEverDriveGbImage(int batchId, string firmwareUrl, string firmwareLabel, string? returnUrl, CancellationToken cancellationToken)
-    {
-        if (batchId <= 0)
-        {
-            TempData["Message"] = "Select a batch first.";
-            return RedirectToLocalOrIndex(returnUrl);
-        }
-
-        if (string.IsNullOrWhiteSpace(firmwareUrl))
-        {
-            TempData["Message"] = "Firmware URL is required.";
-            return RedirectToLocalOrIndex(returnUrl);
-        }
-
-        firmwareUrl = firmwareUrl.Trim();
-        firmwareLabel = string.IsNullOrWhiteSpace(firmwareLabel) ? firmwareUrl : firmwareLabel.Trim();
-
-        var jobId = await internalJobs.EnqueueEverDriveGbImageAsync(batchId, firmwareUrl, firmwareLabel, cancellationToken);
-        TempData["Message"] = $"Queued EverDrive GB image build job #{jobId}.";
-        return RedirectToAction(nameof(JobsController.Details), "Jobs", new { id = jobId });
-    }
-
-    [HttpPost]
-    public async Task<IActionResult> StartEverDriveGbZip(int batchId, string firmwareUrl, string firmwareLabel, string? returnUrl, CancellationToken cancellationToken)
-    {
-        if (batchId <= 0)
-        {
-            TempData["Message"] = "Select a batch first.";
-            return RedirectToLocalOrIndex(returnUrl);
-        }
-
-        if (string.IsNullOrWhiteSpace(firmwareUrl))
-        {
-            TempData["Message"] = "Firmware URL is required.";
-            return RedirectToLocalOrIndex(returnUrl);
-        }
-
-        firmwareUrl = firmwareUrl.Trim();
-        firmwareLabel = string.IsNullOrWhiteSpace(firmwareLabel) ? firmwareUrl : firmwareLabel.Trim();
-
-        var jobId = await internalJobs.EnqueueEverDriveGbZipAsync(batchId, firmwareUrl, firmwareLabel, cancellationToken);
-        TempData["Message"] = $"Queued EverDrive GB zip build job #{jobId}.";
-        return RedirectToAction(nameof(JobsController.Details), "Jobs", new { id = jobId });
     }
 
     [HttpPost]

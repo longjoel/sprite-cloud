@@ -194,11 +194,6 @@ public sealed class AdminController(
 
         var streamSettings = streamSettingsStore.Get();
 
-        var latestLibretroSync = await db.BackgroundJobs
-            .AsNoTracking()
-            .Where(x => x.Command == "libretro.sync")
-            .OrderByDescending(x => x.Id)
-            .FirstOrDefaultAsync(cancellationToken);
         var missingSystemFilesCount = ComputeMissingSystemFilesCount();
 
         return View(new AdminIndexViewModel
@@ -206,30 +201,14 @@ public sealed class AdminController(
             GamesCount = await db.Games.AsNoTracking().CountAsync(cancellationToken),
             GameFilesCount = await db.GameFiles.AsNoTracking().CountAsync(cancellationToken),
             SystemFilesCount = await db.SystemFiles.AsNoTracking().CountAsync(cancellationToken),
-            JobsQueuedOrRunningCount = await db.BackgroundJobs.AsNoTracking().CountAsync(x => x.Status == BackgroundJobStatus.Queued || x.Status == BackgroundJobStatus.Running, cancellationToken),
             StreamSettings = new AdminStreamSettingsViewModel
             {
                 PreferredVideoTransport = streamSettings.PreferredVideoTransport,
                 MediaBackend = streamSettings.MediaBackend
             },
             NosebleedRuntimeProcesses = runtimeProcesses,
-            RecentJobs = await db.BackgroundJobs.AsNoTracking()
-                .OrderByDescending(x => x.Id)
-                .Take(10)
-                .Select(x => new AdminRecentJobRow
-                {
-                    Id = x.Id,
-                    Command = x.Command,
-                    Status = x.Status.ToString(),
-                    CreatedUtc = x.CreatedUtc,
-                    ProgressPermille = x.ProgressPermille
-                })
-                .ToListAsync(cancellationToken),
             LibretroDatabaseInstalled = libretroStore.HasDatFiles(),
-            MissingSystemFilesCount = missingSystemFilesCount,
-            LatestLibretroSyncJob = latestLibretroSync is null
-                ? null
-                : BackgroundJobSummary.From(latestLibretroSync)
+            MissingSystemFilesCount = missingSystemFilesCount
         });
 
         int? ComputeMissingSystemFilesCount()

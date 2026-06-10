@@ -6,9 +6,6 @@ public class NetworkScanResult
 {
     public int Id { get; set; }
 
-    public int NetworkScanRunId { get; set; }
-    public NetworkScanRun NetworkScanRun { get; set; } = null!;
-
     [Required]
     [StringLength(1000)]
     public string FullPath { get; set; } = "";

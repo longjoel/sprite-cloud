@@ -7,10 +7,6 @@ public sealed class GameUploadCreateViewModel
 {
     public bool LibretroAvailable { get; set; }
 
-    public int? LibretroSyncJobId { get; set; }
-
-    public string? LibretroSyncStatus { get; set; }
-
     [Required]
     [Display(Name = "Files")]
     public IFormFile[] Files { get; set; } = [];

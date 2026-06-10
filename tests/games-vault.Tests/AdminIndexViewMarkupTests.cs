@@ -17,7 +17,6 @@ public sealed class AdminIndexViewMarkupTests
         Assert.Contains("Admin", content);
         Assert.Contains("id=\"admin-stream-settings\"", content);
         Assert.Contains("id=\"admin-nosebleed-runtime\"", content);
-        Assert.Contains("id=\"admin-jobs\"", content);
         Assert.Contains("id=\"admin-setup\"", content);
     }
 
@@ -38,7 +37,6 @@ public sealed class AdminIndexViewMarkupTests
         Assert.Contains("asp-controller=\"Profiles\" asp-action=\"Invites\">Invites</a>", content);
         Assert.Contains("asp-controller=\"SystemFiles\" asp-action=\"Index\">System files</a>", content);
         Assert.Contains("asp-controller=\"GameFiles\" asp-action=\"Index\">Game files</a>", content);
-        Assert.Contains("asp-controller=\"Jobs\" asp-action=\"Index\">All jobs</a>", content);
     }
 
     [Fact]
@@ -66,17 +64,6 @@ public sealed class AdminIndexViewMarkupTests
         Assert.Contains("asp-action=\"StopNosebleedSession\"", content);
         Assert.Contains("asp-action=\"KillNosebleedProcess\"", content);
         Assert.Contains(">Terminate</button>", content);
-    }
-
-    [Fact]
-    public void AdminView_HostsRecentJobsSection()
-    {
-        var content = ReadAdminView();
-
-        Assert.Contains("id=\"admin-jobs\"", content);
-        Assert.Contains("Recent jobs", content);
-        Assert.Contains("asp-controller=\"Jobs\" asp-action=\"Index\">All jobs</a>", content);
-        Assert.Contains("@foreach (var job in Model.RecentJobs)", content);
     }
 
 }

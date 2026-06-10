@@ -10,10 +10,5 @@ public class LocalScanResultConfiguration : IEntityTypeConfiguration<LocalScanRe
     {
         entity.Property(x => x.FullPath).HasMaxLength(1000);
         entity.Property(x => x.FileName).HasMaxLength(260);
-
-        entity.HasOne(x => x.LocalScanRun)
-            .WithMany()
-            .HasForeignKey(x => x.LocalScanRunId)
-            .OnDelete(DeleteBehavior.Cascade);
     }
 }

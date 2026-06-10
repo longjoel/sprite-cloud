@@ -16,13 +16,6 @@
                 @Html.AntiForgeryToken()
                 <button type="submit" class="btn btn-sm btn-primary">Start libretro sync</button>
             </form>
-            <a class="btn btn-sm btn-outline-secondary" asp-controller="Jobs" asp-action="Index">View jobs</a>
-            @if (Model.LibretroSyncJobId is not null)
-            {
-                <span class="text-muted">
-                    Latest sync job: #@Model.LibretroSyncJobId (@Model.LibretroSyncStatus)
-                </span>
-            }
         </div>
     </div>
 }

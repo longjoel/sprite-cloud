@@ -1,4 +1,3 @@
-using games_vault.BackgroundJobs;
 using games_vault.Data;
 using games_vault.Libretro;
 using games_vault.Libretro.Dat;
@@ -18,7 +17,8 @@ public class GamesController(
     LibretroDatabaseStore libretroStore,
     SystemDatIndexProvider systemDat,
     SystemFileStorage systemFileStorage,
-    IInternalJobsClient internalJobs,
+    GameUploadImporter uploadImporter,
+    LibretroDatabaseSyncService libretroSync,
     GameFileStorage fileStorage,
     CurrentProfileService currentProfile,
     CurrentAccessService currentAccess) : Controller
@@ -540,17 +540,6 @@ public class GamesController(
         model.SelectedLocalFolderId = localFolderId;
         model.LocalQuery = localQuery;
 
-        if (!model.LibretroAvailable)
-        {
-            var latestSync = await db.BackgroundJobs
-                .Where(x => x.Command == "libretro.sync")
-                .OrderByDescending(x => x.CreatedUtc)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            model.LibretroSyncJobId = latestSync?.Id;
-            model.LibretroSyncStatus = latestSync?.Status.ToString();
-        }
-
         model.NetworkShares = await db.NetworkShares
             .Where(s => s.Enabled)
             .OrderBy(s => s.Name)
@@ -738,8 +727,8 @@ public class GamesController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> StartLibretroSync(CancellationToken cancellationToken)
     {
-        var jobId = await internalJobs.EnqueueLibretroSyncAsync(cancellationToken: cancellationToken);
-        TempData["Message"] = $"Started libretro sync job #{jobId}.";
+        await libretroSync.SyncAsync(cancellationToken: cancellationToken);
+        TempData["Message"] = "Libretro database sync complete.";
         return RedirectToAction(nameof(Index), new { openAdd = true });
     }
 
@@ -792,9 +781,9 @@ public class GamesController(
                 throw;
             }
 
-            var jobId = await internalJobs.EnqueueUploadImportAsync(stagingDir, cancellationToken);
-            TempData["Message"] = $"Queued import job #{jobId}. You can monitor it in Jobs.";
-            return RedirectToAction(nameof(JobsController.Details), "Jobs", new { id = jobId });
+            var result = await uploadImporter.ImportFromStagedDirectoryAsync(stagingDir, cancellationToken);
+            TempData["Message"] = $"Imported {result.Groups.Count} game(s) with {result.TotalMatchedFileCount} matched files.";
+            return RedirectToAction(nameof(Index));
         }
         catch (Exception ex)
         {

@@ -10,10 +10,5 @@ public class WebScanResultConfiguration : IEntityTypeConfiguration<WebScanResult
     {
         entity.Property(x => x.Url).HasMaxLength(1000);
         entity.Property(x => x.FileName).HasMaxLength(260);
-
-        entity.HasOne(x => x.WebScanRun)
-            .WithMany()
-            .HasForeignKey(x => x.WebScanRunId)
-            .OnDelete(DeleteBehavior.Cascade);
     }
 }

@@ -7,48 +7,6 @@
     var pageSize = Model.PageSize;
 }
 
-
-
-@if (Model.RecentJobs.Count > 0)
-{
-    <div class="card mb-3">
-        <div class="card-body">
-            <div class="d-flex align-items-center justify-content-between mb-2">
-                <div class="fw-semibold">Recent import jobs</div>
-                <a class="btn btn-sm btn-outline-secondary" asp-controller="Jobs" asp-action="Index">Jobs</a>
-            </div>
-
-            <div class="table-responsive">
-                <table class="table table-sm mb-0">
-                    <thead>
-                        <tr>
-                            <th>Job</th>
-                            <th>Command</th>
-                            <th>Status</th>
-                            <th>Created</th>
-                            <th class="text-end">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    @foreach (var j in Model.RecentJobs)
-                    {
-                        <tr>
-                            <td>#@j.Id</td>
-                            <td>@j.Command</td>
-                            <td>@j.Status</td>
-                            <td>@j.CreatedUtc.ToLocalTime().ToString("u")</td>
-                            <td class="text-end">
-                                <a class="btn btn-sm btn-outline-primary" asp-controller="Jobs" asp-action="Details" asp-route-id="@j.Id">View</a>
-                            </td>
-                        </tr>
-                    }
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-}
-
 <div class="d-flex align-items-center justify-content-between mb-3">
     <h1 class="h3 mb-0">System files</h1>
     <div class="d-flex gap-2">

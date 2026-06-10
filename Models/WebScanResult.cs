@@ -6,9 +6,6 @@ public sealed class WebScanResult
 {
     public int Id { get; set; }
 
-    public int WebScanRunId { get; set; }
-    public WebScanRun WebScanRun { get; set; } = null!;
-
     [Required]
     [StringLength(1000)]
     public string Url { get; set; } = "";

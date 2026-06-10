@@ -4,7 +4,6 @@ using games_vault.Libretro.Dat;
 using games_vault.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using games_vault.BackgroundJobs;
 
 namespace games_vault.Libretro.Import;
 
@@ -32,7 +31,6 @@ public sealed class GameUploadImporter(
 
     public async Task<ImportResult> ImportFromStagedDirectoryAsync(
         string stagingDirectory,
-        BackgroundJobs.BackgroundJobExecutionContext jobContext,
         CancellationToken cancellationToken)
     {
         if (!Directory.Exists(stagingDirectory))
@@ -41,20 +39,16 @@ public sealed class GameUploadImporter(
         }
 
         var paths = Directory.EnumerateFiles(stagingDirectory, "*", SearchOption.TopDirectoryOnly).ToArray();
-        await jobContext.SetProgressPermilleAsync(50, cancellationToken);
 
         var scanned = await scanner.ScanPathsAsync(paths, cancellationToken);
-        await jobContext.SetProgressPermilleAsync(500, cancellationToken);
 
-        var result = await ImportScannedFromStagingAsync(stagingDirectory, jobContext, scanned, cancellationToken);
-        await jobContext.SetProgressPermilleAsync(950, cancellationToken);
+        var result = await ImportScannedFromStagingAsync(stagingDirectory, scanned, cancellationToken);
 
         return result;
     }
 
     private async Task<ImportResult> ImportScannedFromStagingAsync(
         string stagingDirectory,
-        BackgroundJobs.BackgroundJobExecutionContext jobContext,
         List<ScannedUploadFile> scanned,
         CancellationToken cancellationToken)
     {
@@ -88,7 +82,7 @@ public sealed class GameUploadImporter(
                 continue;
             }
 
-            await jobContext.LogInfoAsync($"Storing ROM bytes for {file.DisplayName} ({match.SystemName}) CRC={file.Crc32}", cancellationToken);
+            logger.LogInformation("Storing ROM bytes for {DisplayName} ({SystemName}) CRC={Crc32}", file.DisplayName, match.SystemName, file.Crc32);
 
             string storagePath;
             try
@@ -105,7 +99,7 @@ public sealed class GameUploadImporter(
             }
             catch (Exception ex)
             {
-                await jobContext.LogErrorAsync($"Failed to store ROM bytes for {file.DisplayName}: {ex.Message}", cancellationToken);
+                logger.LogError(ex, "Failed to store ROM bytes for {DisplayName}: {Message}", file.DisplayName, ex.Message);
                 throw;
             }
 
