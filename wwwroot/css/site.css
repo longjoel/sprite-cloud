@@ -469,6 +469,35 @@ a:hover {
   border-color: var(--border-subtle);
 }
 
+/* --- List group (dark theme) --- */
+.list-group {
+  background: transparent;
+}
+.list-group-item {
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border-color: var(--border-subtle);
+}
+.list-group-item:hover {
+  background: var(--bg-surface-hover);
+}
+.list-group-item-action {
+  color: var(--text-secondary);
+}
+.list-group-item-action:hover {
+  color: var(--text-primary);
+}
+.list-group-item.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* --- Table enhancements --- */
+.table {
+  --bs-table-color: var(--text-secondary);
+}
+
 /* --- Form controls --- */
 .form-control,
 .form-select {

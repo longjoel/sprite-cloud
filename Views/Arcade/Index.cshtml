@@ -71,6 +71,7 @@ else
                          {
                              @:data-nosebleed-preview-card
                              @:data-preview-url="@Url.Action("NosebleedPreviewVideo", "Home", new { sessionId = cabinet.RuntimeSessionId })"
+                             @:data-stream-url="@Url.Action("NosebleedPreviewStream", "Home", new { sessionId = cabinet.RuntimeSessionId })"
                          }>
                         <div class="ratio ratio-16x9 bg-dark rounded-top overflow-hidden d-flex align-items-center justify-content-center">
                             @if (cabinet.IsRunning)

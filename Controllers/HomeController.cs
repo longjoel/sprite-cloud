@@ -298,6 +298,63 @@ public class HomeController(
         }
     }
 
+    [HttpGet]
+    public async Task NosebleedPreviewStream(string sessionId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId) || !HttpContext.WebSockets.IsWebSocketRequest)
+        {
+            HttpContext.Response.StatusCode = 400;
+            return;
+        }
+
+        var session = nosebleedSessions.GetSessions()
+            .FirstOrDefault(x => string.Equals(x.SessionId, sessionId, StringComparison.OrdinalIgnoreCase));
+        if (session is null || session.HasExited)
+        {
+            HttpContext.Response.StatusCode = 404;
+            return;
+        }
+
+        var token = nosebleedTickets.CreateSpectatorToken(session.SessionId, "games-vault-dashboard");
+        var target = BuildNosebleedWebSocketUri(session.BaseUrl, "/ws/video", token);
+        if (target is null)
+        {
+            HttpContext.Response.StatusCode = 502;
+            return;
+        }
+
+        using var upstream = new ClientWebSocket();
+        try
+        {
+            await upstream.ConnectAsync(target, cancellationToken);
+        }
+        catch
+        {
+            HttpContext.Response.StatusCode = 502;
+            return;
+        }
+
+        using var downstream = await HttpContext.WebSockets.AcceptWebSocketAsync();
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        linkedCts.CancelAfter(TimeSpan.FromSeconds(30));
+
+        try
+        {
+            await NosebleedWebSocketRelay.PumpLatestOnlyAsync(
+                upstream, downstream, "video", metrics: null, linkedCts.Token);
+        }
+        catch (OperationCanceledException) when (linkedCts.IsCancellationRequested) { }
+        catch (WebSocketException) { }
+        finally
+        {
+            if (downstream.State is WebSocketState.Open or WebSocketState.CloseReceived)
+            {
+                try { await downstream.CloseAsync(WebSocketCloseStatus.NormalClosure, "preview-end", CancellationToken.None); }
+                catch { }
+            }
+        }
+    }
+
     private static Uri? BuildNosebleedSnapshotUri(string baseUrl, string? token)
     {
         if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri))
