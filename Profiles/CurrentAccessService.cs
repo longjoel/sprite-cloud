@@ -80,7 +80,29 @@ public sealed class CurrentAccessService(
             .Select(x => (int?)x.Id)
             .FirstOrDefaultAsync(ct);
 
-        return roomId is int id && await CanPlayRoomAsync(id, ct);
+        if (roomId is int id && await CanPlayRoomAsync(id, ct))
+        {
+            return true;
+        }
+
+        if (roomId is int rid)
+        {
+            var isFreePlayArcade = await db.GamePlayRooms
+                .AsNoTracking()
+                .Where(x => x.Id == rid
+                    && x.ArcadeCabinet != null
+                    && x.ArcadeCabinet.CreditMode == games_vault.Models.ArcadeCabinetCreditMode.FreePlay
+                    && x.ArcadeCabinet.IsEnabled
+                    && x.ArcadeCabinet.Arcade.IsEnabled)
+                .AnyAsync(ct);
+
+            if (isFreePlayArcade)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public async Task<bool> CanChatAsync(CancellationToken ct)
