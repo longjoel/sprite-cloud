@@ -3,6 +3,9 @@ using games_vault.Models;
 using games_vault.Models.ViewModels;
 using games_vault.Nosebleed;
 using games_vault.Web;
+using games_vault.Libretro;
+using games_vault.Libretro.Dat;
+using games_vault.Libretro.Import;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,7 +16,10 @@ public sealed class AdminController(
     AppDbContext db,
     NosebleedSessionManager nosebleedSessions,
     NosebleedProcessInspector nosebleedProcessInspector,
-    NosebleedStreamSettingsStore streamSettingsStore) : Controller
+    NosebleedStreamSettingsStore streamSettingsStore,
+    LibretroDatabaseStore libretroStore,
+    SystemDatIndexProvider systemDat,
+    SystemFileStorage systemFileStorage) : Controller
 {
     public async Task<IActionResult> Index(CancellationToken cancellationToken = default)
     {
@@ -188,6 +194,13 @@ public sealed class AdminController(
 
         var streamSettings = streamSettingsStore.Get();
 
+        var latestLibretroSync = await db.BackgroundJobs
+            .AsNoTracking()
+            .Where(x => x.Command == "libretro.sync")
+            .OrderByDescending(x => x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+        var missingSystemFilesCount = ComputeMissingSystemFilesCount();
+
         return View(new AdminIndexViewModel
         {
             GamesCount = await db.Games.AsNoTracking().CountAsync(cancellationToken),
@@ -229,8 +242,20 @@ public sealed class AdminController(
                     CreatedUtc = x.CreatedUtc,
                     ProgressPermille = x.ProgressPermille
                 })
-                .ToListAsync(cancellationToken)
+                .ToListAsync(cancellationToken),
+            LibretroDatabaseInstalled = libretroStore.HasDatFiles(),
+            MissingSystemFilesCount = missingSystemFilesCount,
+            LatestLibretroSyncJob = latestLibretroSync is null
+                ? null
+                : BackgroundJobSummary.From(latestLibretroSync)
         });
+
+        int? ComputeMissingSystemFilesCount()
+        {
+            if (!libretroStore.HasDatFiles()) return null;
+            var idx = systemDat.Get();
+            return idx.ByPath.Values.Count(x => !System.IO.File.Exists(systemFileStorage.GetAbsoluteSystemPath(x.RelativePath)));
+        }
     }
 
     [HttpPost]
