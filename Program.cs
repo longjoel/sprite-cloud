@@ -46,9 +46,7 @@ builder.Services.AddScoped<ProfileInviteService>();
 builder.Services.AddScoped<ProfileShareLinkService>();
 builder.Services.AddScoped<LocalProfileService>();
 builder.Services.AddScoped<ArcadeGameFileResolver>();
-builder.Services.AddScoped<SystemCoreMappingResolver>();
-builder.Services.AddScoped<SystemCoreAutomapper>();
-builder.Services.AddScoped<InstalledCoreInventoryBuilder>();
+builder.Services.AddSingleton<SystemCoreMappingResolver>();
 builder.Services.AddScoped<LibretroCoreInstaller>();
 builder.Services.AddScoped<CurrentProfileViewDataFilter>();
 builder.Services.AddScoped<AdminOnlyFilter>();
@@ -171,39 +169,6 @@ await using (var scope = app.Services.CreateAsyncScope())
 
     await db.Database.MigrateAsync();
 
-    var configuredNativeCores = builder.Configuration.GetSection("Nosebleed:SystemCores")
-        .Get<Dictionary<string, string>>() ?? [];
-    foreach (var pair in configuredNativeCores)
-    {
-        var systemName = pair.Key.Trim();
-        if (string.IsNullOrWhiteSpace(systemName))
-        {
-            continue;
-        }
-
-        var mapping = await db.SystemCoreMappings.FirstOrDefaultAsync(x => x.SystemName == systemName);
-        if (mapping is null)
-        {
-            mapping = new games_vault.Models.SystemCoreMapping
-            {
-                SystemName = systemName,
-                CreatedUtc = DateTime.UtcNow
-            };
-            db.SystemCoreMappings.Add(mapping);
-        }
-
-        if (string.IsNullOrWhiteSpace(mapping.NativeCoreFileName) && !string.IsNullOrWhiteSpace(pair.Value))
-        {
-            mapping.NativeCoreFileName = pair.Value.Trim();
-        }
-
-        mapping.UpdatedUtc = DateTime.UtcNow;
-    }
-    if (configuredNativeCores.Count > 0)
-    {
-        await db.SaveChangesAsync();
-    }
-
     var nosebleedCoreRoot = builder.Configuration.GetValue<string>("Nosebleed:CoreRoot");
     if (!string.IsNullOrWhiteSpace(nosebleedCoreRoot))
     {
@@ -211,17 +176,6 @@ await using (var scope = app.Services.CreateAsyncScope())
         {
             var installer = scope.ServiceProvider.GetRequiredService<LibretroCoreInstaller>();
             await installer.InstallKnownCoresForDetectedSystemsAsync();
-        }
-
-        if (Directory.Exists(nosebleedCoreRoot))
-        {
-            var installedNativeCores = Directory.EnumerateFiles(nosebleedCoreRoot, "*_libretro.so", SearchOption.TopDirectoryOnly)
-                .Select(Path.GetFileName)
-                .Where(x => !string.IsNullOrWhiteSpace(x))
-                .Select(x => x!)
-                .ToList();
-            var automapper = scope.ServiceProvider.GetRequiredService<SystemCoreAutomapper>();
-            await automapper.AutoMapDetectedSystemsAsync(installedNativeCores);
         }
     }
 

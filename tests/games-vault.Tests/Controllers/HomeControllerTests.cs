@@ -277,6 +277,7 @@ public sealed class HomeControllerTests : GamesVaultTestBase
             scopeFactory,
             nosebleedTicketSigner,
             httpClientFactory,
+            new SystemCoreMappingResolver(nosebleedOptions),
             NullLogger<NosebleedSessionManager>.Instance);
 
         var relayMetrics = new NosebleedRelayMetrics();

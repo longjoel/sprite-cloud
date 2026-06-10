@@ -12,7 +12,6 @@ public sealed class AdminIndexViewModel
     public int DownloadsCount { get; set; }
     public int ProfilesCount { get; set; }
     public int ProfileInviteCodesCount { get; set; }
-    public int CoreMappingsCount { get; set; }
     public AdminStreamSettingsViewModel StreamSettings { get; set; } = new();
     public IReadOnlyList<NosebleedRuntimeProcessViewModel> NosebleedRuntimeProcesses { get; set; } = [];
     public IReadOnlyList<AdminRecentGameRow> RecentGames { get; set; } = [];

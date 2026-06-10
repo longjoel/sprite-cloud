@@ -247,6 +247,7 @@ public sealed class GamePlayRoomShutdownBatterySaveTests
             new TestServiceScopeFactory(),
             ticketSigner,
             new TestHttpClientFactory(),
+            new SystemCoreMappingResolver(nosebleedOptions),
             NullLogger<NosebleedSessionManager>.Instance);
         var seatManager = new NosebleedSeatManager(nosebleedOptions);
         var session = new NosebleedSession(
