@@ -190,7 +190,13 @@ public class GamesController(
             BatchPage = batchPage,
             BatchPageSize = batchPageSize,
             BatchTotalCount = batchTotalCount,
-            AddGame = null!,
+            AddGame = new games_vault.Models.ViewModels.GameUploadCreateViewModel
+            {
+                LibretroAvailable = libretroStore.HasDatFiles(),
+                NetworkShares = await db.NetworkShares.AsNoTracking().OrderBy(x => x.Name).ToListAsync(cancellationToken),
+                WebSources = await db.WebSources.AsNoTracking().OrderBy(x => x.Name).ToListAsync(cancellationToken),
+                LocalFolders = await db.LocalFolders.AsNoTracking().OrderBy(x => x.Name).ToListAsync(cancellationToken),
+            },
             MissingSystemFilesBySystem = bank.MissingSystemFilesBySystem
         });
     }
