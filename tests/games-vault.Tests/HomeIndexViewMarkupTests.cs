@@ -10,11 +10,11 @@ public sealed class HomeIndexViewMarkupTests
     }
 
     [Fact]
-    public void HomeView_DefinesHeroSection_ForWelcomeAndPrimaryCtas()
+    public void HomeView_DefinesQuickResumeSection_ForContinuePlayingAndActiveMachines()
     {
         var content = ReadHomeView();
 
-        Assert.Contains("id=\"home-hero\"", content);
+        Assert.Contains("Continue playing", content);
         Assert.Contains("Sign in / join", content);
     }
 
@@ -35,19 +35,17 @@ public sealed class HomeIndexViewMarkupTests
     {
         var content = ReadHomeView();
 
-        Assert.Contains("!string.IsNullOrWhiteSpace(featuredSession.RoomCode)", content);
-        Assert.Contains("asp-route-code=\"@featuredSession.RoomCode\"", content);
         Assert.Contains("!string.IsNullOrWhiteSpace(session.RoomCode)", content);
         Assert.Contains("asp-route-code=\"@session.RoomCode\"", content);
     }
 
     [Fact]
-    public void HomeView_RendersFeaturedPreviewAttributes_AsNormalMarkup()
+    public void HomeView_RendersSessionPreviewAttributes_AsNormalMarkup()
     {
         var content = ReadHomeView();
 
-        Assert.Contains("data-preview-url=\"@Url.Action(\"NosebleedPreviewVideo\", \"Home\", new { sessionId = featuredSession.SessionId })\"", content);
-        Assert.DoesNotContain("$\"data-nosebleed-preview-card data-preview-url=\\\"{Url.Action(\"NosebleedPreviewVideo\", \"Home\", new { sessionId = featuredSession.SessionId })}\\\"\"", content);
+        Assert.Contains("data-preview-url=\"@Url.Action(\"NosebleedPreviewVideo\", \"Home\", new { sessionId = session.SessionId })\"", content);
+        Assert.DoesNotContain("$\"data-nosebleed-preview-card data-preview-url=\\\"{Url.Action(\"NosebleedPreviewVideo\", \"Home\", new { sessionId = session.SessionId })}\\\"\"", content);
     }
 
     [Fact]

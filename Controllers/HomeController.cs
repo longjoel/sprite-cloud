@@ -27,9 +27,6 @@ public class HomeController(
 {
     public async Task<IActionResult> Index(CancellationToken cancellationToken = default)
     {
-        var gamesCount = await db.Games.AsNoTracking().CountAsync(cancellationToken);
-        var systemsCount = await db.Games.AsNoTracking().Select(x => x.SystemName).Distinct().CountAsync(cancellationToken);
-
         var activeSessions = nosebleedSessions.GetSessions();
         await gamePlayTelemetry.ReconcileActiveExternalSessionsAsync(
             "nosebleed",
@@ -41,20 +38,6 @@ public class HomeController(
         var accessMode = await currentAccess.GetAccessModeAsync(cancellationToken);
         var canPlay = accessMode is AccessMode.Player or AccessMode.Admin;
         var canManageLibrary = accessMode is AccessMode.Admin;
-        var telemetryStats = await gamePlayTelemetry.GetDashboardStatsAsync(currentUserProfile?.Id, cancellationToken);
-        var globalTelemetryStats = currentUserProfile is null
-            ? telemetryStats
-            : await gamePlayTelemetry.GetDashboardStatsAsync(null, cancellationToken);
-        var lastPlayedGameQuery = db.GamePlaySessions
-            .AsNoTracking();
-        if (currentUserProfile is not null)
-        {
-            lastPlayedGameQuery = lastPlayedGameQuery.Where(x => x.ProfileId == currentUserProfile.Id);
-        }
-        var lastPlayedGame = await lastPlayedGameQuery
-            .OrderByDescending(x => x.StartedUtc)
-            .Select(x => x.Game.Name)
-            .FirstOrDefaultAsync(cancellationToken);
         var playRowsQuery = db.GamePlaySessions
             .AsNoTracking()
             .Where(x => x.StartedUtc >= DateTime.UtcNow.AddDays(-90));
@@ -78,48 +61,6 @@ public class HomeController(
             .ToListAsync(cancellationToken);
 
         var now = DateTime.UtcNow;
-        var activeProfileSessionById = playRows
-            .Where(x => x.EndedUtc is null && x.ProfileId.HasValue)
-            .GroupBy(x => x.ProfileId!.Value)
-            .ToDictionary(
-                g => g.Key,
-                g => g.OrderByDescending(x => x.StartedUtc).First());
-
-        var activeProfileRows = await db.ProfileAuthSessions
-            .AsNoTracking()
-            .Where(x => x.RevokedUtc == null && !x.Profile.IsArchived)
-            .OrderByDescending(x => x.LastSeenUtc)
-            .Select(x => new
-            {
-                x.ProfileId,
-                x.LastSeenUtc,
-                x.Profile.DisplayName,
-                x.Profile.Username,
-                x.Profile.Color,
-                x.Profile.IsAdmin
-            })
-            .Take(8)
-            .ToListAsync(cancellationToken);
-
-        var activeProfiles = activeProfileRows
-            .Select(x =>
-            {
-                activeProfileSessionById.TryGetValue(x.ProfileId, out var activeSession);
-                return new ActiveProfileSummaryViewModel
-                {
-                    ProfileId = x.ProfileId,
-                    DisplayName = x.DisplayName,
-                    Username = x.Username,
-                    Color = x.Color,
-                    IsAdmin = x.IsAdmin,
-                    IsCurrent = currentUserProfile?.Id == x.ProfileId,
-                    LastSeenUtc = x.LastSeenUtc,
-                    CurrentGameName = activeSession?.GameName,
-                    CurrentMode = activeSession?.Mode,
-                    CurrentSessionStartedUtc = activeSession?.StartedUtc
-                };
-            })
-            .ToList();
 
         var recentSessions = playRows
             .OrderByDescending(x => x.StartedUtc)
@@ -140,23 +81,6 @@ public class HomeController(
             })
             .ToList();
 
-        var topPlayedGames = playRows
-            .GroupBy(x => new { x.GameId, x.GameName })
-            .Select(g => new TopPlayedGameViewModel
-            {
-                GameId = g.Key.GameId,
-                GameName = g.Key.GameName,
-                SessionCount = g.Count(),
-                TotalPlayTime = TimeSpan.FromSeconds(g.Sum(x => Math.Max(0, x.EndedUtc.HasValue
-                    ? x.DurationSeconds
-                    : (int)Math.Round((now - x.StartedUtc).TotalSeconds, MidpointRounding.AwayFromZero))))
-            })
-            .OrderByDescending(x => x.TotalPlayTime)
-            .ThenByDescending(x => x.SessionCount)
-            .ThenBy(x => x.GameName)
-            .Take(5)
-            .ToList();
-
         var activeGameIds = activeSessions.Select(x => x.GameId).Distinct().ToArray();
         var activeGameNames = activeGameIds.Length == 0
             ? new Dictionary<int, string>()
@@ -165,21 +89,6 @@ public class HomeController(
                 .Where(x => activeGameIds.Contains(x.Id))
                 .Select(x => new { x.Id, x.Name })
                 .ToDictionaryAsync(x => x.Id, x => x.Name, cancellationToken);
-        var libraryPreviewGames = await db.Games
-            .AsNoTracking()
-            .OrderByDescending(x => x.CreatedUtc)
-            .ThenBy(x => x.Name)
-            .Take(8)
-            .Select(x => new HomeLibraryPreviewGameViewModel
-            {
-                GameId = x.Id,
-                GameName = x.Name,
-                SystemName = x.SystemName,
-                Genre = x.Genre,
-                NumberOfPlayers = x.NumberOfPlayers,
-                IsRunningNow = activeGameIds.Contains(x.Id)
-            })
-            .ToListAsync(cancellationToken);
         var arcadeSessionMap = await db.ArcadeCabinets
             .AsNoTracking()
             .Where(x => x.RuntimeSessionId != null)
@@ -229,26 +138,16 @@ public class HomeController(
 
         return View(new HomeIndexViewModel
         {
-            ShowDashboard = telemetryStats.TotalSessions > 0 || activeSessionModels.Count > 0 || gamesCount > 0,
+            ShowDashboard = currentUserProfile is not null,
             CurrentProfileId = currentUserProfile?.Id,
             CurrentProfileName = currentUserProfile?.DisplayName,
             AccessMode = accessMode.ToString(),
             CanPlay = canPlay,
             CanManageLibrary = canManageLibrary,
-            GlobalTotalPlayTime = TimeSpan.FromSeconds(globalTelemetryStats.TotalDurationSeconds),
-            GlobalPlaySessionCount = globalTelemetryStats.TotalSessions,
-            GamesCount = gamesCount,
-            SystemsCount = systemsCount,
-            TotalPlayTime = TimeSpan.FromSeconds(telemetryStats.TotalDurationSeconds),
-            PlaySessionCount = telemetryStats.TotalSessions,
-            LastPlayedGame = lastPlayedGame,
             FeaturedSession = featuredSession,
-            LibraryPreviewGames = libraryPreviewGames,
-            TopPlayedGames = topPlayedGames,
             ActiveNosebleedSessions = activeSessionModels,
             ActiveArcadeCabinets = activeArcadeCabinets,
             ActiveLibrarySessions = activeLibrarySessions,
-            ActiveProfiles = activeProfiles,
             RecentSessions = recentSessions,
         });
     }
