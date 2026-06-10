@@ -172,3 +172,5 @@ html.games-vault-player-fullscreen,body.games-vault-player-fullscreen { overflow
 .playserver-advanced-controls select:focus,
 .playserver-advanced-controls input:focus { border-color:rgba(113,112,255,.5); outline:none; }
 #nosebleed-save-state-slot { background:rgba(15,23,42,.72); color:rgba(255,255,255,.95); }
+#playserver-gamepad-browser-note { position:fixed; top:max(.75rem,env(safe-area-inset-top)); left:50%; transform:translateX(-50%); z-index:2000; max-width:min(42rem,calc(100%-2rem)); width:100%; border-radius:1rem; box-shadow:0 .85rem 1.8rem rgba(0,0,0,.38); backdrop-filter:blur(10px); border:1px solid rgba(255,255,255,.15); background:rgba(15,23,42,.88); color:rgba(255,255,255,.94); }
+#playserver-gamepad-browser-note[hidden] { display:none; }
