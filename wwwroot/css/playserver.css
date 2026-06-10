@@ -163,3 +163,12 @@ html.games-vault-player-fullscreen,body.games-vault-player-fullscreen { overflow
 .keyboard-mapping .km-key { background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.15); border-radius:.3rem; padding:.15rem .45rem; font-family:monospace; font-size:.85rem; text-align:center; white-space:nowrap; }
 .keyboard-mapping .km-label { color:#aaa; }
 .keyboard-mapping .km-section { grid-column:1/-1; font-weight:600; color:#ccc; margin-top:.6rem; margin-bottom:.15rem; font-size:.8rem; text-transform:uppercase; letter-spacing:.05em; }
+
+/* --- Dark theme overrides for native form elements --- */
+.playserver-advanced-controls select,
+.playserver-advanced-controls input,
+.playserver-advanced-controls .form-control,
+.playserver-advanced-controls .form-select { background:#1e1e2e; color:#e0e0e0; border-color:rgba(255,255,255,.18); }
+.playserver-advanced-controls select:focus,
+.playserver-advanced-controls input:focus { border-color:rgba(113,112,255,.5); outline:none; }
+#nosebleed-save-state-slot { background:rgba(15,23,42,.72); color:rgba(255,255,255,.95); }
