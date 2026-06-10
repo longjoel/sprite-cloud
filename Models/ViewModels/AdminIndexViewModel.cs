@@ -17,6 +17,9 @@ public sealed class AdminIndexViewModel
     public IReadOnlyList<NosebleedRuntimeProcessViewModel> NosebleedRuntimeProcesses { get; set; } = [];
     public IReadOnlyList<AdminRecentGameRow> RecentGames { get; set; } = [];
     public IReadOnlyList<AdminRecentJobRow> RecentJobs { get; set; } = [];
+    public bool LibretroDatabaseInstalled { get; set; }
+    public int? MissingSystemFilesCount { get; set; }
+    public BackgroundJobSummary? LatestLibretroSyncJob { get; set; }
 }
 
 public sealed class AdminStreamSettingsViewModel

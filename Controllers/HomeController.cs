@@ -3,9 +3,6 @@ using System.Net.WebSockets;
 using games_vault.BackgroundJobs;
 using games_vault.Data;
 using games_vault.Gameplay;
-using games_vault.Libretro;
-using games_vault.Libretro.Dat;
-using games_vault.Libretro.Import;
 using games_vault.Models.ViewModels;
 using games_vault.Nosebleed;
 using games_vault.Web;
@@ -19,9 +16,6 @@ namespace games_vault.Controllers;
 
 public class HomeController(
     AppDbContext db,
-    LibretroDatabaseStore libretroStore,
-    SystemDatIndexProvider systemDat,
-    SystemFileStorage systemFileStorage,
     IInternalJobsClient internalJobs,
     GamePlayTelemetryService gamePlayTelemetry,
     NosebleedSessionManager nosebleedSessions,
@@ -33,20 +27,8 @@ public class HomeController(
 {
     public async Task<IActionResult> Index(CancellationToken cancellationToken = default)
     {
-        var latestLibretroSync = await db.BackgroundJobs
-            .AsNoTracking()
-            .Where(x => x.Command == "libretro.sync")
-            .OrderByDescending(x => x.Id)
-            .FirstOrDefaultAsync(cancellationToken);
-
         var gamesCount = await db.Games.AsNoTracking().CountAsync(cancellationToken);
         var systemsCount = await db.Games.AsNoTracking().Select(x => x.SystemName).Distinct().CountAsync(cancellationToken);
-        var gameFilesCount = await db.GameFiles.AsNoTracking().CountAsync(cancellationToken);
-        var totalGameBytes = await db.GameFiles.AsNoTracking().SumAsync(x => (long?)x.SizeBytes, cancellationToken) ?? 0;
-        var systemFilesCount = await db.SystemFiles.AsNoTracking().CountAsync(cancellationToken);
-        var networkSharesCount = await db.NetworkShares.AsNoTracking().CountAsync(cancellationToken);
-        var localFoldersCount = await db.LocalFolders.AsNoTracking().CountAsync(cancellationToken);
-        var webSourcesCount = await db.WebSources.AsNoTracking().CountAsync(cancellationToken);
 
         var activeSessions = nosebleedSessions.GetSessions();
         await gamePlayTelemetry.ReconcileActiveExternalSessionsAsync(
@@ -245,14 +227,6 @@ public class HomeController(
             ?? activeLibrarySessions.FirstOrDefault()
             ?? activeSessionModels.FirstOrDefault();
 
-        var libretroInstalled = libretroStore.HasDatFiles();
-        int? missingSystemFilesCount = null;
-        if (libretroInstalled)
-        {
-            var idx = systemDat.Get();
-            missingSystemFilesCount = idx.ByPath.Values.Count(x => !System.IO.File.Exists(systemFileStorage.GetAbsoluteSystemPath(x.RelativePath)));
-        }
-
         return View(new HomeIndexViewModel
         {
             ShowDashboard = telemetryStats.TotalSessions > 0 || activeSessionModels.Count > 0 || gamesCount > 0,
@@ -265,8 +239,6 @@ public class HomeController(
             GlobalPlaySessionCount = globalTelemetryStats.TotalSessions,
             GamesCount = gamesCount,
             SystemsCount = systemsCount,
-            GameFilesCount = gameFilesCount,
-            TotalGameBytes = totalGameBytes,
             TotalPlayTime = TimeSpan.FromSeconds(telemetryStats.TotalDurationSeconds),
             PlaySessionCount = telemetryStats.TotalSessions,
             LastPlayedGame = lastPlayedGame,
@@ -278,15 +250,6 @@ public class HomeController(
             ActiveLibrarySessions = activeLibrarySessions,
             ActiveProfiles = activeProfiles,
             RecentSessions = recentSessions,
-            SystemFilesCount = systemFilesCount,
-            MissingSystemFilesCount = missingSystemFilesCount,
-
-            NetworkSharesCount = networkSharesCount,
-            LocalFoldersCount = localFoldersCount,
-            WebSourcesCount = webSourcesCount,
-
-            LibretroDatabaseInstalled = libretroInstalled,
-            LatestLibretroSyncJob = BackgroundJobSummary.From(latestLibretroSync)
         });
     }
 
