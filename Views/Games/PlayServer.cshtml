@@ -62,6 +62,7 @@
     webrtcSessionUrl = Url.Action("NosebleedWebRtcSession", "Games", new { sessionId = Model.SessionId }),
     assignedPort = Model.AssignedPort,
     isSpectator = Model.IsSpectator,
+    isVisitor = (Model.CurrentProfileDisplayName is null && !Model.CurrentProfileIsEphemeralGuest),
     sessionId = Model.SessionId,
     touchLayoutName,
     streamDefaults = new
