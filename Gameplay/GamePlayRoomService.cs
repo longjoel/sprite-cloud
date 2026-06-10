@@ -268,7 +268,8 @@ public sealed class GamePlayRoomService(
             await db.SaveChangesAsync(ct);
         }
 
-        return await JoinRoomAsync(room, viewerId, ct, allowPlayerOverride: null);
+        var isFreePlay = cabinet.CreditMode == ArcadeCabinetCreditMode.FreePlay;
+        return await JoinRoomAsync(room, viewerId, ct, allowPlayerOverride: isFreePlay ? true : null);
     }
 
     public async Task TouchRoomParticipantSessionAsync(int roomId, string viewerId, NosebleedSeatAssignment seat, CancellationToken ct)

@@ -78,9 +78,6 @@ public class ArcadeController(
             Arcade = arcade,
             Cabinets = cabinets,
             GamePicker = gamePicker,
-            CabinetCount = cabinets.Count,
-            RunningCabinetCount = cabinets.Count(x => x.IsRunning),
-            SystemCount = cabinets.Select(x => x.SystemName).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).Count(),
             CanManage = canManage,
             CanPlay = canPlay,
             NosebleedEnabled = (nosebleedOptions.Value ?? new NosebleedOptions()).Enabled

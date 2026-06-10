@@ -8,14 +8,6 @@
         <div class="text-uppercase text-muted small fw-semibold mb-2">Arcade experiment</div>
         <h1 class="display-6 mb-1">@(Model.Arcade?.Name ?? "Arcade")</h1>
         <p class="text-muted mb-2">Free-play cabinets that keep running even when empty.</p>
-        @if (Model.Arcade is not null)
-        {
-            <div class="d-flex flex-wrap gap-2 small text-muted">
-                <span class="games-meta-chip">@Model.CabinetCount cabinet@(Model.CabinetCount == 1 ? "" : "s")</span>
-                <span class="games-meta-chip">@Model.RunningCabinetCount running</span>
-                <span class="games-meta-chip">@Model.SystemCount system@(Model.SystemCount == 1 ? "" : "s")</span>
-            </div>
-        }
     </div>
     @if (Model.CanManage)
     {
@@ -108,11 +100,11 @@ else
                             <div class="d-flex gap-2 flex-wrap mt-auto">
                                 @if (cabinet.IsRunning && !string.IsNullOrWhiteSpace(cabinet.RuntimeSessionId))
                                 {
-                                    <a class="btn btn-sm btn-primary" href="@Url.RouteUrl("ArcadeSession", new { sessionId = cabinet.RuntimeSessionId })">@(Model.CanPlay ? "Join" : "Watch")</a>
+                                    <a class="btn btn-sm btn-primary" href="@Url.RouteUrl("ArcadeSession", new { sessionId = cabinet.RuntimeSessionId })">Play</a>
                                 }
                                 else
                                 {
-                                    <a class="btn btn-sm btn-primary" asp-action="Join" asp-route-id="@cabinet.Id">@(Model.CanPlay ? "Join" : "Watch")</a>
+                                    <a class="btn btn-sm btn-primary" asp-action="Join" asp-route-id="@cabinet.Id">Play</a>
                                 }
                                 @if (Model.CanManage)
                                 {

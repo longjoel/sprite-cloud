@@ -7,9 +7,6 @@ public class ArcadeIndexViewModel
     public Arcade? Arcade { get; set; }
     public IReadOnlyList<ArcadeCabinetViewModel> Cabinets { get; set; } = Array.Empty<ArcadeCabinetViewModel>();
     public ArcadeGamePickerViewModel GamePicker { get; set; } = new();
-    public int CabinetCount { get; set; }
-    public int RunningCabinetCount { get; set; }
-    public int SystemCount { get; set; }
     public bool CanPlay { get; set; }
     public bool CanManage { get; set; }
     public bool NosebleedEnabled { get; set; }
