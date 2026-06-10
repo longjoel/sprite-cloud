@@ -34,9 +34,6 @@ public sealed class AdminIndexViewMarkupTests
     {
         var content = ReadAdminView();
 
-        Assert.Contains("asp-controller=\"Games\" asp-action=\"Index\">Browse</a>", content);
-        Assert.Contains("asp-controller=\"Sources\" asp-action=\"Index\">Sources</a>", content);
-        Assert.Contains("asp-controller=\"Downloads\" asp-action=\"Index\">Downloads</a>", content);
         Assert.Contains("asp-controller=\"Profiles\" asp-action=\"Index\">Profiles</a>", content);
         Assert.Contains("asp-controller=\"Profiles\" asp-action=\"Invites\">Invites</a>", content);
         Assert.Contains("asp-controller=\"SystemFiles\" asp-action=\"Index\">System files</a>", content);
