@@ -9,6 +9,7 @@
     const webrtcSessionUrl = config.webrtcSessionUrl;
     const assignedPort = config.assignedPort;
     const isSpectator = config.isSpectator;
+    const isVisitor = config.isVisitor;
     const sessionId = config.sessionId;
     const touchLayoutName = config.touchLayoutName;
     const keepAliveUrl = config.keepAliveUrl;
@@ -1108,6 +1109,11 @@
     }
 
     function sendCommand(command, button = null, port = assignedPort ?? 0) {
+        if (isVisitor && (command === "reset" || command === "insert_coin")) {
+            setStatus("Only arcade operators can use that control.", "warn");
+            return false;
+        }
+
         if (isSpectator || assignedPort === null || !inputWs || inputWs.readyState !== WebSocket.OPEN) {
             setStatus("Connect as a player before sending arcade commands.", "warn");
             return false;
@@ -1125,6 +1131,11 @@
     }
 
     function sendStateCommand(command, button = null) {
+        if (isVisitor) {
+            setStatus("Only arcade operators can use that control.", "warn");
+            return false;
+        }
+
         if (isSpectator || assignedPort === null || !inputWs || inputWs.readyState !== WebSocket.OPEN) {
             setStatus("Connect as a player before sending state commands.", "warn");
             return false;
