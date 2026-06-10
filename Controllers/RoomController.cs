@@ -59,7 +59,7 @@ public class RoomController(
         return RedirectToRoute("PlayServerRoom", new { id, code = created.Room.Code });
     }
 
-    [HttpPost]
+    [HttpPost("/Games/CreateRoomShareLink")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> CreateRoomShareLink(int roomId, RoomShareGrantMode grantMode, CancellationToken cancellationToken = default)
     {
@@ -97,7 +97,7 @@ public class RoomController(
         return RedirectToRoute("PlayServerRoom", new { id = room.GameId, code = room.Code });
     }
 
-    [HttpGet]
+    [HttpGet("/Games/RoomPresence")]
     public async Task<IActionResult> RoomPresence(int roomId, CancellationToken cancellationToken = default)
     {
         var room = await db.GamePlayRooms
@@ -127,7 +127,7 @@ public class RoomController(
         });
     }
 
-    [HttpGet]
+    [HttpGet("/Games/RoomChat")]
     public async Task<IActionResult> RoomChat(int roomId, CancellationToken cancellationToken = default)
     {
         var roomExists = await db.GamePlayRooms
@@ -157,7 +157,7 @@ public class RoomController(
         });
     }
 
-    [HttpPost]
+    [HttpPost("/Games/KickRoomPlayer")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> KickRoomPlayer(int roomId, string viewerId, CancellationToken cancellationToken = default)
     {
@@ -178,7 +178,7 @@ public class RoomController(
         return Json(new { ok = true });
     }
 
-    [HttpPost]
+    [HttpPost("/Games/RoomChat")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> RoomChat(int roomId, string message, CancellationToken cancellationToken = default)
     {

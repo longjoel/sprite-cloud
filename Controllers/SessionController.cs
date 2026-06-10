@@ -222,7 +222,7 @@ public class SessionController : Controller
         }
     }
 
-    [HttpPost]
+    [HttpPost("/Games/KeepAliveServerSession")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> KeepAliveServerSession(string sessionId, CancellationToken cancellationToken = default)
     {
@@ -268,7 +268,7 @@ public class SessionController : Controller
         });
     }
 
-    [HttpGet]
+    [HttpGet("/Games/NosebleedProxy")]
     public async Task<IActionResult> NosebleedProxy(string sessionId, string channel, string? videoMode = null, int? jpegQuality = null, CancellationToken cancellationToken = default)
     {
         if (!HttpContext.WebSockets.IsWebSocketRequest)
@@ -395,7 +395,7 @@ public class SessionController : Controller
         return new EmptyResult();
     }
 
-    [HttpPost]
+    [HttpPost("/Games/NosebleedWebRtcSession")]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> NosebleedWebRtcSession(string sessionId, CancellationToken cancellationToken = default)
     {
