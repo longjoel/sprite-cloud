@@ -5,9 +5,6 @@ public sealed class AdminIndexViewModel
     public int GamesCount { get; set; }
     public int GameFilesCount { get; set; }
     public int SystemFilesCount { get; set; }
-    public int NetworkSharesCount { get; set; }
-    public int LocalFoldersCount { get; set; }
-    public int WebSourcesCount { get; set; }
     public int JobsQueuedOrRunningCount { get; set; }
     public AdminStreamSettingsViewModel StreamSettings { get; set; } = new();
     public IReadOnlyList<NosebleedRuntimeProcessViewModel> NosebleedRuntimeProcesses { get; set; } = [];
