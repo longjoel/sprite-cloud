@@ -16,8 +16,6 @@ public sealed class HomeIndexViewModel
 
     public int GamesCount { get; set; }
     public int SystemsCount { get; set; }
-    public int GameFilesCount { get; set; }
-    public long TotalGameBytes { get; set; }
 
     public TimeSpan TotalPlayTime { get; set; }
     public int PlaySessionCount { get; set; }
@@ -32,17 +30,6 @@ public sealed class HomeIndexViewModel
     public IReadOnlyList<HomeRecentSessionViewModel> RecentSessions { get; set; } = [];
     public IReadOnlyList<NosebleedProcessSnapshot> OrphanNosebleedProcesses { get; set; } = [];
     public IReadOnlyList<NosebleedRuntimeProcessViewModel> NosebleedRuntimeProcesses { get; set; } = [];
-
-    public int NetworkSharesCount { get; set; }
-    public int LocalFoldersCount { get; set; }
-    public int WebSourcesCount { get; set; }
-
-    public int SystemFilesCount { get; set; }
-    public int? MissingSystemFilesCount { get; set; }
-
-    public bool LibretroDatabaseInstalled { get; set; }
-
-    public BackgroundJobSummary? LatestLibretroSyncJob { get; set; }
 }
 
 public sealed class TopPlayedGameViewModel

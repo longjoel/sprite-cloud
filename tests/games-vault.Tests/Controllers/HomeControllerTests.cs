@@ -196,12 +196,6 @@ public sealed class HomeControllerTests : GamesVaultTestBase
         Assert.False(model.ShowDashboard);
         Assert.Equal(0, model.GamesCount);
         Assert.Equal(0, model.SystemsCount);
-        Assert.Equal(0, model.GameFilesCount);
-        Assert.Equal(0L, model.TotalGameBytes);
-        Assert.Equal(0, model.SystemFilesCount);
-        Assert.Equal(0, model.NetworkSharesCount);
-        Assert.Equal(0, model.LocalFoldersCount);
-        Assert.Equal(0, model.WebSourcesCount);
         Assert.Empty(model.LibraryPreviewGames);
         Assert.Empty(model.ActiveNosebleedSessions);
         Assert.Empty(model.ActiveProfiles);
@@ -212,7 +206,6 @@ public sealed class HomeControllerTests : GamesVaultTestBase
         Assert.Equal(TimeSpan.Zero, model.GlobalTotalPlayTime);
         Assert.Equal(0, model.GlobalPlaySessionCount);
         Assert.Null(model.LastPlayedGame);
-        Assert.Null(model.LatestLibretroSyncJob);
     }
 
     [Fact]
@@ -289,34 +282,11 @@ public sealed class HomeControllerTests : GamesVaultTestBase
         var relayMetrics = new NosebleedRelayMetrics();
         var processInspector = new NosebleedProcessInspector(nosebleedOptions);
 
-        // --- Libretro services (minimal - no dat files) ---
-        var tempRoot = Path.Combine(Path.GetTempPath(), "gv-tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempRoot);
-        var env = new FakeWebHostEnvironment(tempRoot);
-
-        var libretroOptions = Options.Create(new LibretroDatabaseOptions
-        {
-            RootPath = "App_Data/libretro-database"
-        });
-        var libretroStore = new LibretroDatabaseStore(env, libretroOptions);
-
-        var memoryCache = new MemoryCache(new MemoryCacheOptions());
-        var systemDat = new SystemDatIndexProvider(env, memoryCache);
-
-        var libraryOptions = Options.Create(new LibraryStorageOptions
-        {
-            RootPath = "App_Data/library"
-        });
-        var systemFileStorage = new SystemFileStorage(env, libraryOptions);
-
         // --- Mock internal jobs client (not used in Index) ---
         var mockJobs = new Moq.Mock<IInternalJobsClient>();
 
         var controller = new HomeController(
             Db,
-            libretroStore,
-            systemDat,
-            systemFileStorage,
             mockJobs.Object,
             telemetry,
             sessionManager,

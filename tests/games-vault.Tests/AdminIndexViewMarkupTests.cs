@@ -19,6 +19,15 @@ public sealed class AdminIndexViewMarkupTests
         Assert.Contains("id=\"admin-stream-settings\"", content);
         Assert.Contains("id=\"admin-nosebleed-runtime\"", content);
         Assert.Contains("id=\"admin-jobs\"", content);
+        Assert.Contains("id=\"admin-setup\"", content);
+    }
+
+    [Fact]
+    public void AdminView_QuickNavIncludesSetup()
+    {
+        var content = ReadAdminView();
+
+        Assert.Contains("href=\"#admin-setup\">Setup</a>", content);
     }
 
     [Fact]

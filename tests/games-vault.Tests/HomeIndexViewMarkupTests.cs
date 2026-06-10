@@ -69,14 +69,13 @@ public sealed class HomeIndexViewMarkupTests
     }
 
     [Fact]
-    public void HomeView_HidesSetupBranchWhenDashboardIsShown()
+    public void HomeView_DoesNotRender_SetupSection()
     {
         var content = ReadHomeView();
 
-        Assert.Contains("<div class=\"row\" hidden=\"@(Model.CurrentProfileId is null || !Model.ShowDashboard)\">", content);
-        Assert.DoesNotContain("\n@else\n{", content);
-        Assert.DoesNotContain("\n} else {", content);
-        Assert.DoesNotContain("\n}\nelse\n{", content);
+        Assert.DoesNotContain("Setup", content);
+        Assert.DoesNotContain("admin-setup", content);
+        Assert.DoesNotContain("LibretroDatabaseInstalled", content);
     }
 
     [Fact]
@@ -123,6 +122,6 @@ public sealed class HomeIndexViewMarkupTests
         Assert.DoesNotContain("Install RetroArch web player", content);
         Assert.DoesNotContain("StartWebPlayerInstall", content);
         Assert.DoesNotContain("Use the web player to test cores.", content);
-        Assert.Contains("Open a server-side session and invite players.", content);
+        Assert.DoesNotContain("Web player setup", content);
     }
 }
