@@ -1,8 +1,8 @@
 using System.Diagnostics;
 using System.Net.WebSockets;
-using games_vault.BackgroundJobs;
 using games_vault.Data;
 using games_vault.Gameplay;
+using games_vault.Libretro;
 using games_vault.Models.ViewModels;
 using games_vault.Nosebleed;
 using games_vault.Web;
@@ -16,12 +16,12 @@ namespace games_vault.Controllers;
 
 public class HomeController(
     AppDbContext db,
-    IInternalJobsClient internalJobs,
     GamePlayTelemetryService gamePlayTelemetry,
     NosebleedSessionManager nosebleedSessions,
     NosebleedTicketSigner nosebleedTickets,
     NosebleedRelayMetrics nosebleedRelayMetrics,
     NosebleedProcessInspector nosebleedProcessInspector,
+    LibretroDatabaseSyncService libretroSync,
     CurrentProfileService currentProfile,
     CurrentAccessService currentAccess) : Controller
 {
@@ -443,28 +443,13 @@ public class HomeController(
     {
         if (!await currentAccess.IsAdminAsync(cancellationToken))
         {
-            TempData["Message"] = "Admin profile required to queue setup jobs.";
+            TempData["Message"] = "Admin profile required.";
             return RedirectToAction("Index", "Profiles");
         }
 
-        var jobId = await internalJobs.EnqueueLibretroSyncAsync(force, cancellationToken);
-        TempData["Message"] = force ? $"Queued forced libretro sync job #{jobId}." : $"Queued libretro sync job #{jobId}.";
-        return RedirectToAction("Details", "Jobs", new { id = jobId });
-    }
-
-    [HttpPost]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> StartInstallAll(CancellationToken cancellationToken = default)
-    {
-        if (!await currentAccess.IsAdminAsync(cancellationToken))
-        {
-            TempData["Message"] = "Admin profile required to queue setup jobs.";
-            return RedirectToAction("Index", "Profiles");
-        }
-
-        var libretroJobId = await internalJobs.EnqueueLibretroSyncAsync(force: false, cancellationToken);
-        TempData["Message"] = $"Queued setup job: libretro sync #{libretroJobId}.";
-        return RedirectToAction("Index", "Jobs");
+        await libretroSync.SyncAsync(force, cancellationToken);
+        TempData["Message"] = force ? "Forced libretro database re-sync complete." : "Libretro database sync complete.";
+        return RedirectToAction("Index", "Admin");
     }
 
     [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]

@@ -1,9 +1,7 @@
 using System.IO.Compression;
-using games_vault.BackgroundJobs;
 using games_vault.Libretro;
 using games_vault.Libretro.Dat;
 using games_vault.Libretro.Import;
-using games_vault.Models;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -57,24 +55,7 @@ public sealed class LibretroZipImportTests : GamesVaultTestBase
             fileStorage,
             LoggerFactory.Create(_ => { }).CreateLogger<GameUploadImporter>());
 
-        var job = new BackgroundJob
-        {
-            Command = "test",
-            CreatedUtc = DateTime.UtcNow,
-            UpdatedUtc = DateTime.UtcNow,
-            Status = BackgroundJobStatus.Queued,
-            PayloadJson = "{}"
-        };
-        Db.BackgroundJobs.Add(job);
-        await Db.SaveChangesAsync();
-
-        var context = new BackgroundJobExecutionContext(
-            job,
-            Db,
-            new ServiceCollection().BuildServiceProvider(),
-            LoggerFactory.Create(_ => { }).CreateLogger("test"));
-
-        var result = await importer.ImportFromStagedDirectoryAsync(stagingRoot, context, CancellationToken.None);
+        var result = await importer.ImportFromStagedDirectoryAsync(stagingRoot, CancellationToken.None);
 
         Assert.Equal(2, result.TotalScannedFileCount);
         Assert.Equal(1, result.TotalMatchedFileCount);
@@ -120,24 +101,7 @@ public sealed class LibretroZipImportTests : GamesVaultTestBase
             fileStorage,
             LoggerFactory.Create(_ => { }).CreateLogger<GameUploadImporter>());
 
-        var job = new BackgroundJob
-        {
-            Command = "test",
-            CreatedUtc = DateTime.UtcNow,
-            UpdatedUtc = DateTime.UtcNow,
-            Status = BackgroundJobStatus.Queued,
-            PayloadJson = "{}"
-        };
-        Db.BackgroundJobs.Add(job);
-        await Db.SaveChangesAsync();
-
-        var context = new BackgroundJobExecutionContext(
-            job,
-            Db,
-            new ServiceCollection().BuildServiceProvider(),
-            LoggerFactory.Create(_ => { }).CreateLogger("test"));
-
-        var result = await importer.ImportFromStagedDirectoryAsync(stagingRoot, context, CancellationToken.None);
+        var result = await importer.ImportFromStagedDirectoryAsync(stagingRoot, CancellationToken.None);
 
         Assert.Equal(2, result.TotalScannedFileCount);
         Assert.Equal(1, result.TotalMatchedFileCount);
@@ -179,24 +143,7 @@ public sealed class LibretroZipImportTests : GamesVaultTestBase
             fileStorage,
             LoggerFactory.Create(_ => { }).CreateLogger<GameUploadImporter>());
 
-        var job = new BackgroundJob
-        {
-            Command = "test",
-            CreatedUtc = DateTime.UtcNow,
-            UpdatedUtc = DateTime.UtcNow,
-            Status = BackgroundJobStatus.Queued,
-            PayloadJson = "{}"
-        };
-        Db.BackgroundJobs.Add(job);
-        await Db.SaveChangesAsync();
-
-        var context = new BackgroundJobExecutionContext(
-            job,
-            Db,
-            new ServiceCollection().BuildServiceProvider(),
-            LoggerFactory.Create(_ => { }).CreateLogger("test"));
-
-        var result = await importer.ImportFromStagedDirectoryAsync(stagingRoot, context, CancellationToken.None);
+        var result = await importer.ImportFromStagedDirectoryAsync(stagingRoot, CancellationToken.None);
 
         Assert.Equal(2, result.TotalScannedFileCount);
         Assert.Equal(1, result.TotalMatchedFileCount);

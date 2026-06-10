@@ -6,9 +6,6 @@ public sealed class LocalScanResult
 {
     public int Id { get; set; }
 
-    public int LocalScanRunId { get; set; }
-    public LocalScanRun LocalScanRun { get; set; } = null!;
-
     [Required]
     [StringLength(1000)]
     public string FullPath { get; set; } = "";

@@ -10,10 +10,5 @@ public class NetworkScanResultConfiguration : IEntityTypeConfiguration<NetworkSc
     {
         entity.Property(x => x.FullPath).HasMaxLength(1000);
         entity.Property(x => x.FileName).HasMaxLength(260);
-
-        entity.HasOne(x => x.NetworkScanRun)
-            .WithMany()
-            .HasForeignKey(x => x.NetworkScanRunId)
-            .OnDelete(DeleteBehavior.Cascade);
     }
 }
