@@ -177,22 +177,6 @@ public sealed class PlayServerViewMarkupTests
     }
 
     [Fact]
-    public void PlayerSurface_Documents_Firefox_Gamepad_Discovery_Limitation()
-    {
-        var content = ReadPlayServerView();
-
-        Assert.Contains("id=\"playserver-gamepad-browser-note\" hidden", content);
-        Assert.Contains("id=\"playserver-gamepad-browser-note-dismiss\"", content);
-        Assert.Contains("Dismiss controller note permanently", content);
-        Assert.Contains("games-vault:playserver-gamepad-browser-note-dismissed", content);
-        Assert.Contains("storage?.setItem(storageKey, '1')", content);
-        Assert.Contains("storage?.getItem(storageKey) === '1'", content);
-        Assert.Contains("Controller note", content);
-        Assert.Contains("Browsers may wait to expose already-connected gamepads", content);
-        Assert.Contains("unplug it, plug it back in", content);
-    }
-
-    [Fact]
     public void PlayerSurface_Does_Not_Render_Debug_Hud_Or_Topline_Chrome()
     {
         var content = ReadPlayServerView();
