@@ -210,26 +210,12 @@ public sealed class AdminController(
             LocalFoldersCount = await db.LocalFolders.AsNoTracking().CountAsync(cancellationToken),
             WebSourcesCount = await db.WebSources.AsNoTracking().CountAsync(cancellationToken),
             JobsQueuedOrRunningCount = await db.BackgroundJobs.AsNoTracking().CountAsync(x => x.Status == BackgroundJobStatus.Queued || x.Status == BackgroundJobStatus.Running, cancellationToken),
-            DownloadsCount = await db.Artifacts.AsNoTracking().CountAsync(cancellationToken),
-            ProfilesCount = await db.UserProfiles.AsNoTracking().CountAsync(x => !x.IsArchived, cancellationToken),
-            ProfileInviteCodesCount = await db.ProfileInviteCodes.AsNoTracking().CountAsync(cancellationToken),
             StreamSettings = new AdminStreamSettingsViewModel
             {
                 PreferredVideoTransport = streamSettings.PreferredVideoTransport,
                 MediaBackend = streamSettings.MediaBackend
             },
             NosebleedRuntimeProcesses = runtimeProcesses,
-            RecentGames = await db.Games.AsNoTracking()
-                .OrderByDescending(x => x.CreatedUtc)
-                .Take(8)
-                .Select(x => new AdminRecentGameRow
-                {
-                    Id = x.Id,
-                    Name = x.Name,
-                    SystemName = x.SystemName,
-                    CreatedUtc = x.CreatedUtc
-                })
-                .ToListAsync(cancellationToken),
             RecentJobs = await db.BackgroundJobs.AsNoTracking()
                 .OrderByDescending(x => x.Id)
                 .Take(10)
