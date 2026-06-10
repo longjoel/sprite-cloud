@@ -156,6 +156,8 @@ public sealed class GamePlayRoomService(
         var room = await db.GamePlayRooms
             .Include(x => x.Game)
             .Include(x => x.GameFile)
+            .Include(x => x.ArcadeCabinet)
+                .ThenInclude(x => x!.Arcade)
             .FirstOrDefaultAsync(x => x.Code == code && x.Status == GamePlayRoomStatus.Active, ct);
 
         if (room is null)
@@ -163,7 +165,11 @@ public sealed class GamePlayRoomService(
             return RoomJoinResult.Fail("No active room found for that code.");
         }
 
-        return await JoinRoomAsync(room, viewerId, ct, allowPlayerOverride: null);
+        var isFreePlayArcade = room.ArcadeCabinet is not null
+            && room.ArcadeCabinet.CreditMode == ArcadeCabinetCreditMode.FreePlay
+            && room.ArcadeCabinet.IsEnabled
+            && room.ArcadeCabinet.Arcade.IsEnabled;
+        return await JoinRoomAsync(room, viewerId, ct, allowPlayerOverride: isFreePlayArcade ? true : null);
     }
 
     public async Task<RoomJoinResult> JoinByShareTokenAsync(string rawToken, string viewerId, CancellationToken ct)
