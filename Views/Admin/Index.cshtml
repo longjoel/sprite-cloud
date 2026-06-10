@@ -51,11 +51,9 @@
     <a class="btn btn-sm btn-outline-secondary" href="#admin-nosebleed-runtime">Nosebleed</a>
     <a class="btn btn-sm btn-outline-secondary" href="#admin-setup">Setup</a>
     <a class="btn btn-sm btn-outline-secondary" href="#admin-jobs">Jobs</a>
-    <a class="btn btn-sm btn-primary" asp-controller="Sources" asp-action="Index">Sources</a>
     <a class="btn btn-sm btn-outline-primary" asp-controller="SystemFiles" asp-action="Index">System files</a>
     <a class="btn btn-sm btn-outline-primary" asp-controller="Profiles" asp-action="Index">Profiles</a>
     <a class="btn btn-sm btn-outline-primary" asp-controller="Profiles" asp-action="Invites">Invites</a>
-    <a class="btn btn-sm btn-outline-primary" asp-controller="Downloads" asp-action="Index">Downloads</a>
     <a class="btn btn-sm btn-outline-primary" asp-controller="GameFiles" asp-action="Index">Game files</a>
 </div>
 
@@ -238,73 +236,34 @@
     }
 </section>
 
-@* ── Setup ── *@
+@* ── System files ── *@
 <section id="admin-setup" class="mb-4">
     <div class="d-flex justify-content-between align-items-end gap-3 flex-wrap mb-3">
         <div>
-            <div class="text-uppercase text-muted small fw-semibold mb-1">Library</div>
-            <h2 class="h3 mb-1">Library setup</h2>
-            <div class="text-muted">@Model.GamesCount games · @Model.GameFilesCount game files · @Model.SystemFilesCount system files</div>
+            <div class="text-uppercase text-muted small fw-semibold mb-1">System</div>
+            <h2 class="h3 mb-1">System files</h2>
+            <div class="text-muted">@Model.SystemFilesCount files</div>
         </div>
     </div>
 
-    <div class="row g-3 mb-3">
-        <div class="col-md-4">
-            <div class="card h-100 border-0 shadow-sm">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <h2 class="h6 mb-2">Games</h2>
-                        <span class="badge text-bg-light">@Model.GamesCount</span>
-                    </div>
-                    <div class="text-muted small mb-3">Add and manage ROMs + metadata.</div>
-                    <div class="d-flex gap-2 flex-wrap">
-                        <a class="btn btn-sm btn-primary" asp-controller="Games" asp-action="Index" asp-route-openAdd="true">Add game</a>
-                        <a class="btn btn-sm btn-outline-secondary" asp-controller="Games" asp-action="Index">Browse</a>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-md-4">
-            <div class="card h-100 border-0 shadow-sm">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <h2 class="h6 mb-2">Sources</h2>
-                        <span class="badge text-bg-light">@(Model.NetworkSharesCount + Model.LocalFoldersCount + Model.WebSourcesCount)</span>
-                    </div>
-                    <div class="text-muted small mb-3">Local folders, network shares, and web sources.</div>
-                    <div class="d-flex gap-2 flex-wrap">
-                        <a class="btn btn-sm btn-primary" asp-controller="Sources" asp-action="Index">Add source</a>
-                        <a class="btn btn-sm btn-outline-secondary" asp-controller="Sources" asp-action="Index">Manage</a>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-md-4">
-            <div class="card h-100 border-0 shadow-sm">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-start">
-                        <h2 class="h6 mb-2">System files</h2>
-                        <span class="badge text-bg-light">@Model.SystemFilesCount</span>
-                    </div>
-                    <div class="text-muted small mb-2">BIOS and other required files.</div>
-                    @if (!Model.LibretroDatabaseInstalled)
+    <div class="card border-0 shadow-sm mb-3">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                <div>
+                    <h2 class="h5 mb-2">BIOS and other required files</h2>
+                    @if (Model.LibretroDatabaseInstalled)
                     {
-                        <div class="small text-muted mb-3">Sync libretro-database to compute what's missing.</div>
-                    }
-                    else
-                    {
-                        <div class="small mb-3">
+                        <div class="small text-muted">
                             Missing: <span class="fw-semibold">@((Model.MissingSystemFilesCount ?? 0).ToString())</span>
                         </div>
                     }
-                    <div class="d-flex gap-2 flex-wrap">
-                        <a class="btn btn-sm btn-primary" asp-controller="SystemFiles" asp-action="Create">Add system file</a>
-                        <a class="btn btn-sm btn-outline-secondary" asp-controller="SystemFiles" asp-action="Missing">View missing</a>
-                    </div>
                 </div>
+                <a class="btn btn-sm btn-primary" asp-controller="SystemFiles" asp-action="Create">Add system file</a>
             </div>
+            @if (!Model.LibretroDatabaseInstalled)
+            {
+                <div class="mt-2 small text-muted">Sync libretro-database below to see what's missing.</div>
+            }
         </div>
     </div>
 

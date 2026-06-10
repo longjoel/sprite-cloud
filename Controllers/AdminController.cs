@@ -206,9 +206,6 @@ public sealed class AdminController(
             GamesCount = await db.Games.AsNoTracking().CountAsync(cancellationToken),
             GameFilesCount = await db.GameFiles.AsNoTracking().CountAsync(cancellationToken),
             SystemFilesCount = await db.SystemFiles.AsNoTracking().CountAsync(cancellationToken),
-            NetworkSharesCount = await db.NetworkShares.AsNoTracking().CountAsync(cancellationToken),
-            LocalFoldersCount = await db.LocalFolders.AsNoTracking().CountAsync(cancellationToken),
-            WebSourcesCount = await db.WebSources.AsNoTracking().CountAsync(cancellationToken),
             JobsQueuedOrRunningCount = await db.BackgroundJobs.AsNoTracking().CountAsync(x => x.Status == BackgroundJobStatus.Queued || x.Status == BackgroundJobStatus.Running, cancellationToken),
             StreamSettings = new AdminStreamSettingsViewModel
             {
