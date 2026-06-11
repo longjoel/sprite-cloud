@@ -38,6 +38,21 @@ public class HomeController(
         var accessMode = await currentAccess.GetAccessModeAsync(cancellationToken);
         var canPlay = accessMode is AccessMode.Player or AccessMode.Admin;
         var canManageLibrary = accessMode is AccessMode.Admin;
+
+        var pinnedGames = currentUserProfile is not null
+            ? await db.ProfilePinnedGames
+                .AsNoTracking()
+                .Where(x => x.ProfileId == currentUserProfile.Id && !x.IsArchived)
+                .OrderBy(x => x.CreatedUtc)
+                .Select(x => new HomePinnedGameViewModel
+                {
+                    GameId = x.GameId,
+                    GameName = x.Game.Name,
+                    SystemName = x.Game.SystemName
+                })
+                .ToListAsync(cancellationToken)
+            : [];
+
         var playRowsQuery = db.GamePlaySessions
             .AsNoTracking()
             .Where(x => x.StartedUtc >= DateTime.UtcNow.AddDays(-90));
@@ -149,6 +164,7 @@ public class HomeController(
             ActiveArcadeCabinets = activeArcadeCabinets,
             ActiveLibrarySessions = activeLibrarySessions,
             RecentSessions = recentSessions,
+            PinnedGames = pinnedGames,
         });
     }
 

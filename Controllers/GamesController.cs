@@ -224,6 +224,59 @@ public class GamesController(
         return PartialView("_GamesBank", bank);
     }
 
+    [HttpPost("Games/TogglePin/{id}")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> TogglePin(int id, CancellationToken cancellationToken = default)
+    {
+        if (!await currentAccess.CanPlayAsync(cancellationToken))
+        {
+            return Json(new { error = "Sign in to pin games." });
+        }
+
+        var profile = await currentProfile.GetCurrentAsync(cancellationToken);
+        if (profile is null)
+        {
+            return Json(new { error = "Sign in to pin games." });
+        }
+
+        var gameExists = await db.Games.AnyAsync(x => x.Id == id, cancellationToken);
+        if (!gameExists)
+        {
+            return NotFound();
+        }
+
+        var existing = await db.ProfilePinnedGames
+            .FirstOrDefaultAsync(x => x.ProfileId == profile.Id && x.GameId == id, cancellationToken);
+
+        bool pinned;
+        if (existing is not null)
+        {
+            if (existing.IsArchived)
+            {
+                existing.IsArchived = false;
+                pinned = true;
+            }
+            else
+            {
+                existing.IsArchived = true;
+                pinned = false;
+            }
+        }
+        else
+        {
+            db.ProfilePinnedGames.Add(new ProfilePinnedGame
+            {
+                ProfileId = profile.Id,
+                GameId = id,
+                CreatedUtc = DateTime.UtcNow
+            });
+            pinned = true;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return Json(new { pinned });
+    }
+
     private IQueryable<Game> ApplyGamesLibrarySearch(IQueryable<Game> query, string? q)
     {
         if (string.IsNullOrWhiteSpace(q))
@@ -449,6 +502,16 @@ public class GamesController(
         var sections = BuildGamesLibrarySections(games, browse.Group, activeGameIds);
         var canManageLibrary = await currentAccess.CanManageLibraryAsync(cancellationToken);
 
+        var currentUser = await currentProfile.GetCurrentAsync(cancellationToken);
+        var pinnedGameIds = currentUser is not null
+            ? (await db.ProfilePinnedGames
+                .AsNoTracking()
+                .Where(x => x.ProfileId == currentUser.Id && !x.IsArchived)
+                .Select(x => x.GameId)
+                .ToListAsync(cancellationToken))
+                .ToHashSet()
+            : new HashSet<int>();
+
         return new GamesBankViewModel
         {
             Games = games,
@@ -465,7 +528,8 @@ public class GamesController(
             CanManageLibrary = canManageLibrary,
             BatchId = batchId,
             BatchGameIds = batchGameIds,
-            MissingSystemFilesBySystem = missingBySystem
+            MissingSystemFilesBySystem = missingBySystem,
+            PinnedGameIds = pinnedGameIds
         };
     }
 

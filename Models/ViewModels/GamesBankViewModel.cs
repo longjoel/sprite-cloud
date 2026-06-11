@@ -31,4 +31,6 @@ public sealed class GamesBankViewModel
 
     public IReadOnlyDictionary<string, SystemMissingInfo> MissingSystemFilesBySystem { get; init; } =
         new Dictionary<string, SystemMissingInfo>(StringComparer.OrdinalIgnoreCase);
+
+    public IReadOnlySet<int> PinnedGameIds { get; init; } = new HashSet<int>();
 }

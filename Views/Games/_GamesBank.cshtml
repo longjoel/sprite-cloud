@@ -133,6 +133,16 @@ else
                         <div class="games-primary-actions d-flex flex-wrap gap-2 mt-auto">
                             @{
                                 var isGuest = ViewData["CurrentProfileId"] is not int;
+                                var isPinned = !isGuest && Model.PinnedGameIds.Contains(game.Id);
+                            }
+                            @if (!isGuest)
+                            {
+                                <button class="btn btn-sm btn-outline-secondary pin-toggle @(isPinned ? "active" : "")"
+                                        type="button"
+                                        data-game-id="@game.Id"
+                                        title="@(isPinned ? "Unpin from home screen" : "Pin to home screen")">
+                                    📌
+                                </button>
                             }
                             <a class="btn btn-primary" asp-action="PlayServer" asp-route-id="@game.Id">@(isGuest ? "Watch" : "Play")</a>
                             @if (canManageLibrary)

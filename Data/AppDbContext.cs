@@ -33,6 +33,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<ProfileAuthSession> ProfileAuthSessions => Set<ProfileAuthSession>();
     public DbSet<ProfileShareRedeemSession> ProfileShareRedeemSessions => Set<ProfileShareRedeemSession>();
     public DbSet<ProfileCorePreference> ProfileCorePreferences => Set<ProfileCorePreference>();
+    public DbSet<ProfilePinnedGame> ProfilePinnedGames => Set<ProfilePinnedGame>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
