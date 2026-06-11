@@ -9,7 +9,6 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
@@ -166,13 +165,8 @@ public sealed class ProfileBatterySaveUploadTests
 
     private static async Task<TestFixture> CreateFixtureAsync()
     {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(connection)
-            .Options;
-        var db = new AppDbContext(options);
-        await db.Database.EnsureCreatedAsync();
+        var scope = await TestDbFixture.CreateScopeAsync();
+        var db = scope.Db;
 
         var contentRoot = CreateTempDirectory();
         var profileSaveRoot = CreateTempDirectory();
@@ -210,7 +204,7 @@ public sealed class ProfileBatterySaveUploadTests
             new SystemCoreMappingResolver(nosebleedOptions),
             NullLogger<NosebleedSessionManager>.Instance);
 
-        return new TestFixture(connection, db, storage, fileStorage, accessor, currentProfile, batterySaveService, runtimeSync, policyResolver, sessionManager, contentRoot, profileSaveRoot);
+        return new TestFixture(scope, db, storage, fileStorage, accessor, currentProfile, batterySaveService, runtimeSync, policyResolver, sessionManager, contentRoot, profileSaveRoot);
     }
 
     private static async Task SeedGameAsync(AppDbContext db, int profileId, int gameId, int gameFileId)
@@ -327,7 +321,7 @@ public sealed class ProfileBatterySaveUploadTests
     }
 
     private sealed record TestFixture(
-        SqliteConnection Connection,
+        TestDbFixture.Scope Scope,
         AppDbContext Db,
         ProfileGameSaveStorage Storage,
         GameFileStorage FileStorage,
@@ -354,8 +348,7 @@ public sealed class ProfileBatterySaveUploadTests
 
         public async ValueTask DisposeAsync()
         {
-            await Db.DisposeAsync();
-            await Connection.DisposeAsync();
+            await Scope.DisposeAsync();
         }
     }
 

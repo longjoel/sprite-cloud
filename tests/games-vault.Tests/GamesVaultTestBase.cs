@@ -1,7 +1,6 @@
 using games_vault.Data;
 using games_vault.Profiles;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.DataProtection;
 
@@ -13,20 +12,13 @@ namespace games_vault.Tests;
 /// </summary>
 public class GamesVaultTestBase : IAsyncDisposable
 {
-    protected SqliteConnection _connection;
+    private readonly TestDbFixture.Scope _scope;
     protected AppDbContext Db { get; }
 
     public GamesVaultTestBase()
     {
-        _connection = new SqliteConnection("Data Source=:memory:");
-        _connection.Open();
-
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(_connection)
-            .Options;
-
-        Db = new AppDbContext(options);
-        Db.Database.EnsureCreated();
+        _scope = TestDbFixture.CreateScopeAsync().GetAwaiter().GetResult();
+        Db = _scope.Db;
     }
 
     /// <summary>
@@ -53,8 +45,7 @@ public class GamesVaultTestBase : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await Db.DisposeAsync();
-        await _connection.DisposeAsync();
+        await _scope.DisposeAsync();
     }
 
     private sealed class TestHttpContextAccessor(HttpContext httpContext) : IHttpContextAccessor

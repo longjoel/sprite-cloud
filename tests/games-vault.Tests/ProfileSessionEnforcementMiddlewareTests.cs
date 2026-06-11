@@ -2,7 +2,6 @@ using games_vault.Data;
 using games_vault.Models;
 using games_vault.Profiles;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -139,16 +138,11 @@ public sealed class ProfileSessionEnforcementMiddlewareTests
 
     private static async Task<TestFixture> CreateFixtureAsync()
     {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(connection)
-            .Options;
-        var db = new AppDbContext(options);
-        await db.Database.EnsureCreatedAsync();
+        var scope = await TestDbFixture.CreateScopeAsync();
+        var db = scope.Db;
         var httpContext = new DefaultHttpContext();
         var accessor = new TestHttpContextAccessor(httpContext);
-        return new TestFixture(connection, db, httpContext, accessor);
+        return new TestFixture(scope, db, httpContext, accessor);
     }
 
     private sealed class TestHttpContextAccessor(HttpContext httpContext) : IHttpContextAccessor
@@ -156,12 +150,11 @@ public sealed class ProfileSessionEnforcementMiddlewareTests
         public HttpContext? HttpContext { get; set; } = httpContext;
     }
 
-    private sealed record TestFixture(SqliteConnection Connection, AppDbContext Db, DefaultHttpContext HttpContext, IHttpContextAccessor HttpContextAccessor) : IAsyncDisposable
+    private sealed record TestFixture(TestDbFixture.Scope Scope, AppDbContext Db, DefaultHttpContext HttpContext, IHttpContextAccessor HttpContextAccessor) : IAsyncDisposable
     {
         public async ValueTask DisposeAsync()
         {
-            await Db.DisposeAsync();
-            await Connection.DisposeAsync();
+            await Scope.DisposeAsync();
         }
     }
 }

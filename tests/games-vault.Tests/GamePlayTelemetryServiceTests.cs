@@ -1,7 +1,6 @@
 using games_vault.Data;
 using games_vault.Gameplay;
 using games_vault.Models;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace games_vault.Tests;
@@ -160,13 +159,8 @@ public sealed class GamePlayTelemetryServiceTests
 
     private static async Task<TestFixture> CreateFixtureAsync()
     {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(connection)
-            .Options;
-        var db = new AppDbContext(options);
-        await db.Database.EnsureCreatedAsync();
+        var scope = await TestDbFixture.CreateScopeAsync();
+        var db = scope.Db;
         var game = new Game { Name = "Game", SystemName = "gb", SizeBytes = 1 };
         var file = new GameFile { Game = game, Name = "game.gb", SizeBytes = 1 };
         var profileOne = new UserProfile { DisplayName = "Player One", PasskeyUserHandleBase64Url = "player-one", Color = "#0d6efd" };
@@ -175,15 +169,14 @@ public sealed class GamePlayTelemetryServiceTests
         db.GameFiles.Add(file);
         db.UserProfiles.AddRange(profileOne, profileTwo);
         await db.SaveChangesAsync();
-        return new TestFixture(connection, db, game, file, profileOne, profileTwo);
+        return new TestFixture(scope, db, game, file, profileOne, profileTwo);
     }
 
-    private sealed record TestFixture(SqliteConnection Connection, AppDbContext Db, Game Game, GameFile File, UserProfile ProfileOne, UserProfile ProfileTwo) : IAsyncDisposable
+    private sealed record TestFixture(TestDbFixture.Scope Scope, AppDbContext Db, Game Game, GameFile File, UserProfile ProfileOne, UserProfile ProfileTwo) : IAsyncDisposable
     {
         public async ValueTask DisposeAsync()
         {
-            await Db.DisposeAsync();
-            await Connection.DisposeAsync();
+            await Scope.DisposeAsync();
         }
     }
 }
