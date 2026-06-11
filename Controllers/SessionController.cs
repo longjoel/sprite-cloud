@@ -223,7 +223,6 @@ public class SessionController : Controller
     }
 
     [HttpPost("/Games/KeepAliveServerSession")]
-    [ValidateAntiForgeryToken]
     public async Task<IActionResult> KeepAliveServerSession(string sessionId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(sessionId) ||
@@ -396,7 +395,6 @@ public class SessionController : Controller
     }
 
     [HttpPost("/Games/NosebleedWebRtcSession")]
-    [ValidateAntiForgeryToken]
     public async Task<IActionResult> NosebleedWebRtcSession(string sessionId, CancellationToken cancellationToken = default)
     {
         if (!IsAllowedWebSocketOrigin(Request))
@@ -614,9 +612,6 @@ public class SessionController : Controller
         Response.Cookies.Append(NosebleedViewerCookieName, id, new CookieOptions
         {
             Path = "/",
-            HttpOnly = true,
-            SameSite = SameSiteMode.Lax,
-            Secure = Request.IsHttps,
             MaxAge = TimeSpan.FromDays(30)
         });
         return id;
