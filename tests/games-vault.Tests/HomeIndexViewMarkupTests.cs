@@ -25,9 +25,8 @@ public sealed class HomeIndexViewMarkupTests
 
         Assert.Contains("id=\"home-active-machines\"", content);
         Assert.Contains(">Active machines<", content);
-        Assert.Contains("var visibleActiveSessions = featuredSession is null", content);
-        Assert.Contains("!string.Equals(x.SessionId, featuredSession.SessionId, StringComparison.OrdinalIgnoreCase)", content);
-        Assert.Contains("The featured machine above is the only active one right now.", content);
+        Assert.Contains("var arcadeSessions = Model.ActiveArcadeCabinets", content);
+        Assert.Contains("No active machines right now.", content);
     }
 
     [Fact]
