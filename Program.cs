@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using games_vault.Arcade;
 using games_vault.Gameplay;
 using games_vault.Libretro;
@@ -9,6 +11,7 @@ using games_vault.Web;
 using games_vault.Profiles;
 using Serilog;
 using Serilog.Formatting.Json;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -53,6 +56,9 @@ builder.Services.AddAntiforgery(options =>
 });
 builder.Services.AddDbContext<games_vault.Data.AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<games_vault.Data.AppDbContext>("database")
+    .AddCheck<NosebleedHealthCheck>("nosebleed");
 builder.Services.AddSingleton<LibretroDatabaseSyncService>();
 builder.Services.AddHttpClient();
 builder.Services.AddMemoryCache();
@@ -149,6 +155,30 @@ app.UseRouting();
 app.UseMiddleware<ProfileSessionEnforcementMiddleware>();
 
 app.UseAuthorization();
+
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = async (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+
+        var payload = new
+        {
+            status = report.Status.ToString(),
+            checks = report.Entries.ToDictionary(
+                entry => entry.Key,
+                entry => new
+                {
+                    status = entry.Value.Status.ToString(),
+                    description = entry.Value.Description,
+                    error = entry.Value.Exception?.Message,
+                    duration = entry.Value.Duration.TotalMilliseconds
+                })
+        };
+
+        await context.Response.WriteAsync(JsonSerializer.Serialize(payload));
+    }
+});
 
 app.MapControllerRoute(
     name: "default",
