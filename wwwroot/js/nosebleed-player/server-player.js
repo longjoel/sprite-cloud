@@ -194,6 +194,10 @@
         }
         document.documentElement.classList.toggle("games-vault-player-fullscreen", fullscreen);
         document.body?.classList.toggle("games-vault-player-fullscreen", fullscreen);
+        const sidebar = document.querySelector(".playserver-sidebar-column");
+        if (sidebar) {
+            sidebar.classList.toggle("d-none", fullscreen);
+        }
         syncViewModeButtons();
         fitCanvasToShell();
         fitRtcTrackVideoToShell();
