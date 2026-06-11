@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using games_vault.Arcade;
@@ -10,6 +11,18 @@ using Serilog;
 using Serilog.Formatting.Json;
 
 var builder = WebApplication.CreateBuilder(args);
+
+var dataProtectionKeyRingPath = builder.Configuration["DataProtection:KeyRingPath"];
+if (string.IsNullOrWhiteSpace(dataProtectionKeyRingPath))
+{
+    dataProtectionKeyRingPath = Path.Combine(builder.Environment.ContentRootPath, "App_Data", "dp-keys");
+}
+else if (!Path.IsPathRooted(dataProtectionKeyRingPath))
+{
+    dataProtectionKeyRingPath = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, dataProtectionKeyRingPath));
+}
+
+Directory.CreateDirectory(dataProtectionKeyRingPath);
 
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
@@ -44,7 +57,8 @@ builder.Services.AddSingleton<LibretroDatabaseSyncService>();
 builder.Services.AddHttpClient();
 builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddDataProtection();
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyRingPath));
 builder.Services.AddScoped<CurrentProfileService>();
 builder.Services.AddScoped<ProfileAuthSessionService>();
 builder.Services.AddScoped<CurrentAccessService>();
