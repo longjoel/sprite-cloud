@@ -300,6 +300,7 @@ public sealed class NosebleedSessionManager(
                 ownerFileId.Value,
                 process.Port.Value,
                 BuildBaseUrl(process.Port.Value),
+                BuildLocalUrl(process.Port.Value),
                 ticketSigner.CreatePlayerToken(process.SessionId, "games-vault-user", 0),
                 ReadStartedUtc(liveProcess),
                 Path.GetFullPath(process.CorePath),
@@ -584,6 +585,7 @@ public sealed class NosebleedSessionManager(
                 fileId,
                 port,
                 baseUrl,
+                healthUrl,
                 token,
                 DateTimeOffset.UtcNow,
                 corePath,
@@ -663,6 +665,11 @@ public sealed class NosebleedSessionManager(
     private string BuildBaseUrl(int port)
     {
         return $"{_options.PublicScheme}://{_options.PublicHost}:{port}";
+    }
+
+    private static string BuildLocalUrl(int port)
+    {
+        return $"http://127.0.0.1:{port}";
     }
 
     private void CleanupExitedSessions(bool disposeRemoved = true)

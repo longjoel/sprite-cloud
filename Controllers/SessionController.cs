@@ -357,7 +357,7 @@ public class SessionController : Controller
         var path = channel == "video"
             ? BuildNosebleedVideoProxyPath(videoMode, jpegQuality)
             : $"/ws/{channel}";
-        var target = BuildNosebleedWebSocketUri(session.BaseUrl, path, token);
+        var target = BuildNosebleedWebSocketUri(session.LocalUrl, path, token);
         if (target is null)
         {
             return StatusCode(StatusCodes.Status502BadGateway);
@@ -451,7 +451,7 @@ public class SessionController : Controller
             token = nosebleedTickets.CreateSpectatorToken(sessionId, viewerId);
         }
 
-        if (string.IsNullOrWhiteSpace(token) || !Uri.TryCreate(session.BaseUrl, UriKind.Absolute, out var baseUri))
+        if (string.IsNullOrWhiteSpace(token) || !Uri.TryCreate(session.LocalUrl, UriKind.Absolute, out var baseUri))
         {
             return StatusCode(StatusCodes.Status502BadGateway);
         }
