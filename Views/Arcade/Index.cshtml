@@ -92,6 +92,8 @@ else
                                 <dd class="col-7">@cabinet.SystemName</dd>
                                 <dt class="col-5">Runtime</dt>
                                 <dd class="col-7">@(cabinet.Session is null ? "—" : FormatDuration(cabinet.Session.Runtime))</dd>
+                                <dt class="col-5">Players</dt>
+                                <dd class="col-7">@cabinet.PlayerCount</dd>
                             </dl>
                             @if (!string.IsNullOrWhiteSpace(cabinet.LastError))
                             {
