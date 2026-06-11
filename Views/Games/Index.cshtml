@@ -306,6 +306,27 @@
                     loadBank(params);
                 });
             }
+            // Pin toggle
+            if (bankContainer) {
+                bankContainer.addEventListener('click', async function(e) {
+                    var btn = e.target.closest('.pin-toggle');
+                    if (!btn) return;
+                    e.preventDefault();
+                    var gameId = btn.getAttribute('data-game-id');
+                    var csrfToken = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '';
+                    try {
+                        var res = await fetch('/Games/TogglePin/' + gameId, {
+                            method: 'POST',
+                            headers: { 'X-CSRF-TOKEN': csrfToken },
+                            credentials: 'same-origin'
+                        });
+                        if (!res.ok) return;
+                        var data = await res.json();
+                        btn.classList.toggle('active', data.pinned);
+                        btn.title = data.pinned ? 'Unpin from home screen' : 'Pin to home screen';
+                    } catch {}
+                });
+            }
         })();
     </script>
 }

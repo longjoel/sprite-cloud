@@ -16,6 +16,7 @@ public sealed class HomeIndexViewModel
     public IReadOnlyList<ActiveNosebleedSessionViewModel> ActiveArcadeCabinets { get; set; } = [];
     public IReadOnlyList<ActiveNosebleedSessionViewModel> ActiveLibrarySessions { get; set; } = [];
     public IReadOnlyList<HomeRecentSessionViewModel> RecentSessions { get; set; } = [];
+    public IReadOnlyList<HomePinnedGameViewModel> PinnedGames { get; set; } = [];
     public IReadOnlyList<NosebleedProcessSnapshot> OrphanNosebleedProcesses { get; set; } = [];
     public IReadOnlyList<NosebleedRuntimeProcessViewModel> NosebleedRuntimeProcesses { get; set; } = [];
 }
@@ -115,4 +116,11 @@ public sealed class HomeRecentSessionViewModel
     public int? ProfileId { get; set; }
     public string? ProfileName { get; set; }
     public bool IsActive => EndedUtc is null;
+}
+
+public sealed class HomePinnedGameViewModel
+{
+    public int GameId { get; set; }
+    public string GameName { get; set; } = "";
+    public string SystemName { get; set; } = "";
 }

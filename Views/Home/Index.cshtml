@@ -74,6 +74,21 @@
 
 @if (Model.CurrentProfileId is not null && Model.ShowDashboard)
 {
+    @if (Model.PinnedGames.Count > 0)
+    {
+        <section class="mb-4">
+            <h2 class="h5 mb-3">Pinned</h2>
+            <div class="d-flex gap-2 flex-wrap">
+                @foreach (var game in Model.PinnedGames)
+                {
+                    <a class="btn btn-outline-secondary" asp-controller="Games" asp-action="PlayServer" asp-route-id="@game.GameId">
+                        📌 @game.GameName
+                    </a>
+                }
+            </div>
+        </section>
+    }
+
     <section class="mb-4">
         <h2 class="h5 mb-3">Continue playing</h2>
         <div class="d-flex gap-2 flex-wrap">

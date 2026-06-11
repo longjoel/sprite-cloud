@@ -583,3 +583,10 @@ body.site-warning-visible {
     padding-bottom: 16rem;
   }
 }
+
+/* --- Pin toggle --- */
+.pin-toggle.active {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #fff !important;
+}
