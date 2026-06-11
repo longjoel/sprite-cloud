@@ -4,7 +4,6 @@ using games_vault.Libretro.Import;
 using games_vault.Models;
 using games_vault.Nosebleed;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
@@ -172,15 +171,8 @@ public sealed class BatterySaveRuntimeSyncServiceTests
 
     private static async Task<TestFixture> CreateFixtureAsync()
     {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(connection)
-            .Options;
-
-        var db = new AppDbContext(options);
-        await db.Database.EnsureCreatedAsync();
+        var scope = await TestDbFixture.CreateScopeAsync();
+        var db = scope.Db;
 
         var tempRoot = Path.Combine(Path.GetTempPath(), $"battery-save-runtime-sync-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempRoot);
@@ -201,11 +193,11 @@ public sealed class BatterySaveRuntimeSyncServiceTests
             }),
             NullLogger<BatterySaveRuntimeSyncService>.Instance);
 
-        return new TestFixture(connection, db, batterySaveService, runtimeSyncService, tempRoot);
+        return new TestFixture(scope, db, batterySaveService, runtimeSyncService, tempRoot);
     }
 
     private sealed record TestFixture(
-        SqliteConnection Connection,
+        TestDbFixture.Scope Scope,
         AppDbContext Db,
         ProfileBatterySaveService BatterySaveService,
         BatterySaveRuntimeSyncService RuntimeSyncService,
@@ -213,8 +205,7 @@ public sealed class BatterySaveRuntimeSyncServiceTests
     {
         public async ValueTask DisposeAsync()
         {
-            await Db.DisposeAsync();
-            await Connection.DisposeAsync();
+            await Scope.DisposeAsync();
             try
             {
                 if (Directory.Exists(TempRoot))

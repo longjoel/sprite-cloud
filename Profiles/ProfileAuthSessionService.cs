@@ -2,8 +2,8 @@ using System.Security.Cryptography;
 using System.Text;
 using games_vault.Data;
 using games_vault.Models;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace games_vault.Profiles;
 
@@ -82,7 +82,7 @@ public sealed class ProfileAuthSessionService(
     }
 
     private static bool IsUniqueConstraintViolation(DbUpdateException ex)
-        => ex.InnerException is SqliteException sqlite && sqlite.SqliteErrorCode == 19;
+        => ex.InnerException is PostgresException pg && pg.SqlState == PostgresErrorCodes.UniqueViolation;
 
     private static string? HashUserAgent(string? userAgent)
     {

@@ -17,7 +17,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -308,13 +307,8 @@ public sealed class ArcadeControllerTests
 
     private static async Task<TestFixture> CreateFixtureAsync(bool adminAlways, bool startCapable = false)
     {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(connection)
-            .Options;
-        var db = new AppDbContext(options);
-        await db.Database.EnsureCreatedAsync();
+        var scope = await TestDbFixture.CreateScopeAsync();
+        var db = scope.Db;
 
         var tempRoot = Path.Combine(Path.GetTempPath(), "games-vault-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRoot);
@@ -396,7 +390,7 @@ public sealed class ArcadeControllerTests
             serviceProvider.GetRequiredService<SystemCoreMappingResolver>(),
             NullLogger<NosebleedSessionManager>.Instance);
 
-        return new TestFixture(connection, db, cabinet, accessor, config, nosebleedOptions, sessionManager, serviceProvider, tempRoot);
+        return new TestFixture(scope, db, cabinet, accessor, config, nosebleedOptions, sessionManager, serviceProvider, tempRoot);
     }
 
     private sealed class TestHttpContextAccessor(HttpContext httpContext) : IHttpContextAccessor
@@ -405,7 +399,7 @@ public sealed class ArcadeControllerTests
     }
 
     private sealed record TestFixture(
-        SqliteConnection Connection,
+        TestDbFixture.Scope Scope,
         AppDbContext Db,
         ArcadeCabinet Cabinet,
         IHttpContextAccessor HttpContextAccessor,
@@ -453,8 +447,7 @@ public sealed class ArcadeControllerTests
         {
             SessionManager.Dispose();
             await ServiceProvider.DisposeAsync();
-            await Db.DisposeAsync();
-            await Connection.DisposeAsync();
+            await Scope.DisposeAsync();
             try
             {
                 if (Directory.Exists(TempRoot))

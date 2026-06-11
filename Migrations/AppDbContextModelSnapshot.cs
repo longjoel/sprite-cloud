@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using games_vault.Data;
 
 #nullable disable
@@ -15,36 +16,42 @@ namespace games_vault.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.1");
+            modelBuilder
+                .HasAnnotation("ProductVersion", "10.0.4")
+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+
+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("games_vault.Models.Arcade", b =>
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<bool>("IsEnabled")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(120)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(120)");
 
                     b.Property<string>("Slug")
                         .IsRequired()
                         .HasMaxLength(120)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(120)");
 
                     b.Property<DateTime?>("UpdatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
@@ -58,56 +65,58 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<int>("ArcadeId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<bool>("AutoRestart")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("CreditMode")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasMaxLength(120)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(120)");
 
                     b.Property<int?>("GameFileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<int>("GameId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<bool>("IsEnabled")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.Property<string>("LastError")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<DateTimeOffset?>("LastSeenAliveUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset?>("LastStartedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("RuntimeSessionId")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(200)");
 
                     b.Property<int>("SortOrder")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<int>("TokenCostPerCredit")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<DateTime?>("UpdatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
@@ -126,31 +135,33 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("ContentType")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(200)");
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasMaxLength(260)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(260)");
 
                     b.Property<long>("SizeBytes")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bigint");
 
                     b.Property<string>("Source")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(200)");
 
                     b.Property<string>("StoragePath")
                         .IsRequired()
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(1000)");
 
                     b.HasKey("Id");
 
@@ -161,49 +172,51 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Crc32")
                         .HasMaxLength(8)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(8)");
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("CriticGenre")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<decimal?>("CriticRating")
                         .HasPrecision(5, 2)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("numeric(5,2)");
 
                     b.Property<string>("Genre")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(200)");
 
                     b.Property<int?>("NumberOfPlayers")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<DateTime?>("ReleaseDate")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<long>("SizeBytes")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bigint");
 
                     b.Property<string>("SystemName")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<decimal?>("UserRating")
                         .HasPrecision(5, 2)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("numeric(5,2)");
 
                     b.HasKey("Id");
 
@@ -222,18 +235,20 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<DateTime?>("UpdatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
@@ -243,13 +258,13 @@ namespace games_vault.Migrations
             modelBuilder.Entity("games_vault.Models.GameBatchItem", b =>
                 {
                     b.Property<int>("GameBatchId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<int>("GameId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<DateTime>("AddedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("GameBatchId", "GameId");
 
@@ -262,34 +277,36 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Crc32")
                         .HasMaxLength(8)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(8)");
 
                     b.Property<string>("ExternalPath")
                         .HasMaxLength(2000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(2000)");
 
                     b.Property<int>("GameId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(260)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(260)");
 
                     b.Property<string>("OriginalFileName")
                         .HasMaxLength(260)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(260)");
 
                     b.Property<long>("SizeBytes")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bigint");
 
                     b.Property<string>("StoragePath")
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(1000)");
 
                     b.HasKey("Id");
 
@@ -304,43 +321,45 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<int?>("ArcadeCabinetId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<DateTime?>("ClosedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(6)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(6)");
 
                     b.Property<int?>("CreatedByProfileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("GameFileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<int>("GameId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<bool>("IsArcadeBound")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime>("LastActiveUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("NosebleedSessionId")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(200)");
 
                     b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -364,25 +383,27 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("DisplayNameSnapshot")
                         .HasMaxLength(80)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(80)");
 
                     b.Property<string>("Message")
                         .IsRequired()
                         .HasMaxLength(280)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(280)");
 
                     b.Property<int?>("ProfileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<int>("RoomId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -397,37 +418,39 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("DisplayNameSnapshot")
                         .HasMaxLength(80)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(80)");
 
                     b.Property<bool>("IsConnected")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime>("JoinedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("LastSeenUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int?>("Port")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<int?>("ProfileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<int>("Role")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<int>("RoomId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<string>("ViewerId")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(64)");
 
                     b.HasKey("Id");
 
@@ -445,38 +468,40 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<int>("DurationSeconds")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<string>("EndReason")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<DateTime?>("EndedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ExternalSessionId")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(200)");
 
                     b.Property<int?>("GameFileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<int>("GameId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<string>("Mode")
                         .IsRequired()
                         .HasMaxLength(40)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(40)");
 
                     b.Property<int?>("ProfileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<DateTime>("StartedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
@@ -497,39 +522,41 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasMaxLength(260)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(260)");
 
                     b.Property<int>("GameId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<string>("Key")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(50)");
 
                     b.Property<long>("SizeBytes")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bigint");
 
                     b.Property<string>("StoragePath")
                         .IsRequired()
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<DateTime>("UpdatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
@@ -543,23 +570,25 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("Enabled")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("RootPath")
                         .IsRequired()
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(500)");
 
                     b.HasKey("Id");
 
@@ -570,26 +599,28 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasMaxLength(260)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(260)");
 
                     b.Property<string>("FullPath")
                         .IsRequired()
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<DateTime?>("LastWriteUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<long>("SizeBytes")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bigint");
 
                     b.HasKey("Id");
 
@@ -600,26 +631,28 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasMaxLength(260)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(260)");
 
                     b.Property<string>("FullPath")
                         .IsRequired()
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<DateTime?>("LastWriteUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<long>("SizeBytes")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bigint");
 
                     b.HasKey("Id");
 
@@ -630,31 +663,33 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("Enabled")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("Password")
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(500)");
 
                     b.Property<string>("RootPath")
                         .IsRequired()
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(500)");
 
                     b.Property<string>("Username")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(200)");
 
                     b.HasKey("Id");
 
@@ -665,30 +700,32 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<byte[]>("ConcurrencyToken")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("BLOB");
+                        .HasColumnType("bytea");
 
                     b.Property<DateTime>("LastSeenUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("ProfileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<DateTime?>("RevokedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("SessionNonce")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("UserAgentHash")
                         .HasMaxLength(128)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(128)");
 
                     b.HasKey("Id");
 
@@ -708,29 +745,31 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("CoreKey")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("CorePath")
                         .HasMaxLength(260)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(260)");
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("ProfileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<string>("SystemName")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<DateTime>("UpdatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
@@ -744,49 +783,51 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("CoreKey")
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasMaxLength(260)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(260)");
 
                     b.Property<int>("GameFileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<int>("GameId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<string>("Key")
                         .IsRequired()
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(200)");
 
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(50)");
 
                     b.Property<int?>("LatestRevisionId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<int>("ProfileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<string>("SystemName")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<DateTime>("UpdatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
@@ -808,41 +849,43 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int?>("GamePlaySessionId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<string>("OriginalUploadFileName")
                         .HasMaxLength(260)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(260)");
 
                     b.Property<int>("ProfileGameSaveId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<DateTime>("RevisionTimestampUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Sha256")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(64)");
 
                     b.Property<long>("SizeBytes")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bigint");
 
                     b.Property<string>("Source")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.Property<string>("StoragePath")
                         .IsRequired()
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(1000)");
 
                     b.HasKey("Id");
 
@@ -857,21 +900,23 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(64)");
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int?>("UsedByProfileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<DateTime?>("UsedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
@@ -887,19 +932,21 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("GameId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<bool>("IsArchived")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.Property<int>("ProfileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -916,48 +963,50 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<int>("CreatedByProfileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("ExpiresUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("GameId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<int>("GrantMode")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<DateTime?>("LastUsedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("MaxUses")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<int>("ParentProfileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<int?>("RedeemedByProfileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<DateTime?>("RevokedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("RoomId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<string>("TokenHash")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(128)");
 
                     b.Property<int>("UseCount")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -981,24 +1030,26 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime?>("ConsumedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime>("ExpiresUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("ProfileShareLinkId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<string>("SessionCode")
                         .IsRequired()
                         .HasMaxLength(64)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(64)");
 
                     b.HasKey("Id");
 
@@ -1011,45 +1062,47 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Crc32")
                         .HasMaxLength(8)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(8)");
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasMaxLength(260)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(260)");
 
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(30)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(30)");
 
                     b.Property<string>("OriginalFileName")
                         .HasMaxLength(260)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(260)");
 
                     b.Property<long>("SizeBytes")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bigint");
 
                     b.Property<string>("StoragePath")
                         .IsRequired()
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<string>("SystemName")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("TargetPath")
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(500)");
 
                     b.HasKey("Id");
 
@@ -1060,65 +1113,67 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("AvatarKey")
                         .HasMaxLength(32)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(32)");
 
                     b.Property<string>("Bio")
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(500)");
 
                     b.Property<string>("Color")
                         .IsRequired()
                         .HasMaxLength(20)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(20)");
 
                     b.Property<int?>("CreatedFromShareLinkId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasMaxLength(80)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(80)");
 
                     b.Property<int>("FailedLoginAttempts")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<bool>("IsAdmin")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("IsArchived")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("IsEphemeral")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime?>("LoginLockoutUntilUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int?>("ParentProfileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<string>("PasskeyUserHandleBase64Url")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(128)");
 
                     b.Property<string>("PasswordHash")
                         .HasMaxLength(256)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(256)");
 
                     b.Property<DateTime>("UpdatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Username")
                         .HasMaxLength(32)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(32)");
 
                     b.HasKey("Id");
 
@@ -1141,37 +1196,39 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("CredentialIdBase64Url")
                         .IsRequired()
                         .HasMaxLength(512)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(512)");
 
                     b.Property<string>("DeviceName")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(200)");
 
                     b.Property<DateTime?>("LastUsedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("ProfileId")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
 
                     b.Property<byte[]>("PublicKey")
                         .IsRequired()
-                        .HasColumnType("BLOB");
+                        .HasColumnType("bytea");
 
-                    b.Property<uint>("SignatureCounter")
-                        .HasColumnType("INTEGER");
+                    b.Property<long>("SignatureCounter")
+                        .HasColumnType("bigint");
 
                     b.Property<string>("UserHandleBase64Url")
                         .IsRequired()
                         .HasMaxLength(128)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(128)");
 
                     b.HasKey("Id");
 
@@ -1189,26 +1246,28 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasMaxLength(260)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(260)");
 
                     b.Property<DateTime?>("LastModifiedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<long?>("SizeBytes")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("bigint");
 
                     b.Property<string>("Url")
                         .IsRequired()
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(1000)");
 
                     b.HasKey("Id");
 
@@ -1219,27 +1278,29 @@ namespace games_vault.Migrations
                 {
                     b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
                     b.Property<string>("AllowedExtensions")
                         .HasMaxLength(500)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(500)");
 
                     b.Property<DateTime>("CreatedUtc")
-                        .HasColumnType("TEXT");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("Enabled")
-                        .HasColumnType("INTEGER");
+                        .HasColumnType("boolean");
 
                     b.Property<string>("IndexUrl")
                         .IsRequired()
                         .HasMaxLength(1000)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("TEXT");
+                        .HasColumnType("character varying(100)");
 
                     b.HasKey("Id");
 

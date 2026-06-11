@@ -2,7 +2,6 @@ using Fido2NetLib.Objects;
 using games_vault.Data;
 using games_vault.Profiles;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
@@ -31,13 +30,8 @@ public sealed class PasskeyServiceTests
 
     private static async Task<TestFixture> CreateFixtureAsync()
     {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(connection)
-            .Options;
-        var db = new AppDbContext(options);
-        await db.Database.EnsureCreatedAsync();
+        var scope = await TestDbFixture.CreateScopeAsync();
+        var db = scope.Db;
         var httpContextAccessor = new HttpContextAccessor { HttpContext = new DefaultHttpContext() };
         var memoryCache = new MemoryCache(new MemoryCacheOptions());
         var configuration = new ConfigurationBuilder()
@@ -49,11 +43,11 @@ public sealed class PasskeyServiceTests
             })
             .Build();
 
-        return new TestFixture(connection, db, httpContextAccessor, memoryCache, configuration);
+        return new TestFixture(scope, db, httpContextAccessor, memoryCache, configuration);
     }
 
     private sealed record TestFixture(
-        SqliteConnection Connection,
+        TestDbFixture.Scope Scope,
         AppDbContext Db,
         IHttpContextAccessor HttpContextAccessor,
         MemoryCache MemoryCache,
@@ -62,8 +56,7 @@ public sealed class PasskeyServiceTests
         public async ValueTask DisposeAsync()
         {
             MemoryCache.Dispose();
-            await Db.DisposeAsync();
-            await Connection.DisposeAsync();
+            await Scope.DisposeAsync();
         }
     }
 }

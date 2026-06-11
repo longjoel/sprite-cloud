@@ -1,12 +1,11 @@
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using games_vault.Arcade;
 using games_vault.Gameplay;
-using Microsoft.Data.Sqlite;
 using games_vault.Libretro;
 using games_vault.Nosebleed;
 using games_vault.Web;
 using games_vault.Profiles;
-using Microsoft.AspNetCore.Http.Features;
 using Serilog;
 using Serilog.Formatting.Json;
 
@@ -40,7 +39,7 @@ builder.Services.AddAntiforgery(options =>
     options.HeaderName = "X-CSRF-TOKEN";
 });
 builder.Services.AddDbContext<games_vault.Data.AppDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddSingleton<LibretroDatabaseSyncService>();
 builder.Services.AddHttpClient();
 builder.Services.AddMemoryCache();
@@ -144,38 +143,6 @@ app.MapControllerRoute(
 await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<games_vault.Data.AppDbContext>();
-
-    // If you previously ran with EnsureCreated(), you may have a DB with tables but no migrations history.
-    // MigrateAsync() can't adopt that schema automatically; you need to delete the DB or baseline it.
-    try
-    {
-        var connection = db.Database.GetDbConnection();
-        await connection.OpenAsync();
-        await using var cmd = connection.CreateCommand();
-        cmd.CommandText =
-            """
-            SELECT
-              EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='__EFMigrationsHistory') AS HasHistory,
-              EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='Games') AS HasGames;
-            """;
-
-        await using var reader = await cmd.ExecuteReaderAsync();
-        await reader.ReadAsync();
-        var hasHistory = reader.GetInt64(0) == 1;
-        var hasGames = reader.GetInt64(1) == 1;
-
-        if (!hasHistory && hasGames)
-        {
-            throw new InvalidOperationException(
-                "Existing SQLite DB was created without migrations (likely via EnsureCreated). " +
-                "Delete the .db file (e.g. games-vault.dev.db) and restart, or baseline it before using migrations.");
-        }
-    }
-    catch (SqliteException)
-    {
-        // If we can't probe schema, fall back to attempting the migration and surface any errors.
-    }
-
     await db.Database.MigrateAsync();
 
     var nosebleedCoreRoot = builder.Configuration.GetValue<string>("Nosebleed:CoreRoot");
@@ -188,17 +155,6 @@ await using (var scope = app.Services.CreateAsyncScope())
         }
     }
 
-    // Improve SQLite concurrency for live session activity.
-    try
-    {
-        await db.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;");
-        await db.Database.ExecuteSqlRawAsync("PRAGMA synchronous=NORMAL;");
-        await db.Database.ExecuteSqlRawAsync("PRAGMA busy_timeout=5000;");
-    }
-    catch
-    {
-        // Non-fatal; continue with defaults if PRAGMAs fail.
-    }
 }
 
 app.Run();

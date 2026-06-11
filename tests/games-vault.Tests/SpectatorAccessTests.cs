@@ -12,7 +12,6 @@ using games_vault.Nosebleed;
 using games_vault.Profiles;
 using games_vault.Libretro.Import;
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.Data.Sqlite;
 using games_vault.Web;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -537,7 +536,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
 
     private async Task<SpectatorFixture> CreateSpectatorFixtureAsync()
     {
-        return await SpectatorFixture.CreateAsync(_connection, Db);
+        return await SpectatorFixture.CreateAsync(Db);
     }
 
     private static Process StartLongRunningProcess()
@@ -585,7 +584,6 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
 
     private sealed class SpectatorFixture : IAsyncDisposable
     {
-        private readonly SqliteConnection _connection;
         private readonly Process _sessionProcess;
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly IConfiguration _configuration;
@@ -593,7 +591,6 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
         private readonly NosebleedTicketSigner _ticketSigner;
 
         private SpectatorFixture(
-            SqliteConnection connection,
             AppDbContext db,
             Game game,
             GameFile file,
@@ -608,7 +605,6 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
             NosebleedSessionManager sessionManager,
             NosebleedSeatManager seatManager)
         {
-            _connection = connection;
             Db = db;
             Game = game;
             File = file;
@@ -635,7 +631,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
         public DefaultHttpContext HttpContext => (DefaultHttpContext)_httpContextAccessor.HttpContext!;
         public IHttpContextAccessor HttpContextAccessor => _httpContextAccessor;
 
-        public static async Task<SpectatorFixture> CreateAsync(SqliteConnection connection, AppDbContext db)
+        public static async Task<SpectatorFixture> CreateAsync(AppDbContext db)
         {
             var tempRoot = Path.Combine(Path.GetTempPath(), "games-vault-spectator-tests", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempRoot);
@@ -711,7 +707,6 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
             SeedSession(sessionManager, session, process);
 
             var fixture = new SpectatorFixture(
-                connection,
                 db,
                 game,
                 file,
