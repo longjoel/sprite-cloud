@@ -1,6 +1,5 @@
 using games_vault.Data;
 using games_vault.Models;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace games_vault.Tests;
@@ -111,22 +110,16 @@ public sealed class ProfileGameSaveSchemaTests
 
     private static async Task<TestFixture> CreateFixtureAsync()
     {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(connection)
-            .Options;
-        var db = new AppDbContext(options);
-        await db.Database.EnsureCreatedAsync();
-        return new TestFixture(connection, db);
+        var scope = await TestDbFixture.CreateScopeAsync();
+        var db = scope.Db;
+        return new TestFixture(scope, db);
     }
 
-    private sealed record TestFixture(SqliteConnection Connection, AppDbContext Db) : IAsyncDisposable
+    private sealed record TestFixture(TestDbFixture.Scope Scope, AppDbContext Db) : IAsyncDisposable
     {
         public async ValueTask DisposeAsync()
         {
-            await Db.DisposeAsync();
-            await Connection.DisposeAsync();
+            await Scope.DisposeAsync();
         }
     }
 }

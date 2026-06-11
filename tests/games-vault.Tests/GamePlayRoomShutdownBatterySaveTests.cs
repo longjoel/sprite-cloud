@@ -11,7 +11,6 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -142,14 +141,8 @@ public sealed class GamePlayRoomShutdownBatterySaveTests
 
     private static async Task<TestFixture> CreateFixtureAsync()
     {
-        var connection = new SqliteConnection("Data Source=:memory:");
-        await connection.OpenAsync();
-
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseSqlite(connection)
-            .Options;
-        var db = new AppDbContext(options);
-        await db.Database.EnsureCreatedAsync();
+        var scope = await TestDbFixture.CreateScopeAsync();
+        var db = scope.Db;
 
         var profile = new UserProfile
         {
@@ -275,7 +268,7 @@ public sealed class GamePlayRoomShutdownBatterySaveTests
             new BatterySavePolicyResolver(),
             runtimeSyncService);
 
-        return new TestFixture(connection, db, roomService, sessionManager, seatManager, batterySaveService, runtimeSyncService, profile, game, file, room, session, process, viewerId, accessor, tempRoot);
+        return new TestFixture(scope, db, roomService, sessionManager, seatManager, batterySaveService, runtimeSyncService, profile, game, file, room, session, process, viewerId, accessor, tempRoot);
     }
 
     private static Process StartLongRunningProcess()
@@ -322,7 +315,7 @@ public sealed class GamePlayRoomShutdownBatterySaveTests
     }
 
     private sealed record TestFixture(
-        SqliteConnection Connection,
+        TestDbFixture.Scope Scope,
         AppDbContext Db,
         GamePlayRoomService RoomService,
         NosebleedSessionManager SessionManager,
@@ -354,8 +347,7 @@ public sealed class GamePlayRoomShutdownBatterySaveTests
             {
             }
 
-            await Db.DisposeAsync();
-            await Connection.DisposeAsync();
+            await Scope.DisposeAsync();
             try
             {
                 if (Directory.Exists(TempRoot))
