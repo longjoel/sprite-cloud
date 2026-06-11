@@ -40,5 +40,7 @@ public sealed class NosebleedOptions
 
     public string? TurnHost { get; set; }
 
+    public string? TurnUrlInternal { get; set; }
+
     public Dictionary<string, string> SystemCores { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }

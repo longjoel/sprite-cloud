@@ -536,6 +536,10 @@ public sealed class NosebleedSessionManager(
             {
                 psi.Environment["NOSEBLEED_TURN_HOST"] = _options.TurnHost;
             }
+            if (!string.IsNullOrEmpty(_options.TurnUrlInternal))
+            {
+                psi.Environment["NOSEBLEED_TURN_URL_INTERNAL"] = _options.TurnUrlInternal;
+            }
 
             var publicHost = _options.PublicHost;
             if (!string.IsNullOrWhiteSpace(publicHost) &&
