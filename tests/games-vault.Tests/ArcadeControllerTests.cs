@@ -436,6 +436,7 @@ public sealed class ArcadeControllerTests
                 Db,
                 fileResolver,
                 SessionManager,
+                new NosebleedSeatManager(NosebleedOptions),
                 new GamePlayTelemetryService(Db),
                 roomService,
                 currentProfile,

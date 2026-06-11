@@ -27,6 +27,7 @@ public class ArcadeCabinetViewModel
     public DateTimeOffset? LastSeenAliveUtc { get; set; }
     public string? LastError { get; set; }
     public NosebleedSessionSnapshot? Session { get; set; }
+    public int PlayerCount { get; set; }
     public bool IsRunning => Session is not null && !Session.HasExited;
 }
 
