@@ -26,6 +26,7 @@ public sealed class NosebleedSessionManager(
     private readonly SemaphoreSlim _lock = new(1, 1);
     private int _nextPortOffset;
     private readonly CancellationTokenSource _drainCts = new();
+    private int _shutdownStarted;
 
     public IReadOnlyList<NosebleedSessionSnapshot> GetSessions()
     {
@@ -171,6 +172,34 @@ public sealed class NosebleedSessionManager(
     }
 
     public void Cleanup() => CleanupExitedSessions(disposeRemoved: true);
+
+    public async Task ShutdownAsync(CancellationToken cancellationToken = default)
+    {
+        if (Interlocked.Exchange(ref _shutdownStarted, 1) != 0)
+        {
+            return;
+        }
+
+        _drainCts.Cancel();
+        await _lock.WaitAsync(cancellationToken);
+        try
+        {
+            foreach (var pair in _sessions.ToArray())
+            {
+                if (_sessions.TryRemove(pair.Key, out var removed))
+                {
+                    TryKill(removed.Process);
+                    removed.Process.Dispose();
+                }
+            }
+
+            seatManager.ResetAll();
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
 
     public async Task<NosebleedReconcileResult> ReconcileOrphansAsync(CancellationToken cancellationToken = default)
     {
@@ -728,15 +757,9 @@ public sealed class NosebleedSessionManager(
 
     public void Dispose()
     {
-        // Signal drain tasks to stop before killing processes.
-        _drainCts.Cancel();
+        ShutdownAsync().GetAwaiter().GetResult();
         _drainCts.Dispose();
         _lock.Dispose();
-        foreach (var session in _sessions.Values)
-        {
-            TryKill(session.Process);
-            session.Process.Dispose();
-        }
     }
 
     private sealed record ManagedSession(NosebleedSession Session, Process Process);

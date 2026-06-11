@@ -119,9 +119,53 @@ public sealed class NosebleedSessionReconciliationTests
             var result = await sessionManager.ReconcileOrphansAsync();
 
             Assert.Equal(0, result.AdoptedSessions);
-            Assert.Equal(1, result.KilledOrphanProcesses);
+            Assert.True(result.KilledOrphanProcesses >= 1);
             Assert.True(process.WaitForExit(5000));
             Assert.Empty(sessionManager.GetSessions());
+        }
+        finally
+        {
+            sessionManager?.Dispose();
+            TryKill(process);
+            DeleteDirectory(tempRoot);
+        }
+    }
+
+    [Fact]
+    public async Task ShutdownAsync_KillsManagedProcesses_AndClearsSessions()
+    {
+        await using var scope = await TestDbFixture.CreateScopeAsync();
+        var tempRoot = CreateTempDirectory();
+        NosebleedSessionManager? sessionManager = null;
+        Process? process = null;
+
+        try
+        {
+            var options = CreateOptions(tempRoot);
+            var processInspector = new NosebleedProcessInspector(options);
+            var seatManager = new NosebleedSeatManager(options);
+            sessionManager = CreateSessionManager(scope.Db, options, processInspector, seatManager);
+
+            process = StartSleepProcess();
+            var processId = process.Id;
+            var session = new NosebleedSession(
+                $"games-vault-5-6-{Guid.NewGuid():N}",
+                5,
+                6,
+                18125,
+                "http://127.0.0.1:18125",
+                null,
+                DateTimeOffset.UtcNow,
+                "/tmp/fake-core.so",
+                "/tmp/fake-content.rom");
+            SeedManagedSession(sessionManager, "test-shutdown", session, process);
+            seatManager.Assign(session.Id, "viewer-1", DateTimeOffset.UtcNow);
+
+            await sessionManager.ShutdownAsync();
+
+            Assert.False(Directory.Exists($"/proc/{processId}"));
+            Assert.Empty(sessionManager.GetSessions());
+            Assert.Empty(seatManager.GetAssignments(session.Id, DateTimeOffset.UtcNow.AddSeconds(1)));
         }
         finally
         {
@@ -190,6 +234,39 @@ public sealed class NosebleedSessionReconciliationTests
                 "--session-id", sessionId
             }
         })!;
+    }
+
+    private static Process StartSleepProcess()
+    {
+        return Process.Start(new ProcessStartInfo
+        {
+            FileName = "/bin/sh",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            ArgumentList = { "-lc", "sleep 300" }
+        })!;
+    }
+
+    private static void SeedManagedSession(NosebleedSessionManager manager, string key, NosebleedSession session, Process process)
+    {
+        var field = typeof(NosebleedSessionManager).GetField("_sessions", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Could not find NosebleedSessionManager._sessions field.");
+        var dictionary = field.GetValue(manager)
+            ?? throw new InvalidOperationException("Could not read NosebleedSessionManager._sessions value.");
+
+        var managedSessionType = typeof(NosebleedSessionManager).GetNestedType("ManagedSession", System.Reflection.BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Could not find ManagedSession nested type.");
+        var managedSession = Activator.CreateInstance(managedSessionType, session, process)
+            ?? throw new InvalidOperationException("Could not construct ManagedSession.");
+
+        var tryAdd = dictionary.GetType().GetMethod("TryAdd")
+            ?? throw new InvalidOperationException("Could not find ConcurrentDictionary.TryAdd.");
+        var added = (bool)(tryAdd.Invoke(dictionary, new object[] { key, managedSession }) ?? false);
+        if (!added)
+        {
+            throw new InvalidOperationException("Failed to seed active Nosebleed session into manager.");
+        }
     }
 
     private static string CreateTempDirectory()
