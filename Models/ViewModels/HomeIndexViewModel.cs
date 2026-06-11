@@ -108,6 +108,7 @@ public sealed class HomeRecentSessionViewModel
 {
     public int GameId { get; set; }
     public string GameName { get; set; } = "";
+    public string SystemName { get; set; } = "";
     public string Mode { get; set; } = "";
     public DateTime StartedUtc { get; set; }
     public DateTime? EndedUtc { get; set; }

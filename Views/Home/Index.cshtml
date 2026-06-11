@@ -3,13 +3,7 @@
 @{
     ViewData["Title"] = "Games Vault";
     var canManageLibrary = Model.CanManageLibrary;
-    var featuredSession = Model.FeaturedSession;
-    var visibleActiveSessions = featuredSession is null
-        ? Model.ActiveNosebleedSessions.Take(3).ToList()
-        : Model.ActiveNosebleedSessions
-            .Where(x => !string.Equals(x.SessionId, featuredSession.SessionId, StringComparison.OrdinalIgnoreCase))
-            .Take(3)
-            .ToList();
+    var arcadeSessions = Model.ActiveArcadeCabinets;
 }
 
 @functions {
@@ -43,13 +37,13 @@
         </div>
     </section>
 
-    @if (Model.ActiveNosebleedSessions.Count > 0)
+    @if (Model.ActiveArcadeCabinets.Count > 0)
     {
         <section class="guest-machines">
             <div class="container">
                 <h2>Running now</h2>
                 <div class="row g-3">
-                    @foreach (var session in Model.ActiveNosebleedSessions)
+                    @foreach (var session in Model.ActiveArcadeCabinets)
                     {
                         <div class="col-lg-4 col-md-6">
                             <div class="guest-machine-card" data-nosebleed-preview-card data-preview-url="@Url.Action("NosebleedPreviewVideo", "Home", new { sessionId = session.SessionId })" data-stream-url="@Url.Action("NosebleedPreviewStream", "Home", new { sessionId = session.SessionId })">
@@ -78,12 +72,23 @@
     {
         <section class="mb-4">
             <h2 class="h5 mb-3">Pinned</h2>
-            <div class="d-flex gap-2 flex-wrap">
+            <div class="row row-cols-1 row-cols-xl-2 g-3">
                 @foreach (var game in Model.PinnedGames)
                 {
-                    <a class="btn btn-outline-secondary" asp-controller="Games" asp-action="PlayServer" asp-route-id="@game.GameId">
-                        📌 @game.GameName
-                    </a>
+                    <div class="col">
+                        <div class="card games-card h-100 shadow-sm">
+                            <div class="card-body d-flex align-items-center gap-3">
+                                <div class="games-card-art flex-shrink-0">
+                                    <div class="games-card-art-initials">@game.SystemName</div>
+                                </div>
+                                <div class="flex-grow-1 min-w-0">
+                                    <div class="small text-muted">@game.SystemName</div>
+                                    <h3 class="h6 mb-0 text-truncate">@game.GameName</h3>
+                                </div>
+                                <a class="btn btn-primary btn-sm flex-shrink-0" asp-controller="Games" asp-action="PlayServer" asp-route-id="@game.GameId">Play</a>
+                            </div>
+                        </div>
+                    </div>
                 }
             </div>
         </section>
@@ -91,12 +96,24 @@
 
     <section class="mb-4">
         <h2 class="h5 mb-3">Continue playing</h2>
-        <div class="d-flex gap-2 flex-wrap">
+        <div class="row row-cols-1 row-cols-xl-2 g-3">
             @foreach (var session in Model.RecentSessions.Take(6))
             {
-                <a class="btn btn-outline-secondary" asp-controller="Games" asp-action="PlayServer" asp-route-id="@session.GameId">
-                    @session.GameName
-                </a>
+                <div class="col">
+                    <div class="card games-card h-100 shadow-sm">
+                        <div class="card-body d-flex align-items-center gap-3">
+                            <div class="games-card-art flex-shrink-0">
+                                <div class="games-card-art-initials">@session.SystemName</div>
+                            </div>
+                            <div class="flex-grow-1 min-w-0">
+                                <div class="small text-muted">@session.SystemName</div>
+                                <h3 class="h6 mb-1 text-truncate">@session.GameName</h3>
+                                <div class="small text-muted">@FormatDuration(session.Duration)</div>
+                            </div>
+                            <a class="btn btn-primary btn-sm flex-shrink-0" asp-controller="Games" asp-action="PlayServer" asp-route-id="@session.GameId">Play</a>
+                        </div>
+                    </div>
+                </div>
             }
         </div>
     </section>
@@ -110,19 +127,15 @@
             </div>
             <a class="btn btn-outline-secondary" asp-controller="Arcade" asp-action="Index">Open arcade</a>
         </div>
-        @if (Model.ActiveNosebleedSessions.Count == 0)
+        @if (arcadeSessions.Count == 0)
         {
             <p class="text-muted">No active machines right now.</p>
             <a class="btn btn-primary" asp-controller="Games" asp-action="Index">Browse games</a>
         }
-        else if (visibleActiveSessions.Count == 0)
-        {
-            <div class="alert alert-secondary mb-0">The featured machine above is the only active one right now.</div>
-        }
         else
         {
             <div class="row g-3">
-                @foreach (var session in visibleActiveSessions)
+                @foreach (var session in arcadeSessions)
                 {
                     <div class="col-lg-4">
                         <div class="card h-100 border-0 shadow-sm" data-nosebleed-preview-card data-preview-url="@Url.Action("NosebleedPreviewVideo", "Home", new { sessionId = session.SessionId })" data-stream-url="@Url.Action("NosebleedPreviewStream", "Home", new { sessionId = session.SessionId })">
@@ -162,7 +175,7 @@
 }
 
 @section Scripts {
-    @if (Model.ActiveNosebleedSessions.Count > 0)
+    @if (Model.ActiveArcadeCabinets.Count > 0)
     {
         <script src="~/js/nosebleed-player/preview.js" asp-append-version="true"></script>
     }
