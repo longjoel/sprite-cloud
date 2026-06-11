@@ -133,7 +133,7 @@ html.games-vault-player-fullscreen,body.games-vault-player-fullscreen { overflow
 .playserver-session-surface { border-radius:1.5rem; overflow:hidden; }
 .playserver-live-grid { display:grid; gap:1.25rem; grid-template-columns:minmax(0,1.5fr) minmax(18rem,.9fr); align-items:start; }
 .playserver-main-column,.playserver-sidebar-column { min-width:0; }
-.playserver-seat-strip { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.75rem; }
+.playserver-seat-strip { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.75rem; }
 .playserver-utility-strip { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.75rem; }
 .playserver-utility-actions { display:flex; flex-wrap:wrap; gap:.75rem; align-items:center; }
 .playserver-advanced-controls { border:1px solid var(--bs-border-color); border-radius:1rem; background:var(--bs-tertiary-bg); padding:.85rem 1rem; }
