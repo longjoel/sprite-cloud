@@ -325,6 +325,7 @@ public sealed class GamePlayRoomService(
         participant.LastSeenUtc = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
 
+        nosebleedSeats.Release(sessionId, viewerId);
         await CleanupStandaloneRoomIfNoPlayersRemainAsync(room, ct, $"viewer-left:{viewerId}");
     }
 

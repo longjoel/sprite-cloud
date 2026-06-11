@@ -1930,6 +1930,14 @@
         stopSeatKeepAlive();
         closeSockets();
     });
+    window.addEventListener("beforeunload", () => {
+        if (!sessionId || isSpectator) return;
+        const formUrl = leaveSeatForm?.getAttribute("action") ?? "";
+        if (!formUrl) return;
+        const csrfToken = document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? "";
+        const body = new URLSearchParams({ sessionId });
+        try { fetch(formUrl, { method: "POST", headers: { "X-CSRF-TOKEN": csrfToken }, body, keepalive: true, credentials: "same-origin" }).catch(() => {}); } catch {}
+    });
     syncVideoPreferenceControls();
     applyViewMode(preferredViewMode, false);
     applyAudioVolume(false);

@@ -310,12 +310,12 @@ a:hover {
 
 /* --- Guest Hero --- */
 .guest-hero {
-  min-height: 70vh;
+  min-height: auto;
   display: flex;
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 4rem 1rem;
+  padding: 3rem 1rem 2rem;
 }
 
 .guest-hero h1 {

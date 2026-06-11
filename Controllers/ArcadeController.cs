@@ -15,6 +15,7 @@ public class ArcadeController(
     AppDbContext db,
     ArcadeGameFileResolver fileResolver,
     NosebleedSessionManager nosebleedSessions,
+    NosebleedSeatManager nosebleedSeats,
     GamePlayTelemetryService gamePlayTelemetry,
     GamePlayRoomService roomService,
     CurrentProfileService currentProfile,
@@ -66,6 +67,8 @@ public class ArcadeController(
                 && !session.HasExited)
             {
                 cabinet.Session = session;
+                cabinet.PlayerCount = nosebleedSeats.GetAssignments(session.SessionId, DateTimeOffset.UtcNow)
+                    .Count(x => x.Kind == NosebleedSeatKind.Player);
             }
         }
 
