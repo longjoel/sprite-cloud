@@ -186,7 +186,7 @@ public class HomeController(
         }
 
         var token = nosebleedTickets.CreateSpectatorToken(session.SessionId, "games-vault-dashboard");
-        var target = BuildNosebleedSnapshotUri(session.BaseUrl, token);
+        var target = BuildNosebleedSnapshotUri(session.LocalUrl, token);
         if (target is null)
         {
             return StatusCode(StatusCodes.Status502BadGateway);
@@ -233,7 +233,7 @@ public class HomeController(
         }
 
         var token = nosebleedTickets.CreateSpectatorToken(session.SessionId, "games-vault-dashboard");
-        var target = BuildNosebleedWebSocketUri(session.BaseUrl, "/ws/video", token);
+        var target = BuildNosebleedWebSocketUri(session.LocalUrl, "/ws/video", token);
         if (target is null)
         {
             HttpContext.Response.StatusCode = 502;
