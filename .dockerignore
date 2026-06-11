@@ -1,0 +1,12 @@
+.git/
+.gitignore
+.vs/
+.vscode/
+bin/
+obj/
+tests/
+publish/
+wwwroot/lib/
+README.md
+*.user
+*.suo
