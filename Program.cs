@@ -103,6 +103,12 @@ builder.Services.AddSingleton<games_vault.EverDrive.EverDriveGbFirmwareService>(
 
 var app = builder.Build();
 
+var startupNosebleedSessionManager = app.Services.GetRequiredService<NosebleedSessionManager>();
+app.Lifetime.ApplicationStopping.Register(() =>
+{
+    startupNosebleedSessionManager.ShutdownAsync().GetAwaiter().GetResult();
+});
+
 var configuredPathBase = app.Configuration["PathBase"]
     ?? app.Configuration["ASPNETCORE_PATHBASE"]
     ?? Environment.GetEnvironmentVariable("ASPNETCORE_PATHBASE");
