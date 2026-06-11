@@ -531,6 +531,29 @@ public sealed class NosebleedSessionManager(
                 psi.Environment["NOSEBLEED_TURN_SECRET"] = _options.TurnSecret;
             }
 
+            var publicHost = _options.PublicHost;
+            if (!string.IsNullOrWhiteSpace(publicHost) &&
+                System.Net.IPAddress.TryParse(publicHost, out var parsedIp))
+            {
+                psi.Environment["NOSEBLEED_PUBLIC_IP"] = parsedIp.ToString();
+            }
+            else if (!string.IsNullOrWhiteSpace(publicHost))
+            {
+                try
+                {
+                    var addresses = System.Net.Dns.GetHostAddresses(publicHost);
+                    var ipv4 = Array.Find(addresses, a => a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
+                    if (ipv4 is not null)
+                    {
+                        psi.Environment["NOSEBLEED_PUBLIC_IP"] = ipv4.ToString();
+                    }
+                }
+                catch
+                {
+                    // Non-fatal; ICE will fall back to container IP (same as before)
+                }
+            }
+
             if (_options.RequireAuth)
             {
                 psi.ArgumentList.Add("--require-auth");

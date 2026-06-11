@@ -2,10 +2,18 @@
 @{
     ViewData["Title"] = "Create Profile";
     var avatarOptions = new[] { "🎮", "🕹️", "👾", "🎯", "🎲", "🎪", "🚀", "⭐", "🦊", "🐉", "🦅", "👑", "⚡", "🔥", "💎", "🎨" };
+    var hasProfiles = ViewData["HasProfiles"] as bool? == true;
 }
 
 <h1>Create player profile</h1>
-<p class="text-muted">Create a profile from an invite link.</p>
+@if (hasProfiles)
+{
+    <p class="text-muted">Create a profile from an invite link.</p>
+}
+else
+{
+    <p class="text-muted">Set up the first profile — this account will be the vault administrator.</p>
+}
 
 <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
 
@@ -56,11 +64,18 @@
             <textarea class="form-control" asp-for="Bio" name="bio" maxlength="500" rows="3" placeholder="A short bio or status line…"></textarea>
             <span class="text-danger" asp-validation-for="Bio"></span>
         </div>
+        @if (hasProfiles)
+        {
         <div class="mb-3">
             <label class="form-label" asp-for="InviteCode">Invite code</label>
             <input class="form-control" asp-for="InviteCode" name="inviteCode" maxlength="64" required />
             <div class="form-text">Each invite can create one profile.</div>
         </div>
+        }
+        else
+        {
+        <input type="hidden" name="inviteCode" value="" />
+        }
         <button type="submit" class="btn btn-primary">Create profile</button>
         <a class="btn btn-outline-secondary" asp-action="Index">Cancel</a>
     </div>
