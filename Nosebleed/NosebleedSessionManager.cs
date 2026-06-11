@@ -3,6 +3,9 @@ using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using games_vault.Data;
+using games_vault.Models;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -14,6 +17,8 @@ public sealed class NosebleedSessionManager(
     NosebleedTicketSigner ticketSigner,
     IHttpClientFactory httpClientFactory,
     SystemCoreMappingResolver coreMappingResolver,
+    NosebleedProcessInspector processInspector,
+    NosebleedSeatManager seatManager,
     ILogger<NosebleedSessionManager> logger) : IDisposable
 {
     private readonly NosebleedOptions _options = options.Value ?? new NosebleedOptions();
@@ -166,6 +171,145 @@ public sealed class NosebleedSessionManager(
     }
 
     public void Cleanup() => CleanupExitedSessions(disposeRemoved: true);
+
+    public async Task<NosebleedReconcileResult> ReconcileOrphansAsync(CancellationToken cancellationToken = default)
+    {
+        CleanupExitedSessions(disposeRemoved: true);
+        seatManager.ResetAll();
+
+        var orphanProcesses = processInspector.GetOrphanProcesses(GetManagedProcessIds());
+        if (orphanProcesses.Count == 0)
+        {
+            return new NosebleedReconcileResult(0, 0, 0, 0);
+        }
+
+        await using var scope = scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        var cabinets = await db.ArcadeCabinets
+            .Where(x => x.RuntimeSessionId != null)
+            .ToListAsync(cancellationToken);
+        var rooms = await db.GamePlayRooms
+            .Where(x => x.Status == GamePlayRoomStatus.Active && x.NosebleedSessionId != null)
+            .ToListAsync(cancellationToken);
+
+        var cabinetsBySessionId = cabinets
+            .Where(x => !string.IsNullOrWhiteSpace(x.RuntimeSessionId))
+            .GroupBy(x => x.RuntimeSessionId!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(x => x.Key, x => x.OrderByDescending(c => c.Id).First(), StringComparer.OrdinalIgnoreCase);
+        var roomsBySessionId = rooms
+            .Where(x => !string.IsNullOrWhiteSpace(x.NosebleedSessionId))
+            .GroupBy(x => x.NosebleedSessionId!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(x => x.Key, x => x.OrderByDescending(r => r.Id).First(), StringComparer.OrdinalIgnoreCase);
+        var activeRoomByCabinetId = rooms
+            .Where(x => x.ArcadeCabinetId is not null)
+            .GroupBy(x => x.ArcadeCabinetId!.Value)
+            .ToDictionary(x => x.Key, x => x.OrderByDescending(r => r.Id).First());
+
+        var adopted = 0;
+        var killed = 0;
+        var relinkedRooms = 0;
+        var relinkedCabinets = 0;
+
+        foreach (var process in orphanProcesses)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (string.IsNullOrWhiteSpace(process.SessionId) || process.Port is null || process.Port <= 0)
+            {
+                if (processInspector.TryKillIfNosebleed(process.ProcessId))
+                {
+                    killed++;
+                }
+
+                continue;
+            }
+
+            cabinetsBySessionId.TryGetValue(process.SessionId, out var cabinet);
+            roomsBySessionId.TryGetValue(process.SessionId, out var room);
+            if (cabinet is null && room is null)
+            {
+                if (processInspector.TryKillIfNosebleed(process.ProcessId))
+                {
+                    killed++;
+                }
+
+                continue;
+            }
+
+            Process liveProcess;
+            try
+            {
+                liveProcess = Process.GetProcessById(process.ProcessId);
+                if (liveProcess.HasExited)
+                {
+                    liveProcess.Dispose();
+                    continue;
+                }
+            }
+            catch
+            {
+                continue;
+            }
+
+            var ownerGameId = cabinet?.GameId ?? room?.GameId;
+            var ownerFileId = cabinet?.GameFileId ?? room?.GameFileId;
+            if (ownerGameId is null || ownerFileId is null || string.IsNullOrWhiteSpace(process.CorePath) || string.IsNullOrWhiteSpace(process.ContentPath))
+            {
+                liveProcess.Dispose();
+                if (processInspector.TryKillIfNosebleed(process.ProcessId))
+                {
+                    killed++;
+                }
+
+                continue;
+            }
+
+            var session = new NosebleedSession(
+                process.SessionId,
+                ownerGameId.Value,
+                ownerFileId.Value,
+                process.Port.Value,
+                BuildBaseUrl(process.Port.Value),
+                ticketSigner.CreatePlayerToken(process.SessionId, "games-vault-user", 0),
+                ReadStartedUtc(liveProcess),
+                Path.GetFullPath(process.CorePath),
+                Path.GetFullPath(process.ContentPath));
+
+            var key = cabinet is not null ? $"arcade-cabinet:{cabinet.Id}" : $"room:{room!.Id}";
+            _sessions[key] = new ManagedSession(session, liveProcess);
+            adopted++;
+
+            if (cabinet is not null)
+            {
+                if (!string.Equals(cabinet.RuntimeSessionId, process.SessionId, StringComparison.OrdinalIgnoreCase))
+                {
+                    cabinet.RuntimeSessionId = process.SessionId;
+                    relinkedCabinets++;
+                }
+
+                cabinet.LastSeenAliveUtc = DateTimeOffset.UtcNow;
+                cabinet.LastStartedUtc ??= session.StartedUtc;
+                cabinet.LastError = null;
+
+                if (activeRoomByCabinetId.TryGetValue(cabinet.Id, out var arcadeRoom)
+                    && !string.Equals(arcadeRoom.NosebleedSessionId, process.SessionId, StringComparison.OrdinalIgnoreCase))
+                {
+                    arcadeRoom.NosebleedSessionId = process.SessionId;
+                    relinkedRooms++;
+                }
+            }
+
+            if (room is not null && !string.Equals(room.NosebleedSessionId, process.SessionId, StringComparison.OrdinalIgnoreCase))
+            {
+                room.NosebleedSessionId = process.SessionId;
+                relinkedRooms++;
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return new NosebleedReconcileResult(adopted, killed, relinkedRooms, relinkedCabinets);
+    }
 
     public Task<NosebleedStartResult> StartOrReuseAsync(
         int gameId,
@@ -463,6 +607,11 @@ public sealed class NosebleedSessionManager(
         return false;
     }
 
+    private string BuildBaseUrl(int port)
+    {
+        return $"{_options.PublicScheme}://{_options.PublicHost}:{port}";
+    }
+
     private void CleanupExitedSessions(bool disposeRemoved = true)
     {
         foreach (var pair in _sessions.ToArray())
@@ -517,6 +666,18 @@ public sealed class NosebleedSessionManager(
         catch
         {
             return true;
+        }
+    }
+
+    private static DateTimeOffset ReadStartedUtc(Process process)
+    {
+        try
+        {
+            return new DateTimeOffset(process.StartTime.ToUniversalTime(), TimeSpan.Zero);
+        }
+        catch
+        {
+            return DateTimeOffset.UtcNow;
         }
     }
 
@@ -580,3 +741,9 @@ public sealed class NosebleedSessionManager(
 
     private sealed record ManagedSession(NosebleedSession Session, Process Process);
 }
+
+public sealed record NosebleedReconcileResult(
+    int AdoptedSessions,
+    int KilledOrphanProcesses,
+    int RelinkedRooms,
+    int RelinkedCabinets);

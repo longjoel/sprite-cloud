@@ -196,12 +196,16 @@ public sealed class ProfileBatterySaveUploadTests
             nosebleedOptions,
             NullLogger<BatterySaveRuntimeSyncService>.Instance);
         var policyResolver = new BatterySavePolicyResolver();
+        var processInspector = new NosebleedProcessInspector(nosebleedOptions);
+        var seatManager = new NosebleedSeatManager(nosebleedOptions);
         var sessionManager = new NosebleedSessionManager(
             nosebleedOptions,
             new EmptyServiceScopeFactory(),
             new NosebleedTicketSigner(Options.Create(new NosebleedOptions()), NullLogger<NosebleedTicketSigner>.Instance),
             new FakeHttpClientFactory(),
             new SystemCoreMappingResolver(nosebleedOptions),
+            processInspector,
+            seatManager,
             NullLogger<NosebleedSessionManager>.Instance);
 
         return new TestFixture(scope, db, storage, fileStorage, accessor, currentProfile, batterySaveService, runtimeSync, policyResolver, sessionManager, contentRoot, profileSaveRoot);

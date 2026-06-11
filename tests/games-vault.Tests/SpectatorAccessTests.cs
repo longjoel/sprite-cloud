@@ -684,14 +684,17 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
                 SeatTtlMinutes = 30
             });
             var ticketSigner = new NosebleedTicketSigner(nosebleedOptions, NullLogger<NosebleedTicketSigner>.Instance);
+            var processInspector = new NosebleedProcessInspector(nosebleedOptions);
+            var seatManager = new NosebleedSeatManager(nosebleedOptions);
             var sessionManager = new NosebleedSessionManager(
                 nosebleedOptions,
                 new TestServiceScopeFactory(),
                 ticketSigner,
                 new TestHttpClientFactory(),
                 new SystemCoreMappingResolver(nosebleedOptions),
+                processInspector,
+                seatManager,
                 NullLogger<NosebleedSessionManager>.Instance);
-            var seatManager = new NosebleedSeatManager(nosebleedOptions);
 
             var process = StartLongRunningProcess();
             var session = new NosebleedSession(
