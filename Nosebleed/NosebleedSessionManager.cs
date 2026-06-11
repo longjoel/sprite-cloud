@@ -495,6 +495,7 @@ public sealed class NosebleedSessionManager(
             var runtimeSaveDirectory = GetRuntimeSaveDirectory(sessionId);
             Directory.CreateDirectory(runtimeSaveDirectory);
             var baseUrl = $"{_options.PublicScheme}://{_options.PublicHost}:{port}";
+            var healthUrl = $"http://127.0.0.1:{port}";
             var token = ticketSigner.CreatePlayerToken(sessionId, $"games-vault-user", 0);
 
             var psi = new ProcessStartInfo
@@ -569,7 +570,7 @@ public sealed class NosebleedSessionManager(
             _ = Task.Run(() => DrainAsync(process.StandardOutput, sessionId, false, _drainCts.Token), _drainCts.Token);
             _ = Task.Run(() => DrainAsync(process.StandardError, sessionId, true, _drainCts.Token), _drainCts.Token);
 
-            var healthy = await WaitForHealthAsync(baseUrl, process, cancellationToken);
+            var healthy = await WaitForHealthAsync(healthUrl, process, cancellationToken);
             if (!healthy)
             {
                 var exit = process.HasExited ? $" Process exited with code {process.ExitCode}." : "";
