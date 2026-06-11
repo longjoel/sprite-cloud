@@ -65,6 +65,7 @@ public class HomeController(
             {
                 x.GameId,
                 GameName = x.Game.Name,
+                SystemName = x.Game.SystemName,
                 x.StartedUtc,
                 x.EndedUtc,
                 x.DurationSeconds,
@@ -84,6 +85,7 @@ public class HomeController(
             {
                 GameId = x.GameId,
                 GameName = x.GameName,
+                SystemName = x.SystemName,
                 Mode = x.Mode,
                 StartedUtc = x.StartedUtc,
                 EndedUtc = x.EndedUtc,
