@@ -417,7 +417,7 @@ a:hover {
   width: 5rem;
   min-width: 5rem;
   height: 6.5rem;
-  border-radius: 1rem;
+  border-radius: var(--radius-xl);
   background: linear-gradient(160deg, rgba(94, 106, 210, 0.16), rgba(94, 106, 210, 0.08));
   border: 1px solid var(--border-subtle);
   display: flex;
