@@ -17,11 +17,10 @@
     @await Html.PartialAsync("~/Views/Games/_TouchLayout.cshtml", Model)
 </div>
 
-@await Html.PartialAsync("~/Views/Games/_ArcadeSeatPanel.cshtml", Model)
-
         </div>
 
         <aside class="playserver-sidebar-column">
+            @await Html.PartialAsync("~/Views/Games/_ArcadeSeatPanel.cshtml", Model)
             @await Html.PartialAsync("~/Views/Games/_RoomChat.cshtml", Model)
             @await Html.PartialAsync("~/Views/Games/_SessionConfig.cshtml", Model)
         </aside>
