@@ -38,5 +38,7 @@ public sealed class NosebleedOptions
 
     public string? TurnSecret { get; set; }
 
+    public string? TurnHost { get; set; }
+
     public Dictionary<string, string> SystemCores { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }

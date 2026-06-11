@@ -323,6 +323,7 @@ public class ArcadeController(
                 sessionSnapshot.FileId,
                 sessionSnapshot.Port,
                 sessionSnapshot.BaseUrl,
+                sessionSnapshot.LocalUrl,
                 string.Empty,
                 sessionSnapshot.StartedUtc,
                 sessionSnapshot.CorePath,
@@ -562,7 +563,7 @@ public class ArcadeController(
             {
                 cabinet.LastSeenAliveUtc = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(cancellationToken);
-                return new NosebleedSession(existing.SessionId, existing.GameId, existing.FileId, existing.Port, existing.BaseUrl, string.Empty, existing.StartedUtc, existing.CorePath, existing.ContentPath);
+                return new NosebleedSession(existing.SessionId, existing.GameId, existing.FileId, existing.Port, existing.BaseUrl, existing.LocalUrl, string.Empty, existing.StartedUtc, existing.CorePath, existing.ContentPath);
             }
         }
 
