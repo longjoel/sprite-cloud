@@ -252,16 +252,19 @@ public sealed class HomeControllerTests : GamesVaultTestBase
         var scopeFactory = serviceProvider.GetRequiredService<IServiceScopeFactory>();
         var httpClientFactory = new TestHttpClientFactory();
 
+        var processInspector = new NosebleedProcessInspector(nosebleedOptions);
+        var seatManager = new NosebleedSeatManager(nosebleedOptions);
         var sessionManager = new NosebleedSessionManager(
             nosebleedOptions,
             scopeFactory,
             nosebleedTicketSigner,
             httpClientFactory,
             new SystemCoreMappingResolver(nosebleedOptions),
+            processInspector,
+            seatManager,
             NullLogger<NosebleedSessionManager>.Instance);
 
         var relayMetrics = new NosebleedRelayMetrics();
-        var processInspector = new NosebleedProcessInspector(nosebleedOptions);
 
         var controller = new HomeController(
             Db,

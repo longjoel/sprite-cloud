@@ -8,6 +8,11 @@ public sealed class NosebleedSeatManager(IOptions<NosebleedOptions> options)
     private readonly NosebleedOptions _options = options.Value ?? new NosebleedOptions();
     private readonly ConcurrentDictionary<string, SessionSeatState> _sessions = new(StringComparer.OrdinalIgnoreCase);
 
+    public void ResetAll()
+    {
+        _sessions.Clear();
+    }
+
     public NosebleedSeatAssignment Assign(string sessionId, string viewerId, DateTimeOffset now, bool allowPlayer = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);

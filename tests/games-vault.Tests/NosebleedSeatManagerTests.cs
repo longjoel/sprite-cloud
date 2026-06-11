@@ -140,6 +140,21 @@ public sealed class NosebleedSeatManagerTests
         Assert.Equal(1, afterRelease.Port);
     }
 
+    [Fact]
+    public void ResetAll_RemovesAllSessionsAndAssignments()
+    {
+        var manager = CreateManager(maxPlayers: 2, ttlMinutes: 30);
+        var now = DateTimeOffset.UtcNow;
+
+        manager.Assign("s1", "v1", now);
+        manager.Assign("s2", "v2", now);
+
+        manager.ResetAll();
+
+        Assert.Empty(manager.GetAssignments("s1", now.AddSeconds(1)));
+        Assert.Empty(manager.GetAssignments("s2", now.AddSeconds(1)));
+    }
+
     private static NosebleedSeatManager CreateManager(int maxPlayers, int ttlMinutes) => new(
         Options.Create(new NosebleedOptions
         {
