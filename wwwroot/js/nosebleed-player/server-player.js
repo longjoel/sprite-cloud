@@ -771,12 +771,17 @@
         try {
             activeVideoTransport = "webrtc-track";
             hideRtcTrackVideo();
-            rtcPeer = new RTCPeerConnection({
-                iceServers: [
-                    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
-                    { urls: ["turns:lngnckr.tech:443?transport=tcp", "turns:lngnckr.tech:5349?transport=tcp"], username: "nosebleed", credential: "118e21c57679b3293d7a0b9adfd90ea7" }
-                ]
-            });
+            var iceServers = [
+                { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+            ];
+            if (config.turnUrls && config.turnUsername && config.turnCredential) {
+                iceServers.push({
+                    urls: config.turnUrls,
+                    username: config.turnUsername,
+                    credential: config.turnCredential,
+                });
+            }
+            rtcPeer = new RTCPeerConnection({ iceServers });
             rtcPeer.addTransceiver("video", { direction: "recvonly" });
             rtcPeer.addTransceiver("audio", { direction: "recvonly" });
             rtcPeer.ontrack = event => {
