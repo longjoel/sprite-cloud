@@ -63,8 +63,10 @@ public sealed class ProfilesController(
         });
     }
 
-    public IActionResult Create(string? invite = null)
+    public async Task<IActionResult> Create(string? invite = null, CancellationToken cancellationToken = default)
     {
+        var hasProfiles = await db.UserProfiles.AnyAsync(cancellationToken);
+        ViewData["HasProfiles"] = hasProfiles;
         return View(new ProfileEditViewModel { InviteCode = invite });
     }
 
@@ -79,7 +81,10 @@ public sealed class ProfilesController(
 
         try
         {
-            var profile = await localProfiles.CreateWithInviteAsync(model.DisplayName, model.Username, model.Password, model.Color, model.InviteCode, cancellationToken);
+            var hasProfiles = await db.UserProfiles.AnyAsync(cancellationToken);
+            var profile = hasProfiles
+                ? await localProfiles.CreateWithInviteAsync(model.DisplayName, model.Username, model.Password, model.Color, model.InviteCode, cancellationToken)
+                : await localProfiles.CreateAsync(model.DisplayName, model.Username, model.Password, model.Color, cancellationToken);
             if (!string.IsNullOrWhiteSpace(model.AvatarKey) || !string.IsNullOrWhiteSpace(model.Bio))
             {
                 profile.AvatarKey = model.AvatarKey;

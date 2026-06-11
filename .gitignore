@@ -33,5 +33,9 @@ wwwroot/webplayer/
 appsettings.*.json
 !appsettings.json
 
+# Environment files (secrets, local config)
+.env
+
 # Publish output (CI publishes to /tmp; never commit build artifacts)
 publish/
+build/

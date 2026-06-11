@@ -600,9 +600,6 @@ public class ArcadeController(
         Response.Cookies.Append(NosebleedViewerCookieName, id, new CookieOptions
         {
             Path = "/",
-            HttpOnly = true,
-            SameSite = SameSiteMode.Lax,
-            Secure = Request.IsHttps,
             MaxAge = TimeSpan.FromDays(30)
         });
         return id;

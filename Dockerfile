@@ -34,6 +34,12 @@ WORKDIR /app
 COPY --from=build /out/ ./
 RUN chown -R gv:gv /app
 
+# Nosebleed binary and libretro cores
+RUN mkdir -p /opt/nosebleed /srv/storage/games-vault/nosebleed/cores
+COPY build/nosebleed/nosebleed /opt/nosebleed/nosebleed
+COPY build/cores/*.so /srv/storage/games-vault/nosebleed/cores/
+RUN chmod +x /opt/nosebleed/nosebleed && chown -R gv:gv /opt/nosebleed /srv/storage/games-vault/nosebleed
+
 ENV ASPNETCORE_URLS=http://0.0.0.0:8080 \
     DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
     DataProtection__KeyRingPath=/var/lib/games-vault/dp-keys \

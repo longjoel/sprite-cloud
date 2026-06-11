@@ -1,0 +1,61 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${GV_POSTGRES_DB:-games_vault}
+      POSTGRES_USER: ${GV_POSTGRES_USER:-games_vault}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - gv_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${GV_POSTGRES_USER:-games_vault} -d ${GV_POSTGRES_DB:-games_vault}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    network_mode: "host"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:${GV_APP_PORT:-8080}
+      ConnectionStrings__DefaultConnection: Host=127.0.0.1;Port=5432;Database=${GV_POSTGRES_DB:-games_vault};Username=${GV_POSTGRES_USER:-games_vault};Password=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      PathBase: ${GV_BASE_PATH:-}
+      DataProtection__KeyRingPath: /var/lib/games-vault/dp-keys
+      LibretroDatabase__RootPath: /srv/storage/games-vault/App_Data/libretro-database
+      LibretroDatabase__ZipUrl: ${GV_LIBRETRO_DB_URL:-https://github.com/libretro/libretro-database/archive/refs/heads/master.zip}
+      Library__RootPath: /srv/storage/games
+      Library__UploadStagingRootPath: /srv/storage/games-vault/uploads
+      Nosebleed__Enabled: ${GV_NOSEBLEED_ENABLED:-false}
+      Nosebleed__BinaryPath: ${GV_NOSEBLEED_BINARY_PATH:-/opt/nosebleed/nosebleed}
+      Nosebleed__PublicScheme: ${GV_NOSEBLEED_PUBLIC_SCHEME:-http}
+      Nosebleed__PublicHost: ${GV_NOSEBLEED_PUBLIC_HOST:-127.0.0.1}
+      Nosebleed__BaseListenPort: ${GV_NOSEBLEED_BASE_LISTEN_PORT:-8100}
+      Nosebleed__MaxSessions: ${GV_NOSEBLEED_MAX_SESSIONS:-4}
+      Nosebleed__MaxPlayersPerSession: ${GV_NOSEBLEED_MAX_PLAYERS:-4}
+      Nosebleed__SeatTtlMinutes: ${GV_NOSEBLEED_SEAT_TTL_MINUTES:-30}
+      Nosebleed__SessionRoot: /srv/storage/games-vault/nosebleed/sessions
+      Nosebleed__CoreRoot: /srv/storage/games-vault/nosebleed/cores
+      Nosebleed__RequireAuth: ${GV_NOSEBLEED_REQUIRE_AUTH:-true}
+      Nosebleed__AuthSecretPath: /var/lib/games-vault/nosebleed-auth-secret
+      Nosebleed__CopyContentToSession: ${GV_NOSEBLEED_COPY_CONTENT_TO_SESSION:-true}
+      Nosebleed__TurnSecret: ${GV_NOSEBLEED_TURN_SECRET:-}
+    volumes:
+      - gv_app_data:/var/lib/games-vault
+      - gv_app_state:/srv/storage/games-vault
+      - ${GV_LIBRARY_ROOT:-/tmp/}:/srv/storage/games
+      - /var/lib/games-vault/nosebleed-auth-secret:/var/lib/games-vault/nosebleed-auth-secret:ro
+
+volumes:
+  gv_db_data:
+  gv_app_data:
+  gv_app_state:
