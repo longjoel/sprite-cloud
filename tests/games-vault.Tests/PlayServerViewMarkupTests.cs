@@ -125,9 +125,9 @@ public sealed class PlayServerViewMarkupTests
         Assert.Contains("id=\"nosebleed-player-bottom-bar\"", content);
         Assert.Contains("id=\"nosebleed-player-prompt\"", content);
         Assert.Contains("id=\"nosebleed-view-windowed\"", content);
-        Assert.Contains("id=\"nosebleed-view-theater\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-view-theater\"", content);
         Assert.Contains("id=\"nosebleed-fullscreen\"", content);
-        Assert.Contains("id=\"nosebleed-logging-toggle\"", content);
+        Assert.DoesNotContain("id=\"nosebleed-logging-toggle\"", content);
         Assert.Contains("id=\"nosebleed-player-log\"", content);
         Assert.Contains("id=\"nosebleed-player-log-list\"", content);
         Assert.Contains("@inject games_vault.Nosebleed.NosebleedStreamSettingsStore StreamSettingsStore", content);
@@ -135,8 +135,8 @@ public sealed class PlayServerViewMarkupTests
         Assert.Contains("streamDefaults = new", content);
         Assert.Contains("videoTransport = streamSettings.PreferredVideoTransport", content);
         Assert.Contains("aria-label=\"Windowed view\"", content);
-        Assert.Contains("aria-label=\"Theater view\"", content);
-        Assert.Contains("aria-label=\"Toggle logging overlay\"", content);
+        Assert.DoesNotContain("aria-label=\"Theater view\"", content);
+        Assert.DoesNotContain("aria-label=\"Toggle logging overlay\"", content);
         Assert.Contains("id=\"nosebleed-audio-overlay\"", content);
         Assert.Contains("id=\"nosebleed-volume\"", content);
         Assert.Contains("id=\"nosebleed-player-health\"", content);
@@ -168,7 +168,7 @@ public sealed class PlayServerViewMarkupTests
         Assert.Contains("data-bwignore=\"true\"", content);
         Assert.Contains("data-form-type=\"other\"", content);
         Assert.Contains("title=\"Windowed view\"", content);
-        Assert.Contains("title=\"Theater view\"", content);
+        Assert.DoesNotContain("title=\"Theater view\"", content);
         Assert.Contains("title=\"Full screen\"", content);
         Assert.DoesNotContain("<span class=\"player-control-label\">Full screen</span>", content);
         Assert.DoesNotContain("<span class=\"player-control-label\">Logs</span>", content);
