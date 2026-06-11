@@ -612,7 +612,9 @@ public class SessionController : Controller
         Response.Cookies.Append(NosebleedViewerCookieName, id, new CookieOptions
         {
             Path = "/",
-            MaxAge = TimeSpan.FromDays(30)
+            MaxAge = TimeSpan.FromDays(30),
+            SameSite = SameSiteMode.None,
+            Secure = true
         });
         return id;
     }
