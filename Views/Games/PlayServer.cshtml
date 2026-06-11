@@ -70,6 +70,13 @@
         videoTransport = streamSettings.PreferredVideoTransport
     },
     keepAliveUrl = Url.Action("KeepAliveServerSession", "Games"),
+    turnUrls = new[]
+    {
+        $"turns:lngnckr.tech:443?transport=tcp",
+        $"turns:lngnckr.tech:5349?transport=tcp",
+    },
+    turnUsername = "nosebleed",
+    turnCredential = "118e21c57679b3293d7a0b9adfd90ea7",
     roomPresenceUrl = Model.CurrentRoomId is null ? null : Url.Action("RoomPresence", "Games", new { roomId = Model.CurrentRoomId }),
     roomChatUrl = Model.CurrentRoomId is null ? null : Url.Action("RoomChat", "Games", new { roomId = Model.CurrentRoomId }),
     roomKickUrl = Model.CurrentRoomId is null ? null : Url.Action("KickRoomPlayer", "Games", new { roomId = Model.CurrentRoomId }),
