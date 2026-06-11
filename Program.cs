@@ -189,6 +189,18 @@ await using (var scope = app.Services.CreateAsyncScope())
     var db = scope.ServiceProvider.GetRequiredService<games_vault.Data.AppDbContext>();
     await db.Database.MigrateAsync();
 
+    var nosebleedSessionManager = scope.ServiceProvider.GetRequiredService<NosebleedSessionManager>();
+    var reconcileResult = await nosebleedSessionManager.ReconcileOrphansAsync();
+    if (reconcileResult.AdoptedSessions > 0 || reconcileResult.KilledOrphanProcesses > 0 || reconcileResult.RelinkedRooms > 0 || reconcileResult.RelinkedCabinets > 0)
+    {
+        Log.Information(
+            "Nosebleed orphan reconciliation complete. Adopted={AdoptedSessions} Killed={KilledOrphanProcesses} RelinkedRooms={RelinkedRooms} RelinkedCabinets={RelinkedCabinets}",
+            reconcileResult.AdoptedSessions,
+            reconcileResult.KilledOrphanProcesses,
+            reconcileResult.RelinkedRooms,
+            reconcileResult.RelinkedCabinets);
+    }
+
     var nosebleedCoreRoot = builder.Configuration.GetValue<string>("Nosebleed:CoreRoot");
     if (!string.IsNullOrWhiteSpace(nosebleedCoreRoot))
     {

@@ -382,12 +382,16 @@ public sealed class ArcadeControllerTests
             .AddSingleton<Microsoft.Extensions.Logging.ILogger<LibretroCoreInstaller>>(NullLogger<LibretroCoreInstaller>.Instance)
             .AddSingleton<LibretroCoreInstaller>()
             .BuildServiceProvider();
+        var processInspector = new NosebleedProcessInspector(nosebleedOptions);
+        var seatManager = new NosebleedSeatManager(nosebleedOptions);
         var sessionManager = new NosebleedSessionManager(
             nosebleedOptions,
             new TestServiceScopeFactory(serviceProvider),
             new NosebleedTicketSigner(nosebleedOptions, NullLogger<NosebleedTicketSigner>.Instance),
             new TestHttpClientFactory(),
             serviceProvider.GetRequiredService<SystemCoreMappingResolver>(),
+            processInspector,
+            seatManager,
             NullLogger<NosebleedSessionManager>.Instance);
 
         return new TestFixture(scope, db, cabinet, accessor, config, nosebleedOptions, sessionManager, serviceProvider, tempRoot);
