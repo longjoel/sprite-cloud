@@ -6,6 +6,7 @@ public sealed record NosebleedSession(
     int FileId,
     int Port,
     string BaseUrl,
+    string LocalUrl,
     string? Token,
     DateTimeOffset StartedUtc,
     string CorePath,
