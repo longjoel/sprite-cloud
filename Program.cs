@@ -7,8 +7,18 @@ using games_vault.Nosebleed;
 using games_vault.Web;
 using games_vault.Profiles;
 using Microsoft.AspNetCore.Http.Features;
+using Serilog;
+using Serilog.Formatting.Json;
 
 var builder = WebApplication.CreateBuilder(args);
+
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(builder.Configuration)
+    .Enrich.FromLogContext()
+    .WriteTo.Console(formatter: new JsonFormatter())
+    .CreateLogger();
+
+builder.Host.UseSerilog();
 
 // Allow large uploads (e.g. BIOS/system packs).
 builder.WebHost.ConfigureKestrel(options =>
