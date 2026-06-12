@@ -394,7 +394,7 @@ public class SessionController : Controller
         using var downstream = await HttpContext.WebSockets.AcceptWebSocketAsync();
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, HttpContext.RequestAborted);
         var clientToUpstream = NosebleedWebSocketRelay.PumpOrderedAsync(downstream, upstream, "input", metrics: null, linkedCts.Token);
-        var upstreamToClient = NosebleedWebSocketRelay.PumpOrderedAsync(upstream, downstream, "output", metrics: null, linkedCts.Token);
+        var upstreamToClient = NosebleedWebSocketRelay.PumpUpstreamToDownstreamAsync(channel, upstream, downstream, metrics: null, linkedCts.Token);
         await Task.WhenAny(clientToUpstream, upstreamToClient);
         await linkedCts.CancelAsync();
 
