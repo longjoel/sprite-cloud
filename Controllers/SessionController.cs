@@ -3,6 +3,7 @@ using games_vault.Data;
 using games_vault.Gameplay;
 using games_vault.Libretro.Import;
 using games_vault.Models;
+using games_vault.Web;
 using games_vault.Models.ViewModels;
 using games_vault.Nosebleed;
 using games_vault.Profiles;
@@ -34,6 +35,7 @@ public class SessionController : Controller
     }
 
     [HttpGet("/Games/PlayServer/{id:int}/{code?}", Name = "PlayServerRoom")]
+    [RateLimit(permitLimit: 20, windowSeconds: 60)]
     public async Task<IActionResult> PlayServer(int id, string? code = null, string? share = null, CancellationToken cancellationToken = default)
     {
         var hasRouteCode = RouteData.Values.TryGetValue("code", out var routeCodeValue)
