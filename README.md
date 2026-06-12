@@ -1,79 +1,122 @@
 # Games Vault
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)](https://docker.com)
 
-Games Vault is a personal game-library and arcade server. It pairs the Games Vault web app with the Nosebleed/libretro runtime so a stored library can be browsed, watched, and played from the browser.
+Personal game-library and arcade server. Pairs with [Nosebleed](https://github.com/longjoel/nosebleed) (libretro runtime) to browse, watch, and play games from the browser via WebRTC streaming.
 
-## User type feature matrix
+![Home page](wwwroot/img/screenshot-home.png)
 
-Legend: Yes = available, No = unavailable, Scoped = available only in the room/profile scope described.
+---
 
-- Anonymous viewer
-  - Browse library: Yes
-  - Watch active room/session: Yes
-  - Watch arcade cabinets: Yes
-  - Controller input / player seat: No
-  - Create normal game session: No
-  - Chat: No
-  - Share links: No
-  - Battery saves: No
-  - Admin/library management: No
+## Quick start (Docker)
 
-- Player profile
-  - Browse library: Yes
-  - Watch active room/session: Yes
-  - Watch arcade cabinets: Yes
-  - Controller input / player seat: Yes, when a player seat is available
-  - Create normal game session: Yes
-  - Join arcade cabinet as player: Yes, when a player seat is available
-  - Chat: Yes
-  - Share links: Scoped; own active room only
-  - Battery saves: Yes
-  - Admin/library management: No
+```bash
+git clone https://github.com/longjoel/games-vault.git
+cd games-vault
 
-- Admin profile
-  - Browse library: Yes
-  - Watch active room/session: Yes
-  - Watch arcade cabinets: Yes
-  - Controller input / player seat: Yes, when a player seat is available
-  - Create normal game session: Yes
-  - Join arcade cabinet as player: Yes, when a player seat is available
-  - Chat: Yes
-  - Share links: Yes, for any active room
-  - Battery saves: Yes
-  - Admin/library management: Yes
-  - Additional admin operations: manage sources, jobs, downloads, profiles/invites, system files, system/core mappings, arcade cabinets, Nosebleed sessions, and setup/sync jobs
+# Create .env with a database password
+echo "POSTGRES_PASSWORD=$(openssl rand -base64 32)" > .env
 
-- Spectator guest
-  - Browse library: Scoped; created from a room share link and intended for the shared room
-  - Watch active room/session: Yes, for the shared room
-  - Watch arcade cabinets: Scoped; spectator-only unless a shared room grants player access
-  - Controller input / player seat: No
-  - Create normal game session: No
-  - Chat: Yes
-  - Share links: No
-  - Battery saves: No
-  - Admin/library management: No
+# Start the app and database
+docker compose up -d
 
-- Player guest
-  - Browse library: Scoped; created from a room share link and intended for the shared room
-  - Watch active room/session: Yes, for the shared room
-  - Watch arcade cabinets: Scoped; only where the redeemed share grants play
-  - Controller input / player seat: Scoped; shared room only, when a player seat is available
-  - Create normal game session: No
-  - Chat: Yes
-  - Share links: No
-  - Battery saves: No
-  - Admin/library management: No
+# Open http://localhost:8080
+```
 
-## Permission model notes
+The first run creates an admin profile. Register at `/Register` — the
+first account is auto-promoted to admin.
 
-- Global access modes are `Viewer`, `Player`, and `Admin`.
-- Anonymous users are viewers.
-- Normal signed-in non-admin profiles are players.
-- Admin profiles are admins.
-- Ephemeral guest profiles created by share links are global viewers, then receive room-scoped play only through the redeemed share grant.
-- Chat is allowed for any current profile, including ephemeral guests, but not for anonymous viewers.
-- Battery-save upload/history/download/delete/restore actions require a non-ephemeral profile.
-- Admin/library management routes require admin access.
-- Nosebleed input routes should use room/session-scoped play checks, not only global signed-in status.
+---
+
+## Build from source
+
+### Prerequisites
+
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
+- PostgreSQL 16+
+- [Nosebleed](https://github.com/longjoel/nosebleed) binary (optional, for streaming)
+
+### Steps
+
+```bash
+git clone https://github.com/longjoel/games-vault.git
+cd games-vault
+
+# Restore and build
+dotnet restore
+dotnet build
+
+# Run (requires a running PostgreSQL instance)
+ConnectionStrings__DefaultConnection="Host=localhost;Database=games_vault;Username=games_vault;Password=your_password" dotnet run
+
+# Or point it at your DB
+ASPNETCORE_URLS=http://0.0.0.0:8080 \
+  ConnectionStrings__DefaultConnection="Host=localhost;..." \
+  dotnet run
+```
+
+---
+
+## Configuration
+
+All settings use ASP.NET Core's `Environment` → `Configuration` binding.
+Set them via environment variables with `__` as the section delimiter:
+
+| Env var | Default | Description |
+|---------|---------|-------------|
+| `ConnectionStrings__DefaultConnection` | `Host=localhost;...` | PostgreSQL |
+| `Library__RootPath` | `/srv/storage/games` | ROM directory |
+| `Nosebleed__Enabled` | `false` | Enable streaming |
+| `Nosebleed__BaseListenPort` | `8100` | WebRTC UDP base |
+| `Nosebleed__MaxSessions` | `4` | Concurrent sessions |
+| `PathBase` | *(none)* | Reverse proxy path |
+| `DataProtection__KeyRingPath` | `/var/lib/games-vault/dp-keys` | DP key storage |
+
+Full reference: [docs/configuration.md](docs/configuration.md)
+
+---
+
+## Architecture
+
+```
+Browser ──WebRTC──▶ Nosebleed ──libretro──▶ Emulator core
+     │                                         │
+     └── HTTPS ──▶ Games Vault ──▶ PostgreSQL   ROM files
+```
+
+- **Games Vault** — ASP.NET Core web app: library management, profiles, sessions arcade
+- **Nosebleed** — libretro runtime: headless emulation with WebRTC video/audio/input streaming
+- **PostgreSQL** — profiles, sessions, library metadata
+- **coturn** (optional) — TURN relay for NAT traversal
+
+See [docs/infrastructure/vps-networking.md](docs/infrastructure/vps-networking.md)
+for the production deployment layout.
+
+![Games library](wwwroot/img/screenshot-games.png)
+
+---
+
+## User roles
+
+| Role | Browse | Watch | Play | Chat | Save |
+|------|--------|-------|------|------|------|
+| Anonymous | ✓ | ✓ | — | — | — |
+| Player | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Admin | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Guest (share link) | scoped | ✓ | scoped | ✓ | — |
+
+---
+
+## Offline (no Docker)
+
+Games Vault runs as a systemd service on bare metal (the vault host) and
+optionally in Docker on VPS/test instances. Deploy scripts live in
+`scripts/` — see [docs/dev-prod-sync.md](docs/dev-prod-sync.md).
+
+---
+
+## License
+
+[MIT](LICENSE)
