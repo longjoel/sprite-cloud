@@ -822,6 +822,7 @@
                 if (rtcPeer.connectionState === "failed") {
                     console.warn("[nosebleed] ICE connection failed — UDP likely blocked");
                     setStatus("WebRTC failed (UDP blocked?), switching to WebSocket video.", "bad");
+                    hideRtcTrackVideo();
                     startWebSocketVideoFallback();
                 }
             };
