@@ -7,6 +7,7 @@ using games_vault.Web;
 using games_vault.Libretro;
 using games_vault.Libretro.Dat;
 using games_vault.Libretro.Import;
+using games_vault.BackgroundJobs;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -20,8 +21,7 @@ public sealed class AdminController(
     NosebleedStreamSettingsStore streamSettingsStore,
     LibretroDatabaseStore libretroStore,
     SystemDatIndexProvider systemDat,
-    SystemFileStorage systemFileStorage,
-    GameArtBackfillService gameArtBackfill) : Controller
+    SystemFileStorage systemFileStorage) : Controller
 {
     public async Task<IActionResult> Index(CancellationToken cancellationToken = default)
     {
@@ -238,10 +238,13 @@ public sealed class AdminController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> BackfillGameArt(bool force = false, int limit = 100, CancellationToken cancellationToken = default)
+    public async Task<IActionResult> BackfillGameArt(bool force = false, int limit = 100, int? gameId = null)
     {
-        var result = await gameArtBackfill.BackfillAsync(force, limit, cancellationToken);
-        TempData["AdminMessage"] = $"Game art backfill complete. Scanned {result.Scanned}, updated {result.Updated}, missing {result.NotFound}, skipped {result.Skipped}, failed {result.Failed}.";
+        var jobs = HttpContext.RequestServices.GetRequiredService<IBackgroundJobClient>();
+        var jobId = await jobs.EnqueueAsync("art.backfill",
+            new BackgroundJobs.Commands.GameArtBackfillPayload(Force: force, Limit: limit, GameId: gameId));
+
+        TempData["AdminMessage"] = $"Art backfill job #{jobId} queued.";
         return Redirect($"{Url.Action(nameof(Index))}#admin-game-art");
     }
 
