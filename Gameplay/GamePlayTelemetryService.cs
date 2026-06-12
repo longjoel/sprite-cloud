@@ -144,34 +144,31 @@ public sealed class GamePlayTelemetryService(AppDbContext db)
         {
             query = query.Where(x => x.ProfileId == profileId);
         }
+        query = query.Take(1000);
 
-        var stats = await query
+        var sessions = await query.ToListAsync(ct);
+        var rows = sessions.Select(x => new
+        {
+            x.Mode,
+            Active = x.EndedUtc == null,
+            Duration = ComputeDurationSeconds(x.StartedUtc, x.EndedUtc, now)
+        }).ToList();
+
+        var byMode = rows
             .GroupBy(x => x.Mode)
-            .Select(g => new
-            {
-                Mode = g.Key,
-                Count = g.Count(),
-                ActiveCount = g.Count(x => x.EndedUtc == null)
-            })
-            .ToListAsync(ct);
-
-        var totalCount = stats.Sum(x => x.Count);
-        var totalActive = stats.Sum(x => x.ActiveCount);
-
-        var byMode = stats
-            .Select(x => new GamePlayModeStats(
-                x.Mode,
-                x.Count,
-                x.ActiveCount,
-                0))
+            .Select(g => new GamePlayModeStats(
+                g.Key,
+                g.Count(),
+                g.Count(x => x.Active),
+                g.Sum(x => x.Duration)))
             .OrderByDescending(x => x.TotalDurationSeconds)
             .ThenBy(x => x.Mode)
             .ToList();
 
         return new GamePlayDashboardStats(
-            totalCount,
-            totalActive,
-            0,
+            rows.Count,
+            rows.Count(x => x.Active),
+            rows.Sum(x => x.Duration),
             byMode);
     }
 
