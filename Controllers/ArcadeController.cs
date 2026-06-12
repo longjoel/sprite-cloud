@@ -501,10 +501,17 @@ public class ArcadeController(
                 g.Name,
                 g.SystemName,
                 g.NumberOfPlayers,
-                FileCount = g.Files.Count(f => f.StoragePath != null || f.ExternalPath != null),
-                AlreadyCabinetCount = db.ArcadeCabinets.Count(c => c.GameId == g.Id)
+                FileCount = g.Files.Count(f => f.StoragePath != null || f.ExternalPath != null)
             })
             .ToListAsync(cancellationToken);
+
+        var gameIds = rows.Select(r => r.Id).ToList();
+        var cabinetCounts = await db.ArcadeCabinets
+            .Where(c => gameIds.Contains(c.GameId))
+            .GroupBy(c => c.GameId)
+            .Select(g => new { GameId = g.Key, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+        var countByGameId = cabinetCounts.ToDictionary(x => x.GameId, x => x.Count);
 
         var games = rows.Select(g => new ArcadeGamePickerGameViewModel
         {
@@ -513,7 +520,7 @@ public class ArcadeController(
             SystemName = g.SystemName,
             NumberOfPlayers = g.NumberOfPlayers,
             FileCount = g.FileCount,
-            AlreadyCabinetCount = g.AlreadyCabinetCount
+            AlreadyCabinetCount = countByGameId.GetValueOrDefault(g.Id, 0)
         }).ToList();
 
         return new ArcadeGamePickerViewModel
