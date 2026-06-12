@@ -532,19 +532,6 @@ a:hover {
   }
 }
 
-/* --- TV / Steam Deck mode (720p-1080p, larger text) --- */
-@media (min-width: 1200px) and (max-width: 1400px) and (max-height: 900px) {
-  html {
-    font-size: 18px;
-  }
-  .row-cols-xl-2 > .col,
-  .row-cols-xl-3 > .col,
-  .row-cols-xl-4 > .col {
-    flex: 0 0 auto;
-    width: 50%;
-  }
-}
-
 /* --- Table enhancements --- */
 .table {
   --bs-table-color: var(--text-secondary);
