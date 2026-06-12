@@ -53,6 +53,9 @@ public class Game
     [StringLength(512)]
     public string? ScreenshotImagePath { get; set; }
 
+    [StringLength(512)]
+    public string? PreviewImagePath { get; set; }
+
     [StringLength(80)]
     public string? GameArtProvider { get; set; }
 

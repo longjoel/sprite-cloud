@@ -128,4 +128,5 @@ public sealed class HomePinnedGameViewModel
     public string SystemName { get; set; } = "";
     public string? CoverImagePath { get; set; }
     public string? ScreenshotImagePath { get; set; }
+    public string? PreviewImagePath { get; set; }
 }

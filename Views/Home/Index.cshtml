@@ -88,7 +88,9 @@
                 @foreach (var game in Model.PinnedGames)
                 {
                     var shortSystem = ShortSystemName(game.SystemName);
-                    var previewImage = !string.IsNullOrWhiteSpace(game.ScreenshotImagePath) ? game.ScreenshotImagePath : game.CoverImagePath;
+                    var previewImage = !string.IsNullOrWhiteSpace(game.PreviewImagePath) ? game.PreviewImagePath
+                        : !string.IsNullOrWhiteSpace(game.ScreenshotImagePath) ? game.ScreenshotImagePath
+                        : game.CoverImagePath;
                     <div class="col">
                         <div class="card games-card games-card-sm h-100 shadow-sm">
                             <div class="games-card-banner">@shortSystem</div>

@@ -108,7 +108,9 @@ public sealed class GamesIndexViewMarkupTests
     {
         var bankContent = ReadGamesBankView();
 
-        Assert.Contains("var previewImage = !string.IsNullOrWhiteSpace(game.ScreenshotImagePath) ? game.ScreenshotImagePath : game.CoverImagePath;", bankContent);
+        Assert.Contains("var previewImage = !string.IsNullOrWhiteSpace(game.PreviewImagePath) ? game.PreviewImagePath", bankContent);
+        Assert.Contains("!string.IsNullOrWhiteSpace(game.ScreenshotImagePath) ? game.ScreenshotImagePath", bankContent);
+        Assert.Contains("game.CoverImagePath;", bankContent);
         Assert.Contains("@if (!string.IsNullOrWhiteSpace(previewImage))", bankContent);
         Assert.Contains("<img class=\"games-card-preview-image\" src=\"@previewImage\" alt=\"\" loading=\"lazy\" />", bankContent);
         Assert.Contains("<div class=\"games-card-preview-text\">@game.Name</div>", bankContent);
