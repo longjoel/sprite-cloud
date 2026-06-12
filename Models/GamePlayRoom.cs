@@ -38,6 +38,9 @@ public sealed class GamePlayRoom
     public int? ArcadeCabinetId { get; set; }
     public ArcadeCabinet? ArcadeCabinet { get; set; }
 
+    [Timestamp]
+    public byte[]? ConcurrencyToken { get; set; }
+
     public ICollection<GamePlayRoomParticipant> Participants { get; set; } = new List<GamePlayRoomParticipant>();
     public ICollection<GamePlayRoomChatMessage> ChatMessages { get; set; } = new List<GamePlayRoomChatMessage>();
 }
