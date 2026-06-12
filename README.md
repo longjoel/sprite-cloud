@@ -1,5 +1,7 @@
 # Games Vault
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Games Vault is a personal game-library and arcade server. It pairs the Games Vault web app with the Nosebleed/libretro runtime so a stored library can be browsed, watched, and played from the browser.
 
 ## User type feature matrix
