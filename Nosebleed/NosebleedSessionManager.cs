@@ -584,6 +584,7 @@ public sealed class NosebleedSessionManager(
             {
                 var exit = process.HasExited ? $" Process exited with code {process.ExitCode}." : "";
                 TryKill(process);
+                process.Dispose();
                 return NosebleedStartResult.Fail($"Nosebleed did not become healthy at {baseUrl}.{exit}");
             }
 

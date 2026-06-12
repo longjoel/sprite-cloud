@@ -131,14 +131,14 @@ public sealed class GameArtBackfillCommand(
                 await context.LogWarnAsync($"Game #{game.Id} '{game.Name}' failed: {ex.Message}", cancellationToken);
             }
 
-            await db.SaveChangesAsync(cancellationToken);
-
             // Report progress
             var permille = (int)(scanned / (double)candidates.Count * 1000);
             await context.SetProgressPermilleAsync(Math.Min(permille, 999), cancellationToken);
 
             await Task.Delay(100, cancellationToken);
         }
+
+        await db.SaveChangesAsync(cancellationToken);
 
         await context.SetProgressPermilleAsync(1000, cancellationToken);
         await context.LogInfoAsync($"Art backfill complete. Scanned {scanned}, updated {updated}, not_found {notFound}, skipped {skipped}, failed {failed}.", cancellationToken);
