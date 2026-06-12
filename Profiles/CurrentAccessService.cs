@@ -6,7 +6,6 @@ namespace games_vault.Profiles;
 
 public sealed class CurrentAccessService(
     CurrentProfileService currentProfile,
-    IConfiguration configuration,
     IHttpContextAccessor httpContextAccessor,
     games_vault.Data.AppDbContext db,
     IDataProtectionProvider dataProtection,
@@ -17,7 +16,7 @@ public sealed class CurrentAccessService(
 
     public async Task<AccessMode> GetAccessModeAsync(CancellationToken ct)
     {
-        if (IsAdminOverrideEnabled())
+        if (IsAdminCookiePresent())
         {
             return AccessMode.Admin;
         }
@@ -107,41 +106,14 @@ public sealed class CurrentAccessService(
 
     public async Task<bool> CanChatAsync(CancellationToken ct)
     {
-        if (IsAdminOverrideEnabled())
-        {
-            return false;
-        }
-
         return await currentProfile.GetCurrentAsync(ct) is not null;
     }
 
     public async Task<bool> CanManageLibraryAsync(CancellationToken ct) => await IsAdminAsync(ct);
 
-    private bool IsAdminOverrideEnabled()
+    private bool IsAdminCookiePresent()
     {
         var http = httpContextAccessor.HttpContext;
-
-        if (configuration.GetValue("Access:AdminAlways", false))
-        {
-            // AdminAlways is enabled — verify the user is actually authenticated before
-            // granting admin. This prevents accidental AdminAlways=true in production
-            // from granting admin to unauthenticated/anonymous requests.
-            if (http is null)
-            {
-                return false;
-            }
-
-            // If the user has a valid profile cookie (authenticated), grant admin.
-            if (http.Request.Cookies.TryGetValue(CurrentProfileService.CookieName, out _))
-            {
-                logger.LogWarning("Access:AdminAlways is ENABLED. All requests will be treated as admin. This should ONLY be active in development environments.");
-                return true;
-            }
-
-            // If AdminAlways is enabled but the user doesn't have a profile cookie,
-            // don't grant admin — fall through to the admin cookie check.
-        }
-
         if (http is null)
         {
             return false;

@@ -15,7 +15,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -230,14 +229,8 @@ public sealed class HomeControllerTests : GamesVaultTestBase
 
         // --- Profile and Access services ---
         var currentProfile = new CurrentProfileService(Db, httpContextAccessor);
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Access:AdminAlways"] = "false"
-            }!)
-            .Build();
         var currentAccess = new CurrentAccessService(
-            currentProfile, config, httpContextAccessor, Db, new EphemeralDataProtectionProvider(), NullLogger<CurrentAccessService>.Instance);
+            currentProfile, httpContextAccessor, Db, new EphemeralDataProtectionProvider(), NullLogger<CurrentAccessService>.Instance);
 
         // --- Gameplay telemetry ---
         var telemetry = new GamePlayTelemetryService(Db);

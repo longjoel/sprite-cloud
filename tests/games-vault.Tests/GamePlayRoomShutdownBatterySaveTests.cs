@@ -12,7 +12,6 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -225,7 +224,7 @@ public sealed class GamePlayRoomShutdownBatterySaveTests
         httpContext.Request.Headers.Cookie = $"{CurrentProfileService.CookieName}={profile.Id}";
         var accessor = new TestHttpContextAccessor(httpContext);
         var currentProfile = new CurrentProfileService(db, accessor);
-        var currentAccess = new CurrentAccessService(currentProfile, new ConfigurationBuilder().Build(), accessor, db, new EphemeralDataProtectionProvider(), NullLogger<CurrentAccessService>.Instance);
+        var currentAccess = new CurrentAccessService(currentProfile, accessor, db, new EphemeralDataProtectionProvider(), NullLogger<CurrentAccessService>.Instance);
 
         var nosebleedOptions = Options.Create(new NosebleedOptions
         {
