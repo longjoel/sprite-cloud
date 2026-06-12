@@ -1,3 +1,4 @@
+# Stage 1: Build the .NET application
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
@@ -7,7 +8,8 @@ RUN dotnet restore games-vault.csproj
 COPY . .
 RUN dotnet publish games-vault.csproj -c Release -r linux-x64 -o /out --self-contained true
 
-FROM ubuntu:24.04 AS runtime
+# Stage 2: GStreamer runtime layer (cached independently, rarely changes)
+FROM ubuntu:24.04 AS gstreamer-layer
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -29,6 +31,9 @@ RUN groupadd -f gv \
     && useradd --create-home --uid 1000 --gid 1000 --shell /bin/bash -o gv \
     && mkdir -p /app /var/lib/games-vault /srv/storage/games-vault /srv/storage/games \
     && chown -R gv:gv /app /var/lib/games-vault /srv/storage/games-vault /srv/storage/games
+
+# Stage 3: Final app image
+FROM gstreamer-layer AS final
 
 WORKDIR /app
 COPY --from=build /out/ ./
