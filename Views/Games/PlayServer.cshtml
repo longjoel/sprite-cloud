@@ -79,7 +79,8 @@
     roomKickUrl = Model.CurrentRoomId is null ? null : Url.Action("KickRoomPlayer", "Games", new { roomId = Model.CurrentRoomId }),
     canKickPlayers = !Model.IsSpectator && Model.PlayerNumber == 1,
     playerNumber = Model.PlayerNumber,
-    batterySaveDiagnostics = Model.BatterySaveDiagnostics
+    batterySaveDiagnostics = Model.BatterySaveDiagnostics,
+    snapshotUrl = Url.Action("NosebleedPreviewVideo", "Home", new { sessionId = Model.SessionId })
 }))
 </script>
 <script src="~/js/nosebleed-player/input-helpers.js" asp-append-version="true"></script>
