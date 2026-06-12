@@ -35,6 +35,7 @@ appsettings.*.json
 
 # Environment files (secrets, local config)
 .env
+deploy.env
 
 # Publish output (CI publishes to /tmp; never commit build artifacts)
 publish/

@@ -1,6 +1,9 @@
 using games_vault.Nosebleed;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Moq;
 
 namespace games_vault.Tests;
 
@@ -13,7 +16,7 @@ public sealed class NosebleedHealthCheckTests
         {
             Enabled = false,
             BinaryPath = "/does/not/matter"
-        }));
+        }), null!);
 
         var result = await healthCheck.CheckHealthAsync(new HealthCheckContext());
 
@@ -31,16 +34,28 @@ public sealed class NosebleedHealthCheckTests
 
         try
         {
-            var healthCheck = new NosebleedHealthCheck(Options.Create(new NosebleedOptions
+            var nosebleedOptions = Options.Create(new NosebleedOptions
             {
                 Enabled = true,
                 BinaryPath = binaryPath
-            }));
+            });
+            var sessionManager = new NosebleedSessionManager(
+                nosebleedOptions,
+                Mock.Of<IServiceScopeFactory>(),
+                new NosebleedTicketSigner(nosebleedOptions, NullLogger<NosebleedTicketSigner>.Instance),
+                Mock.Of<IHttpClientFactory>(),
+                new SystemCoreMappingResolver(nosebleedOptions),
+                new NosebleedProcessInspector(nosebleedOptions),
+                new NosebleedSeatManager(nosebleedOptions),
+                NullLogger<NosebleedSessionManager>.Instance);
+
+            var healthCheck = new NosebleedHealthCheck(nosebleedOptions, sessionManager);
 
             var result = await healthCheck.CheckHealthAsync(new HealthCheckContext());
 
             Assert.Equal(HealthStatus.Healthy, result.Status);
-            Assert.Contains(binaryPath, result.Description);
+            Assert.Contains("Nosebleed binary present", result.Description);
+            Assert.Contains("0 active session(s)", result.Description);
         }
         finally
         {
@@ -56,7 +71,7 @@ public sealed class NosebleedHealthCheckTests
         {
             Enabled = true,
             BinaryPath = binaryPath
-        }));
+        }), null!);
 
         var result = await healthCheck.CheckHealthAsync(new HealthCheckContext());
 

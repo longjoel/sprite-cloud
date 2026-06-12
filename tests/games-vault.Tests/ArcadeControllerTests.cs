@@ -23,6 +23,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Moq;
 
 namespace games_vault.Tests;
 
@@ -60,6 +61,7 @@ public sealed class ArcadeControllerTests
             8099,
             "http://vault:8099",
             "",
+            null,
             DateTimeOffset.UtcNow.AddMinutes(-5),
             "/cores/fbneo_libretro.so",
             "/roms/metalslug.zip");
@@ -88,6 +90,7 @@ public sealed class ArcadeControllerTests
             8100,
             "http://vault:8100",
             "",
+            null,
             DateTimeOffset.UtcNow.AddMinutes(-3),
             "/cores/fbneo_libretro.so",
             "/roms/metalslug.zip");
@@ -141,6 +144,7 @@ public sealed class ArcadeControllerTests
             8105,
             "http://vault:8105",
             "",
+            null,
             DateTimeOffset.UtcNow.AddMinutes(-1),
             Path.Combine(fixture.NosebleedOptions.Value.CoreRoot, "fake_arcade_core_libretro.so"),
             fixture.Cabinet.GameFile!.ExternalPath!);
@@ -173,6 +177,7 @@ public sealed class ArcadeControllerTests
             8100,
             "http://vault:8100",
             "",
+            null,
             DateTimeOffset.UtcNow.AddMinutes(-3),
             "/cores/fbneo_libretro.so",
             "/roms/metalslug.zip");
@@ -439,7 +444,8 @@ public sealed class ArcadeControllerTests
                 roomService,
                 currentProfile,
                 currentAccess,
-                NosebleedOptions)
+                NosebleedOptions,
+                Mock.Of<ITurnCredentialService>())
             {
                 ControllerContext = new ControllerContext { HttpContext = HttpContextAccessor.HttpContext! },
                 TempData = new TempDataDictionary(HttpContextAccessor.HttpContext!, new TestTempDataProvider()),

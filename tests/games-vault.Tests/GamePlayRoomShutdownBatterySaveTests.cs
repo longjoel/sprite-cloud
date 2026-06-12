@@ -253,6 +253,7 @@ public sealed class GamePlayRoomShutdownBatterySaveTests
             18123,
             "http://127.0.0.1:18123",
             null,
+            null,
             DateTimeOffset.UtcNow,
             "/tmp/fake-core.so",
             "/tmp/fake-content.rom");

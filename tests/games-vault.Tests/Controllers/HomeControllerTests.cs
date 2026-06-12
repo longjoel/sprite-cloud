@@ -142,6 +142,7 @@ public sealed class HomeControllerTests : GamesVaultTestBase
             8100,
             "http://vault:8100",
             "",
+            null,
             DateTimeOffset.UtcNow.AddMinutes(-10),
             "/cores/nestopia_libretro.so",
             "/roms/metroid.nes");

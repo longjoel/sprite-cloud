@@ -20,7 +20,8 @@ public class ArcadeController(
     GamePlayRoomService roomService,
     CurrentProfileService currentProfile,
     CurrentAccessService currentAccess,
-    IOptions<NosebleedOptions> nosebleedOptions) : Controller
+    IOptions<NosebleedOptions> nosebleedOptions,
+    ITurnCredentialService turnCredentials) : Controller
 {
     public async Task<IActionResult> Index(CancellationToken cancellationToken = default)
     {
@@ -416,6 +417,8 @@ public class ArcadeController(
             await gamePlayTelemetry.StartAsync(cabinet.GameId, cabinet.GameFileId, "arcade-free-play", session.Id, profile?.Id, cancellationToken);
         }
 
+        var turn = turnCredentials.GenerateCredentials(ttlSeconds: 3600);
+
         return View("~/Views/Games/PlayServer.cshtml", new ServerGamePlayViewModel
         {
             Game = cabinet.Game,
@@ -423,6 +426,7 @@ public class ArcadeController(
             PlayerEnabled = (nosebleedOptions.Value ?? new NosebleedOptions()).Enabled,
             BaseUrl = join.Session.BaseUrl,
             SessionId = join.Session.Id,
+            ViewerId = GetOrCreateNosebleedViewerId(),
             AssignedPort = join.Seat?.Port,
             PlayerNumber = join.Seat?.PlayerNumber,
             IsSpectator = join.Seat?.Kind != NosebleedSeatKind.Player,
@@ -434,6 +438,9 @@ public class ArcadeController(
             CurrentProfileDisplayName = profile?.DisplayName,
             CurrentProfileIsEphemeralGuest = profile?.IsEphemeral == true && profile.ParentProfileId is not null,
             CurrentProfileParentDisplayName = profile?.ParentProfile?.DisplayName,
+            TurnUrls = turn?.Urls,
+            TurnUsername = turn?.Username,
+            TurnCredential = turn?.Credential,
             LeaveSessionReturnUrl = Url.Action(nameof(Index), "Arcade")
         });
     }
@@ -596,6 +603,13 @@ public class ArcadeController(
 
     private string GetOrCreateNosebleedViewerId()
     {
+        if (HttpContext.Items.TryGetValue(NosebleedViewerCookieName, out var cached)
+            && cached is string cachedViewerId
+            && Guid.TryParse(cachedViewerId, out _))
+        {
+            return cachedViewerId;
+        }
+
         if (Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var existing) && Guid.TryParse(existing, out _)) return existing;
         var id = Guid.NewGuid().ToString("N");
         Response.Cookies.Append(NosebleedViewerCookieName, id, new CookieOptions
@@ -605,6 +619,7 @@ public class ArcadeController(
             SameSite = SameSiteMode.None,
             Secure = true
         });
+        HttpContext.Items[NosebleedViewerCookieName] = id;
         return id;
     }
 }
