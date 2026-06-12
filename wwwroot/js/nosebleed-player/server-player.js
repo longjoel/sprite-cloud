@@ -886,14 +886,10 @@
     function startWebSocketVideoFallback() {
         stopWebSocketVideoFallback();
         if (!websocketUrls.video) return;
-        var wsUrl = websocketUrls.video;
-        if (wsUrl.startsWith("/")) {
-            var loc = window.location;
-            var scheme = loc.protocol === "https:" ? "wss:" : "ws:";
-            wsUrl = scheme + "//" + loc.host + wsUrl;
-        }
         try {
-            videoWs = new WebSocket(wsUrl);
+            var url = new URL(websocketUrls.video, window.location.href);
+            url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+            videoWs = new WebSocket(url.toString());
             videoWs.binaryType = "arraybuffer";
             videoWs.onopen = () => {
                 activeVideoTransport = "ws-fallback";
