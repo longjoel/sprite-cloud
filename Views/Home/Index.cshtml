@@ -84,7 +84,7 @@
     {
         <section class="mb-4">
             <h2 class="h5 mb-3">Pinned</h2>
-            <div class="row row-cols-1 row-cols-xl-2 g-3">
+            <div class="row row-cols-2 row-cols-md-4 g-2">
                 @foreach (var game in Model.PinnedGames)
                 {
                     var shortSystem = ShortSystemName(game.SystemName);
@@ -113,7 +113,7 @@
 
     <section class="mb-4">
         <h2 class="h5 mb-3">Continue playing</h2>
-        <div class="row row-cols-1 row-cols-xl-2 g-3">
+        <div class="row row-cols-2 row-cols-md-4 g-2">
             @foreach (var session in Model.RecentSessions.Take(6))
             {
                 var shortSystem = ShortSystemName(session.SystemName);
@@ -156,10 +156,10 @@
         }
         else
         {
-            <div class="row g-3">
+            <div class="row g-2">
                 @foreach (var session in arcadeSessions)
                 {
-                    <div class="col-lg-4">
+                    <div class="col-6 col-md-4 col-lg-3">
                         <div class="card games-card h-100 shadow-sm" data-nosebleed-preview-card data-preview-url="@Url.Action("NosebleedPreviewVideo", "Home", new { sessionId = session.SessionId })" data-stream-url="@Url.Action("NosebleedPreviewStream", "Home", new { sessionId = session.SessionId })">
                             <div class="ratio ratio-16x9 bg-dark rounded-top overflow-hidden">
                                 <canvas data-nosebleed-preview-canvas class="w-100 h-100" style="image-rendering: pixelated;"></canvas>
