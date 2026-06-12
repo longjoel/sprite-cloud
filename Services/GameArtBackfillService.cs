@@ -140,8 +140,9 @@ public sealed class GameArtBackfillService(
 
     private static string BuildLibretroThumbnailUrl(string systemName, string folder, string gameName)
     {
-        static string Segment(string value) => Uri.EscapeDataString(value).Replace("%20", "%20", StringComparison.Ordinal);
-        return $"{RawBaseUrl}/{Segment(systemName)}/master/{Segment(folder)}/{Segment(gameName)}.png";
+        static string FileSegment(string value) => Uri.EscapeDataString(value);
+        var repositoryName = systemName.Trim().Replace(" ", "_", StringComparison.Ordinal);
+        return $"{RawBaseUrl}/{repositoryName}/master/{FileSegment(folder)}/{FileSegment(gameName)}.png";
     }
 
     private static bool HasAnyArt(Game game) =>
