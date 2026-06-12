@@ -2,6 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
+[![CI](https://github.com/longjoel/games-vault/actions/workflows/ci.yml/badge.svg)](https://github.com/longjoel/games-vault/actions/workflows/ci.yml)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)](https://docker.com)
 
 Personal game-library and arcade server. Pairs with [Nosebleed](https://github.com/longjoel/nosebleed) (libretro runtime) to browse, watch, and play games from the browser via WebRTC streaming.
