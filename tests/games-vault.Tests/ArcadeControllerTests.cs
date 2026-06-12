@@ -18,7 +18,6 @@ using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Routing;
 using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -349,17 +348,20 @@ public sealed class ArcadeControllerTests
         var httpContext = new DefaultHttpContext();
         if (adminAlways)
         {
-            // Set a profile cookie so AdminAlways auth guard can validate
-            // the user is "authenticated" in test context.
-            httpContext.Request.Headers["Cookie"] = "gv.profile=test-admin-profile";
+            var adminProfile = new UserProfile
+            {
+                DisplayName = "Test Admin",
+                IsAdmin = true
+            };
+            db.UserProfiles.Add(adminProfile);
+            await db.SaveChangesAsync();
+
+            // Set plaintext profile cookie (CurrentProfileService
+            // falls back to plaintext on CryptographicException)
+            httpContext.Request.Headers["Cookie"] = $"gv.profile={adminProfile.Id}";
         }
         var accessor = new TestHttpContextAccessor(httpContext);
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Access:AdminAlways"] = adminAlways ? "true" : "false"
-            })
-            .Build();
+
         var coreRoot = Path.Combine(tempRoot, "cores");
         Directory.CreateDirectory(coreRoot);
         var coreFileName = "fake_arcade_core_libretro.so";
@@ -399,7 +401,7 @@ public sealed class ArcadeControllerTests
             seatManager,
             NullLogger<NosebleedSessionManager>.Instance);
 
-        return new TestFixture(scope, db, cabinet, accessor, config, nosebleedOptions, sessionManager, serviceProvider, tempRoot);
+        return new TestFixture(scope, db, cabinet, accessor, nosebleedOptions, sessionManager, serviceProvider, tempRoot);
     }
 
     private sealed class TestHttpContextAccessor(HttpContext httpContext) : IHttpContextAccessor
@@ -412,7 +414,6 @@ public sealed class ArcadeControllerTests
         AppDbContext Db,
         ArcadeCabinet Cabinet,
         IHttpContextAccessor HttpContextAccessor,
-        IConfiguration Configuration,
         IOptions<NosebleedOptions> NosebleedOptions,
         NosebleedSessionManager SessionManager,
         ServiceProvider ServiceProvider,
@@ -424,7 +425,7 @@ public sealed class ArcadeControllerTests
             var fileStorage = new GameFileStorage(env, Options.Create(new LibraryStorageOptions { RootPath = Path.GetTempPath() }));
             var fileResolver = new ArcadeGameFileResolver(Db, fileStorage);
             var currentProfile = new CurrentProfileService(Db, HttpContextAccessor);
-            var currentAccess = new CurrentAccessService(currentProfile, Configuration, HttpContextAccessor, Db, new EphemeralDataProtectionProvider(), NullLogger<CurrentAccessService>.Instance);
+            var currentAccess = new CurrentAccessService(currentProfile, HttpContextAccessor, Db, new EphemeralDataProtectionProvider(), NullLogger<CurrentAccessService>.Instance);
             var roomService = new GamePlayRoomService(
                 Db,
                 new RoomCodeGenerator(),

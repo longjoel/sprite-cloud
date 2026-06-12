@@ -733,7 +733,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
         public GamePlayRoomService CreateRoomService()
         {
             var currentProfile = new CurrentProfileService(Db, _httpContextAccessor);
-            var currentAccess = new CurrentAccessService(currentProfile, _configuration, _httpContextAccessor, Db, new EphemeralDataProtectionProvider(), NullLogger<CurrentAccessService>.Instance);
+            var currentAccess = new CurrentAccessService(currentProfile, _httpContextAccessor, Db, new EphemeralDataProtectionProvider(), NullLogger<CurrentAccessService>.Instance);
             return new GamePlayRoomService(
                 Db,
                 new RoomCodeGenerator(),
@@ -771,11 +771,10 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
             services.AddSingleton<CurrentAccessService>(sp =>
             {
                 var cp = sp.GetRequiredService<CurrentProfileService>();
-                var cfg = sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>();
                 var acc = sp.GetRequiredService<IHttpContextAccessor>();
                 var dp = sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>();
                 var log = sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<CurrentAccessService>>();
-                return new CurrentAccessService(cp, cfg, acc, Db, dp, log);
+                return new CurrentAccessService(cp, acc, Db, dp, log);
             });
             services.AddSingleton<GamePlayTelemetryService>(_ => new GamePlayTelemetryService(Db));
             services.AddSingleton<ITurnCredentialService>(new TurnCredentialService(_nosebleedOptions));
