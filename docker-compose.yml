@@ -23,6 +23,11 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     init: true
+
+    # host networking is required for WebRTC ICE: each nosebleed session
+    # binds a range of UDP ports (Nosebleed__BaseListenPort + 0..MaxSessions-1)
+    # for streaming. host mode avoids manual port-range publish boilerplate.
+    # See docs/infrastructure/docker-networking.md for alternatives.
     network_mode: "host"
     depends_on:
       db:
