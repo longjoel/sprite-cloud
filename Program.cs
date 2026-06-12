@@ -110,9 +110,11 @@ builder.Services.AddSingleton<games_vault.EverDrive.EverDriveGbFirmwareService>(
 builder.Services.AddScoped<IBackgroundJobClient, BackgroundJobClient>();
 builder.Services.AddSingleton<BackgroundJobCommandRegistry>(_ => new BackgroundJobCommandRegistry(new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
 {
-    ["preview.generate"] = typeof(GeneratePreviewCommand)
+    ["preview.generate"] = typeof(GeneratePreviewCommand),
+    ["art.backfill"] = typeof(GameArtBackfillCommand)
 }));
 builder.Services.AddTransient<GeneratePreviewCommand>();
+builder.Services.AddTransient<GameArtBackfillCommand>();
 builder.Services.AddHostedService<BackgroundJobWorker>();
 
 var app = builder.Build();
