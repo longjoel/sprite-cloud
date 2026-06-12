@@ -155,6 +155,7 @@ public sealed class NosebleedSessionReconciliationTests
                 18125,
                 "http://127.0.0.1:18125",
                 null,
+                null,
                 DateTimeOffset.UtcNow,
                 "/tmp/fake-core.so",
                 "/tmp/fake-content.rom");

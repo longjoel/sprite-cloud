@@ -1,11 +1,11 @@
 # VPS Production Networking
 
-This document describes the service architecture and port layout on the production VPS (`lngnckr.tech`). It is the reference for how traffic flows from the public internet to the internal services.
+This document describes the service architecture and port layout on the production VPS. It is the reference for how traffic flows from the public internet to the internal services.
 
 > **No secrets are recorded here.** Secret values (TURN credentials, DB connection strings, API keys) live in:
 > - `/etc/games-vault.env` on the VPS
 > - `/etc/turnserver.conf` on the VPS
-> - `/root/.hermes/secrets/vps-72.62.243.69.env` on the VAULT host machine (local SSH credential storage)
+> - A deploy secrets file (e.g., `deploy.env` referenced in `scripts/`) local to the deployment workstation
 
 ---
 
@@ -32,7 +32,7 @@ Internal
 - **Port 443** carries HTTPS to the web app. `sslh` detects TLS and forwards to Traefik.
 - **Port 5349** carries TURN/TLS relay traffic. Traefik's TCP router passthrough delivers raw TLS to coturn.
 - The corporate VPN blocks UDP and many ports. Port 443 is the safest bet. Port 5349 is the fallback.
-- Both ICE server URLs are advertised to the browser: `turns:lngnckr.tech:443?transport=tcp` and `turns:lngnckr.tech:5349?transport=tcp`.
+- Both ICE server URLs are advertised to the browser: `turns:{host}:443?transport=tcp` and `turns:{host}:5349?transport=tcp`.
 
 ---
 
@@ -45,19 +45,19 @@ Internal
 - Started via `docker compose` (check compose file location on host).
 - **Entrypoints:**
   - `web` (:80) — redirects to `websecure`
-  - `websecure` (:8443) — serves HTTPS for `lngnckr.tech`
+  - `websecure` (:8443) — serves HTTPS for the app domain
   - `turn` (:5349) — TCP passthrough to coturn
-- **Dynamic config:** `/docker/traefik/dynamic/lngnckr.yml` (bound into container at `/dynamic/`)
-- **Let's Encrypt storage:** Docker volume `traefik_traefik-letsencrypt` at `/var/lib/docker/volumes/traefik_traefik-letsencrypt/_data`
+- **Dynamic config:** `/docker/traefik/dynamic/routes.yml` (bound into container at `/dynamic/`)
+- **Let's Encrypt storage:** Docker volume (e.g., `traefik_traefik-letsencrypt`)
 - **Cert resolver:** HTTP challenge on `web` entrypoint
 
 #### Dynamic config summary
 
 | Router | Rule | Entrypoint | Backend |
-|---|---|---|---|
-| `lngnckr-games-vault` | Host + specific path prefix | websecure | `games-vault` :8090 |
-| `lngnckr-games-vault-static` | Host + broad path prefixes | websecure | `games-vault` :8090 |
-| `lngnckr-landing` | Host (catch-all, low priority) | websecure | `landing` :8088 |
+|--------|------|------------|---------|
+| `games-vault` | Host + specific path prefix | websecure | `games-vault` :8090 |
+| `games-vault-static` | Host + broad path prefixes | websecure | `games-vault` :8090 |
+| `landing` | Host (catch-all, low priority) | websecure | `landing` :8088 |
 | `turn-relay` | HostSNI (TCP passthrough) | turn | `coturn` :5348 |
 
 ### 2. coturn (systemd — `coturn.service`)
@@ -69,7 +69,7 @@ Internal
   - `127.0.0.1:5348` — TLS (TURN only)
 - **External relay IP:** static (VPS public IP)
 - **Auth:** long-term credential mechanism (`lt-cred-mech`)
-- **Realm:** `nosebleed`
+- **Realm:** configured in `turnserver.conf`
 - **TLS certs:** `/etc/turn/fullchain.pem` + `/etc/turn/privkey.pem` (Let's Encrypt)
 
 ### 3. sslh (systemd — `sslh.service`)
@@ -85,7 +85,7 @@ Internal
 - **Systemd drop-ins:**
   - `/etc/systemd/system/games-vault.service.d/nosebleed.conf` — nosebleed paths and settings
 - **Release marker:** `/opt/games-vault/RELEASE_COMMIT`
-- **Deployment:** from VAULT via `scripts/deploy-prod-from-main.sh` (rsync to VPS)
+- **Deployment:** from local workstation via `scripts/deploy-prod-from-main.sh` (rsync to VPS)
 
 ### 5. nosebleed (spawned by games-vault)
 
@@ -97,9 +97,9 @@ Internal
 
 ### 6. Landing page (systemd — python script)
 
-- **Binary:** `/usr/local/bin/lngnckr-landing.py`
+- **Binary:** `/usr/local/bin/landing.py`
 - **Serves:** minimal static page on `127.0.0.1:8088`
-- **Role:** catch-all for unhandled routes at `lngnckr.tech`
+- **Role:** catch-all for unhandled routes at the app domain
 
 ---
 
@@ -109,11 +109,11 @@ Configured in two places:
 
 1. **Nosebleed** (`server.rs`, `MediaConfig::default_ice_servers()`):
    - STUN: `stun:stun.l.google.com:19302`, `stun:stun1.l.google.com:19302`
-   - TURN: `turns:lngnckr.tech:443?transport=tcp`, `turns:lngnckr.tech:5349?transport=tcp`
-2. **Games Vault** (`server-player.js`):
-   - Same ICE server list, passed as fallback / override
+   - TURN: `turns:{turn_host}:443?transport=tcp`, `turns:{turn_host}:5349?transport=tcp`
+2. **Games Vault** (`ITurnCredentialService`):
+   - Same ICE server list, generated per-session with time-limited credentials.
 
-Credentials use long-term auth mechanism with realm `nosebleed`. The actual credential is stored in `/etc/turnserver.conf`.
+Credentials use long-term auth mechanism. The TURN secret is configured via the `Nosebleed__TurnSecret` environment variable.
 
 ---
 
@@ -122,7 +122,7 @@ Credentials use long-term auth mechanism with realm `nosebleed`. The actual cred
 Two copies of the cert exist:
 
 | Location | Used by | Renewal |
-|---|---|---|
+|----------|---------|---------|
 | Docker volume `traefik_traefik-letsencrypt` | Traefik (auto-managed) | Automatic via Traefik ACME |
 | `/etc/turn/fullchain.pem` + `privkey.pem` | coturn | **Manual** — must be copied from Traefik's volume on renewal |
 
@@ -142,27 +142,26 @@ Two copies of the cert exist:
 ## Relevant files (on VPS)
 
 | Path | Purpose |
-|---|---|
+|------|---------|
 | `/etc/turnserver.conf` | coturn server configuration |
 | `/etc/default/sslh` | sslh daemon options |
-| `/docker/traefik/dynamic/lngnckr.yml` | Traefik route definitions |
+| `/docker/traefik/dynamic/routes.yml` | Traefik route definitions |
 | `/etc/games-vault.env` | games-vault environment (secrets) |
 | `/etc/systemd/system/games-vault.service` | games-vault unit file |
 | `/etc/systemd/system/games-vault.service.d/nosebleed.conf` | nosebleed env overrides |
 | `/opt/nosebleed/RELEASE_COMMIT` | deployed nosebleed commit |
 | `/opt/games-vault/RELEASE_COMMIT` | deployed games-vault commit |
-| `/root/.hermes/secrets/vps-72.62.243.69.env` | SSH credentials (VAULT host only) |
 
 ---
 
 ## Stretch goals & known limitations
 
 1. **Port 443 cannot currently serve TURN.** sslh routes all TLS to Traefik. To share port 443 between HTTPS and TURN, a subdomain approach is needed:
-   - Add DNS A record `turn.lngnckr.tech` → same VPS IP
+   - Add DNS A record for TURN subdomain → same VPS IP
    - Get a Let's Encrypt cert covering both domains
    - Replace sslh with SNI-based routing (haproxy or nginx TCP proxy)
-   - Route `turn.lngnckr.tech` → coturn :5348, `lngnckr.tech` → Traefik :8443
-   - Update ICE URLs to use `turn.lngnckr.tech:443`
+   - Route the TURN subdomain → coturn :5348, main domain → Traefik :8443
+   - Update ICE URLs to use the TURN subdomain on port 443
 
 2. **ALPN-based routing (haproxy `req.ssl_alpn`) was attempted but did not work** because `req.ssl_alpn` fetcher in haproxy 2.8 TCP mode cannot reliably distinguish TURN ALPN from HTTP ALPN on a non-SSL bind. SNI routing is the correct solution.
 

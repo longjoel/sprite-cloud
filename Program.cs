@@ -87,6 +87,7 @@ builder.Services.AddSingleton<NosebleedSeatManager>();
 builder.Services.AddSingleton<NosebleedProcessInspector>();
 builder.Services.AddSingleton<NosebleedStreamSettingsStore>();
 builder.Services.AddSingleton<NosebleedRelayMetrics>();
+builder.Services.AddSingleton<ITurnCredentialService, TurnCredentialService>();
 builder.Services.AddScoped<GamePlayTelemetryService>();
 builder.Services.AddSingleton<RoomCodeGenerator>();
 builder.Services.AddScoped<GamePlayRoomService>();

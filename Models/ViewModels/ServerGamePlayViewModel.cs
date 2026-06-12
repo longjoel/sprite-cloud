@@ -7,6 +7,7 @@ public sealed class ServerGamePlayViewModel
     public bool PlayerEnabled { get; init; }
     public string? BaseUrl { get; init; }
     public string? SessionId { get; init; }
+    public string? ViewerId { get; init; }
     public int? AssignedPort { get; init; }
     public int? PlayerNumber { get; init; }
     public bool IsSpectator { get; init; }
@@ -21,6 +22,14 @@ public sealed class ServerGamePlayViewModel
     public bool CurrentProfileIsEphemeralGuest { get; init; }
     public string? CurrentProfileParentDisplayName { get; init; }
     public IReadOnlyList<ProfileBatterySaveLogEntry> BatterySaveDiagnostics { get; init; } = [];
+
+    /// <summary>
+    /// Per-session TURN credentials for WebRTC, generated server-side with a short TTL.
+    /// Null when TURN is not configured.
+    /// </summary>
+    public string[]? TurnUrls { get; init; }
+    public string? TurnUsername { get; init; }
+    public string? TurnCredential { get; init; }
     public bool CanCreateShareLinks { get; init; }
     public string? GeneratedShareLink { get; init; }
     public string? GeneratedShareGrantMode { get; init; }
