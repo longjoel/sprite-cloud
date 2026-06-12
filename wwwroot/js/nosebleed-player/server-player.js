@@ -96,6 +96,7 @@
     let activeDpadPointer = null;
     let lastTapAt = 0;
     let inputWs = null;
+    let videoWs = null;
     let rtcPeer = null;
     /** @type {RTCDataChannel|null} */
     let rtcInputDc = null;
@@ -815,11 +816,13 @@
                 playbackDeferred = true;
             };
 
+            // --- WebSocket video fallback ---
             rtcPeer.onconnectionstatechange = () => {
                 console.log(`[nosebleed] PC state: ${rtcPeer.connectionState}`);
                 if (rtcPeer.connectionState === "failed") {
                     console.warn("[nosebleed] ICE connection failed — UDP likely blocked");
-                    setStatus("WebRTC connection failed (VPN blocking UDP?)", "bad");
+                    setStatus("WebRTC failed (UDP blocked?), switching to WebSocket video.", "bad");
+                    startWebSocketVideoFallback();
                 }
             };
             rtcPeer.oniceconnectionstatechange = () => {
@@ -874,7 +877,66 @@
             rtcPeer = null;
             activeVideoTransport = "idle";
             hideRtcTrackVideo();
+            startWebSocketVideoFallback();
             return false;
+        }
+    }
+
+    /** Open a WebSocket to the video proxy and render JPEG frames to canvas. */
+    function startWebSocketVideoFallback() {
+        stopWebSocketVideoFallback();
+        if (!websocketUrls.video) return;
+        var wsUrl = websocketUrls.video;
+        if (wsUrl.startsWith("/")) {
+            var loc = window.location;
+            var scheme = loc.protocol === "https:" ? "wss:" : "ws:";
+            wsUrl = scheme + "//" + loc.host + wsUrl;
+        }
+        try {
+            videoWs = new WebSocket(wsUrl);
+            videoWs.binaryType = "arraybuffer";
+            videoWs.onopen = () => {
+                activeVideoTransport = "ws-fallback";
+                updateChip(chips.video, "Video via WS", "warn");
+                setStatus("Video via WebSocket fallback.", "warn");
+            };
+            videoWs.onmessage = async (evt) => {
+                if (!(evt.data instanceof ArrayBuffer) || evt.data.byteLength < 16) return;
+                try {
+                    const blob = new Blob([evt.data], { type: "image/jpeg" });
+                    const bitmap = await createImageBitmap(blob);
+                    canvas.classList.remove("d-none");
+                    if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+                        canvas.width = bitmap.width;
+                        canvas.height = bitmap.height;
+                    }
+                    ctx.drawImage(bitmap, 0, 0);
+                    bitmap.close();
+                    framesThisSecond += 1;
+                    videoFramesReceived += 1;
+                    fitCanvasToShell();
+                } catch { /* skip bad frames */ }
+            };
+            videoWs.onclose = () => {
+                videoWs = null;
+                if (activeVideoTransport === "ws-fallback") {
+                    activeVideoTransport = "idle";
+                    updateChip(chips.video, "Video offline", "bad");
+                }
+            };
+            videoWs.onerror = () => {
+                if (videoWs) { try { videoWs.close(); } catch { } }
+                videoWs = null;
+                activeVideoTransport = "idle";
+                updateChip(chips.video, "Video error", "bad");
+            };
+        } catch { /* WS not available */ }
+    }
+
+    function stopWebSocketVideoFallback() {
+        if (videoWs) {
+            try { videoWs.close(); } catch { }
+            videoWs = null;
         }
     }
 
@@ -894,6 +956,7 @@
         pendingVideoFrame = null;
         videoFrameScheduled = false;
         try { inputWs?.close(); } catch { }
+        stopWebSocketVideoFallback();
         try { rtcInputDc?.close(); } catch { }
         try { rtcPeer?.close(); } catch { }
         rtcInputDc = null;
