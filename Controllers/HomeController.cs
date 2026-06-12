@@ -64,6 +64,8 @@ public class HomeController(
             playRowsQuery = playRowsQuery.Where(x => x.ProfileId == currentUserProfile.Id);
         }
         var playRows = await playRowsQuery
+            .OrderByDescending(x => x.StartedUtc)
+            .Take(50)
             .Select(x => new
             {
                 x.GameId,

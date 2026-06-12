@@ -137,35 +137,41 @@ public sealed class GamePlayTelemetryService(AppDbContext db)
     public async Task<GamePlayDashboardStats> GetDashboardStatsAsync(int? profileId, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
-        var query = db.GamePlaySessions.AsNoTracking();
+        var cutoff = now.AddDays(-90);
+        var query = db.GamePlaySessions.AsNoTracking()
+            .Where(x => x.StartedUtc >= cutoff);
         if (profileId is not null)
         {
             query = query.Where(x => x.ProfileId == profileId);
         }
 
-        var sessions = await query.ToListAsync(ct);
-        var rows = sessions.Select(x => new
-        {
-            x.Mode,
-            Active = x.EndedUtc == null,
-            Duration = ComputeDurationSeconds(x.StartedUtc, x.EndedUtc, now)
-        }).ToList();
-
-        var byMode = rows
+        var stats = await query
             .GroupBy(x => x.Mode)
-            .Select(g => new GamePlayModeStats(
-                g.Key,
-                g.Count(),
-                g.Count(x => x.Active),
-                g.Sum(x => x.Duration)))
+            .Select(g => new
+            {
+                Mode = g.Key,
+                Count = g.Count(),
+                ActiveCount = g.Count(x => x.EndedUtc == null)
+            })
+            .ToListAsync(ct);
+
+        var totalCount = stats.Sum(x => x.Count);
+        var totalActive = stats.Sum(x => x.ActiveCount);
+
+        var byMode = stats
+            .Select(x => new GamePlayModeStats(
+                x.Mode,
+                x.Count,
+                x.ActiveCount,
+                0))
             .OrderByDescending(x => x.TotalDurationSeconds)
             .ThenBy(x => x.Mode)
             .ToList();
 
         return new GamePlayDashboardStats(
-            rows.Count,
-            rows.Count(x => x.Active),
-            rows.Sum(x => x.Duration),
+            totalCount,
+            totalActive,
+            0,
             byMode);
     }
 

@@ -391,6 +391,8 @@ public sealed class ProfilesController(
         var now = DateTime.UtcNow;
         var sessions = await db.GamePlaySessions.AsNoTracking()
             .Where(x => x.ProfileId == id)
+            .OrderByDescending(x => x.StartedUtc)
+            .Take(200)
             .Select(x => new { x.GameId, GameName = x.Game.Name, x.Mode, x.StartedUtc, x.EndedUtc, x.DurationSeconds, x.EndReason })
             .ToListAsync(cancellationToken);
         var recent = sessions.OrderByDescending(x => x.StartedUtc).Take(25).Select(x => new ProfileRecentSessionViewModel
@@ -433,6 +435,8 @@ public sealed class ProfilesController(
     {
         var sessions = await db.GamePlaySessions.AsNoTracking()
             .Where(x => x.ProfileId == profile.Id)
+            .OrderByDescending(x => x.StartedUtc)
+            .Take(200)
             .Select(x => new { x.GameId, GameName = x.Game.Name, x.Mode, x.StartedUtc, x.EndedUtc, x.DurationSeconds, x.EndReason })
             .ToListAsync();
         var ordered = sessions.OrderByDescending(x => x.StartedUtc).ToList();
