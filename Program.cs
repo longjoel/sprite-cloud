@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using games_vault.Arcade;
@@ -117,6 +118,13 @@ builder.Services.AddTransient<GeneratePreviewCommand>();
 builder.Services.AddTransient<GameArtBackfillCommand>();
 builder.Services.AddHostedService<BackgroundJobWorker>();
 
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
 var app = builder.Build();
 
 var startupNosebleedSessionManager = app.Services.GetRequiredService<NosebleedSessionManager>();
@@ -175,6 +183,7 @@ app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseWebSockets();
 app.UseRouting();
+app.UseForwardedHeaders();
 app.UseMiddleware<ProfileSessionEnforcementMiddleware>();
 
 app.UseAuthorization();
