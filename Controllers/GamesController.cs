@@ -4,6 +4,7 @@ using games_vault.Libretro.Dat;
 using games_vault.Libretro.Import;
 using games_vault.Models;
 using games_vault.Models.ViewModels;
+using games_vault.BackgroundJobs;
 using games_vault.Profiles;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -941,5 +942,18 @@ public class GamesController(
         await db.SaveChangesAsync();
 
         return RedirectToAction(nameof(Index));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> GeneratePreview(int id, bool force = false)
+    {
+        if (!await currentAccess.IsAdminAsync(HttpContext.RequestAborted)) return Forbid();
+
+        var jobs = HttpContext.RequestServices.GetRequiredService<IBackgroundJobClient>();
+        var jobId = await jobs.EnqueueAsync("preview.generate", new BackgroundJobs.Commands.GeneratePreviewJobPayload(id, force));
+
+        TempData["Message"] = $"Preview generation job #{jobId} queued for game #{id}.";
+        return RedirectToAction(nameof(Edit), new { id });
     }
 }

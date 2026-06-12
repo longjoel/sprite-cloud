@@ -10,6 +10,7 @@ using games_vault.Nosebleed;
 using games_vault.Web;
 using games_vault.Profiles;
 using games_vault.BackgroundJobs;
+using games_vault.BackgroundJobs.Commands;
 using games_vault.Services;
 using Serilog;
 using Serilog.Formatting.Json;
@@ -107,7 +108,11 @@ builder.Services.AddSingleton<games_vault.EverDrive.EverDriveGbFirmwareService>(
 
 // Background jobs infrastructure
 builder.Services.AddScoped<IBackgroundJobClient, BackgroundJobClient>();
-builder.Services.AddSingleton<BackgroundJobCommandRegistry>(_ => new BackgroundJobCommandRegistry(new Dictionary<string, Type>()));
+builder.Services.AddSingleton<BackgroundJobCommandRegistry>(_ => new BackgroundJobCommandRegistry(new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
+{
+    ["preview.generate"] = typeof(GeneratePreviewCommand)
+}));
+builder.Services.AddTransient<GeneratePreviewCommand>();
 builder.Services.AddHostedService<BackgroundJobWorker>();
 
 var app = builder.Build();

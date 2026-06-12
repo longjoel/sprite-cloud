@@ -52,7 +52,9 @@ public sealed class HomeIndexViewMarkupTests
     {
         var content = ReadHomeView();
 
-        Assert.Contains("var previewImage = !string.IsNullOrWhiteSpace(game.ScreenshotImagePath) ? game.ScreenshotImagePath : game.CoverImagePath;", content);
+        Assert.Contains("var previewImage = !string.IsNullOrWhiteSpace(game.PreviewImagePath) ? game.PreviewImagePath", content);
+        Assert.Contains("!string.IsNullOrWhiteSpace(game.ScreenshotImagePath) ? game.ScreenshotImagePath", content);
+        Assert.Contains("game.CoverImagePath;", content);
         Assert.Contains("var previewImage = !string.IsNullOrWhiteSpace(session.ScreenshotImagePath) ? session.ScreenshotImagePath : session.CoverImagePath;", content);
         Assert.Contains("<img class=\"games-card-preview-image\" src=\"@previewImage\" alt=\"\" loading=\"lazy\" />", content);
         Assert.Contains("<div class=\"games-card-preview-text games-card-preview-text-sm\">@game.GameName</div>", content);

@@ -74,7 +74,9 @@ else
             {
                 artSeed = "ROM";
             }
-            var previewImage = !string.IsNullOrWhiteSpace(game.ScreenshotImagePath) ? game.ScreenshotImagePath : game.CoverImagePath;
+            var previewImage = !string.IsNullOrWhiteSpace(game.PreviewImagePath) ? game.PreviewImagePath
+                : !string.IsNullOrWhiteSpace(game.ScreenshotImagePath) ? game.ScreenshotImagePath
+                : game.CoverImagePath;
 
             <div class="col">
                 <div class="card games-card h-100 shadow-sm game-row" data-game-id="@game.Id">
