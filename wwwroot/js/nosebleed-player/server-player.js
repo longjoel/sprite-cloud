@@ -882,56 +882,38 @@
         }
     }
 
-    /** Open a WebSocket to the video proxy and render JPEG frames to canvas. */
+    /** Poll the snapshot endpoint and render JPEG frames to canvas. */
     function startWebSocketVideoFallback() {
         stopWebSocketVideoFallback();
-        if (!websocketUrls.video) return;
-        try {
-            var url = new URL(websocketUrls.video, window.location.href);
-            url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-            videoWs = new WebSocket(url.toString());
-            videoWs.binaryType = "arraybuffer";
-            videoWs.onopen = () => {
-                activeVideoTransport = "ws-fallback";
-                updateChip(chips.video, "Video via WS", "warn");
-                setStatus("Video via WebSocket fallback.", "warn");
-            };
-            videoWs.onmessage = async (evt) => {
-                if (!(evt.data instanceof ArrayBuffer) || evt.data.byteLength < 16) return;
-                try {
-                    const blob = new Blob([evt.data], { type: "image/jpeg" });
-                    const bitmap = await createImageBitmap(blob);
-                    canvas.classList.remove("d-none");
-                    if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
-                        canvas.width = bitmap.width;
-                        canvas.height = bitmap.height;
-                    }
-                    ctx.drawImage(bitmap, 0, 0);
-                    bitmap.close();
-                    framesThisSecond += 1;
-                    videoFramesReceived += 1;
-                    fitCanvasToShell();
-                } catch { /* skip bad frames */ }
-            };
-            videoWs.onclose = () => {
-                videoWs = null;
-                if (activeVideoTransport === "ws-fallback") {
-                    activeVideoTransport = "idle";
-                    updateChip(chips.video, "Video offline", "bad");
+        if (!config.snapshotUrl) return;
+        activeVideoTransport = "poll-fallback";
+        updateChip(chips.video, "Video polling", "warn");
+        setStatus("Video via snapshot polling (UDP blocked).", "warn");
+        var timer = window.setInterval(async () => {
+            try {
+                var resp = await fetch(config.snapshotUrl);
+                if (!resp.ok) return;
+                var blob = await resp.blob();
+                if (blob.size < 100) return;
+                var bitmap = await createImageBitmap(blob);
+                canvas.classList.remove("d-none");
+                if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+                    canvas.width = bitmap.width;
+                    canvas.height = bitmap.height;
                 }
-            };
-            videoWs.onerror = () => {
-                if (videoWs) { try { videoWs.close(); } catch { } }
-                videoWs = null;
-                activeVideoTransport = "idle";
-                updateChip(chips.video, "Video error", "bad");
-            };
-        } catch { /* WS not available */ }
+                ctx.drawImage(bitmap, 0, 0);
+                bitmap.close();
+                framesThisSecond += 1;
+                videoFramesReceived += 1;
+                fitCanvasToShell();
+            } catch { /* skip bad frames */ }
+        }, 100);
+        videoWs = { _timer: timer, _tag: "poll" };
     }
 
     function stopWebSocketVideoFallback() {
-        if (videoWs) {
-            try { videoWs.close(); } catch { }
+        if (videoWs && videoWs._tag === "poll") {
+            window.clearInterval(videoWs._timer);
             videoWs = null;
         }
     }
