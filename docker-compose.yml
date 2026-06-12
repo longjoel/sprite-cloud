@@ -53,7 +53,6 @@ services:
       - gv_app_data:/var/lib/games-vault
       - gv_app_state:/srv/storage/games-vault
       - ${GV_LIBRARY_ROOT:-/tmp/}:/srv/storage/games
-      - /var/lib/games-vault/nosebleed-auth-secret:/var/lib/games-vault/nosebleed-auth-secret:ro
 
 volumes:
   gv_db_data:
