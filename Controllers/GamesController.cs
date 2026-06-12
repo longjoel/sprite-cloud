@@ -665,6 +665,11 @@ public class GamesController(
     [HttpGet]
     public async Task<IActionResult> Rom(int id, CancellationToken cancellationToken = default)
     {
+        if (!await currentAccess.CanPlayAsync(cancellationToken))
+        {
+            return Forbid();
+        }
+
         var file = await db.GameFiles
             .AsNoTracking()
             .FirstOrDefaultAsync(f => f.Id == id, cancellationToken);
