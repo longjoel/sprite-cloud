@@ -6,7 +6,6 @@ using games_vault.Profiles;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace games_vault.Tests;
@@ -140,7 +139,7 @@ public sealed class GamePlayRoomChatTests
     private static GamePlayRoomService CreateService(AppDbContext db, IHttpContextAccessor httpContextAccessor)
     {
         var currentProfile = new CurrentProfileService(db, httpContextAccessor);
-        var currentAccess = new CurrentAccessService(currentProfile, new ConfigurationBuilder().Build(), httpContextAccessor, db, new EphemeralDataProtectionProvider(), NullLogger<CurrentAccessService>.Instance);
+        var currentAccess = new CurrentAccessService(currentProfile, httpContextAccessor, db, new EphemeralDataProtectionProvider(), NullLogger<CurrentAccessService>.Instance);
         return new GamePlayRoomService(
             db,
             new RoomCodeGenerator(),
