@@ -374,6 +374,8 @@ public class SessionController : Controller
         var target = BuildNosebleedWebSocketUri(session.LocalUrl, path, token);
         if (target is null)
         {
+            var logger = Resolve<ILogger<SessionController>>();
+            logger.LogWarning("NosebleedProxy target is null: {LocalUrl} {Path}", session.LocalUrl, path);
             return StatusCode(StatusCodes.Status502BadGateway);
         }
 
@@ -382,8 +384,10 @@ public class SessionController : Controller
         {
             await upstream.ConnectAsync(target, cancellationToken);
         }
-        catch
+        catch (Exception ex)
         {
+            var logger = Resolve<ILogger<SessionController>>();
+            logger.LogWarning(ex, "NosebleedProxy upstream connect failed: {Target}", target);
             return StatusCode(StatusCodes.Status502BadGateway);
         }
 
