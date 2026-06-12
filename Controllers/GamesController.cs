@@ -356,14 +356,23 @@ public class GamesController(
             GamesLibrarySort.System => query.OrderBy(g => g.SystemName).ThenBy(g => g.Name),
             GamesLibrarySort.NumberOfPlayers => query.OrderByDescending(g => g.NumberOfPlayers ?? 0).ThenBy(g => g.Name),
             GamesLibrarySort.RecentlyPlayed => query
-                .OrderByDescending(g => db.GamePlaySessions.Where(s => s.GameId == g.Id).Max(s => (DateTime?)s.StartedUtc) ?? g.CreatedUtc)
-                .ThenBy(g => g.Name),
+                .GroupJoin(db.GamePlaySessions, g => g.Id, s => s.GameId,
+                    (g, sessions) => new { Game = g, MaxStarted = sessions.Max(s => (DateTime?)s.StartedUtc) })
+                .OrderByDescending(x => x.MaxStarted ?? x.Game.CreatedUtc)
+                .ThenBy(x => x.Game.Name)
+                .Select(x => x.Game),
             GamesLibrarySort.MostPlayedAllTime => query
-                .OrderByDescending(g => db.GamePlaySessions.Count(s => s.GameId == g.Id))
-                .ThenBy(g => g.Name),
+                .GroupJoin(db.GamePlaySessions, g => g.Id, s => s.GameId,
+                    (g, sessions) => new { Game = g, PlayCount = sessions.Count() })
+                .OrderByDescending(x => x.PlayCount)
+                .ThenBy(x => x.Game.Name)
+                .Select(x => x.Game),
             GamesLibrarySort.MostPlayedThisWeek => query
-                .OrderByDescending(g => db.GamePlaySessions.Count(s => s.GameId == g.Id && s.StartedUtc >= weekStartUtc))
-                .ThenBy(g => g.Name),
+                .GroupJoin(db.GamePlaySessions, g => g.Id, s => s.GameId,
+                    (g, sessions) => new { Game = g, PlayCount = sessions.Count(s => s.StartedUtc >= weekStartUtc) })
+                .OrderByDescending(x => x.PlayCount)
+                .ThenBy(x => x.Game.Name)
+                .Select(x => x.Game),
             _ => query.OrderByDescending(g => g.CreatedUtc)
         };
 
