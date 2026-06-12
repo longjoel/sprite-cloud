@@ -4,9 +4,9 @@ set -euo pipefail
 # Deploy Games Vault to production VPS from local main branch in a repeatable way.
 #
 # Prerequisites:
-#   - A secrets/env file with VPS_SSH_TARGET, VPS_SSH_PASSWORD, and DEPLOY_BASE_URL
+#   - SSH key-based authentication to the VPS target (user@host)
+#   - A secrets/env file with VPS_SSH_TARGET and DEPLOY_BASE_URL
 #   - Default path: ./deploy.env (overridable via DEPLOY_SECRETS_FILE variable)
-#   - SSH access to the VPS target (via sshpass)
 #
 # Usage:
 #   DEPLOY_SECRETS_FILE=/path/to/secrets.env ./scripts/deploy-prod-from-main.sh
@@ -17,15 +17,16 @@ SECRETS_FILE="${DEPLOY_SECRETS_FILE:-${REPO_DIR}/deploy.env}"
 
 if [[ ! -f "$SECRETS_FILE" ]]; then
   echo "Missing secrets file: $SECRETS_FILE" >&2
-  echo "Create it with VPS_SSH_TARGET, VPS_SSH_PASSWORD, and DEPLOY_BASE_URL variables." >&2
+  echo "Create it with VPS_SSH_TARGET and DEPLOY_BASE_URL variables." >&2
   exit 1
 fi
 
 # shellcheck disable=SC1090
 set -a; source "$SECRETS_FILE"; set +a
 : "${VPS_SSH_TARGET:?VPS_SSH_TARGET is required (e.g., user@vps.example.com)}"
-: "${VPS_SSH_PASSWORD:?VPS_SSH_PASSWORD is required}"
 : "${DEPLOY_BASE_URL:?DEPLOY_BASE_URL is required (e.g., https://example.com/path-base)}"
+
+SSH_OPTS="-o StrictHostKeyChecking=no"
 
 cd "$REPO_DIR"
 
@@ -65,18 +66,18 @@ dotnet publish games-vault.csproj -c Release -r linux-x64 --self-contained true 
 
 echo "==> Backup prod DB"
 TS="$(date +%Y%m%d-%H%M%S)"
-sshpass -p "$VPS_SSH_PASSWORD" ssh -o StrictHostKeyChecking=no "$VPS_SSH_TARGET" \
+ssh $SSH_OPTS "$VPS_SSH_TARGET" \
   "sudo cp /var/lib/games-vault/games-vault.db /var/lib/games-vault/games-vault.db.bak-$TS"
 
 echo "==> Rsync publish output"
 rsync -az --delete --partial \
   --exclude 'App_Data/' \
   --exclude 'wwwroot/webplayer/' \
-  -e "sshpass -p '$VPS_SSH_PASSWORD' ssh -o StrictHostKeyChecking=no" \
+  -e "ssh $SSH_OPTS" \
   "$PUBLISH_DIR/" "$VPS_SSH_TARGET:/opt/games-vault/"
 
 echo "==> Ensure runtime dirs + marker + restart"
-sshpass -p "$VPS_SSH_PASSWORD" ssh -o StrictHostKeyChecking=no "$VPS_SSH_TARGET" \
+ssh $SSH_OPTS "$VPS_SSH_TARGET" \
   "sudo mkdir -p /opt/games-vault/App_Data /opt/games-vault/wwwroot /var/lib/games-vault /srv/storage/games-vault && \
    echo '$HEAD_SHA' | sudo tee /opt/games-vault/RELEASE_COMMIT >/dev/null && \
    sudo chown -R games-vault:games-vault /opt/games-vault /var/lib/games-vault /srv/storage/games-vault && \
