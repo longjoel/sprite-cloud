@@ -308,6 +308,7 @@ public sealed class NosebleedSessionManager(
             var key = cabinet is not null ? $"arcade-cabinet:{cabinet.Id}" : $"room:{room!.Id}";
             _sessions[key] = new ManagedSession(session, liveProcess);
             adopted++;
+            seatManager.Reset(sessionId: process.SessionId);
 
             if (cabinet is not null)
             {

@@ -13,6 +13,14 @@ public sealed class NosebleedSeatManager(IOptions<NosebleedOptions> options)
         _sessions.Clear();
     }
 
+    public void Reset(string sessionId)
+    {
+        if (!string.IsNullOrWhiteSpace(sessionId))
+        {
+            _sessions.TryRemove(sessionId, out _);
+        }
+    }
+
     public NosebleedSeatAssignment Assign(string sessionId, string viewerId, DateTimeOffset now, bool allowPlayer = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
