@@ -1,0 +1,134 @@
+@model games_vault.Models.BackgroundJob
+
+@{
+    ViewData["Title"] = $"Job #{Model.Id}";
+    var jobLogs = ViewData["JobLogs"] as IReadOnlyList<games_vault.Models.BackgroundJobLogEntry>;
+    var logTotal = ViewData["JobLogTotalCount"] as int? ?? 0;
+    var logPage = ViewData["JobLogPage"] as int? ?? 1;
+    var logPageSize = ViewData["JobLogPageSize"] as int? ?? 100;
+    var logPageCount = logPageSize <= 0 ? 0 : (int)Math.Ceiling(logTotal / (double)logPageSize);
+}
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <h1 class="h3 mb-0">Job @Model.Id</h1>
+    <div class="d-flex gap-2">
+        @if (Model.Status == games_vault.Models.BackgroundJobStatus.Queued || Model.Status == games_vault.Models.BackgroundJobStatus.Running)
+        {
+            <form asp-action="Pause" method="post" class="mb-0">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" value="@Model.Id" />
+                <button type="submit" class="btn btn-outline-secondary">Pause</button>
+            </form>
+            <form asp-action="Cancel" method="post" class="mb-0">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" value="@Model.Id" />
+                <button type="submit" class="btn btn-outline-warning">Cancel</button>
+            </form>
+        }
+
+        @if (Model.Status == games_vault.Models.BackgroundJobStatus.Failed || Model.Status == games_vault.Models.BackgroundJobStatus.Paused || Model.Status == games_vault.Models.BackgroundJobStatus.Canceled)
+        {
+            <form asp-action="Retry" method="post" class="mb-0">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" value="@Model.Id" />
+                <button type="submit" class="btn btn-outline-primary">Re-run</button>
+            </form>
+        }
+        <a class="btn btn-outline-secondary" asp-action="Index">Back</a>
+    </div>
+</div>
+
+<dl class="row">
+    <dt class="col-sm-3">Command</dt>
+    <dd class="col-sm-9">@Model.Command</dd>
+
+    <dt class="col-sm-3">Status</dt>
+    <dd class="col-sm-9">@Model.Status</dd>
+
+    <dt class="col-sm-3">Attempt</dt>
+    <dd class="col-sm-9">@Model.Attempt/@Model.MaxAttempts</dd>
+
+    <dt class="col-sm-3">Progress</dt>
+    <dd class="col-sm-9">@Model.ProgressPermille</dd>
+
+    <dt class="col-sm-3">Created (UTC)</dt>
+    <dd class="col-sm-9">@Model.CreatedUtc.ToString("u")</dd>
+
+    <dt class="col-sm-3">Started (UTC)</dt>
+    <dd class="col-sm-9">@Model.StartedUtc?.ToString("u")</dd>
+
+    <dt class="col-sm-3">Completed (UTC)</dt>
+    <dd class="col-sm-9">@Model.CompletedUtc?.ToString("u")</dd>
+</dl>
+
+<div class="mb-3">
+    <h2 class="h5">Payload</h2>
+    <pre class="border rounded p-2 bg-light mb-0">@Model.PayloadJson</pre>
+</div>
+
+@if (jobLogs is not null && jobLogs.Count > 0)
+{
+    <div class="mb-3">
+        <h2 class="h5">Logs</h2>
+        <div class="border rounded p-2 bg-light" style="max-height: 22rem; overflow: auto;">
+            <table class="table table-sm mb-0">
+                <tbody>
+                @foreach (var l in jobLogs.OrderBy(x => x.CreatedUtc))
+                {
+                    <tr>
+                        <td class="text-muted" style="white-space: nowrap;">@l.CreatedUtc.ToString("HH:mm:ss")</td>
+                        <td style="white-space: nowrap;">@l.Level</td>
+                        <td>@l.Message</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @if (logPageCount > 1)
+    {
+        var start = Math.Max(1, logPage - 3);
+        var end = Math.Min(logPageCount, start + 6);
+        start = Math.Max(1, end - 6);
+
+        <nav aria-label="Job logs pagination" class="mb-3">
+            <ul class="pagination mb-0">
+                <li class="page-item @(logPage > 1 ? "" : "disabled")">
+                    <a class="page-link"
+                       asp-action="Details"
+                       asp-route-id="@Model.Id"
+                       asp-route-logPage="@(logPage - 1)"
+                       asp-route-logPageSize="@logPageSize">Previous</a>
+                </li>
+
+                @for (var p = start; p <= end; p++)
+                {
+                    <li class="page-item @(p == logPage ? "active" : "")">
+                        <a class="page-link"
+                           asp-action="Details"
+                           asp-route-id="@Model.Id"
+                           asp-route-logPage="@p"
+                           asp-route-logPageSize="@logPageSize">@p</a>
+                    </li>
+                }
+
+                <li class="page-item @(logPage < logPageCount ? "" : "disabled")">
+                    <a class="page-link"
+                       asp-action="Details"
+                       asp-route-id="@Model.Id"
+                       asp-route-logPage="@(logPage + 1)"
+                       asp-route-logPageSize="@logPageSize">Next</a>
+                </li>
+            </ul>
+        </nav>
+    }
+}
+
+@if (!string.IsNullOrWhiteSpace(Model.LastError))
+{
+    <div class="mb-3">
+        <h2 class="h5 text-danger">Last error</h2>
+        <pre class="border rounded p-2 bg-light mb-0">@Model.LastError</pre>
+    </div>
+}

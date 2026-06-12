@@ -9,6 +9,7 @@ using games_vault.Libretro;
 using games_vault.Nosebleed;
 using games_vault.Web;
 using games_vault.Profiles;
+using games_vault.BackgroundJobs;
 using games_vault.Services;
 using Serilog;
 using Serilog.Formatting.Json;
@@ -103,6 +104,11 @@ builder.Services.AddSingleton<games_vault.Libretro.Import.SystemFileStorage>();
 builder.Services.AddSingleton<games_vault.Libretro.Import.ProfileGameSaveStorage>();
 builder.Services.AddSingleton<games_vault.Libretro.Dat.SystemDatIndexProvider>();
 builder.Services.AddSingleton<games_vault.EverDrive.EverDriveGbFirmwareService>();
+
+// Background jobs infrastructure
+builder.Services.AddScoped<IBackgroundJobClient, BackgroundJobClient>();
+builder.Services.AddSingleton<BackgroundJobCommandRegistry>(_ => new BackgroundJobCommandRegistry(new Dictionary<string, Type>()));
+builder.Services.AddHostedService<BackgroundJobWorker>();
 
 var app = builder.Build();
 
