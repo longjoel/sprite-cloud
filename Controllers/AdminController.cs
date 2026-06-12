@@ -2,6 +2,7 @@ using games_vault.Data;
 using games_vault.Models;
 using games_vault.Models.ViewModels;
 using games_vault.Nosebleed;
+using games_vault.Services;
 using games_vault.Web;
 using games_vault.Libretro;
 using games_vault.Libretro.Dat;
@@ -19,7 +20,8 @@ public sealed class AdminController(
     NosebleedStreamSettingsStore streamSettingsStore,
     LibretroDatabaseStore libretroStore,
     SystemDatIndexProvider systemDat,
-    SystemFileStorage systemFileStorage) : Controller
+    SystemFileStorage systemFileStorage,
+    GameArtBackfillService gameArtBackfill) : Controller
 {
     public async Task<IActionResult> Index(CancellationToken cancellationToken = default)
     {
@@ -195,6 +197,17 @@ public sealed class AdminController(
         var streamSettings = streamSettingsStore.Get();
 
         var missingSystemFilesCount = ComputeMissingSystemFilesCount();
+        var artStats = await db.Games
+            .AsNoTracking()
+            .GroupBy(_ => 1)
+            .Select(x => new
+            {
+                WithCover = x.Count(game => game.CoverImagePath != null && game.CoverImagePath != ""),
+                WithScreenshot = x.Count(game => game.ScreenshotImagePath != null && game.ScreenshotImagePath != ""),
+                MissingArt = x.Count(game => (game.CoverImagePath == null || game.CoverImagePath == "") && (game.ScreenshotImagePath == null || game.ScreenshotImagePath == "")),
+                Errors = x.Count(game => game.GameArtStatus == "error")
+            })
+            .FirstOrDefaultAsync(cancellationToken);
 
         return View(new AdminIndexViewModel
         {
@@ -208,7 +221,11 @@ public sealed class AdminController(
             },
             NosebleedRuntimeProcesses = runtimeProcesses,
             LibretroDatabaseInstalled = libretroStore.HasDatFiles(),
-            MissingSystemFilesCount = missingSystemFilesCount
+            MissingSystemFilesCount = missingSystemFilesCount,
+            GamesWithCoverArtCount = artStats?.WithCover ?? 0,
+            GamesWithScreenshotArtCount = artStats?.WithScreenshot ?? 0,
+            GamesMissingArtCount = artStats?.MissingArt ?? 0,
+            GameArtErrorCount = artStats?.Errors ?? 0
         });
 
         int? ComputeMissingSystemFilesCount()
@@ -217,6 +234,15 @@ public sealed class AdminController(
             var idx = systemDat.Get();
             return idx.ByPath.Values.Count(x => !System.IO.File.Exists(systemFileStorage.GetAbsoluteSystemPath(x.RelativePath)));
         }
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> BackfillGameArt(bool force = false, int limit = 100, CancellationToken cancellationToken = default)
+    {
+        var result = await gameArtBackfill.BackfillAsync(force, limit, cancellationToken);
+        TempData["AdminMessage"] = $"Game art backfill complete. Scanned {result.Scanned}, updated {result.Updated}, missing {result.NotFound}, skipped {result.Skipped}, failed {result.Failed}.";
+        return Redirect($"{Url.Action(nameof(Index))}#admin-game-art");
     }
 
     [HttpPost]

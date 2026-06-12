@@ -57,7 +57,7 @@ public sealed class GamesIndexViewMarkupTests
         Assert.DoesNotContain("dropdown-toggle", bankContent);
         Assert.DoesNotContain("dropdown-menu", bankContent);
         Assert.DoesNotContain(">Actions<", bankContent);
-        Assert.Contains("<div class=\"games-primary-actions d-flex flex-wrap gap-2 mt-auto\">", bankContent);
+        Assert.Contains("<div class=\"games-card-footer-actions\">", bankContent);
         Assert.Contains("@(isGuest ? \"Watch\" : \"Play\")", bankContent);
     }
 
@@ -67,13 +67,13 @@ public sealed class GamesIndexViewMarkupTests
         var bankContent = ReadGamesBankView();
 
         Assert.Contains("var canManageLibrary = Model.CanManageLibrary;", bankContent);
-        Assert.Contains("@if (canManageLibrary)\n                            {\n                                <a class=\"btn btn-outline-secondary\" asp-action=\"Details\"", bankContent);
-        Assert.Contains("@if (canManageLibrary)\n                        {\n                        <div id=\"@accordionId\" class=\"game-details-row\"", bankContent);
-        Assert.Contains(">Open details</a>", bankContent);
-        Assert.Contains("Quick details", bankContent);
-        Assert.Contains("Edit inline", bankContent);
-        Assert.Contains("btn btn-outline-danger", bankContent);
-        Assert.Contains(">Delete</a>", bankContent);
+        Assert.Contains("@if (canManageLibrary)", bankContent);
+        Assert.Contains("asp-action=\"Edit\"", bankContent);
+        Assert.DoesNotContain(">Open details</a>", bankContent);
+        Assert.DoesNotContain("Quick details", bankContent);
+        Assert.DoesNotContain("Edit inline", bankContent);
+        Assert.DoesNotContain("btn btn-outline-danger", bankContent);
+        Assert.DoesNotContain(">Delete</a>", bankContent);
     }
 
     [Fact]
@@ -97,9 +97,21 @@ public sealed class GamesIndexViewMarkupTests
         Assert.Contains("x.Status == GamePlayRoomStatus.Active", sessionContent);
         Assert.Contains("roomService.TouchRoomParticipantSessionAsync", sessionContent);
         Assert.Contains("var activeRooms = Model.ActiveRoomsByGameId.TryGetValue(game.Id, out var rooms)", bankContent);
-        Assert.Contains("Join an in-progress room", bankContent);
+        Assert.Contains("games-card-room-row", bankContent);
         Assert.Contains("asp-route-code=\"@room.Code\"", bankContent);
-        Assert.Contains("@room.Code · @room.PlayerName", bankContent);
+        Assert.Contains("<span class=\"games-card-room-code\">@room.Code</span>", bankContent);
+        Assert.Contains("<span class=\"games-card-room-user\">@room.PlayerName</span>", bankContent);
+    }
+
+    [Fact]
+    public void GamesBank_Renders_GameArt_WhenAvailable_WithGeneratedFallback()
+    {
+        var bankContent = ReadGamesBankView();
+
+        Assert.Contains("var previewImage = !string.IsNullOrWhiteSpace(game.ScreenshotImagePath) ? game.ScreenshotImagePath : game.CoverImagePath;", bankContent);
+        Assert.Contains("@if (!string.IsNullOrWhiteSpace(previewImage))", bankContent);
+        Assert.Contains("<img class=\"games-card-preview-image\" src=\"@previewImage\" alt=\"\" loading=\"lazy\" />", bankContent);
+        Assert.Contains("<div class=\"games-card-preview-text\">@game.Name</div>", bankContent);
     }
 
     [Fact]
