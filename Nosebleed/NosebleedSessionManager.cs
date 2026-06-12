@@ -638,7 +638,7 @@ public sealed class NosebleedSessionManager(
         {
             var offset = Interlocked.Increment(ref _nextPortOffset) - 1;
             var port = _options.BaseListenPort + offset % (max * 4);
-            if (_sessions.Values.All(s => s.Session.Port != port || s.Process.HasExited))
+            if (_sessions.Values.All(s => s.Session.Port != port || SafeHasExited(s.Process)))
             {
                 return port;
             }
