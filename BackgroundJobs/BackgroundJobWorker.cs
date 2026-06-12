@@ -82,6 +82,7 @@ public sealed class BackgroundJobWorker(
             try
             {
                 await command.ExecuteAsync(execContext, payloadDoc.RootElement, cancellationToken);
+                await execContext.FlushLogEntriesAsync(cancellationToken);
                 await SucceedAsync(db, job.Id, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -90,6 +91,7 @@ public sealed class BackgroundJobWorker(
             }
             catch (Exception ex)
             {
+                await execContext.FlushLogEntriesAsync(cancellationToken);
                 await HandleFailureAsync(db, job.Id, ex, cancellationToken);
             }
             finally
