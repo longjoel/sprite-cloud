@@ -31,5 +31,6 @@ public class GamePlaySessionConfiguration : IEntityTypeConfiguration<GamePlaySes
         entity.HasIndex(x => x.ExternalSessionId);
         entity.HasIndex(x => new { x.Mode, x.StartedUtc });
         entity.HasIndex(x => new { x.ProfileId, x.StartedUtc });
+        entity.HasIndex(x => x.EndedUtc).HasFilter("\"EndedUtc\" IS NULL");
     }
 }

@@ -11,6 +11,8 @@ public sealed class BackgroundJobExecutionContext(
     IServiceProvider services,
     ILogger logger)
 {
+    private int _pendingLogEntries;
+
     public BackgroundJob Job { get; } = job;
     public AppDbContext Db { get; } = db;
     public IServiceProvider Services { get; } = services;
@@ -75,6 +77,20 @@ public sealed class BackgroundJobExecutionContext(
         });
 
         Job.UpdatedUtc = DateTime.UtcNow;
-        await Db.SaveChangesAsync(cancellationToken);
+
+        if (++_pendingLogEntries >= 50)
+        {
+            await Db.SaveChangesAsync(cancellationToken);
+            _pendingLogEntries = 0;
+        }
+    }
+
+    public async Task FlushLogEntriesAsync(CancellationToken cancellationToken)
+    {
+        if (_pendingLogEntries > 0)
+        {
+            await Db.SaveChangesAsync(cancellationToken);
+            _pendingLogEntries = 0;
+        }
     }
 }
