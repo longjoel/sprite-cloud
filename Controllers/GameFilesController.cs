@@ -71,7 +71,22 @@ public class GameFilesController(AppDbContext db, GameFileStorage fileStorage) :
         string? abs = null;
         if (!string.IsNullOrWhiteSpace(file.ExternalPath))
         {
-            abs = file.ExternalPath;
+            var full = Path.GetFullPath(file.ExternalPath);
+            var allowedRoots = await db.LocalFolders
+                .AsNoTracking()
+                .Where(f => f.Enabled)
+                .Select(f => f.RootPath)
+                .ToListAsync(cancellationToken);
+            var allowed = allowedRoots.Any(root =>
+            {
+                if (string.IsNullOrWhiteSpace(root))
+                    return false;
+                var rootFull = Path.GetFullPath(root);
+                if (!rootFull.EndsWith(Path.DirectorySeparatorChar))
+                    rootFull += Path.DirectorySeparatorChar;
+                return full.StartsWith(rootFull, StringComparison.Ordinal);
+            });
+            abs = allowed ? full : null;
         }
         else if (!string.IsNullOrWhiteSpace(file.StoragePath))
         {
