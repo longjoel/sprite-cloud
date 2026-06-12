@@ -40,6 +40,15 @@ deploy.env
 # Node.js dependencies (dev tooling)
 node_modules/
 
-# Publish output (CI publishes to /tmp; never commit build artifacts)
+# Publish output (CI publishes to scratch dirs; never commit build artifacts)
 publish/
 build/
+
+# Runtime/release binaries belong in releases, Docker build stages, /opt, or /srv/storage
+/nosebleed-release
+/nosebleed
+*.exe
+*.dll
+*.so
+*.dylib
+*.pdb
