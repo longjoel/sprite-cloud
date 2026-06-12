@@ -22,6 +22,7 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    init: true
     network_mode: "host"
     depends_on:
       db:
@@ -48,7 +49,6 @@ services:
       Nosebleed__RequireAuth: ${GV_NOSEBLEED_REQUIRE_AUTH:-true}
       Nosebleed__AuthSecretPath: /var/lib/games-vault/nosebleed-auth-secret
       Nosebleed__CopyContentToSession: ${GV_NOSEBLEED_COPY_CONTENT_TO_SESSION:-true}
-      Nosebleed__TurnSecret: ${GV_NOSEBLEED_TURN_SECRET:-}
     volumes:
       - gv_app_data:/var/lib/games-vault
       - gv_app_state:/srv/storage/games-vault
