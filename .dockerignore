@@ -6,6 +6,9 @@ bin/
 obj/
 tests/
 publish/
+build/
+nosebleed-release
+nosebleed
 README.md
 *.user
 *.suo
