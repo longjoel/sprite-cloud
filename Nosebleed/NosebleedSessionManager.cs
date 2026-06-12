@@ -101,7 +101,7 @@ public sealed class NosebleedSessionManager(
             }
 
             var session = pair.Value.Session;
-            if (pair.Value.Process.HasExited)
+            if (SafeHasExited(pair.Value.Process))
             {
                 return (false, "session process has exited");
             }
@@ -204,7 +204,6 @@ public sealed class NosebleedSessionManager(
     public async Task<NosebleedReconcileResult> ReconcileOrphansAsync(CancellationToken cancellationToken = default)
     {
         CleanupExitedSessions(disposeRemoved: true);
-        seatManager.ResetAll();
 
         var orphanProcesses = processInspector.GetOrphanProcesses(GetManagedProcessIds());
         if (orphanProcesses.Count == 0)
@@ -683,15 +682,23 @@ public sealed class NosebleedSessionManager(
 
     private void CleanupExitedSessions(bool disposeRemoved = true)
     {
-        foreach (var pair in _sessions.ToArray())
+        _lock.Wait();
+        try
         {
-            if (SafeHasExited(pair.Value.Process))
+            foreach (var pair in _sessions.ToArray())
             {
-                if (_sessions.TryRemove(pair.Key, out var removed) && disposeRemoved)
+                if (SafeHasExited(pair.Value.Process))
                 {
-                    removed.Process.Dispose();
+                    if (_sessions.TryRemove(pair.Key, out var removed) && disposeRemoved)
+                    {
+                        removed.Process.Dispose();
+                    }
                 }
             }
+        }
+        finally
+        {
+            _lock.Release();
         }
     }
 
