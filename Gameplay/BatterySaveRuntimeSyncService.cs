@@ -38,10 +38,6 @@ public sealed class BatterySaveRuntimeSyncService(
         CancellationToken cancellationToken)
     {
         var runtimeSaveDirectory = GetRuntimeSaveDirectory(sessionId);
-        if (Directory.Exists(runtimeSaveDirectory))
-        {
-            Directory.Delete(runtimeSaveDirectory, recursive: true);
-        }
 
         if (policy.Mode != BatterySavePersistenceMode.PerProfile || policy.ProfileId is not int profileId)
         {
