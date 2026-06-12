@@ -1,22 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Deploy Games Vault to prod VPS from local main branch in a repeatable way.
-# Requires: /root/.hermes/secrets/vps-72.62.243.69.env with VPS_SSH_TARGET + VPS_SSH_PASSWORD
+# Deploy Games Vault to production VPS from local main branch in a repeatable way.
+#
+# Prerequisites:
+#   - A secrets/env file with VPS_SSH_TARGET, VPS_SSH_PASSWORD, and DEPLOY_BASE_URL
+#   - Default path: ./deploy.env (overridable via DEPLOY_SECRETS_FILE variable)
+#   - SSH access to the VPS target (via sshpass)
+#
+# Usage:
+#   DEPLOY_SECRETS_FILE=/path/to/secrets.env ./scripts/deploy-prod-from-main.sh
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PUBLISH_DIR="/tmp/games-vault-main-publish"
-SECRETS_FILE="/root/.hermes/secrets/vps-72.62.243.69.env"
+SECRETS_FILE="${DEPLOY_SECRETS_FILE:-${REPO_DIR}/deploy.env}"
 
 if [[ ! -f "$SECRETS_FILE" ]]; then
   echo "Missing secrets file: $SECRETS_FILE" >&2
+  echo "Create it with VPS_SSH_TARGET, VPS_SSH_PASSWORD, and DEPLOY_BASE_URL variables." >&2
   exit 1
 fi
 
 # shellcheck disable=SC1090
 set -a; source "$SECRETS_FILE"; set +a
-: "${VPS_SSH_TARGET:?VPS_SSH_TARGET is required}"
+: "${VPS_SSH_TARGET:?VPS_SSH_TARGET is required (e.g., user@vps.example.com)}"
 : "${VPS_SSH_PASSWORD:?VPS_SSH_PASSWORD is required}"
+: "${DEPLOY_BASE_URL:?DEPLOY_BASE_URL is required (e.g., https://example.com/path-base)}"
 
 cd "$REPO_DIR"
 
@@ -74,7 +83,7 @@ sshpass -p "$VPS_SSH_PASSWORD" ssh -o StrictHostKeyChecking=no "$VPS_SSH_TARGET"
    sudo systemctl reset-failed games-vault 2>/dev/null; sudo systemctl restart games-vault && sleep 4 && systemctl is-active games-vault"
 
 echo "==> Verify prod endpoints"
-curl -fsS "https://lngnckr.tech/a45ee611-d6ae-41dd-b3ba-37712a2b954d/" >/dev/null
-curl -fsS "https://lngnckr.tech/a45ee611-d6ae-41dd-b3ba-37712a2b954d/Arcade" >/dev/null
+curl -fsS "${DEPLOY_BASE_URL}/" >/dev/null
+curl -fsS "${DEPLOY_BASE_URL}/Arcade" >/dev/null
 
 echo "DONE: prod deployed at commit $HEAD_SHA"

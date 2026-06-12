@@ -179,6 +179,8 @@ public class SessionController : Controller
         }
 
         var batterySaveDiagnostics = ReadBatterySaveDiagnosticsFromTempData();
+        var turnService = Resolve<ITurnCredentialService>();
+        var turnCredentials = turnService.GenerateCredentials(ttlSeconds: 3600);
 
         return View("~/Views/Games/PlayServer.cshtml", new ServerGamePlayViewModel
         {
@@ -187,6 +189,7 @@ public class SessionController : Controller
             PlayerEnabled = opts.Enabled,
             BaseUrl = session?.BaseUrl,
             SessionId = session?.Id,
+            ViewerId = GetOrCreateNosebleedViewerId(),
             AssignedPort = seat?.Port,
             PlayerNumber = seat?.PlayerNumber,
             IsSpectator = seat?.Kind == NosebleedSeatKind.Spectator,
@@ -199,6 +202,9 @@ public class SessionController : Controller
             CurrentProfileIsEphemeralGuest = currentSignedInProfile?.IsEphemeral == true && currentSignedInProfile.ParentProfileId is not null,
             CurrentProfileParentDisplayName = currentSignedInProfile?.ParentProfile?.DisplayName,
             BatterySaveDiagnostics = batterySaveDiagnostics,
+            TurnUrls = turnCredentials?.Urls,
+            TurnUsername = turnCredentials?.Username,
+            TurnCredential = turnCredentials?.Credential,
             CanCreateShareLinks = canCreateShareLinks,
             GeneratedShareLink = TempData["GeneratedShareLink"] as string,
             GeneratedShareGrantMode = TempData["GeneratedShareGrantMode"] as string
@@ -225,9 +231,13 @@ public class SessionController : Controller
     [HttpPost("/Games/KeepAliveServerSession")]
     public async Task<IActionResult> KeepAliveServerSession(string sessionId, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(sessionId) ||
-            !Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var viewerId) ||
-            !Guid.TryParse(viewerId, out _))
+        if (string.IsNullOrWhiteSpace(sessionId))
+        {
+            return BadRequest();
+        }
+
+        var viewerId = ResolveViewerIdFromRequest();
+        if (viewerId is null)
         {
             return BadRequest();
         }
@@ -280,9 +290,13 @@ public class SessionController : Controller
             return StatusCode(StatusCodes.Status403Forbidden);
         }
 
-        if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(channel) ||
-            !Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var viewerId) ||
-            !Guid.TryParse(viewerId, out _))
+        if (string.IsNullOrWhiteSpace(sessionId) || string.IsNullOrWhiteSpace(channel))
+        {
+            return BadRequest();
+        }
+
+        var viewerId = ResolveViewerIdFromRequest();
+        if (viewerId is null)
         {
             return BadRequest();
         }
@@ -402,14 +416,16 @@ public class SessionController : Controller
             return StatusCode(StatusCodes.Status403Forbidden);
         }
 
-        if (string.IsNullOrWhiteSpace(sessionId) ||
-            !Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var viewerIdRaw) ||
-            !Guid.TryParse(viewerIdRaw, out _))
+        if (string.IsNullOrWhiteSpace(sessionId))
         {
             return BadRequest();
         }
 
-        var viewerId = viewerIdRaw!;
+        var viewerId = ResolveViewerIdFromRequest();
+        if (viewerId is null)
+        {
+            return BadRequest();
+        }
 
         var nosebleedSessions = Resolve<NosebleedSessionManager>();
         var gamePlayTelemetry = Resolve<GamePlayTelemetryService>();
@@ -602,9 +618,17 @@ public class SessionController : Controller
 
     private string GetOrCreateNosebleedViewerId()
     {
+        if (HttpContext.Items.TryGetValue(NosebleedViewerCookieName, out var cached)
+            && cached is string cachedViewerId
+            && Guid.TryParse(cachedViewerId, out _))
+        {
+            return cachedViewerId;
+        }
+
         if (Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var existing)
             && Guid.TryParse(existing, out _))
         {
+            HttpContext.Items[NosebleedViewerCookieName] = existing;
             return existing;
         }
 
@@ -616,7 +640,38 @@ public class SessionController : Controller
             SameSite = SameSiteMode.None,
             Secure = true
         });
+        HttpContext.Items[NosebleedViewerCookieName] = id;
         return id;
+    }
+
+    private string? ResolveViewerIdFromRequest()
+    {
+        if (Request.Cookies.TryGetValue(NosebleedViewerCookieName, out var cookieViewerId)
+            && Guid.TryParse(cookieViewerId, out _))
+        {
+            return cookieViewerId;
+        }
+
+        var fallbackViewerId = Request.Headers["X-Nosebleed-Viewer"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(fallbackViewerId))
+        {
+            fallbackViewerId = Request.Query["viewerId"].FirstOrDefault();
+        }
+
+        if (!Guid.TryParse(fallbackViewerId, out _))
+        {
+            return null;
+        }
+
+        Response.Cookies.Append(NosebleedViewerCookieName, fallbackViewerId, new CookieOptions
+        {
+            Path = "/",
+            MaxAge = TimeSpan.FromDays(30),
+            SameSite = SameSiteMode.None,
+            Secure = true
+        });
+        HttpContext.Items[NosebleedViewerCookieName] = fallbackViewerId;
+        return fallbackViewerId;
     }
 
     private async Task<string?> ResolveGameFileAbsolutePathAsync(GameFile file, CancellationToken cancellationToken)

@@ -168,6 +168,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
             18124,
             "http://127.0.0.1:18124",
             null,
+            null,
             DateTimeOffset.UtcNow,
             "/tmp/fake-core.so",
             fixture.File.ExternalPath!),
@@ -493,6 +494,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
             18125,
             "http://127.0.0.1:18125",
             null,
+            null,
             DateTimeOffset.UtcNow,
             "/tmp/fake-core.so",
             fixture.File.ExternalPath!),
@@ -704,6 +706,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
                 18123,
                 "http://127.0.0.1:18123",
                 null,
+                null,
                 DateTimeOffset.UtcNow,
                 "/tmp/fake-core.so",
                 "/tmp/fake-content.rom");
@@ -775,6 +778,7 @@ public sealed class SpectatorAccessTests : GamesVaultTestBase
                 return new CurrentAccessService(cp, cfg, acc, Db, dp, log);
             });
             services.AddSingleton<GamePlayTelemetryService>(_ => new GamePlayTelemetryService(Db));
+            services.AddSingleton<ITurnCredentialService>(new TurnCredentialService(_nosebleedOptions));
             // GameFileStorage needs an IWebHostEnvironment.
             services.AddSingleton<GameFileStorage>(_ =>
             {

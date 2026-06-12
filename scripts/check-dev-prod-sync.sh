@@ -2,9 +2,13 @@
 set -euo pipefail
 
 # Compare local main and deployed prod commit marker.
+#
+# Prerequisites:
+#   - A secrets/env file with VPS_SSH_TARGET and VPS_SSH_PASSWORD
+#   - Default path: ./deploy.env (overridable via DEPLOY_SECRETS_FILE)
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SECRETS_FILE="/root/.hermes/secrets/vps-72.62.243.69.env"
+SECRETS_FILE="${DEPLOY_SECRETS_FILE:-${REPO_DIR}/deploy.env}"
 
 # shellcheck disable=SC1090
 set -a; source "$SECRETS_FILE"; set +a
