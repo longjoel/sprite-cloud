@@ -1,0 +1,26 @@
+@model IReadOnlyList<games_vault.Models.BackgroundJob>
+
+@if (Model.Count == 0)
+{
+    <tr><td colspan="8" class="text-muted">No jobs.</td></tr>
+}
+else
+{
+    foreach (var job in Model)
+    {
+        <tr data-job-id="@job.Id">
+            <td style="width:2.5rem;">
+                <input type="checkbox" class="form-check-input job-select" value="@job.Id" />
+            </td>
+            <td>@job.Id</td>
+            <td>@job.Command</td>
+            <td>@job.Status</td>
+            <td>@job.Attempt/@job.MaxAttempts</td>
+            <td>@(job.ProgressPermille is null ? "" : $"{job.ProgressPermille / 10.0:0.0}%")</td>
+            <td>@job.CreatedUtc.ToLocalTime().ToString("u")</td>
+            <td class="text-end">
+                <a class="btn btn-sm btn-outline-primary" asp-action="Details" asp-route-id="@job.Id">Details</a>
+            </td>
+        </tr>
+    }
+}
