@@ -70,6 +70,7 @@ else
             var artSeed = new string((systemName ?? string.Empty)
                 .Split([' ', '-', '_', '/'], StringSplitOptions.RemoveEmptyEntries)
                 .Select(part => char.ToUpperInvariant(part[0]))
+                .Distinct()
                 .Take(3)
                 .ToArray());
             if (string.IsNullOrWhiteSpace(artSeed))
