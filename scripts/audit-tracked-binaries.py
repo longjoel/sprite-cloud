@@ -33,8 +33,11 @@ BANNED_GLOBS = (
     "*.dylib",
     "*.pdb",
     "bin/*",
+    "*/bin/*",
     "obj/*",
+    "*/obj/*",
     "publish/*",
+    "*/publish/*",
 )
 
 
