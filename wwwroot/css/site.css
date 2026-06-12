@@ -454,6 +454,29 @@ a:hover {
   overflow: hidden;
 }
 
+/* Compact variant for home page pinned/continue cards */
+.games-card-sm .games-card-preview {
+  min-height: 2.5rem;
+  padding: 0.4rem 0.75rem;
+}
+
+.games-card-sm .games-card-preview-text {
+  font-size: 1.1rem;
+  -webkit-line-clamp: 1;
+}
+
+.games-card-sm .games-card-name {
+  font-size: 0.85rem;
+}
+
+.games-card-sm .card-body {
+  padding: 0.6rem 0.75rem;
+}
+
+.games-card-sm .games-card-name-wrap {
+  margin-bottom: 0.5rem;
+}
+
 .games-card-banner {
   background: var(--bg-surface-hover);
   color: var(--text-tertiary);
