@@ -37,6 +37,9 @@ appsettings.*.json
 .env
 deploy.env
 
+# Node.js dependencies (dev tooling)
+node_modules/
+
 # Publish output (CI publishes to /tmp; never commit build artifacts)
 publish/
 build/
