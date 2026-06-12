@@ -14,15 +14,15 @@ public sealed class ReadmeAccessMatrixTests
     {
         var content = ReadReadme();
 
-        Assert.Contains("## User type feature matrix", content);
-        Assert.Contains("Anonymous viewer", content);
-        Assert.Contains("Player profile", content);
-        Assert.Contains("Admin profile", content);
-        Assert.Contains("Spectator guest", content);
-        Assert.Contains("Player guest", content);
-        Assert.Contains("Create normal game session", content);
-        Assert.Contains("Controller input / player seat", content);
-        Assert.Contains("Battery saves", content);
-        Assert.Contains("Admin/library management", content);
+        Assert.Contains("## User roles", content);
+        Assert.Contains("Anonymous", content);
+        Assert.Contains("Player", content);
+        Assert.Contains("Admin", content);
+        Assert.Contains("Guest (share link)", content);
+        Assert.Contains("Browse", content);
+        Assert.Contains("Watch", content);
+        Assert.Contains("Play", content);
+        Assert.Contains("Chat", content);
+        Assert.Contains("Save", content);
     }
 }

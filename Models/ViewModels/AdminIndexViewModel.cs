@@ -9,6 +9,10 @@ public sealed class AdminIndexViewModel
     public IReadOnlyList<NosebleedRuntimeProcessViewModel> NosebleedRuntimeProcesses { get; set; } = [];
     public bool LibretroDatabaseInstalled { get; set; }
     public int? MissingSystemFilesCount { get; set; }
+    public int GamesWithCoverArtCount { get; set; }
+    public int GamesWithScreenshotArtCount { get; set; }
+    public int GamesMissingArtCount { get; set; }
+    public int GameArtErrorCount { get; set; }
 }
 
 public sealed class AdminStreamSettingsViewModel

@@ -74,14 +74,19 @@ else
             {
                 artSeed = "ROM";
             }
+            var previewImage = !string.IsNullOrWhiteSpace(game.ScreenshotImagePath) ? game.ScreenshotImagePath : game.CoverImagePath;
 
             <div class="col">
                 <div class="card games-card h-100 shadow-sm game-row" data-game-id="@game.Id">
                     <!-- System banner -->
                     <div class="games-card-banner">@artSeed</div>
 
-                    <!-- Preview area: rendered game name as word art (placeholder for live/cached video) -->
+                    <!-- Preview area -->
                     <div class="games-card-preview">
+                        @if (!string.IsNullOrWhiteSpace(previewImage))
+                        {
+                            <img class="games-card-preview-image" src="@previewImage" alt="" loading="lazy" />
+                        }
                         <div class="games-card-preview-text">@game.Name</div>
                     </div>
 

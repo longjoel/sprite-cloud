@@ -47,6 +47,23 @@ public class Game
     [StringLength(100)]
     public string? CriticGenre { get; set; }
 
+    [StringLength(512)]
+    public string? CoverImagePath { get; set; }
+
+    [StringLength(512)]
+    public string? ScreenshotImagePath { get; set; }
+
+    [StringLength(80)]
+    public string? GameArtProvider { get; set; }
+
+    [StringLength(32)]
+    public string? GameArtStatus { get; set; }
+
+    [StringLength(512)]
+    public string? GameArtError { get; set; }
+
+    public DateTime? LastGameArtLookupUtc { get; set; }
+
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 
     public ICollection<GameFile> Files { get; set; } = [];

@@ -88,10 +88,15 @@
                 @foreach (var game in Model.PinnedGames)
                 {
                     var shortSystem = ShortSystemName(game.SystemName);
+                    var previewImage = !string.IsNullOrWhiteSpace(game.ScreenshotImagePath) ? game.ScreenshotImagePath : game.CoverImagePath;
                     <div class="col">
                         <div class="card games-card games-card-sm h-100 shadow-sm">
                             <div class="games-card-banner">@shortSystem</div>
                             <div class="games-card-preview games-card-preview-sm">
+                                @if (!string.IsNullOrWhiteSpace(previewImage))
+                                {
+                                    <img class="games-card-preview-image" src="@previewImage" alt="" loading="lazy" />
+                                }
                                 <div class="games-card-preview-text games-card-preview-text-sm">@game.GameName</div>
                             </div>
                             <div class="card-body">
@@ -117,10 +122,15 @@
             @foreach (var session in Model.RecentSessions.Take(6))
             {
                 var shortSystem = ShortSystemName(session.SystemName);
+                var previewImage = !string.IsNullOrWhiteSpace(session.ScreenshotImagePath) ? session.ScreenshotImagePath : session.CoverImagePath;
                 <div class="col">
                     <div class="card games-card games-card-sm h-100 shadow-sm">
                         <div class="games-card-banner">@shortSystem</div>
                         <div class="games-card-preview games-card-preview-sm">
+                            @if (!string.IsNullOrWhiteSpace(previewImage))
+                            {
+                                <img class="games-card-preview-image" src="@previewImage" alt="" loading="lazy" />
+                            }
                             <div class="games-card-preview-text games-card-preview-text-sm">@session.GameName</div>
                         </div>
                         <div class="card-body">

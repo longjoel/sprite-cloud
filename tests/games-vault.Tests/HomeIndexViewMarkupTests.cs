@@ -48,6 +48,18 @@ public sealed class HomeIndexViewMarkupTests
     }
 
     [Fact]
+    public void HomeView_Renders_GameArt_WhenAvailable_WithGeneratedFallback()
+    {
+        var content = ReadHomeView();
+
+        Assert.Contains("var previewImage = !string.IsNullOrWhiteSpace(game.ScreenshotImagePath) ? game.ScreenshotImagePath : game.CoverImagePath;", content);
+        Assert.Contains("var previewImage = !string.IsNullOrWhiteSpace(session.ScreenshotImagePath) ? session.ScreenshotImagePath : session.CoverImagePath;", content);
+        Assert.Contains("<img class=\"games-card-preview-image\" src=\"@previewImage\" alt=\"\" loading=\"lazy\" />", content);
+        Assert.Contains("<div class=\"games-card-preview-text games-card-preview-text-sm\">@game.GameName</div>", content);
+        Assert.Contains("<div class=\"games-card-preview-text games-card-preview-text-sm\">@session.GameName</div>", content);
+    }
+
+    [Fact]
     public void HomeView_DoesNotRender_GamesLibraryPreviewSection()
     {
         var content = ReadHomeView();
