@@ -70,16 +70,17 @@ public static class NosebleedWebSocketRelay
         });
 
         RelayMessage? closeFrame = null;
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         var reader = Task.Run(async () =>
         {
             try
             {
-                while (!cancellationToken.IsCancellationRequested &&
+                while (!linkedCts.Token.IsCancellationRequested &&
                        source.State == WebSocketState.Open &&
                        (destination.State == WebSocketState.Open || destination.State == WebSocketState.CloseReceived))
                 {
-                    var message = await ReceiveCompleteMessageAsync(source, cancellationToken);
+                    var message = await ReceiveCompleteMessageAsync(source, linkedCts.Token);
                     if (message.IsClose)
                     {
                         closeFrame = message;
@@ -95,7 +96,7 @@ public static class NosebleedWebSocketRelay
                             continue;
                         }
 
-                        if (!await queue.Writer.WaitToWriteAsync(cancellationToken))
+                        if (!await queue.Writer.WaitToWriteAsync(linkedCts.Token))
                         {
                             return;
                         }
@@ -106,23 +107,30 @@ public static class NosebleedWebSocketRelay
             {
                 queue.Writer.TryComplete();
             }
-        }, cancellationToken);
+        }, linkedCts.Token);
 
         var writer = Task.Run(async () =>
         {
-            await foreach (var message in queue.Reader.ReadAllAsync(cancellationToken))
+            await foreach (var message in queue.Reader.ReadAllAsync(linkedCts.Token))
             {
                 await destination.SendAsync(
                     new ArraySegment<byte>(message.Payload),
                     message.MessageType,
                     true,
-                    cancellationToken);
+                    linkedCts.Token);
                 metrics?.RecordForwarded(channel, message.Payload.Length);
             }
-        }, cancellationToken);
+        }, linkedCts.Token);
 
-        await reader;
-        await writer;
+        try
+        {
+            await Task.WhenAll(reader, writer);
+        }
+        catch
+        {
+            linkedCts.Cancel();
+            throw;
+        }
 
         if (closeFrame is not null && (destination.State == WebSocketState.Open || destination.State == WebSocketState.CloseReceived))
         {
