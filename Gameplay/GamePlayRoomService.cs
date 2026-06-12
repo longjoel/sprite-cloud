@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using games_vault.Data;
 using games_vault.Models;
 using games_vault.Models.ViewModels;
@@ -19,6 +20,8 @@ public sealed class GamePlayRoomService(
     BatterySavePolicyResolver? batterySavePolicyResolver = null,
     BatterySaveRuntimeSyncService? batterySaveRuntimeSyncService = null)
 {
+    private static readonly ConcurrentDictionary<int, byte> _closingRooms = new();
+
     public async Task<RoomCreateResult> CreateRoomAsync(int gameId, int gameFileId, string systemName, string contentPath, CancellationToken ct)
     {
         if (!await currentAccess.CanPlayAsync(ct))
@@ -569,50 +572,62 @@ public sealed class GamePlayRoomService(
 
     private async Task CloseStandaloneRoomAsync(GamePlayRoom room, CancellationToken ct, string reason, bool stopSession)
     {
-        if (room.Status != GamePlayRoomStatus.Active || room.IsArcadeBound)
+        if (!_closingRooms.TryAdd(room.Id, 0))
         {
             return;
         }
 
-        room.Status = GamePlayRoomStatus.Closed;
-        room.ClosedUtc = DateTime.UtcNow;
-        room.LastActiveUtc = DateTime.UtcNow;
-
-        var participants = await db.GamePlayRoomParticipants
-            .Where(x => x.RoomId == room.Id && x.IsConnected)
-            .ToListAsync(ct);
-        foreach (var participant in participants)
+        try
         {
-            participant.IsConnected = false;
-            participant.LastSeenUtc = DateTime.UtcNow;
-        }
-
-        var chatMessages = await db.GamePlayRoomChatMessages
-            .Where(x => x.RoomId == room.Id)
-            .ToListAsync(ct);
-        if (chatMessages.Count > 0)
-        {
-            db.GamePlayRoomChatMessages.RemoveRange(chatMessages);
-        }
-
-        await db.SaveChangesAsync(ct);
-
-        if (stopSession && !string.IsNullOrWhiteSpace(room.NosebleedSessionId))
-        {
-            if (batterySaveRuntimeSyncService is not null)
+            if (room.Status != GamePlayRoomStatus.Active || room.IsArcadeBound)
             {
-                var batterySavePolicy = await ResolveBatterySavePolicyForRoomAsync(room, ct);
-
-                await batterySaveRuntimeSyncService.CaptureRuntimeSaveRevisionsAsync(
-                    batterySavePolicy,
-                    room.GameId,
-                    room.GameFileId,
-                    room.Game?.SystemName ?? await db.Games.Where(x => x.Id == room.GameId).Select(x => x.SystemName).FirstAsync(ct),
-                    room.NosebleedSessionId,
-                    ct);
+                return;
             }
 
-            nosebleedSessions.TryStop(room.NosebleedSessionId, reason);
+            room.Status = GamePlayRoomStatus.Closed;
+            room.ClosedUtc = DateTime.UtcNow;
+            room.LastActiveUtc = DateTime.UtcNow;
+
+            var participants = await db.GamePlayRoomParticipants
+                .Where(x => x.RoomId == room.Id && x.IsConnected)
+                .ToListAsync(ct);
+            foreach (var participant in participants)
+            {
+                participant.IsConnected = false;
+                participant.LastSeenUtc = DateTime.UtcNow;
+            }
+
+            var chatMessages = await db.GamePlayRoomChatMessages
+                .Where(x => x.RoomId == room.Id)
+                .ToListAsync(ct);
+            if (chatMessages.Count > 0)
+            {
+                db.GamePlayRoomChatMessages.RemoveRange(chatMessages);
+            }
+
+            await db.SaveChangesAsync(ct);
+
+            if (stopSession && !string.IsNullOrWhiteSpace(room.NosebleedSessionId))
+            {
+                if (batterySaveRuntimeSyncService is not null)
+                {
+                    var batterySavePolicy = await ResolveBatterySavePolicyForRoomAsync(room, ct);
+
+                    await batterySaveRuntimeSyncService.CaptureRuntimeSaveRevisionsAsync(
+                        batterySavePolicy,
+                        room.GameId,
+                        room.GameFileId,
+                        room.Game?.SystemName ?? await db.Games.Where(x => x.Id == room.GameId).Select(x => x.SystemName).FirstAsync(ct),
+                        room.NosebleedSessionId,
+                        ct);
+                }
+
+                nosebleedSessions.TryStop(room.NosebleedSessionId, reason);
+            }
+        }
+        finally
+        {
+            _closingRooms.TryRemove(room.Id, out _);
         }
     }
 
