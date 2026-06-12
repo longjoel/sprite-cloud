@@ -12,8 +12,15 @@ set -euo pipefail
 #   DEPLOY_SECRETS_FILE=/path/to/secrets.env ./scripts/deploy-prod-from-main.sh
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PUBLISH_DIR="/tmp/games-vault-main-publish"
 SECRETS_FILE="${DEPLOY_SECRETS_FILE:-${REPO_DIR}/deploy.env}"
+PUBLISH_DIR=""
+
+cleanup() {
+  if [[ -n "$PUBLISH_DIR" && -d "$PUBLISH_DIR" ]]; then
+    rm -rf "$PUBLISH_DIR"
+  fi
+}
+trap cleanup EXIT
 
 if [[ ! -f "$SECRETS_FILE" ]]; then
   echo "Missing secrets file: $SECRETS_FILE" >&2
@@ -45,9 +52,18 @@ fi
 echo "==> Fetching and fast-forwarding main"
 git fetch origin main
 git pull --ff-only origin main
-
 HEAD_SHA="$(git rev-parse HEAD)"
+ORIGIN_SHA="$(git rev-parse origin/main)"
+if [[ "$HEAD_SHA" != "$ORIGIN_SHA" ]]; then
+  echo "ERROR: local main ($HEAD_SHA) does not match origin/main ($ORIGIN_SHA)" >&2
+  echo "Push or reset local commits before prod deploy." >&2
+  exit 1
+fi
+
 echo "==> Deploying commit $HEAD_SHA"
+
+echo "==> tracked binary audit"
+python3 scripts/audit-tracked-binaries.py
 
 echo "==> dotnet test"
 dotnet test --configuration Release
@@ -61,7 +77,8 @@ while IFS= read -r js; do
 done < <(find wwwroot -name '*.js' -type f 2>/dev/null)
 echo "  all JS files pass syntax check"
 
-echo "==> Build + publish"
+PUBLISH_DIR="$(mktemp -d /var/tmp/games-vault-main-publish.XXXXXX)"
+echo "==> Build + publish to $PUBLISH_DIR"
 dotnet publish games-vault.csproj -c Release -r linux-x64 --self-contained true -o "$PUBLISH_DIR"
 
 echo "==> Backup prod DB"
