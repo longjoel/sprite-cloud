@@ -50,7 +50,8 @@ public class HomeController(
                     GameName = x.Game.Name,
                     SystemName = x.Game.SystemName,
                     CoverImagePath = x.Game.CoverImagePath,
-                    ScreenshotImagePath = x.Game.ScreenshotImagePath
+                    ScreenshotImagePath = x.Game.ScreenshotImagePath,
+                    PreviewImagePath = x.Game.PreviewImagePath
                 })
                 .ToListAsync(cancellationToken)
             : [];
