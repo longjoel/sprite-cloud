@@ -39,6 +39,7 @@
 <div class="d-flex flex-wrap gap-2 mb-4">
     <a class="btn btn-sm btn-outline-secondary" href="#admin-stream-settings">Stream</a>
     <a class="btn btn-sm btn-outline-secondary" href="#admin-nosebleed-runtime">Nosebleed</a>
+    <a class="btn btn-sm btn-outline-secondary" href="#admin-game-art">Art</a>
     <a class="btn btn-sm btn-outline-secondary" href="#admin-setup">Setup</a>
     <a class="btn btn-sm btn-outline-primary" asp-controller="SystemFiles" asp-action="Index">System files</a>
     <a class="btn btn-sm btn-outline-primary" asp-controller="Profiles" asp-action="Index">Profiles</a>
@@ -72,6 +73,43 @@
                     <button type="submit" class="btn btn-primary">Save stream settings</button>
                 </div>
             </form>
+        </div>
+    </div>
+</section>
+
+@* ── Game art ── *@
+<section id="admin-game-art" class="mb-4">
+    <div class="d-flex justify-content-between align-items-end gap-3 flex-wrap mb-3">
+        <div>
+            <div class="text-uppercase text-muted small fw-semibold mb-1">Library media</div>
+            <h2 class="h3 mb-1">Game art</h2>
+            <div class="text-muted">@Model.GamesWithCoverArtCount covers · @Model.GamesWithScreenshotArtCount screenshots · @Model.GamesMissingArtCount missing</div>
+        </div>
+        @if (Model.GameArtErrorCount > 0)
+        {
+            <span class="badge text-bg-warning">@Model.GameArtErrorCount errors</span>
+        }
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                <div>
+                    <h3 class="h5 mb-1">Backfill art</h3>
+                    <div class="text-muted">Downloads matching libretro thumbnail art into local storage.</div>
+                </div>
+                <div class="d-flex gap-2 flex-wrap">
+                    <form asp-controller="Admin" asp-action="BackfillGameArt" method="post" asp-antiforgery="true" class="d-flex gap-2 align-items-center">
+                        <input type="number" class="form-control form-control-sm" name="limit" value="100" min="1" max="500" style="width: 6rem;" aria-label="Limit" />
+                        <button type="submit" class="btn btn-sm btn-primary">Backfill</button>
+                    </form>
+                    <form asp-controller="Admin" asp-action="BackfillGameArt" method="post" asp-antiforgery="true">
+                        <input type="hidden" name="force" value="true" />
+                        <input type="hidden" name="limit" value="100" />
+                        <button type="submit" class="btn btn-sm btn-outline-danger">Force 100</button>
+                    </form>
+                </div>
+            </div>
         </div>
     </div>
 </section>

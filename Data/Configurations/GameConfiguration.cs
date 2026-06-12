@@ -13,6 +13,11 @@ public class GameConfiguration : IEntityTypeConfiguration<Game>
         entity.Property(x => x.Crc32).HasMaxLength(8);
         entity.Property(x => x.Genre).HasMaxLength(100);
         entity.Property(x => x.CriticGenre).HasMaxLength(100);
+        entity.Property(x => x.CoverImagePath).HasMaxLength(512);
+        entity.Property(x => x.ScreenshotImagePath).HasMaxLength(512);
+        entity.Property(x => x.GameArtProvider).HasMaxLength(80);
+        entity.Property(x => x.GameArtStatus).HasMaxLength(32);
+        entity.Property(x => x.GameArtError).HasMaxLength(512);
         entity.Property(x => x.CriticRating).HasPrecision(5, 2);
         entity.Property(x => x.UserRating).HasPrecision(5, 2);
 

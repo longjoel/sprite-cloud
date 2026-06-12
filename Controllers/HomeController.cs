@@ -48,7 +48,9 @@ public class HomeController(
                 {
                     GameId = x.GameId,
                     GameName = x.Game.Name,
-                    SystemName = x.Game.SystemName
+                    SystemName = x.Game.SystemName,
+                    CoverImagePath = x.Game.CoverImagePath,
+                    ScreenshotImagePath = x.Game.ScreenshotImagePath
                 })
                 .ToListAsync(cancellationToken)
             : [];
@@ -66,6 +68,8 @@ public class HomeController(
                 x.GameId,
                 GameName = x.Game.Name,
                 SystemName = x.Game.SystemName,
+                CoverImagePath = x.Game.CoverImagePath,
+                ScreenshotImagePath = x.Game.ScreenshotImagePath,
                 x.StartedUtc,
                 x.EndedUtc,
                 x.DurationSeconds,
@@ -86,6 +90,8 @@ public class HomeController(
                 GameId = x.GameId,
                 GameName = x.GameName,
                 SystemName = x.SystemName,
+                CoverImagePath = x.CoverImagePath,
+                ScreenshotImagePath = x.ScreenshotImagePath,
                 Mode = x.Mode,
                 StartedUtc = x.StartedUtc,
                 EndedUtc = x.EndedUtc,
