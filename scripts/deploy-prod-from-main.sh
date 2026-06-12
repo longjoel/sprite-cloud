@@ -89,13 +89,14 @@ ssh $SSH_OPTS "$VPS_SSH_TARGET" \
 echo "==> Rsync publish output"
 rsync -az --delete --partial \
   --exclude 'App_Data/' \
+  --exclude 'wwwroot/art/' \
   --exclude 'wwwroot/webplayer/' \
   -e "ssh $SSH_OPTS" \
   "$PUBLISH_DIR/" "$VPS_SSH_TARGET:/opt/games-vault/"
 
 echo "==> Ensure runtime dirs + marker + restart"
 ssh $SSH_OPTS "$VPS_SSH_TARGET" \
-  "sudo mkdir -p /opt/games-vault/App_Data /opt/games-vault/wwwroot /var/lib/games-vault /srv/storage/games-vault && \
+  "sudo mkdir -p /opt/games-vault/App_Data /opt/games-vault/wwwroot/art /var/lib/games-vault /srv/storage/games-vault && \
    echo '$HEAD_SHA' | sudo tee /opt/games-vault/RELEASE_COMMIT >/dev/null && \
    sudo chown -R games-vault:games-vault /opt/games-vault /var/lib/games-vault /srv/storage/games-vault && \
    sudo systemctl reset-failed games-vault 2>/dev/null; sudo systemctl restart games-vault && sleep 4 && systemctl is-active games-vault"
