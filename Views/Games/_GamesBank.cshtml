@@ -110,7 +110,7 @@ else
                                 <a class="btn btn-primary btn-sm" asp-action="PlayServer" asp-route-id="@game.Id">@(isGuest ? "Watch" : "Play")</a>
                                 @if (canManageLibrary)
                                 {
-                                    <a class="btn btn-outline-secondary btn-sm" asp-action="Details" asp-route-id="@game.Id">Edit</a>
+                                    <a class="btn btn-outline-secondary btn-sm" asp-action="Edit" asp-route-id="@game.Id">Edit</a>
                                 }
                                 @if (!isGuest)
                                 {
