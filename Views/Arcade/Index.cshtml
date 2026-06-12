@@ -110,18 +110,24 @@ else
                                 }
                                 @if (Model.CanManage)
                                 {
-                                    <form asp-action="StartCabinet" method="post" asp-antiforgery="true">
-                                        <input type="hidden" name="id" value="@cabinet.Id" />
-                                        <button type="submit" class="btn btn-sm btn-outline-success">Start</button>
-                                    </form>
-                                    <form asp-action="RestartCabinet" method="post" asp-antiforgery="true">
-                                        <input type="hidden" name="id" value="@cabinet.Id" />
-                                        <button type="submit" class="btn btn-sm btn-outline-secondary">Restart</button>
-                                    </form>
-                                    <form asp-action="StopCabinet" method="post" asp-antiforgery="true">
-                                        <input type="hidden" name="id" value="@cabinet.Id" />
-                                        <button type="submit" class="btn btn-sm btn-outline-danger">Stop</button>
-                                    </form>
+                                    @if (!cabinet.IsRunning)
+                                    {
+                                        <form asp-action="StartCabinet" method="post" asp-antiforgery="true">
+                                            <input type="hidden" name="id" value="@cabinet.Id" />
+                                            <button type="submit" class="btn btn-sm btn-outline-success">Start</button>
+                                        </form>
+                                    }
+                                    else
+                                    {
+                                        <form asp-action="RestartCabinet" method="post" asp-antiforgery="true">
+                                            <input type="hidden" name="id" value="@cabinet.Id" />
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary">Restart</button>
+                                        </form>
+                                        <form asp-action="StopCabinet" method="post" asp-antiforgery="true">
+                                            <input type="hidden" name="id" value="@cabinet.Id" />
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">Stop</button>
+                                        </form>
+                                    }
                                     <form asp-action="RemoveCabinet" method="post" asp-antiforgery="true">
                                         <input type="hidden" name="id" value="@cabinet.Id" />
                                         <button type="submit" class="btn btn-sm btn-danger">Remove</button>
