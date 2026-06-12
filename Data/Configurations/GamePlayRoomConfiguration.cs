@@ -14,7 +14,7 @@ public class GamePlayRoomConfiguration : IEntityTypeConfiguration<GamePlayRoom>
         entity.HasOne(x => x.Game)
             .WithMany()
             .HasForeignKey(x => x.GameId)
-            .OnDelete(DeleteBehavior.Cascade);
+            .OnDelete(DeleteBehavior.Restrict);
 
         entity.HasOne(x => x.GameFile)
             .WithMany()
