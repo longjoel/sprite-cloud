@@ -57,9 +57,11 @@ services:
     volumes:
       - gv_app_data:/var/lib/games-vault
       - gv_app_state:/srv/storage/games-vault
+      - gv_game_art:/app/wwwroot/art
       - ${GV_LIBRARY_ROOT:-/tmp/}:/srv/storage/games
 
 volumes:
   gv_db_data:
   gv_app_data:
   gv_app_state:
+  gv_game_art:
