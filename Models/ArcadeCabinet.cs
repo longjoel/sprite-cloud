@@ -38,4 +38,7 @@ public class ArcadeCabinet
 
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedUtc { get; set; }
+
+    [Timestamp]
+    public byte[]? ConcurrencyToken { get; set; }
 }
