@@ -642,7 +642,8 @@ public class SessionController : Controller
             Path = "/",
             MaxAge = TimeSpan.FromDays(30),
             SameSite = SameSiteMode.None,
-            Secure = true
+            Secure = true,
+            HttpOnly = true
         });
         HttpContext.Items[NosebleedViewerCookieName] = id;
         return id;
@@ -672,7 +673,8 @@ public class SessionController : Controller
             Path = "/",
             MaxAge = TimeSpan.FromDays(30),
             SameSite = SameSiteMode.None,
-            Secure = true
+            Secure = true,
+            HttpOnly = true
         });
         HttpContext.Items[NosebleedViewerCookieName] = fallbackViewerId;
         return fallbackViewerId;
