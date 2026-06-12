@@ -127,7 +127,7 @@ public sealed class ProfilesController(
         return RedirectToLocalOrIndex(returnUrl);
     }
 
-    private static IActionResult RedirectToLocalOrIndex(string? returnUrl)
+    private IActionResult RedirectToLocalOrIndex(string? returnUrl)
     {
         if (!string.IsNullOrWhiteSpace(returnUrl) && Url.IsLocalUrl(returnUrl))
         {
