@@ -11,6 +11,7 @@
     const isSpectator = config.isSpectator;
     const isVisitor = config.isVisitor;
     const sessionId = config.sessionId;
+    const viewerId = typeof config.viewerId === "string" && config.viewerId ? config.viewerId : null;
     const touchLayoutName = config.touchLayoutName;
     const keepAliveUrl = config.keepAliveUrl;
     const bootstrapBatterySaveDiagnostics = Array.isArray(config.batterySaveDiagnostics) ? config.batterySaveDiagnostics : [];
@@ -680,12 +681,14 @@
             : null;
         if (proxyUrl) {
             const url = new URL(proxyUrl, window.location.href);
+            if (viewerId) url.searchParams.set("viewerId", viewerId);
             url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
             return url.toString();
         }
         if (!baseUrl) throw new Error(`No WebSocket URL configured for ${path}`);
         const url = new URL(path, baseUrl);
         if (token) url.searchParams.set("token", token);
+        if (viewerId) url.searchParams.set("viewerId", viewerId);
         url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
         return url.toString();
     }
@@ -856,7 +859,8 @@
                 method: "POST",
                 headers: { 
                     "content-type": "application/json",
-                    "X-CSRF-TOKEN": document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? ''
+                    "X-CSRF-TOKEN": document.querySelector('input[name="__RequestVerificationToken"]')?.value ?? '',
+                    ...(viewerId ? { "X-Nosebleed-Viewer": viewerId } : {})
                 },
                 body: JSON.stringify({ type: rtcPeer.localDescription.type, sdp: rtcPeer.localDescription.sdp, video_mode: "track-vp8" })
             });
@@ -1182,7 +1186,8 @@
                 method: "POST",
                 headers: { 
                     "Content-Type": "application/x-www-form-urlencoded",
-                    "X-CSRF-TOKEN": csrfToken
+                    "X-CSRF-TOKEN": csrfToken,
+                    ...(viewerId ? { "X-Nosebleed-Viewer": viewerId } : {})
                 },
                 body: new URLSearchParams({ sessionId }),
                 credentials: "same-origin"
