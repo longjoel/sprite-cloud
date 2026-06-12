@@ -72,6 +72,7 @@ public sealed class ProfilesController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [RateLimit(permitLimit: 3, windowSeconds: 60)]
     public async Task<IActionResult> Create(ProfileEditViewModel model, CancellationToken cancellationToken = default)
     {
         if (!ModelState.IsValid)
