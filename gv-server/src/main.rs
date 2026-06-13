@@ -1,5 +1,6 @@
 mod config;
 mod gv_web;
+mod worker;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -109,6 +110,13 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                             cmd.command_type,
                             cmd.payload,
                         );
+
+                        if cmd.command_type == "start_game" {
+                            match worker::spawn_worker().await {
+                                Ok(url) => println!("[WORKER] spawned at {url}"),
+                                Err(e) => eprintln!("[WORKER] spawn failed: {e:#}"),
+                            }
+                        }
                     }
                 }
                 tokio::time::sleep(std::time::Duration::from_millis(resp.next_poll_ms)).await;
