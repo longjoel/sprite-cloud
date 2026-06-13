@@ -30,13 +30,38 @@ pub const VP8_CLOCK_RATE: u32 = 90_000;
 /// RTP timestamp increment per frame (clock_rate / fps).
 pub const RTP_TIMESTAMP_INCREMENT: u32 = VP8_CLOCK_RATE / VIDEO_FPS; // 3000
 
-/// Target encoder bitrate in kbps.
-pub const TARGET_BITRATE_KBPS: u32 = 500;
+/// Target encoder bitrate in kbps (fallback default).
+const DEFAULT_BITRATE_KBPS: u32 = 500;
 
-/// STUN server for NAT traversal.
-/// Google's public STUN is fine for LAN development;
-/// production should use a dedicated TURN server.
-pub const STUN_SERVER: &str = "stun:stun.l.google.com:19302";
+/// Target encoder bitrate in kbps.
+/// Read from `TARGET_BITRATE_KBPS` env var at runtime, defaulting to 500.
+/// Production deployments should tune this based on available bandwidth.
+pub fn target_bitrate_kbps() -> u32 {
+    use std::sync::LazyLock;
+    static BITRATE: LazyLock<u32> = LazyLock::new(|| {
+        std::env::var("TARGET_BITRATE_KBPS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|&v| v > 0)
+            .unwrap_or(DEFAULT_BITRATE_KBPS)
+    });
+    *BITRATE
+}
+
+/// STUN/TURN server for NAT traversal (fallback default).
+const DEFAULT_STUN_SERVER: &str = "stun:stun.l.google.com:19302";
+
+/// STUN/TURN server for NAT traversal.
+/// Read from `STUN_SERVER` env var at runtime, defaulting to Google's public STUN.
+/// Production MUST set this to a dedicated TURN server.
+/// Format: "stun:host:port" or "turn:host:port?transport=tcp"
+pub fn stun_server() -> &'static str {
+    use std::sync::LazyLock;
+    static STUN: LazyLock<String> = LazyLock::new(|| {
+        std::env::var("STUN_SERVER").unwrap_or_else(|_| DEFAULT_STUN_SERVER.to_string())
+    });
+    STUN.as_str()
+}
 
 /// WebRTC track ID sent in SDP.
 pub const TRACK_ID: &str = "video";

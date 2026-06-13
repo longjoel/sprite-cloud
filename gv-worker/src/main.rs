@@ -10,8 +10,9 @@ use axum::{
 };
 use config::{
     DIAG_LOG_INTERVAL, FRAME_INTERVAL_MS, ICE_GATHERING_TIMEOUT_SECS,
-    RTP_TIMESTAMP_INCREMENT, STREAM_ID, STUN_SERVER, TRACK_ID,
+    RTP_TIMESTAMP_INCREMENT, STREAM_ID, TRACK_ID,
     VIDEO_HEIGHT, VIDEO_WIDTH, VP8_CLOCK_RATE,
+    stun_server,
 };
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
@@ -160,7 +161,7 @@ async fn do_webrtc_handshake(
 
     let config = RTCConfiguration {
         ice_servers: vec![RTCIceServer {
-            urls: vec![STUN_SERVER.to_string()],
+            urls: vec![stun_server().to_string()],
             ..Default::default()
         }],
         ..Default::default()
@@ -321,7 +322,7 @@ async fn stream_vp8_frames(track: Arc<TrackLocalStaticSample>, cancel: Cancellat
         VIDEO_WIDTH,
         VIDEO_HEIGHT,
         crate::config::VIDEO_FPS,
-        crate::config::TARGET_BITRATE_KBPS
+        crate::config::target_bitrate_kbps()
     );
 
     loop {
@@ -493,7 +494,7 @@ function stopAll() {{
 </html>"##,
             w = VIDEO_WIDTH,
             h = VIDEO_HEIGHT,
-            stun = STUN_SERVER,
+            stun = stun_server(),
         )
     });
 
