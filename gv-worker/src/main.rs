@@ -537,6 +537,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let actual_port = listener.local_addr()?.port();
 
     println!("gv-worker listening on port {}", actual_port);
+    eprintln!("WORKER_READY port={}", actual_port);
     eprintln!("open http://localhost:{}", actual_port);
     axum::serve(listener, app).await?;
     Ok(())
