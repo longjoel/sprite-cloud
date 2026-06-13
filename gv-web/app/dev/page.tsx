@@ -25,6 +25,13 @@ export default function DevDashboard() {
   const [cmdPayload, setCmdPayload] = useState('{"game_id":"smw"}');
   const [cmdResult, setCmdResult] = useState("");
 
+  // ── Play game state ──────────────────────────────────────────────
+
+  const [playServerId, setPlayServerId] = useState("");
+  const [playGameId, setPlayGameId] = useState("smw");
+  const [playStatus, setPlayStatus] = useState("");
+  const [workerUrl, setWorkerUrl] = useState<string | null>(null);
+
   // ── Health poll ─────────────────────────────────────────────────
 
   const refresh = useCallback(async () => {
@@ -119,6 +126,74 @@ export default function DevDashboard() {
     }
   };
 
+  // ── Play game ────────────────────────────────────────────────────
+
+  const playGame = async () => {
+    setWorkerUrl(null);
+    setPlayStatus("");
+
+    if (!NUMERIC_UUID_RE.test(playServerId)) {
+      setPlayStatus("Invalid server_id (must be UUID)");
+      return;
+    }
+
+    // 1. Queue start_game command
+    setPlayStatus("Queueing…");
+    let cmdId: string;
+    try {
+      const r = await fetch("/api/server/command", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          server_id: playServerId,
+          type: "start_game",
+          payload: { game_id: playGameId },
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) {
+        setPlayStatus(`Command failed: HTTP ${r.status} — ${JSON.stringify(data)}`);
+        return;
+      }
+      cmdId = data.id;
+    } catch (e) {
+      setPlayStatus(`Network error: ${e}`);
+      return;
+    }
+
+    // 2. Poll for worker URL
+    const POLL_MS = 500;
+    const TIMEOUT_MS = 30_000;
+    const start = Date.now();
+
+    setPlayStatus("Waiting for worker…");
+
+    const poll = async () => {
+      try {
+        const r = await fetch(
+          `/api/server/notify?server_id=${encodeURIComponent(playServerId)}`,
+        );
+        const data = await r.json();
+        if (data.worker_url) {
+          setWorkerUrl(data.worker_url);
+          setPlayStatus("Ready!");
+          return;
+        }
+      } catch {
+        // retry
+      }
+
+      if (Date.now() - start > TIMEOUT_MS) {
+        setPlayStatus("Timed out waiting for worker");
+        return;
+      }
+
+      setTimeout(poll, POLL_MS);
+    };
+
+    poll();
+  };
+
   // ── Render ───────────────────────────────────────────────────────
 
   return (
@@ -191,6 +266,48 @@ export default function DevDashboard() {
         </button>
         {cmdResult && (
           <pre style={styles.pre}>{cmdResult}</pre>
+        )}
+      </section>
+
+      {/* Links */}
+      <section style={styles.section}>
+        <h2 style={styles.h2}>Play Game</h2>
+        <div style={styles.formRow}>
+          <label style={styles.label}>
+            server_id
+            <input
+              style={styles.input}
+              value={playServerId}
+              onChange={(e) => setPlayServerId(e.target.value)}
+              placeholder="00000000-0000-0000-0000-000000000000"
+            />
+          </label>
+          <label style={styles.label}>
+            game_id
+            <input
+              style={{ ...styles.input, width: 120 }}
+              value={playGameId}
+              onChange={(e) => setPlayGameId(e.target.value)}
+            />
+          </label>
+        </div>
+        <button style={styles.btn} onClick={playGame}>
+          Play
+        </button>
+        {playStatus && (
+          <pre style={styles.pre}>{playStatus}</pre>
+        )}
+        {workerUrl && (
+          <div style={{ marginTop: 8 }}>
+            <a
+              style={styles.link}
+              href={`/player?worker=${encodeURIComponent(workerUrl)}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open Player → {workerUrl}
+            </a>
+          </div>
         )}
       </section>
 
