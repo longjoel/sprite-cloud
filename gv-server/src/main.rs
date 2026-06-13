@@ -5,6 +5,9 @@ mod worker;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use std::collections::HashMap;
+use std::time::Duration;
+use worker::SpawnedWorker;
 
 // ── CLI ───────────────────────────────────────────────────────────────
 
@@ -95,64 +98,107 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
 
     println!("gv-server running — polling for commands...");
 
-    // Backoff on poll errors (not a server-controlled interval).
     const POLL_ERROR_BACKOFF_MS: u64 = 5_000;
 
+    // Track spawned workers so we can kill them on shutdown.
+    // Key is the game_id from the start_game command.
+    let mut workers: HashMap<String, SpawnedWorker> = HashMap::new();
+
     loop {
-        match client.poll().await {
-            Ok(resp) => {
-                if resp.commands.is_empty() {
-                    // No commands — sleep as directed by the server.
-                } else {
-                    for cmd in &resp.commands {
-                        println!(
-                            "[POLL] command {}: {} {}",
-                            cmd.id,
-                            cmd.command_type,
-                            cmd.payload,
-                        );
+        tokio::select! {
+            _ = shutdown_signal() => {
+                println!("\n[SHUTDOWN] received signal, stopping workers...");
+                break;
+            }
+            _ = async {
+                match client.poll().await {
+                    Ok(resp) => {
+                        if !resp.commands.is_empty() {
+                            for cmd in &resp.commands {
+                                println!(
+                                    "[POLL] command {}: {} {}",
+                                    cmd.id,
+                                    cmd.command_type,
+                                    cmd.payload,
+                                );
 
-                        if cmd.command_type == "start_game" {
-                            let game_id = cmd
-                                .payload
-                                .get("game_id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("unknown");
-                            println!(
-                                "[POLL] start_game command {} (game: {})",
-                                cmd.id, game_id
-                            );
+                                if cmd.command_type == "start_game" {
+                                    let game_id = cmd
+                                        .payload
+                                        .get("game_id")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("unknown");
+                                    println!(
+                                        "[POLL] start_game command {} (game: {})",
+                                        cmd.id, game_id
+                                    );
 
-                            match worker::spawn_worker().await {
-                                Ok(url) => {
-                                    println!("[WORKER] spawned at {url}");
-                                    // Notify gv-web so the browser can pick up the URL
-                                    if let Err(e) = client
-                                        .notify(&cmd.id, &url, game_id)
-                                        .await
-                                    {
-                                        eprintln!(
-                                            "[NOTIFY] failed after retries — worker is at {url}\n\
-                                             [NOTIFY]     connect manually or retry from /dev\n\
-                                             [NOTIFY]     error: {e:#}"
-                                        );
+                                    match worker::spawn_worker().await {
+                                        Ok(worker) => {
+                                            let url = worker.url.clone();
+                                            println!("[WORKER] spawned at {url}");
+
+                                            // Notify gv-web
+                                            if let Err(e) = client
+                                                .notify(&cmd.id, &url, game_id)
+                                                .await
+                                            {
+                                                eprintln!(
+                                                    "[NOTIFY] failed after retries — worker is at {url}\n\
+                                                     [NOTIFY]     connect manually or retry from /dev\n\
+                                                     [NOTIFY]     error: {e:#}"
+                                                );
+                                            }
+
+                                            workers.insert(game_id.to_string(), worker);
+                                        }
+                                        Err(e) => eprintln!("[WORKER] spawn failed: {e:#}"),
                                     }
                                 }
-                                Err(e) => eprintln!("[WORKER] spawn failed: {e:#}"),
                             }
                         }
+                        tokio::time::sleep(Duration::from_millis(resp.next_poll_ms)).await;
+                    }
+                    Err(e) => {
+                        eprintln!("[POLL] error: {:#}", e);
+                        eprintln!(
+                            "[POLL] backing off {}s before retry...",
+                            POLL_ERROR_BACKOFF_MS / 1000
+                        );
+                        tokio::time::sleep(Duration::from_millis(POLL_ERROR_BACKOFF_MS)).await;
                     }
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(resp.next_poll_ms)).await;
-            }
-            Err(e) => {
-                eprintln!("[POLL] error: {:#}", e);
-                eprintln!(
-                    "[POLL] backing off {}s before retry...",
-                    POLL_ERROR_BACKOFF_MS / 1000
-                );
-                tokio::time::sleep(std::time::Duration::from_millis(POLL_ERROR_BACKOFF_MS)).await;
-            }
+            } => {}
         }
     }
+
+    // Drain workers — kill each one and wait for it to exit
+    for (game_id, worker) in workers {
+        println!("[SHUTDOWN] stopping worker for game {game_id}");
+        worker.kill().await;
+    }
+
+    println!("[SHUTDOWN] done");
+    Ok(())
+}
+
+// ── Shutdown signal ───────────────────────────────────────────────────
+
+/// Returns when the process receives SIGINT (Ctrl+C) or SIGTERM.
+#[cfg(unix)]
+async fn shutdown_signal() {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    let mut sigint = signal(SignalKind::interrupt()).expect("register SIGINT handler");
+    let mut sigterm = signal(SignalKind::terminate()).expect("register SIGTERM handler");
+
+    tokio::select! {
+        _ = sigint.recv() => {},
+        _ = sigterm.recv() => {},
+    }
+}
+
+#[cfg(not(unix))]
+async fn shutdown_signal() {
+    tokio::signal::ctrl_c().await.expect("register Ctrl+C handler");
 }
