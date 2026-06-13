@@ -10,8 +10,10 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "drizzle-orm": "^0.45.2",
     "next": "^15.0.0",
     "next-auth": "5.0.0-beta.31",
+    "postgres": "^3.4.9",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
@@ -20,6 +22,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.0.2",
+    "drizzle-kit": "^0.31.10",
     "typescript": "^5.7.0",
     "vitest": "^4.1.8"
   }
