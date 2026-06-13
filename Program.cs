@@ -183,8 +183,20 @@ app.Use(async (context, next) =>
 
 app.MapGet("/robots.txt", () => Results.Text("User-agent: *\nDisallow: /\n", "text/plain"));
 
-// Health check must come before UseHttpsRedirection so the middleware
-// doesn't try to redirect internal HTTP health probes to HTTPS.
+// Configure the HTTP request pipeline.
+if (!app.Environment.IsDevelopment())
+{
+    app.UseExceptionHandler("/Home/Error");
+}
+
+app.UseStaticFiles();
+app.UseWebSockets();
+app.UseRouting();
+app.UseForwardedHeaders();
+app.UseMiddleware<ProfileSessionEnforcementMiddleware>();
+
+app.UseAuthorization();
+
 app.MapHealthChecks("/health", new HealthCheckOptions
 {
     ResponseWriter = async (context, report) =>
@@ -208,24 +220,6 @@ app.MapHealthChecks("/health", new HealthCheckOptions
         await context.Response.WriteAsync(JsonSerializer.Serialize(payload));
     }
 });
-
-// Configure the HTTP request pipeline.
-if (!app.Environment.IsDevelopment())
-{
-    app.UseExceptionHandler("/Home/Error");
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
-    app.UseHsts();
-}
-
-app.UseHttpsRedirection();
-
-app.UseStaticFiles();
-app.UseWebSockets();
-app.UseRouting();
-app.UseForwardedHeaders();
-app.UseMiddleware<ProfileSessionEnforcementMiddleware>();
-
-app.UseAuthorization();
 
 app.MapControllerRoute(
     name: "default",
