@@ -59,8 +59,12 @@ pub struct GvWebClient {
 
 impl GvWebClient {
     pub fn new(base_url: String, auth: Auth) -> Self {
+        let client = reqwest::Client::builder()
+            .timeout(crate::config::http_timeout())
+            .build()
+            .expect("create HTTP client");
         Self {
-            client: Client::new(),
+            client,
             base_url: base_url.trim_end_matches('/').to_string(),
             auth,
         }
@@ -68,7 +72,10 @@ impl GvWebClient {
 
     /// POST /api/auth/pair/claim — exchange pairing code for API key
     pub async fn claim(code: &str, gv_web_url: &str) -> Result<ClaimResponse> {
-        let client = Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(crate::config::http_timeout())
+            .build()
+            .expect("create HTTP client");
         let url = format!("{}/api/auth/pair/claim", gv_web_url.trim_end_matches('/'));
 
         let resp = client
