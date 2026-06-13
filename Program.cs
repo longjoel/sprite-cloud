@@ -185,6 +185,21 @@ app.MapGet("/robots.txt", () => Results.Text("User-agent: *\nDisallow: /\n", "te
 
 app.MapGet("/healthz", () => Results.Json(new { status = "Healthy" }));
 
+app.MapGet("/dbcheck", async (IServiceScopeFactory scopeFactory) =>
+{
+    try
+    {
+        using var scope = scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<games_vault.Data.AppDbContext>();
+        await db.Database.ExecuteSqlRawAsync("SELECT 1");
+        return Results.Json(new { status = "Healthy" });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { status = "Error", error = ex.Message });
+    }
+});
+
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
