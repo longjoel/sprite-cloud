@@ -31,6 +31,7 @@ export default function DevDashboard() {
   const [playGameId, setPlayGameId] = useState("smw");
   const [playStatus, setPlayStatus] = useState("");
   const [workerUrl, setWorkerUrl] = useState<string | null>(null);
+  const [workerToken, setWorkerToken] = useState<string | null>(null);
 
   // ── Health poll ─────────────────────────────────────────────────
 
@@ -130,6 +131,7 @@ export default function DevDashboard() {
 
   const playGame = async () => {
     setWorkerUrl(null);
+    setWorkerToken(null);
     setPlayStatus("");
 
     if (!NUMERIC_UUID_RE.test(playServerId)) {
@@ -139,7 +141,7 @@ export default function DevDashboard() {
 
     // 1. Queue start_game command
     setPlayStatus("Queueing…");
-    let cmdId: string;
+    let workerToken: string;
     try {
       const r = await fetch("/api/server/command", {
         method: "POST",
@@ -155,13 +157,14 @@ export default function DevDashboard() {
         setPlayStatus(`Command failed: HTTP ${r.status} — ${JSON.stringify(data)}`);
         return;
       }
-      cmdId = data.id;
+      workerToken = data.worker_token;
+      setWorkerToken(workerToken);
     } catch (e) {
       setPlayStatus(`Network error: ${e}`);
       return;
     }
 
-    // 2. Poll for worker URL
+    // 2. Poll for worker URL (must include worker_token)
     const POLL_MS = 500;
     const TIMEOUT_MS = 30_000;
     const start = Date.now();
@@ -171,7 +174,7 @@ export default function DevDashboard() {
     const poll = async () => {
       try {
         const r = await fetch(
-          `/api/server/notify?server_id=${encodeURIComponent(playServerId)}`,
+          `/api/server/notify?server_id=${encodeURIComponent(playServerId)}&worker_token=${encodeURIComponent(workerToken)}`,
         );
         const data = await r.json();
         if (data.worker_url) {
