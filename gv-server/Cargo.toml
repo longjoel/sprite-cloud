@@ -2,7 +2,11 @@
 name = "gv-server"
 version = "0.1.0"
 edition = "2024"
-description = "Games Vault server — runs on user's computer, serves ROM library"
+description = "Games Vault server — runs on user's computer, manages gv-worker processes"
+
+[lib]
+name = "gv_server"
+path = "src/lib.rs"
 
 [[bin]]
 name = "gv-server"
@@ -14,3 +18,10 @@ reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rand = "0.8"
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+dirs = "6"
+sha2 = "0.10"
+hex = "0.4"
+anyhow = "1"
+url = "2"
