@@ -72,16 +72,16 @@ COPY --from=nosebleed-download /nosebleed /opt/nosebleed/nosebleed
 COPY --from=core-download /cores/*.so /srv/storage/games-vault/nosebleed/cores/
 RUN chmod +x /opt/nosebleed/nosebleed && chown -R gv:gv /opt/nosebleed /srv/storage/games-vault/nosebleed
 
-ENV ASPNETCORE_URLS=http://0.0.0.0:8080 \
+ENV ASPNETCORE_URLS=http://0.0.0.0:28080 \
     DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
     DataProtection__KeyRingPath=/var/lib/games-vault/dp-keys \
     Nosebleed__AuthSecretPath=/var/lib/games-vault/nosebleed-auth-secret
 
-EXPOSE 8080
+EXPOSE 28080
 VOLUME ["/var/lib/games-vault", "/srv/storage/games-vault", "/srv/storage/games"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD curl -fsS http://127.0.0.1:8080/health || exit 1
+  CMD curl -fsS http://127.0.0.1:28080/health || exit 1
 
 STOPSIGNAL SIGTERM
 
