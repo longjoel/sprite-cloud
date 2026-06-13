@@ -14,6 +14,7 @@
 - Worker IPC: localhost HTTP server (axum, minimal)
 - Pairing codes: 8 letters, case-insensitive, 5 minute TTL
 - OAuth: NextAuth.js with GitHub + Google providers
+- **Each project is independently testable** — every project has its own test suite that runs without other projects. gv-web tests use mocked DB. gv-server tests mock HTTP responses. gv-worker tests hit its own endpoints. gv-player tests run in Node with no browser.
 
 ---
 
@@ -43,11 +44,35 @@ pnpm dev
 # Expected: "Games Vault" heading renders
 ```
 
-**Step 3: Commit**
+**Step 3: Add vitest for independent testing**
+
+Every project must be testable in isolation. gv-web tests run without a running gv-server, gv-worker, or browser.
+
+```bash
+cd gv-web
+pnpm add -D vitest @vitejs/plugin-react
+```
+
+```typescript
+// gv-web/vitest.config.ts
+import { defineConfig } from "vitest/config";
+export default defineConfig({
+  test: { environment: "node" },
+});
+```
+
+```json
+// Add to gv-web/package.json scripts:
+"test": "vitest run"
+```
+
+**Verification:** `pnpm test` runs successfully (0 tests, should not fail)
+
+**Step 4: Commit**
 
 ```bash
 git add gv-web/
-git commit -m "feat(gv-web): scaffold Next.js project"
+git commit -m "feat(gv-web): scaffold Next.js project with vitest"
 ```
 
 ---
@@ -279,11 +304,42 @@ curl -X POST http://localhost:3000/api/pair/generate
 # Expected: {"code":"ABCDEFGH","expiresIn":300}
 ```
 
-**Step 4: Commit**
+**Step 4: Unit test pairing code generation (independently verifiable)**
+
+Run without any other project — pure logic tests.
+
+```typescript
+// gv-web/__tests__/pairing.test.ts
+import { describe, it, expect } from "vitest";
+
+function generateCode(): string {
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  let code = "";
+  for (let i = 0; i < 8; i++) {
+    code += letters[Math.floor(Math.random() * letters.length)];
+  }
+  return code;
+}
+
+describe("pairing", () => {
+  it("generates 8 uppercase letters", () => {
+    expect(generateCode()).toMatch(/^[A-Z]{8}$/);
+  });
+
+  it("generates unique codes", () => {
+    const codes = new Set(Array.from({ length: 100 }, generateCode));
+    expect(codes.size).toBeGreaterThan(90);
+  });
+});
+```
+
+**Run:** `pnpm test` — expected: 2 passed
+
+**Step 5: Commit**
 
 ```bash
 git add gv-web/
-git commit -m "feat(gv-web): pairing code generation API"
+git commit -m "feat(gv-web): pairing code generation API with unit tests"
 ```
 
 ---
@@ -707,11 +763,38 @@ cargo run
 # Expected: prints "Pairing code: ABCDEFGH" then "Waiting for pairing..." every 2s
 ```
 
+**Step 3b: Unit test code generation (no network needed)**
+
+```rust
+// Add to bottom of gv-server/src/main.rs
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generate_code_produces_8_letters() {
+        let code = generate_code();
+        assert_eq!(code.len(), 8);
+        assert!(code.chars().all(|c| c.is_ascii_uppercase()));
+    }
+
+    #[test]
+    fn generate_code_is_random() {
+        let a = generate_code();
+        let b = generate_code();
+        // Extremely unlikely to collide
+        assert!(a != b || generate_code() != a);
+    }
+}
+```
+
+**Run:** `cargo test -p gv-server` — expected: 2 passed
+
 **Step 4: Commit**
 
 ```bash
 git add gv-server/
-git commit -m "feat(gv-server): scaffold with pairing poll loop"
+git commit -m "feat(gv-server): scaffold with pairing poll loop and unit tests"
 ```
 
 ---
@@ -869,7 +952,7 @@ let app = Router::new()
     .route("/test-frame", get(|| async { axum::body::Bytes::from(handle_test_frame().await) }));
 ```
 
-**Step 3: Build and test**
+**Step 3: Build and test (independently verifiable)**
 
 ```bash
 cd gv-worker
@@ -887,6 +970,45 @@ curl http://127.0.0.1:9001/test-frame -o /tmp/frame.rgb
 
 kill %1
 ```
+
+**Step 3b: Unit test test pattern (no server needed)**
+
+```rust
+// Add to bottom of gv-worker/src/test_pattern.rs
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn color_bars_returns_correct_size() {
+        let frame = generate_color_bars(320, 240, 0);
+        assert_eq!(frame.len(), 320 * 240 * 3);
+    }
+
+    #[test]
+    fn color_bars_scrolls_over_time() {
+        let frame0 = generate_color_bars(320, 240, 0);
+        let frame1 = generate_color_bars(320, 240, 1);
+        // Frames should differ (scrolling pattern)
+        assert_ne!(frame0, frame1);
+    }
+
+    #[test]
+    fn bouncing_square_returns_correct_size() {
+        let frame = generate_bouncing_square(320, 240, 0);
+        assert_eq!(frame.len(), 320 * 240 * 3);
+    }
+
+    #[test]
+    fn bouncing_square_moves_over_time() {
+        let frame0 = generate_bouncing_square(320, 240, 0);
+        let frame1 = generate_bouncing_square(320, 240, 1);
+        assert_ne!(frame0, frame1);
+    }
+}
+```
+
+**Run:** `cargo test -p gv-worker` — expected: 4 passed
 
 **Step 4: Commit**
 
@@ -1022,6 +1144,17 @@ git commit -m "feat(gv-player): SSE-based player scaffold"
 
 ## Verification Checklist
 
+### Independent tests (run without other projects)
+
+| Project | Command | Expected |
+|---------|---------|----------|
+| gv-web | `cd gv-web && pnpm test` | 2 passed (pairing tests) |
+| gv-server | `cd gv-server && cargo test` | 2 passed (code gen) |
+| gv-worker | `cd gv-worker && cargo test` | 4 passed (test pattern) |
+| gv-player | `node -c gv-player/index.js` | no errors |
+
+### Integration checks (run with gv-web + DB)
+
 - [ ] `pnpm dev` starts gv-web on :3000
 - [ ] GitHub OAuth sign-in works
 - [ ] `POST /api/pair/generate` returns 8-letter code
@@ -1031,8 +1164,7 @@ git commit -m "feat(gv-player): SSE-based player scaffold"
 - [ ] After entering code on gv-web, gv-server prints "Paired!"
 - [ ] `GET /api/commands` returns empty commands with pollMs=2000
 - [ ] `cargo run` in gv-worker starts HTTP server, responds to SDP
-- [ ] `GET /test-frame` returns raw RGB24 frame (320 * 240 * 3 = 230400 bytes)
-- [ ] `node -c gv-player/index.js` passes
+- [ ] `GET /test-frame` returns raw RGB24 frame (320 × 240 × 3 = 230400 bytes)
 
 ---
 
