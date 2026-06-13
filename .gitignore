@@ -1,54 +1,33 @@
-# Build outputs
 bin/
 obj/
-
-# User- / machine-specific files
+publish/
 .vs/
 .vscode/
-*.user
-*.suo
-*.userosscache
-*.sln.docstates
+.idea/
 
-# Logs / temp
-*.log
-*.tmp
+# Build artifacts
+*.suo
+*.user
+*.DotSettings.user
 *.swp
 *.swo
+*~
+
+# OS
 .DS_Store
 Thumbs.db
 
-# Local databases
-*.db
-*.db-shm
-*.db-wal
+# Environment
+*.env
+!*.env.example
 
-# ASP.NET / app local data (generated, large, or environment-specific)
-App_Data/
-
-# Generated web player artifacts (large)
-wwwroot/webplayer/
-
-# Optional: local appsettings overrides (often contain secrets)
-appsettings.*.json
-!appsettings.json
-
-# Environment files (secrets, local config)
-.env
-deploy.env
-
-# Node.js dependencies (dev tooling)
+# Node
 node_modules/
+dist/
+.next/
 
-# Publish output (CI publishes to scratch dirs; never commit build artifacts)
-publish/
-build/
+# Rust
+target/
 
-# Runtime/release binaries belong in releases, Docker build stages, /opt, or /srv/storage
-/nosebleed-release
-/nosebleed
-*.exe
-*.dll
-*.so
-*.dylib
-*.pdb
+# Next.js
+.next/
