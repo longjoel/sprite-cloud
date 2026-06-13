@@ -180,7 +180,6 @@ async fn do_webrtc_handshake(
     let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
 
     peer_connection.on_ice_candidate(Box::new({
-        let done_tx = done_tx.clone();
         move |candidate: Option<webrtc::ice_transport::ice_candidate::RTCIceCandidate>| {
             let done_tx = done_tx.clone();
             Box::pin(async move {
@@ -256,6 +255,8 @@ async fn do_webrtc_handshake(
     let stream_track = Arc::clone(&video_track);
     let stream_cancel = cancel.clone();
     let disconnect_cancel = cancel.clone();
+    let peer_connection_clone = Arc::clone(&peer_connection);
+    let state_clone = Arc::clone(&state);
 
     // Watch for peer disconnection — if the browser leaves, kill the stream.
     peer_connection.on_peer_connection_state_change(Box::new(
@@ -276,7 +277,7 @@ async fn do_webrtc_handshake(
     ));
 
     let handle = tokio::spawn(async move {
-        stream_vp8_frames(stream_track, stream_cancel).await;
+        stream_vp8_frames(stream_track, stream_cancel, peer_connection_clone, state_clone).await;
     });
 
     {
@@ -297,7 +298,15 @@ async fn do_webrtc_handshake(
 /// Runs until `cancel` is signalled (browser disconnect, new session,
 /// or unrecoverable error). Uses `tokio::time::interval` for steady
 /// 30 fps timing.
-async fn stream_vp8_frames(track: Arc<TrackLocalStaticSample>, cancel: CancellationToken) {
+///
+/// When the loop exits (for any reason), the peer connection is closed
+/// and cleared from AppState so no zombie PC lingers.
+async fn stream_vp8_frames(
+    track: Arc<TrackLocalStaticSample>,
+    cancel: CancellationToken,
+    peer_connection: Arc<RTCPeerConnection>,
+    app_state: Arc<AppState>,
+) {
     use std::time::Duration;
     use webrtc::media::Sample;
 
@@ -365,6 +374,12 @@ async fn stream_vp8_frames(track: Arc<TrackLocalStaticSample>, cancel: Cancellat
         }
     }
     eprintln!("[STREAM] Loop exited");
+
+    // Close the peer connection so it doesn't linger as a zombie
+    let _ = peer_connection.close().await;
+    let mut pc_lock = app_state.peer_connection.lock().await;
+    *pc_lock = None;
+    eprintln!("[STREAM] Peer connection closed and removed from state");
 }
 
 // ---------------------------------------------------------------------------
