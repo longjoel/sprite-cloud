@@ -76,6 +76,7 @@ export const commands = pgTable("commands", {
   // shape varies by command type
   status: text("status").notNull().default("pending"),
   // pending → delivered
+  workerToken: text("worker_token"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
