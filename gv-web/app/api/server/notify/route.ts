@@ -1,0 +1,101 @@
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { commands, sessions, servers } from "@/lib/db/schema";
+import { verifyBearerToken, unauthorizedResponse } from "@/lib/server-auth";
+import { eq } from "drizzle-orm";
+
+// ── Types ──────────────────────────────────────────────────────────────
+
+interface NotifyBody {
+  command_id: string;
+  worker_url: string;
+  game_id: string;
+}
+
+// ── POST — gv-server reports worker URL after spawn ────────────────────
+
+export async function POST(request: NextRequest) {
+  const server = await verifyBearerToken(request.headers.get("authorization"));
+  if (!server) return unauthorizedResponse();
+
+  let body: NotifyBody;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "invalid json" }, { status: 400 });
+  }
+
+  if (!body.command_id || !body.worker_url || !body.game_id) {
+    return NextResponse.json(
+      { error: "command_id, worker_url, and game_id required" },
+      { status: 400 },
+    );
+  }
+
+  // Verify this server owns the command
+  const [cmd] = await db
+    .select({ id: commands.id })
+    .from(commands)
+    .where(eq(commands.id, body.command_id))
+    .limit(1);
+
+  if (!cmd) {
+    return NextResponse.json({ error: "command not found" }, { status: 404 });
+  }
+
+  // Create a session record (or update existing one for this command)
+  const [existing] = await db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(eq(sessions.commandId, body.command_id))
+    .limit(1);
+
+  if (existing) {
+    await db
+      .update(sessions)
+      .set({ workerUrl: body.worker_url, status: "ready" })
+      .where(eq(sessions.id, existing.id));
+  } else {
+    await db.insert(sessions).values({
+      userId: server.userId,
+      serverId: server.id,
+      gameId: body.game_id,
+      commandId: body.command_id,
+      workerUrl: body.worker_url,
+      status: "ready",
+    });
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
+// ── GET — browser polls for worker URL ─────────────────────────────────
+
+export async function GET(request: NextRequest) {
+  const serverId = request.nextUrl.searchParams.get("server_id");
+  if (!serverId) {
+    return NextResponse.json({ error: "server_id required" }, { status: 400 });
+  }
+
+  // Return the latest ready session for this server
+  const [session] = await db
+    .select({
+      workerUrl: sessions.workerUrl,
+      gameId: sessions.gameId,
+      status: sessions.status,
+    })
+    .from(sessions)
+    .where(eq(sessions.serverId, serverId))
+    .orderBy(sessions.createdAt)
+    .limit(1);
+
+  if (!session || !session.workerUrl) {
+    return NextResponse.json({ worker_url: null });
+  }
+
+  return NextResponse.json({
+    worker_url: session.workerUrl,
+    game_id: session.gameId,
+    status: session.status,
+  });
+}

@@ -41,6 +41,14 @@ pub struct PollResponse {
     pub next_poll_ms: u64,
 }
 
+/// Body for POST /api/server/notify.
+#[derive(Debug, Serialize)]
+struct NotifyBody {
+    command_id: String,
+    worker_url: String,
+    game_id: String,
+}
+
 // ── Client ────────────────────────────────────────────────────────────
 
 pub struct GvWebClient {
@@ -131,5 +139,34 @@ impl GvWebClient {
         resp.json::<PollResponse>()
             .await
             .context("parse poll response")
+    }
+
+    /// POST /api/server/notify — report worker URL after spawning.
+    ///
+    /// Called after `start_game` spawns a gv-worker so gv-web can
+    /// surface the connect URL to the browser.
+    pub async fn notify(&self, command_id: &str, worker_url: &str, game_id: &str) -> Result<()> {
+        let url = format!("{}/api/server/notify", self.base_url);
+
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(&self.auth.api_key)
+            .json(&NotifyBody {
+                command_id: command_id.to_string(),
+                worker_url: worker_url.to_string(),
+                game_id: game_id.to_string(),
+            })
+            .send()
+            .await
+            .context("POST /api/server/notify — network error")?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("notify failed (HTTP {}): {}", status.as_u16(), body);
+        }
+
+        Ok(())
     }
 }
