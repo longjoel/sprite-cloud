@@ -215,8 +215,7 @@ app.UseMiddleware<ProfileSessionEnforcementMiddleware>();
 
 app.UseAuthorization();
 
-app.MapGet("/health", async (IServiceScopeFactory scopeFactory,
-    ILogger<Program> logger) =>
+app.MapGet("/health", async (IServiceScopeFactory scopeFactory) =>
 {
     try
     {
@@ -224,46 +223,23 @@ app.MapGet("/health", async (IServiceScopeFactory scopeFactory,
         var db = scope.ServiceProvider.GetRequiredService<games_vault.Data.AppDbContext>();
         await db.Database.ExecuteSqlRawAsync("SELECT 1");
 
-        // Check Nosebleed
-        var nosebleedOptions = scope.ServiceProvider.GetRequiredService<IOptions<NosebleedOptions>>();
-        var nosebleedStatus = "Healthy";
-        var nosebleedDesc = "Nosebleed disabled.";
-        if (nosebleedOptions.Value.Enabled)
-        {
-            if (string.IsNullOrWhiteSpace(nosebleedOptions.Value.BinaryPath))
-                nosebleedDesc = "Nosebleed enabled but BinaryPath empty.";
-            else if (!System.IO.File.Exists(nosebleedOptions.Value.BinaryPath))
-                nosebleedDesc = $"Nosebleed binary missing at '{nosebleedOptions.Value.BinaryPath}'.";
-            else
-            {
-                var sessionManager = scope.ServiceProvider.GetRequiredService<NosebleedSessionManager>();
-                sessionManager.Cleanup();
-                var sessions = sessionManager.GetSessions();
-                var exited = sessions.Count(s => s.HasExited);
-                var alive = sessions.Count(s => !s.HasExited);
-                nosebleedDesc = $"Nosebleed binary present. {alive} active session(s).{(exited > 0 ? $" {exited} zombie(s) found." : "")}";
-            }
-        }
-
         return Results.Json(new
         {
             status = "Healthy",
             checks = new Dictionary<string, object>
             {
-                ["database"] = new { status = "Healthy", description = "Database is reachable.", error = (string?)null, duration = 0 },
-                ["nosebleed"] = new { status = "Healthy", description = nosebleedDesc, error = (string?)null, duration = 0 }
+                ["database"] = new { status = "Healthy", description = "Database is reachable." }
             }
         });
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Health check failed");
         return Results.Json(new
         {
             status = "Unhealthy",
             checks = new Dictionary<string, object>
             {
-                ["database"] = new { status = "Unhealthy", description = ex.Message, error = ex.ToString(), duration = 0 }
+                ["database"] = new { status = "Unhealthy", description = ex.Message }
             }
         }, statusCode: 503);
     }
