@@ -225,7 +225,7 @@ app.MapGet("/health", async (IServiceScopeFactory scopeFactory,
         await db.Database.ExecuteSqlRawAsync("SELECT 1");
 
         // Check Nosebleed
-        var nosebleedOptions = scope.ServiceProvider.GetRequiredService<IOptions<Nosebleed.NosebleedOptions>>();
+        var nosebleedOptions = scope.ServiceProvider.GetRequiredService<IOptions<NosebleedOptions>>();
         var nosebleedStatus = "Healthy";
         var nosebleedDesc = "Nosebleed disabled.";
         if (nosebleedOptions.Value.Enabled)
@@ -236,7 +236,7 @@ app.MapGet("/health", async (IServiceScopeFactory scopeFactory,
                 nosebleedDesc = $"Nosebleed binary missing at '{nosebleedOptions.Value.BinaryPath}'.";
             else
             {
-                var sessionManager = scope.ServiceProvider.GetRequiredService<Nosebleed.NosebleedSessionManager>();
+                var sessionManager = scope.ServiceProvider.GetRequiredService<NosebleedSessionManager>();
                 sessionManager.Cleanup();
                 var sessions = sessionManager.GetSessions();
                 var exited = sessions.Count(s => s.HasExited);
