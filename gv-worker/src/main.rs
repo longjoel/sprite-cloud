@@ -507,7 +507,7 @@ function stopAll() {{
 // ---------------------------------------------------------------------------
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let port: u16 = std::env::args()
         .nth(1)
         .and_then(|p| p.parse().ok())
@@ -533,10 +533,11 @@ async fn main() {
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    let actual_port = listener.local_addr().unwrap().port();
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let actual_port = listener.local_addr()?.port();
 
     println!("gv-worker listening on port {}", actual_port);
     eprintln!("open http://localhost:{}", actual_port);
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app).await?;
+    Ok(())
 }
