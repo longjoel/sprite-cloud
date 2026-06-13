@@ -5,6 +5,7 @@ fn save_and_load_roundtrip() {
     let cfg = Config {
         gv_web: gv_server::config::GvWeb {
             url: "http://localhost:3001".into(),
+            worker_bin: None,
         },
         auth: gv_server::config::Auth {
             api_key: "gvsk_test_key_12345".into(),

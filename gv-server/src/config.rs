@@ -15,6 +15,15 @@ pub struct Config {
 pub struct GvWeb {
     /// Base URL of the gv-web instance (e.g. "https://games.example.com")
     pub url: String,
+    /// Path to the gv-worker binary (optional).
+    ///
+    /// When set, overrides the `GV_WORKER_BIN` env var and the auto-detection
+    /// fallback (`./target/release/gv-worker` → `./target/debug/gv-worker`).
+    ///
+    /// Useful for production deployments where the binary lives outside the
+    /// Cargo target directory (e.g. `/opt/games-vault/gv-worker`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worker_bin: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -17,9 +17,20 @@ use tokio::process::{Child, Command};
 
 // ── Constants (no magic values) ───────────────────────────────────────
 
-/// Path to the gv-worker binary.
-/// In dev: `./target/debug/gv-worker`.  Set `GV_WORKER_BIN` to override.
-const DEFAULT_WORKER_BIN: &str = "./target/debug/gv-worker";
+/// Auto-detect the gv-worker binary.
+///
+/// Tries `./target/release/gv-worker` first, falls back to
+/// `./target/debug/gv-worker`.  Set `GV_WORKER_BIN` env var or
+/// `config.toml` `gv_web.worker_bin` to override.
+fn default_worker_bin() -> String {
+    let release = "./target/release/gv-worker";
+    let debug = "./target/debug/gv-worker";
+    if std::path::Path::new(release).exists() {
+        release.to_string()
+    } else {
+        debug.to_string()
+    }
+}
 
 /// How long to wait for gv-worker to print its port before giving up.
 const PORT_READ_TIMEOUT_SECS: u64 = 5;
@@ -126,6 +137,20 @@ impl SpawnedWorker {
     }
 }
 
+// ── Resolution ────────────────────────────────────────────────────────
+
+/// Resolve the worker binary path.  Public for testing.
+///
+/// 1. `override` (from config.toml `gv_web.worker_bin`)
+/// 2. `GV_WORKER_BIN` env var
+/// 3. Auto-detect (`./target/release/gv-worker` → `./target/debug/gv-worker`)
+pub fn resolve_worker_bin(override_: Option<&str>) -> String {
+    match override_ {
+        Some(path) => path.to_string(),
+        None => std::env::var("GV_WORKER_BIN").unwrap_or_else(|_| default_worker_bin()),
+    }
+}
+
 // ── Spawn ──────────────────────────────────────────────────────────────
 
 /// Spawn a gv-worker on a random port and return a handle to it.
@@ -137,8 +162,13 @@ impl SpawnedWorker {
 ///
 /// The port number is parsed directly from the structured line —
 /// no fragile string scraping.
-pub async fn spawn_worker(game_id: &str) -> Result<SpawnedWorker> {
-    let bin = std::env::var("GV_WORKER_BIN").unwrap_or_else(|_| DEFAULT_WORKER_BIN.to_string());
+///
+/// `worker_bin_override` — path to the worker binary.  Resolution order:
+/// 1. This argument (from `config.toml` `gv_web.worker_bin`)
+/// 2. `GV_WORKER_BIN` env var
+/// 3. Auto-detect (`./target/release/gv-worker` → `./target/debug/gv-worker`)
+pub async fn spawn_worker(game_id: &str, worker_bin_override: Option<&str>) -> Result<SpawnedWorker> {
+    let bin = resolve_worker_bin(worker_bin_override);
 
     // Pass port 0 — gv-worker binds a random available port and prints it
     let mut child = Command::new(&bin)
@@ -339,5 +369,34 @@ mod tests {
     /// Check whether a process with `pid` is still running.
     fn is_process_alive(pid: u32) -> bool {
         unsafe { libc::kill(pid as i32, 0) == 0 }
+    }
+
+    // ── resolve_worker_bin tests ───────────────────────────────────
+
+    /// config.toml override wins over everything.
+    #[test]
+    fn override_wins() {
+        let path = resolve_worker_bin(Some("/opt/gv-worker"));
+        assert_eq!(path, "/opt/gv-worker");
+    }
+
+    /// GV_WORKER_BIN env var wins over auto-detect.
+    #[test]
+    fn env_var_wins_over_auto_detect() {
+        unsafe { std::env::set_var("GV_WORKER_BIN", "/tmp/test-gv-worker") };
+        let path = resolve_worker_bin(None);
+        assert_eq!(path, "/tmp/test-gv-worker");
+        unsafe { std::env::remove_var("GV_WORKER_BIN") };
+    }
+
+    /// Auto-detect returns one of the two expected paths.
+    #[test]
+    fn auto_detect_returns_valid_path() {
+        unsafe { std::env::remove_var("GV_WORKER_BIN") };
+        let path = resolve_worker_bin(None);
+        assert!(
+            path == "./target/release/gv-worker" || path == "./target/debug/gv-worker",
+            "expected release or debug path, got: {path}"
+        );
     }
 }
