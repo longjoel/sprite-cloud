@@ -6,15 +6,38 @@ Retro game library and browser-based streaming. Monorepo.
 
 ```
 gv-web          Next.js website (hosting, auth, library management)
-gv-player       JavaScript client for playing games in-browser
-gv-server       Rust binary — runs on the user's computer, serves ROM library
-gv-worker       Rust binary — per-game worker process launched by gv-server
+gv-player       Vanilla JS WebRTC client — connects to gv-worker, plays video
+gv-server       Rust binary — polls gv-web, spawns gv-worker on demand
+gv-worker       Rust binary — per-game WebRTC peer + VP8 encoder (libvpx)
 ```
 
-## Reference
+## Quick start
 
-The previous ASP.NET Core monolith lives on `main`. `git checkout main` to browse.
+```bash
+# 1. gv-web
+cd gv-web
+cp .env.example .env.local   # fill in GitHub OAuth + DB + SERVER_API_KEY
+pnpm install
+pnpm db:push                  # create tables
+pnpm dev                      # http://localhost:3001
+
+# 2. Pair a server
+cd ..
+cargo run -p gv-server -- pair <code-from-/dev>
+
+# 3. Start the server
+cargo run -p gv-server -- start
+
+# 4. Build the worker
+cargo build -p gv-worker
+
+# 5. Play — hit /dev, enter server_id, click Play
+```
+
+## Environment variables
+
+See `.env.example` (Rust binaries) and `gv-web/.env.example` (Next.js).
 
 ## Status
 
-Early development.
+Early development — MVP video path working (WebRTC P2P, VP8 test pattern).
