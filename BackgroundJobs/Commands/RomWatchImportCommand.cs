@@ -1,5 +1,7 @@
 using System.Text.Json;
 using games_vault.Libretro.Import;
+using games_vault.Models;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 namespace games_vault.BackgroundJobs.Commands;
@@ -56,6 +58,10 @@ public sealed class RomWatchImportCommand(
                     $"  Game #{group.GameId}: {group.GameName} ({group.SystemName}) — {group.MatchedFileCount} file(s)",
                     cancellationToken);
             }
+
+            // Ensure the watch folder root is registered as an allowed path so
+            // ExternalPath-based game files can be resolved for playback.
+            await EnsureWatchFolderAllowedAsync(context, cancellationToken);
 
             return new ImportCounts(result.TotalScannedFileCount, result.TotalMatchedFileCount, 0);
         }
@@ -151,5 +157,37 @@ public sealed class RomWatchImportCommand(
         }
 
         throw new IOException("Unable to create a unique filename in staging.");
+    }
+
+    private async Task EnsureWatchFolderAllowedAsync(
+        BackgroundJobExecutionContext context,
+        CancellationToken cancellationToken)
+    {
+        var watchPath = storageOptions.Value.WatchFolder?.Path;
+        if (string.IsNullOrWhiteSpace(watchPath))
+        {
+            return;
+        }
+
+        var fullPath = Path.GetFullPath(watchPath);
+        var exists = await context.Db.LocalFolders
+            .AnyAsync(f => f.Enabled && f.RootPath == fullPath, cancellationToken);
+
+        if (exists)
+        {
+            return;
+        }
+
+        context.Db.LocalFolders.Add(new LocalFolder
+        {
+            Name = "Watch folder",
+            RootPath = fullPath,
+            Enabled = true,
+            CreatedUtc = DateTime.UtcNow
+        });
+        await context.Db.SaveChangesAsync(cancellationToken);
+        await context.LogInfoAsync(
+            $"rom.watch: registered watch folder as allowed local path: {fullPath}",
+            cancellationToken);
     }
 }
