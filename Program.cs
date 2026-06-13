@@ -112,10 +112,12 @@ builder.Services.AddScoped<IBackgroundJobClient, BackgroundJobClient>();
 builder.Services.AddSingleton<BackgroundJobCommandRegistry>(_ => new BackgroundJobCommandRegistry(new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase)
 {
     ["preview.generate"] = typeof(GeneratePreviewCommand),
-    ["art.backfill"] = typeof(GameArtBackfillCommand)
+    ["art.backfill"] = typeof(GameArtBackfillCommand),
+    ["libretro.sync"] = typeof(SyncLibretroDatabaseCommand)
 }));
 builder.Services.AddTransient<GeneratePreviewCommand>();
 builder.Services.AddTransient<GameArtBackfillCommand>();
+builder.Services.AddTransient<SyncLibretroDatabaseCommand>();
 builder.Services.AddHostedService<BackgroundJobWorker>();
 builder.Services.AddHostedService<NosebleedReconciliationService>();
 
