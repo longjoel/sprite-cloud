@@ -58,6 +58,8 @@ async fn cmd_pair(code: &str, gv_web_url: &str) -> Result<()> {
     let cfg = config::Config {
         gv_web: config::GvWeb {
             url: gv_web_url.to_string(),
+            // Persist the GV_WORKER_BIN env var if set at pairing time
+            worker_bin: std::env::var("GV_WORKER_BIN").ok(),
         },
         auth: config::Auth {
             api_key: resp.api_key.clone(),
@@ -88,6 +90,9 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
     }
 
     let client = gv_web::GvWebClient::new(cfg.gv_web.url.clone(), cfg.auth.clone());
+
+    // Extract optional worker_bin override before cfg is consumed
+    let worker_bin = cfg.gv_web.worker_bin.clone();
 
     // Verify the API key is still valid
     let verify = client.verify().await?;
@@ -136,7 +141,7 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         cmd.id, game_id
                                     );
 
-                                    match worker::spawn_worker(game_id).await {
+                                    match worker::spawn_worker(game_id, worker_bin.as_deref()).await {
                                         Ok(worker) => {
                                             let url = worker.url.clone();
                                             println!("[WORKER] spawned at {url}");

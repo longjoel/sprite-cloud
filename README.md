@@ -38,6 +38,25 @@ cargo build -p gv-worker
 
 See `.env.example` (Rust binaries) and `gv-web/.env.example` (Next.js).
 
+## Deployment
+
+For production, build with `--release` and set the worker binary path in
+`~/.config/games-vault/config.toml`:
+
+```toml
+[gv_web]
+url = "https://games.example.com"
+worker_bin = "/opt/games-vault/gv-worker"   # production binary
+
+[auth]
+api_key = "gvsk_..."
+server_id = "a0000000-..."
+```
+
+`worker_bin` is optional — without it gv-server auto-detects
+(`./target/release/gv-worker` → `./target/debug/gv-worker`) or falls back
+to the `GV_WORKER_BIN` env var.
+
 ## Status
 
 Early development — MVP video path working (WebRTC P2P, VP8 test pattern).
