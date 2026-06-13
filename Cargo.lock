@@ -1350,6 +1350,7 @@ dependencies = [
  "clap",
  "dirs",
  "hex",
+ "libc",
  "local-ip-address",
  "rand 0.8.6",
  "reqwest",
