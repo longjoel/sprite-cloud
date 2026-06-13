@@ -132,8 +132,11 @@ impl SpawnedWorker {
 ///
 /// Writes a PID file to `/tmp/gv-workers/<game_id>.pid` for crash recovery.
 ///
-/// Reads stderr line-by-line until it finds the `open http://localhost:<port>`
-/// line that gv-worker prints on startup.
+/// Reads stderr line-by-line until it finds the `WORKER_READY port=<N>`
+/// line that gv-worker prints on startup (structured contract).
+///
+/// The port number is parsed directly from the structured line —
+/// no fragile string scraping.
 pub async fn spawn_worker(game_id: &str) -> Result<SpawnedWorker> {
     let bin = std::env::var("GV_WORKER_BIN").unwrap_or_else(|_| DEFAULT_WORKER_BIN.to_string());
 
@@ -154,44 +157,63 @@ pub async fn spawn_worker(game_id: &str) -> Result<SpawnedWorker> {
     let stderr = child.stderr.take().context("no stderr pipe")?;
     let mut reader = BufReader::new(stderr).lines();
 
-    // Wait for the "open http://localhost:<port>" line
-    let port_line = tokio::time::timeout(
-        std::time::Duration::from_secs(PORT_READ_TIMEOUT_SECS),
-        async {
-            loop {
-                match reader.next_line().await {
-                    Ok(Some(line)) => {
-                        eprintln!("[WORKER] {}", line);
-                        if line.contains("open http://localhost:") {
-                            return Some(line);
+    // Collect lines for diagnostics on timeout
+    let lines_seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+
+    // Wait for the "WORKER_READY port=<N>" line
+    let port: u16 = {
+        let lines_seen = lines_seen.clone();
+        tokio::time::timeout(
+            std::time::Duration::from_secs(PORT_READ_TIMEOUT_SECS),
+            async {
+                loop {
+                    match reader.next_line().await {
+                        Ok(Some(line)) => {
+                            eprintln!("[WORKER] {line}");
+                            lines_seen.lock().unwrap().push(line.clone());
+                            if let Some(rest) = line.strip_prefix("WORKER_READY port=") {
+                                return rest.trim().parse().ok();
+                            }
                         }
+                        _ => return None,
                     }
-                    _ => return None,
+                }
+            },
+        )
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| {
+            // Timeout — dump what we saw for debugging
+            let seen: Vec<_> = lines_seen.lock().unwrap().drain(..).collect();
+            if seen.is_empty() {
+                eprintln!(
+                    "[WORKER] timeout after {PORT_READ_TIMEOUT_SECS}s — no stderr output from worker"
+                );
+            } else {
+                eprintln!(
+                    "[WORKER] timeout after {PORT_READ_TIMEOUT_SECS}s — received lines:"
+                );
+                for line in &seen {
+                    eprintln!("[WORKER]   {line}");
                 }
             }
-        },
-    )
-    .await
-    .ok()
-    .flatten()
-    .context("gv-worker didn't print port within timeout")?;
+            0
+        })
+    };
+
+    if port == 0 {
+        anyhow::bail!("gv-worker didn't print WORKER_READY port=<N> within {PORT_READ_TIMEOUT_SECS}s");
+    }
 
     // Spawn a background task to keep reading stderr (so child doesn't block)
     tokio::spawn(async move {
         while let Ok(Some(line)) = reader.next_line().await {
-            eprintln!("[WORKER] {}", line);
+            eprintln!("[WORKER] {line}");
         }
     });
 
-    // Parse port from the line
-    let port: u16 = port_line
-        .split("localhost:")
-        .nth(1)
-        .and_then(|s| s.trim().split_whitespace().next()?.parse().ok())
-        .context("failed to parse port from worker startup line")?;
-
     let url = format!("http://{}:{}", worker_host(), port);
-
     Ok(SpawnedWorker {
         url,
         game_id: game_id.to_string(),
