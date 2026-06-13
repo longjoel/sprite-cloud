@@ -1,0 +1,29 @@
+bin/
+obj/
+publish/
+.vs/
+.vscode/
+.idea/
+
+# Build artifacts
+*.suo
+*.user
+*.DotSettings.user
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+*.env
+!*.env.example
+
+# Node
+node_modules/
+dist/
+
+# Rust (future)
+target/
