@@ -117,6 +117,7 @@ builder.Services.AddSingleton<BackgroundJobCommandRegistry>(_ => new BackgroundJ
 builder.Services.AddTransient<GeneratePreviewCommand>();
 builder.Services.AddTransient<GameArtBackfillCommand>();
 builder.Services.AddHostedService<BackgroundJobWorker>();
+builder.Services.AddHostedService<NosebleedReconciliationService>();
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
