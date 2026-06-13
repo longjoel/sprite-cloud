@@ -87,6 +87,7 @@ export const sessions = pgTable("sessions", {
     .references(() => users.id)
     .notNull(),
   serverId: uuid("server_id").references(() => servers.id),
+  commandId: uuid("command_id").references(() => commands.id),
   gameId: text("game_id").notNull(),
   workerUrl: text("worker_url"),
   status: text("status").notNull().default("pending"),

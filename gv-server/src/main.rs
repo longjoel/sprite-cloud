@@ -112,8 +112,27 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                         );
 
                         if cmd.command_type == "start_game" {
+                            let game_id = cmd
+                                .payload
+                                .get("game_id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("unknown");
+                            println!(
+                                "[POLL] start_game command {} (game: {})",
+                                cmd.id, game_id
+                            );
+
                             match worker::spawn_worker().await {
-                                Ok(url) => println!("[WORKER] spawned at {url}"),
+                                Ok(url) => {
+                                    println!("[WORKER] spawned at {url}");
+                                    // Notify gv-web so the browser can pick up the URL
+                                    if let Err(e) = client
+                                        .notify(&cmd.id, &url, game_id)
+                                        .await
+                                    {
+                                        eprintln!("[NOTIFY] failed: {e:#}");
+                                    }
+                                }
                                 Err(e) => eprintln!("[WORKER] spawn failed: {e:#}"),
                             }
                         }

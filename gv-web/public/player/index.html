@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Games Vault — Player</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; display: flex; flex-direction: column;
+         align-items: center; justify-content: center; height: 100vh;
+         color: #aaa; font: 14px monospace; }
+  video { image-rendering: pixelated; max-width: 100vw; max-height: 80vh;
+          border: 1px solid #222; }
+  #status { margin-top: 12px; font-size: 12px; opacity: 0.6; }
+  .error { color: #f44; }
+</style>
+</head>
+<body>
+<video id="video" autoplay playsinline muted></video>
+<pre id="status">connecting…</pre>
+<script type="module" src="index.js"></script>
+</body>
+</html>
