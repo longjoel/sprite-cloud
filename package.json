@@ -1,0 +1,9 @@
+{
+  "name": "games-vault",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter gv-web dev",
+    "build": "pnpm --filter gv-web build",
+    "lint": "pnpm -r lint"
+  }
+}

@@ -1,0 +1,11 @@
+[package]
+name = "gv-server"
+version = "0.1.0"
+edition = "2024"
+description = "Games Vault server — runs on user's computer, serves ROM library"
+
+[[bin]]
+name = "gv-server"
+path = "src/main.rs"
+
+[dependencies]

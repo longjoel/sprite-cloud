@@ -1,0 +1,11 @@
+[package]
+name = "gv-worker"
+version = "0.1.0"
+edition = "2024"
+description = "Games Vault worker — per-game process launched by gv-server"
+
+[[bin]]
+name = "gv-worker"
+path = "src/main.rs"
+
+[dependencies]

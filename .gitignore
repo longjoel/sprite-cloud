@@ -24,6 +24,10 @@ Thumbs.db
 # Node
 node_modules/
 dist/
+.next/
 
-# Rust (future)
+# Rust
 target/
+
+# Next.js
+.next/
