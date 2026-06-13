@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { jsonb, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 
 // ── Users (created via OAuth) ────────────────────────────────────────
 
@@ -57,6 +57,25 @@ export const pairingCodes = pgTable("pairing_codes", {
   // pending → claimed → expired
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// ── Command queue (gv-server polls for pending work) ──────────────────
+//
+// Commands are transient — created by browser users, delivered to gv-server,
+// then marked delivered. Not the same as sessions (which track game lifecycle).
+
+export const commands = pgTable("commands", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  serverId: uuid("server_id")
+    .references(() => servers.id)
+    .notNull(),
+  type: text("type").notNull(),
+  // "start_game" | "stop_game" | "sdp_offer"
+  payload: jsonb("payload").notNull().default({}),
+  // shape varies by command type
+  status: text("status").notNull().default("pending"),
+  // pending → delivered
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

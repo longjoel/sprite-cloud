@@ -25,6 +25,22 @@ pub struct VerifyResponse {
     pub name: String,
 }
 
+/// A single command from the queue.
+#[derive(Debug, Deserialize)]
+pub struct Command {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub command_type: String,
+    pub payload: serde_json::Value,
+}
+
+/// Response from GET /api/server/poll.
+#[derive(Debug, Deserialize)]
+pub struct PollResponse {
+    pub commands: Vec<Command>,
+    pub next_poll_ms: u64,
+}
+
 // ── Client ────────────────────────────────────────────────────────────
 
 pub struct GvWebClient {
@@ -88,5 +104,32 @@ impl GvWebClient {
         resp.json::<VerifyResponse>()
             .await
             .context("parse verify response")
+    }
+
+    /// GET /api/server/poll — fetch pending commands.
+    ///
+    /// Returns a list of commands and the recommended next-poll interval
+    /// in milliseconds.  The server uses `next_poll_ms` verbatim — no
+    /// hardcoded polling intervals on the client side.
+    pub async fn poll(&self) -> Result<PollResponse> {
+        let url = format!("{}/api/server/poll", self.base_url);
+
+        let resp = self
+            .client
+            .get(&url)
+            .bearer_auth(&self.auth.api_key)
+            .send()
+            .await
+            .context("GET /api/server/poll — network error")?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("poll failed (HTTP {}): {}", status.as_u16(), body);
+        }
+
+        resp.json::<PollResponse>()
+            .await
+            .context("parse poll response")
     }
 }
