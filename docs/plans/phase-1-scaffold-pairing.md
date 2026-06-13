@@ -716,13 +716,14 @@ git commit -m "feat(gv-server): scaffold with pairing poll loop"
 
 ---
 
-## Task 10: Scaffold gv-worker with localhost HTTP server
+## Task 10: Scaffold gv-worker with localhost HTTP server and test pattern
 
-**Objective:** Minimal Rust binary that starts an HTTP server on a random port, accepts SDP offers.
+**Objective:** Minimal Rust binary that starts an HTTP server on a random port, accepts SDP offers, and generates a test video pattern when no libretro core is active.
 
 **Files:**
-- Modify: `gv-worker/Cargo.toml` (add axum)
+- Modify: `gv-worker/Cargo.toml` (add axum, webrtc)
 - Modify: `gv-worker/src/main.rs`
+- Create: `gv-worker/src/test_pattern.rs`
 
 **Step 1: Add dependencies**
 
@@ -733,6 +734,8 @@ tokio = { version = "1", features = ["full"] }
 axum = "0.7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+webrtc = "0.11"
+image = "0.25"
 ```
 
 **Step 2: Write worker entry point**
@@ -778,6 +781,94 @@ async fn main() {
 }
 ```
 
+**Step 2b: Create test pattern module**
+
+When started without a `--core` flag, gv-worker generates an animated color-bar test pattern as a video track. This lets us verify the full WebRTC transport before libretro integration.
+
+```rust
+// gv-worker/src/test_pattern.rs
+use image::{RgbImage, Rgb};
+
+/// Generate a single frame of SMPTE-style color bars at the given resolution.
+/// Returns raw RGB24 bytes (width * height * 3).
+pub fn generate_color_bars(width: u32, height: u32, frame: u64) -> Vec<u8> {
+    let colors = [
+        Rgb([192, 192, 192]), // white
+        Rgb([192, 192, 0]),   // yellow
+        Rgb([0, 192, 192]),   // cyan
+        Rgb([0, 192, 0]),     // green
+        Rgb([192, 0, 192]),   // magenta
+        Rgb([192, 0, 0]),     // red
+        Rgb([0, 0, 192]),     // blue
+    ];
+
+    let bar_width = width / 7;
+    let scroll_offset = (frame % height as u64) as u32; // scroll each frame
+
+    let mut img = RgbImage::new(width, height);
+    for y in 0..height {
+        let y_scrolled = (y + scroll_offset) % height;
+        for x in 0..width {
+            let bar = ((x / bar_width) as usize).min(6);
+            img.put_pixel(x, y_scrolled, colors[bar]);
+        }
+    }
+
+    img.into_raw()
+}
+
+/// Generate a bouncing DVD-logo-style square.
+pub fn generate_bouncing_square(width: u32, height: u32, frame: u64) -> Vec<u8> {
+    let size = 60u32;
+    let speed = 2u64;
+    let max_x = width - size;
+    let max_y = height - size;
+
+    let total = frame * speed;
+    let period_x = max_x as u64 * 2;
+    let period_y = max_y as u64 * 2;
+
+    let x = if (total / period_x) % 2 == 0 {
+        (total % period_x) as u32
+    } else {
+        max_x - (total % period_x) as u32
+    };
+    let y = if (total / period_y) % 2 == 0 {
+        (total % period_y) as u32
+    } else {
+        max_y - (total % period_y) as u32
+    };
+
+    let mut img = RgbImage::from_pixel(width, height, Rgb([16, 16, 24]));
+    for dy in 0..size {
+        for dx in 0..size {
+            img.put_pixel(x + dx, y + dy, Rgb([34, 211, 238])); // cyan square
+        }
+    }
+
+    img.into_raw()
+}
+```
+
+**Step 2c: Add test pattern route to worker**
+
+```rust
+// Add to gv-worker/src/main.rs router:
+use axum::routing::get;
+
+mod test_pattern;
+
+async fn handle_test_frame() -> Vec<u8> {
+    // Return a single frame as raw RGB24
+    test_pattern::generate_color_bars(320, 240, 0)
+}
+
+// In main():
+let app = Router::new()
+    .route("/sdp", post(handle_offer))
+    .route("/test-frame", get(|| async { axum::body::Bytes::from(handle_test_frame().await) }));
+```
+
 **Step 3: Build and test**
 
 ```bash
@@ -789,6 +880,11 @@ curl -X POST http://127.0.0.1:9001/sdp \
   -H "Content-Type: application/json" \
   -d '{"sdp":"test offer"}'
 # Expected: {"sdp":"answer to: test offer"}
+
+# Test test pattern frame
+curl http://127.0.0.1:9001/test-frame -o /tmp/frame.rgb
+# Expected: 230400 bytes (320 * 240 * 3)
+
 kill %1
 ```
 
@@ -935,15 +1031,16 @@ git commit -m "feat(gv-player): SSE-based player scaffold"
 - [ ] After entering code on gv-web, gv-server prints "Paired!"
 - [ ] `GET /api/commands` returns empty commands with pollMs=2000
 - [ ] `cargo run` in gv-worker starts HTTP server, responds to SDP
+- [ ] `GET /test-frame` returns raw RGB24 frame (320 * 240 * 3 = 230400 bytes)
 - [ ] `node -c gv-player/index.js` passes
 
 ---
 
 ## Next Phase (not in this plan)
 
-- gv-server spawns gv-worker with actual libretro core
+- gv-server spawns gv-worker (no core = test pattern; with core = libretro)
 - Browser creates WebRTC offer → gv-web queues → gv-server proxies to worker
 - Worker generates actual SDP answer → flows back through gv-server → gv-web → browser SSE
-- WebRTC P2P video between browser and worker
+- WebRTC P2P video between browser and worker (verified first with test pattern)
 - TURN fallback configuration
 - ROM library scanning and indexing
