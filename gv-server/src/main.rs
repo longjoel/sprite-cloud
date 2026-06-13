@@ -98,6 +98,9 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
 
     println!("gv-server running — polling for commands...");
 
+    // Kill any workers orphaned by a previous crash
+    worker::reap_stale_workers();
+
     const POLL_ERROR_BACKOFF_MS: u64 = 5_000;
 
     // Track spawned workers so we can kill them on shutdown.
@@ -133,7 +136,7 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         cmd.id, game_id
                                     );
 
-                                    match worker::spawn_worker().await {
+                                    match worker::spawn_worker(game_id).await {
                                         Ok(worker) => {
                                             let url = worker.url.clone();
                                             println!("[WORKER] spawned at {url}");

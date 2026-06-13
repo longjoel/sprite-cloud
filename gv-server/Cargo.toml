@@ -26,6 +26,6 @@ hex = "0.4"
 anyhow = "1"
 url = "2"
 local-ip-address = "0.6.13"
+libc = "0.2"
 
 [dev-dependencies]
-libc = "0.2"
