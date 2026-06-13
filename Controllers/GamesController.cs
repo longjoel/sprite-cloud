@@ -662,13 +662,40 @@ public class GamesController(
             .Take(filePageSize)
             .ToListAsync(cancellationToken);
 
+        var saves = await db.ProfileGameSaves
+            .AsNoTracking()
+            .Include(s => s.Profile)
+            .Include(s => s.GameFile)
+            .Include(s => s.LatestRevision)
+            .Where(s => s.GameId == game.Id)
+            .ToListAsync(cancellationToken);
+
+        var artifacts = saves
+            .Where(s => s.LatestRevision is not null)
+            .Select(s => new games_vault.Models.ViewModels.GameDetailsArtifact
+            {
+                ProfileName = s.Profile?.DisplayName ?? "Deleted profile",
+                ProfileId = s.ProfileId,
+                GameFileName = s.GameFile?.Name ?? s.FileName,
+                Key = s.Key,
+                Kind = s.Kind,
+                SizeBytes = s.LatestRevision!.SizeBytes,
+                CreatedUtc = s.LatestRevision.CreatedUtc,
+                Source = s.LatestRevision.Source,
+                ProfileGameSaveId = s.Id,
+                GameFileId = s.GameFileId
+            })
+            .OrderByDescending(a => a.CreatedUtc)
+            .ToList();
+
         return View(new games_vault.Models.ViewModels.GameDetailsViewModel
         {
             Game = game,
             Files = files,
             FilePage = filePage,
             FilePageSize = filePageSize,
-            FileTotalCount = totalCount
+            FileTotalCount = totalCount,
+            SaveArtifacts = artifacts
         });
     }
 
