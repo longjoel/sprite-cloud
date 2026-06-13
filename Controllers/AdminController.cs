@@ -261,6 +261,21 @@ public sealed class AdminController(
         TempData["AdminMessage"] = $"Stream settings saved. New sessions will use GStreamer with {saved.PreferredVideoTransport} transport.";
         return Redirect($"{Url.Action(nameof(Index))}#admin-stream-settings");
     }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> RunValidation(
+        bool validateCores = true,
+        bool validateSystemFiles = true,
+        CancellationToken cancellationToken = default)
+    {
+        var client = HttpContext.RequestServices.GetRequiredService<IBackgroundJobClient>();
+        var jobId = await client.EnqueueAsync("validation.run",
+            new BackgroundJobs.Commands.ValidationRunPayload(ValidateCores: validateCores, ValidateSystemFiles: validateSystemFiles),
+            cancellationToken: cancellationToken);
+        TempData["AdminMessage"] = $"Validation job #{jobId} queued.";
+        return RedirectToAction(nameof(Index));
+    }
 }
 
 internal sealed record AdminRuntimeRoomRow(

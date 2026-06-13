@@ -115,13 +115,15 @@ builder.Services.AddSingleton<BackgroundJobCommandRegistry>(_ => new BackgroundJ
     ["art.backfill"] = typeof(GameArtBackfillCommand),
     ["libretro.sync"] = typeof(SyncLibretroDatabaseCommand),
     ["upload.import"] = typeof(ImportUploadStagingCommand),
-    ["rom.watch"] = typeof(RomWatchImportCommand)
+    ["rom.watch"] = typeof(RomWatchImportCommand),
+    ["validation.run"] = typeof(ValidationRunCommand)
 }));
 builder.Services.AddTransient<GeneratePreviewCommand>();
 builder.Services.AddTransient<GameArtBackfillCommand>();
 builder.Services.AddTransient<SyncLibretroDatabaseCommand>();
 builder.Services.AddTransient<ImportUploadStagingCommand>();
 builder.Services.AddTransient<RomWatchImportCommand>();
+builder.Services.AddTransient<ValidationRunCommand>();
 builder.Services.AddHostedService<BackgroundJobWorker>();
 builder.Services.AddHostedService<RomFolderWatcher>();
 builder.Services.AddHostedService<NosebleedReconciliationService>();
