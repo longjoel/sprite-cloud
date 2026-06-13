@@ -21,10 +21,8 @@
     .card { background: rgba(15, 23, 42, 0.5); border-radius: 0.75rem; border: 1px solid #1e293b; padding: 1.25rem; }
     .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
     .card-dot { width: 8px; height: 8px; border-radius: 50%; }
-    .card-dot.cyan { background: #22d3ee; }
-    .card-dot.emerald { background: #34d399; }
-    .card-dot.violet { background: #a78bfa; }
-    .card-dot.amber { background: #fbbf24; }
+    .card-dot.cyan { background: #22d3ee; } .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; } .card-dot.amber { background: #fbbf24; }
     .card-dot.rose { background: #fb7185; }
     .card h3 { font-size: 0.875rem; font-weight: 600; }
     .card ul { list-style: none; color: #94a3b8; font-size: 0.75rem; }
@@ -39,215 +37,216 @@
         <div class="pulse-dot"></div>
         <h1>Games Vault Architecture</h1>
       </div>
-      <p class="subtitle">Signaling-only web · WebRTC P2P · OAuth · gv-server on home PC</p>
+      <p class="subtitle">Pairing codes · OAuth · WebRTC P2P · Signaling-only web</p>
     </div>
 
     <div class="diagram-container">
-      <svg viewBox="0 0 1100 660">
+      <svg viewBox="0 0 1100 730">
         <defs>
-          <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-            <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
-          </marker>
-          <marker id="arrow-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-            <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee" />
-          </marker>
-          <marker id="arrow-emerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-            <polygon points="0 0, 10 3.5, 0 7" fill="#34d399" />
-          </marker>
-          <marker id="arrow-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-            <polygon points="0 0, 10 3.5, 0 7" fill="#fb7185" />
-          </marker>
-          <marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-            <polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24" />
-          </marker>
-          <marker id="arrow-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-            <polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa" />
-          </marker>
-          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
-          </pattern>
+          <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#64748b" /></marker>
+          <marker id="arrow-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee" /></marker>
+          <marker id="arrow-emerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#34d399" /></marker>
+          <marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24" /></marker>
+          <marker id="arrow-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa" /></marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>
         </defs>
-
         <rect width="100%" height="100%" fill="url(#grid)" />
 
-        <!-- Cloud region -->
-        <rect x="220" y="30" width="420" height="610" rx="12" fill="rgba(34, 211, 238, 0.03)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="8,4"/>
-        <text x="232" y="50" fill="#22d3ee" font-size="10" font-weight="600">Cloud</text>
+        <!-- Cloud -->
+        <rect x="230" y="30" width="420" height="680" rx="12" fill="rgba(34, 211, 238, 0.03)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="242" y="50" fill="#22d3ee" font-size="10" font-weight="600">Cloud</text>
 
-        <!-- Home PC region -->
-        <rect x="680" y="30" width="390" height="610" rx="12" fill="rgba(52, 211, 153, 0.03)" stroke="#34d399" stroke-width="1" stroke-dasharray="8,4"/>
+        <!-- Home PC -->
+        <rect x="680" y="30" width="390" height="680" rx="12" fill="rgba(52, 211, 153, 0.03)" stroke="#34d399" stroke-width="1" stroke-dasharray="8,4"/>
         <text x="692" y="50" fill="#34d399" font-size="10" font-weight="600">Home PC</text>
 
         <!-- gv-web -->
-        <rect x="260" y="90" width="180" height="120" rx="6" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"/>
-        <rect x="260" y="90" width="180" height="120" rx="6" fill="rgba(8, 51, 68, 0.45)" stroke="#22d3ee" stroke-width="1.5"/>
-        <rect x="272" y="102" width="156" height="30" rx="4" fill="rgba(8, 51, 68, 0.3)" stroke="#22d3ee" stroke-width="0.5" stroke-dasharray="2,2"/>
-        <text x="350" y="122" fill="white" font-size="11" font-weight="600" text-anchor="middle">Website</text>
-        <rect x="272" y="138" width="156" height="30" rx="4" fill="rgba(8, 51, 68, 0.3)" stroke="#22d3ee" stroke-width="0.5" stroke-dasharray="2,2"/>
-        <text x="350" y="158" fill="white" font-size="11" font-weight="600" text-anchor="middle">Signaling</text>
-        <rect x="272" y="174" width="156" height="24" rx="4" fill="rgba(8, 51, 68, 0.2)" stroke="#22d3ee" stroke-width="0.5" stroke-dasharray="2,2"/>
-        <text x="350" y="192" fill="#94a3b8" font-size="9" text-anchor="middle">Next.js · WS server</text>
-        <text x="350" y="212" fill="#22d3ee" font-size="8" text-anchor="middle">gv-web :443</text>
+        <rect x="260" y="90" width="190" height="130" rx="6" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"/>
+        <rect x="260" y="90" width="190" height="130" rx="6" fill="rgba(8, 51, 68, 0.45)" stroke="#22d3ee" stroke-width="1.5"/>
+        <rect x="272" y="102" width="166" height="28" rx="4" fill="rgba(8, 51, 68, 0.3)" stroke="#22d3ee" stroke-width="0.5" stroke-dasharray="2,2"/>
+        <text x="355" y="121" fill="white" font-size="11" font-weight="600" text-anchor="middle">Website</text>
+        <rect x="272" y="136" width="166" height="28" rx="4" fill="rgba(8, 51, 68, 0.3)" stroke="#22d3ee" stroke-width="0.5" stroke-dasharray="2,2"/>
+        <text x="355" y="155" fill="white" font-size="11" font-weight="600" text-anchor="middle">Signaling</text>
+        <rect x="272" y="170" width="166" height="28" rx="4" fill="rgba(8, 51, 68, 0.3)" stroke="#22d3ee" stroke-width="0.5" stroke-dasharray="2,2"/>
+        <text x="355" y="189" fill="white" font-size="11" font-weight="600" text-anchor="middle">Pairing Registry</text>
+        <text x="355" y="213" fill="#22d3ee" font-size="8" text-anchor="middle">gv-web :443</text>
 
         <!-- PostgreSQL -->
-        <rect x="470" y="135" width="150" height="55" rx="6" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"/>
-        <rect x="470" y="135" width="150" height="55" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
-        <text x="545" y="160" fill="white" font-size="11" font-weight="600" text-anchor="middle">PostgreSQL</text>
-        <text x="545" y="178" fill="#94a3b8" font-size="8" text-anchor="middle">Users · Games · Sessions</text>
+        <rect x="480" y="115" width="150" height="55" rx="6" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"/>
+        <rect x="480" y="115" width="150" height="55" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="555" y="140" fill="white" font-size="11" font-weight="600" text-anchor="middle">PostgreSQL</text>
+        <text x="555" y="158" fill="#94a3b8" font-size="8" text-anchor="middle">Users · Devices · Sessions</text>
+
+        <!-- Pairing input UI -->
+        <rect x="270" y="280" width="170" height="40" rx="6" fill="rgba(15, 23, 42, 0.9)" stroke="#fbbf24" stroke-width="1"/>
+        <rect x="280" y="290" width="60" height="20" rx="3" fill="rgba(251, 191, 36, 0.15)" stroke="#fbbf24" stroke-width="0.5"/>
+        <text x="310" y="305" fill="#fbbf24" font-size="12" font-weight="700" text-anchor="middle">A B 1 2</text>
+        <text x="360" y="305" fill="#94a3b8" font-size="8">Pair device</text>
+
+        <!-- Active sessions -->
+        <rect x="480" y="280" width="150" height="55" rx="6" fill="rgba(15, 23, 42, 0.7)" stroke="#22d3ee" stroke-width="1"/>
+        <text x="555" y="300" fill="white" font-size="10" font-weight="600" text-anchor="middle">Active Sessions</text>
+        <text x="555" y="318" fill="#94a3b8" font-size="8" text-anchor="middle">Sonic 3 · Tetris · ...</text>
 
         <!-- OAuth Provider -->
-        <rect x="180" y="300" width="150" height="120" rx="6" fill="#0f172a" stroke="#fbbf24" stroke-width="1.5"/>
-        <rect x="180" y="300" width="150" height="120" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-        <text x="255" y="328" fill="white" font-size="12" font-weight="600" text-anchor="middle">OAuth Provider</text>
-        <rect x="192" y="340" width="126" height="24" rx="4" fill="rgba(120, 53, 15, 0.2)" stroke="#fbbf24" stroke-width="0.5" stroke-dasharray="2,2"/>
-        <text x="255" y="358" fill="#94a3b8" font-size="9" text-anchor="middle">GitHub / Google</text>
-        <rect x="192" y="370" width="126" height="24" rx="4" fill="rgba(120, 53, 15, 0.2)" stroke="#fbbf24" stroke-width="0.5" stroke-dasharray="2,2"/>
-        <text x="255" y="388" fill="#94a3b8" font-size="9" text-anchor="middle">OIDC · OAuth 2.0</text>
+        <rect x="100" y="360" width="150" height="100" rx="6" fill="#0f172a" stroke="#fbbf24" stroke-width="1.5"/>
+        <rect x="100" y="360" width="150" height="100" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="175" y="388" fill="white" font-size="12" font-weight="600" text-anchor="middle">OAuth Provider</text>
+        <rect x="112" y="400" width="126" height="24" rx="4" fill="rgba(120, 53, 15, 0.2)" stroke="#fbbf24" stroke-width="0.5" stroke-dasharray="2,2"/>
+        <text x="175" y="418" fill="#94a3b8" font-size="9" text-anchor="middle">GitHub / Google</text>
+        <rect x="112" y="430" width="126" height="18" rx="4" fill="rgba(120, 53, 15, 0.2)" stroke="#fbbf24" stroke-width="0.5" stroke-dasharray="2,2"/>
+        <text x="175" y="444" fill="#94a3b8" font-size="8" text-anchor="middle">OIDC · OAuth 2.0</text>
 
-        <!-- TURN Server -->
-        <rect x="440" y="310" width="160" height="80" rx="6" fill="#0f172a" stroke="#fbbf24" stroke-width="1.5"/>
-        <rect x="440" y="310" width="160" height="80" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-        <text x="520" y="338" fill="white" font-size="11" font-weight="600" text-anchor="middle">TURN Server</text>
-        <text x="520" y="358" fill="#94a3b8" font-size="9" text-anchor="middle">STUN / TURN</text>
-        <text x="520" y="376" fill="#fbbf24" font-size="8" text-anchor="middle">coturn · Cloud TURN</text>
+        <!-- TURN -->
+        <rect x="310" y="360" width="160" height="80" rx="6" fill="#0f172a" stroke="#fbbf24" stroke-width="1.5"/>
+        <rect x="310" y="360" width="160" height="80" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="390" y="388" fill="white" font-size="11" font-weight="600" text-anchor="middle">TURN Server</text>
+        <text x="390" y="408" fill="#94a3b8" font-size="9" text-anchor="middle">STUN / TURN</text>
+        <text x="390" y="426" fill="#fbbf24" font-size="8" text-anchor="middle">coturn</text>
 
         <!-- gv-server -->
-        <rect x="740" y="90" width="160" height="70" rx="6" fill="#0f172a" stroke="#34d399" stroke-width="1.5"/>
-        <rect x="740" y="90" width="160" height="70" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="820" y="118" fill="white" font-size="12" font-weight="600" text-anchor="middle">gv-server</text>
-        <text x="820" y="137" fill="#94a3b8" font-size="9" text-anchor="middle">Rust · HTTP + WS</text>
-        <text x="820" y="152" fill="#34d399" font-size="8" text-anchor="middle">localhost:9000</text>
+        <rect x="740" y="90" width="170" height="90" rx="6" fill="#0f172a" stroke="#34d399" stroke-width="1.5"/>
+        <rect x="740" y="90" width="170" height="90" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="825" y="118" fill="white" font-size="12" font-weight="600" text-anchor="middle">gv-server</text>
+        <text x="825" y="137" fill="#94a3b8" font-size="9" text-anchor="middle">Rust · WS Client</text>
+        <rect x="752" y="148" width="72" height="20" rx="4" fill="rgba(251, 191, 36, 0.2)" stroke="#fbbf24" stroke-width="0.5"/>
+        <text x="788" y="163" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">AB12</text>
+        <text x="865" y="163" fill="#fbbf24" font-size="8">pairing code</text>
 
-        <!-- gv-worker (active) -->
-        <rect x="740" y="210" width="150" height="55" rx="6" fill="#0f172a" stroke="#34d399" stroke-width="1.5"/>
-        <rect x="740" y="210" width="150" height="55" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="815" y="233" fill="white" font-size="11" font-weight="600" text-anchor="middle">gv-worker</text>
-        <text x="815" y="252" fill="#94a3b8" font-size="9" text-anchor="middle">Libretro Core</text>
+        <!-- gv-worker -->
+        <rect x="740" y="230" width="160" height="55" rx="6" fill="#0f172a" stroke="#34d399" stroke-width="1.5"/>
+        <rect x="740" y="230" width="160" height="55" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="820" y="253" fill="white" font-size="11" font-weight="600" text-anchor="middle">gv-worker</text>
+        <text x="820" y="272" fill="#94a3b8" font-size="9" text-anchor="middle">Libretro Core</text>
 
-        <!-- gv-worker (per game, dashed) -->
-        <rect x="920" y="210" width="130" height="55" rx="6" fill="#0f172a" stroke="#34d399" stroke-width="1.5"/>
-        <rect x="920" y="210" width="130" height="55" rx="6" fill="rgba(6, 78, 59, 0.3)" stroke="#34d399" stroke-width="1" stroke-dasharray="3,3"/>
-        <text x="985" y="235" fill="#94a3b8" font-size="10" font-weight="600" text-anchor="middle">gv-worker</text>
-        <text x="985" y="253" fill="#64748b" font-size="8" text-anchor="middle">(per game)</text>
+        <rect x="920" y="230" width="130" height="55" rx="6" fill="#0f172a" stroke="#34d399" stroke-width="1.5"/>
+        <rect x="920" y="230" width="130" height="55" rx="6" fill="rgba(6, 78, 59, 0.3)" stroke="#34d399" stroke-width="1" stroke-dasharray="3,3"/>
+        <text x="985" y="255" fill="#94a3b8" font-size="10" font-weight="600" text-anchor="middle">gv-worker</text>
+        <text x="985" y="273" fill="#64748b" font-size="8" text-anchor="middle">(per game)</text>
 
         <!-- ROM Library -->
-        <rect x="740" y="310" width="310" height="60" rx="6" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"/>
-        <rect x="740" y="310" width="310" height="60" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
-        <text x="895" y="335" fill="white" font-size="11" font-weight="600" text-anchor="middle">ROM Library</text>
-        <text x="895" y="355" fill="#94a3b8" font-size="9" text-anchor="middle">NES · SNES · Genesis · N64 · GB · Arcade</text>
+        <rect x="740" y="330" width="310" height="60" rx="6" fill="#0f172a" stroke="#a78bfa" stroke-width="1.5"/>
+        <rect x="740" y="330" width="310" height="60" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="895" y="355" fill="white" font-size="11" font-weight="600" text-anchor="middle">ROM Library</text>
+        <text x="895" y="375" fill="#94a3b8" font-size="9" text-anchor="middle">NES · SNES · Genesis · N64 · GB · Arcade</text>
 
         <!-- Browser -->
-        <rect x="20" y="90" width="140" height="60" rx="6" fill="#0f172a" stroke="#94a3b8" stroke-width="1.5"/>
-        <rect x="20" y="90" width="140" height="60" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <rect x="20" y="90" width="140" height="100" rx="6" fill="#0f172a" stroke="#94a3b8" stroke-width="1.5"/>
+        <rect x="20" y="90" width="140" height="100" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
         <text x="90" y="118" fill="white" font-size="11" font-weight="600" text-anchor="middle">Browser</text>
         <text x="90" y="137" fill="#94a3b8" font-size="9" text-anchor="middle">Firefox / Chrome</text>
+        <rect x="35" y="148" width="110" height="30" rx="4" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="0.5"/>
+        <text x="90" y="168" fill="#22d3ee" font-size="10" font-weight="600" text-anchor="middle">gv-player</text>
 
-        <!-- gv-player -->
-        <rect x="25" y="190" width="130" height="45" rx="6" fill="#0f172a" stroke="#22d3ee" stroke-width="1.5"/>
-        <rect x="25" y="190" width="130" height="45" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
-        <text x="90" y="210" fill="white" font-size="10" font-weight="600" text-anchor="middle">gv-player</text>
-        <text x="90" y="226" fill="#94a3b8" font-size="8" text-anchor="middle">JS · WebRTC</text>
-
-        <!-- ============================================================ -->
         <!-- ARROWS -->
-        <!-- ============================================================ -->
-
-        <!-- 1. Browser → gv-web: page load -->
+        <!-- 1. Browser → gv-web -->
         <line x1="160" y1="120" x2="258" y2="120" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
         <text x="209" y="113" fill="#94a3b8" font-size="8" text-anchor="middle">HTTPS</text>
 
-        <!-- 2. Auth redirect: Browser → OAuth → gv-web -->
-        <path d="M 90 150 L 90 300 L 178 330" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-amber)"/>
-        <text x="120" y="228" fill="#fbbf24" font-size="7" transform="rotate(-90 120 228)">Redirect</text>
+        <!-- 2. Browser → OAuth → gv-web -->
+        <path d="M 90 190 L 90 360 L 128 375" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-amber)"/>
+        <text x="100" y="280" fill="#fbbf24" font-size="7">Sign in</text>
+        <path d="M 175 460 L 175 490 L 355 490 L 355 280" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-amber)"/>
+        <text x="260" y="483" fill="#fbbf24" font-size="7">Session token</text>
 
-        <path d="M 255 420 L 255 460 L 350 460 L 350 212" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arrow-amber)"/>
-        <text x="300" y="453" fill="#fbbf24" font-size="7">Session Token</text>
+        <!-- 3. User enters pairing code -->
+        <path d="M 175 500 L 175 515 Q 175 530 200 530 L 240 530 Q 260 530 268 510 L 268 320" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+        <text x="220" y="523" fill="#fbbf24" font-size="7">Enter code</text>
 
-        <!-- 3. gv-web → PostgreSQL -->
-        <line x1="440" y1="150" x2="468" y2="160" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
-        <text x="454" y="145" fill="#a78bfa" font-size="7">SQL</text>
+        <!-- 4. gv-server → gv-web: open WS, present code -->
+        <path d="M 738 130 L 700 130 L 500 130 Q 480 130 480 115" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+        <text x="580" y="118" fill="#34d399" font-size="8" text-anchor="middle">Open WS · present code</text>
 
-        <!-- 4. gv-server ↔ gv-web: WS bidirectional -->
-        <path d="M 740 120 L 700 120 L 442 120" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
-        <path d="M 442 130 L 700 130 L 738 130" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
-        <text x="580" y="108" fill="#34d399" font-size="8" text-anchor="middle">Register · Heartbeat</text>
-        <text x="580" y="144" fill="#22d3ee" font-size="8" text-anchor="middle">Signal: play game X</text>
+        <!-- 5. gv-web → gv-server: code accepted -->
+        <path d="M 480 140 L 500 140 L 700 140 L 738 155" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+        <text x="580" y="155" fill="#22d3ee" font-size="8" text-anchor="middle">Pair confirmed</text>
 
-        <!-- 5. gv-server → gv-worker: spawn -->
-        <line x1="815" y1="160" x2="815" y2="208" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
-        <text x="828" y="188" fill="#34d399" font-size="7">spawn</text>
+        <!-- 6. gv-web → PostgreSQL -->
+        <line x1="450" y1="140" x2="478" y2="140" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+        <text x="464" y="135" fill="#a78bfa" font-size="7">SQL</text>
 
-        <!-- 6. gv-server → more workers -->
-        <line x1="900" y1="130" x2="970" y2="208" stroke="#34d399" stroke-width="1" stroke-dasharray="3,3"/>
+        <!-- 7. gv-server → worker spawn -->
+        <line x1="825" y1="180" x2="825" y2="228" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)"/>
+        <text x="838" y="208" fill="#34d399" font-size="7">spawn</text>
 
-        <!-- 7. Workers → ROM Library -->
-        <line x1="815" y1="265" x2="815" y2="308" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
-        <text x="828" y="290" fill="#a78bfa" font-size="7">read</text>
-        <line x1="985" y1="265" x2="985" y2="308" stroke="#a78bfa" stroke-width="1" stroke-dasharray="3,3"/>
+        <!-- 8. Workers → ROM Library -->
+        <line x1="820" y1="285" x2="820" y2="328" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow-violet)"/>
+        <text x="833" y="310" fill="#a78bfa" font-size="7">read</text>
 
-        <!-- 8. WebRTC P2P: browser ↔ worker (direct) -->
-        <path d="M 90 235 L 90 460 Q 90 490 130 490 L 250 490 Q 290 490 310 470 L 310 410 Q 310 390 330 390 L 520 390 L 520 460 Q 520 500 580 500 L 680 500 Q 720 500 740 470 L 740 400 Q 740 380 760 380 L 813 380 L 813 306" fill="none" stroke="#22d3ee" stroke-width="2.5" stroke-dasharray="8,4" marker-end="url(#arrow-cyan)"/>
-        <text x="230" y="485" fill="#22d3ee" font-size="10" font-weight="600" text-anchor="middle">WebRTC P2P</text>
-        <text x="230" y="500" fill="#64748b" font-size="8" text-anchor="middle">Video · Audio · Input</text>
-
-        <!-- 9. STUN/TURN fallback -->
-        <path d="M 520 390 L 520 400 Q 520 430 500 430 L 400 430 Q 370 430 360 410 L 360 400" fill="none" stroke="#fbbf24" stroke-width="1" stroke-dasharray="3,3"/>
-        <path d="M 90 235 L 90 450 Q 90 470 110 470 L 200 470 Q 230 470 240 450 L 240 400" fill="none" stroke="#fbbf24" stroke-width="1" stroke-dasharray="3,3"/>
-        <text x="400" y="423" fill="#fbbf24" font-size="7">STUN/TURN fallback</text>
+        <!-- 9. WebRTC P2P -->
+        <path d="M 155 165 L 210 165 L 210 560 Q 210 590 260 590 L 420 590 Q 470 590 510 570 L 510 500 Q 510 470 480 470 L 400 470 Q 370 470 360 450 L 360 440" fill="none" stroke="#22d3ee" stroke-width="2.5" stroke-dasharray="8,4"/>
+        <path d="M 360 440 L 360 540 Q 360 570 400 570 L 510 570 Q 550 570 580 550 L 660 550 Q 700 550 720 530 L 720 470 Q 720 440 750 440 L 810 440 L 810 306" fill="none" stroke="#22d3ee" stroke-width="2.5" stroke-dasharray="8,4" marker-end="url(#arrow-cyan)"/>
+        <text x="340" y="583" fill="#22d3ee" font-size="10" font-weight="600" text-anchor="middle">WebRTC P2P (after signaling)</text>
 
         <!-- Flow numbers -->
         <circle cx="209" cy="108" r="9" fill="#22d3ee"/><text x="209" y="111" fill="#020617" font-size="9" font-weight="700" text-anchor="middle">1</text>
-        <circle cx="145" cy="260" r="9" fill="#fbbf24"/><text x="145" y="263" fill="#020617" font-size="9" font-weight="700" text-anchor="middle">2</text>
-        <circle cx="580" cy="108" r="9" fill="#34d399"/><text x="580" y="111" fill="#020617" font-size="9" font-weight="700" text-anchor="middle">4</text>
-        <circle cx="828" cy="184" r="9" fill="#34d399"/><text x="828" y="187" fill="#020617" font-size="9" font-weight="700" text-anchor="middle">5</text>
-        <circle cx="320" cy="485" r="9" fill="#22d3ee"/><text x="320" y="488" fill="#020617" font-size="9" font-weight="700" text-anchor="middle">8</text>
+        <circle cx="100" cy="280" r="9" fill="#fbbf24"/><text x="100" y="283" fill="#020617" font-size="9" font-weight="700" text-anchor="middle">2</text>
+        <circle cx="580" cy="118" r="9" fill="#34d399"/><text x="580" y="121" fill="#020617" font-size="9" font-weight="700" text-anchor="middle">4</text>
+        <circle cx="220" cy="523" r="9" fill="#fbbf24"/><text x="220" y="526" fill="#020617" font-size="9" font-weight="700" text-anchor="middle">3</text>
+        <circle cx="580" cy="155" r="9" fill="#22d3ee"/><text x="580" y="158" fill="#020617" font-size="9" font-weight="700" text-anchor="middle">5</text>
+        <circle cx="838" cy="204" r="9" fill="#34d399"/><text x="838" y="207" fill="#020617" font-size="9" font-weight="700" text-anchor="middle">7</text>
+        <circle cx="380" cy="583" r="9" fill="#22d3ee"/><text x="380" y="586" fill="#020617" font-size="9" font-weight="700" text-anchor="middle">9</text>
+
+        <!-- Flow table -->
+        <rect x="28" y="520" width="192" height="170" rx="8" fill="rgba(15, 23, 42, 0.85)" stroke="#1e293b" stroke-width="1"/>
+        <text x="124" y="542" fill="#94a3b8" font-size="9" font-weight="600" text-anchor="middle">Session Lifecycle</text>
+        <line x1="48" y1="550" x2="200" y2="550" stroke="#1e293b" stroke-width="0.5"/>
+        <text x="38" y="566" fill="#22d3ee" font-size="8">1</text><text x="52" y="566" fill="#94a3b8" font-size="8">Load page, sign in</text>
+        <text x="38" y="582" fill="#fbbf24" font-size="8">2</text><text x="52" y="582" fill="#94a3b8" font-size="8">OAuth redirect</text>
+        <text x="38" y="598" fill="#34d399" font-size="8">4</text><text x="52" y="598" fill="#94a3b8" font-size="8">Server opens WS</text>
+        <text x="38" y="614" fill="#fbbf24" font-size="8">3</text><text x="52" y="614" fill="#94a3b8" font-size="8">Enter pairing code</text>
+        <text x="38" y="630" fill="#22d3ee" font-size="8">5</text><text x="52" y="630" fill="#94a3b8" font-size="8">Pair confirmed</text>
+        <text x="38" y="646" fill="#34d399" font-size="8">7</text><text x="52" y="646" fill="#94a3b8" font-size="8">Spawn worker</text>
+        <text x="38" y="662" fill="#22d3ee" font-size="8">9</text><text x="52" y="662" fill="#94a3b8" font-size="8">WebRTC P2P play</text>
+        <text x="38" y="678" fill="#475569" font-size="7">Video direct P2P</text>
 
         <!-- Legend -->
-        <text x="20" y="610" fill="white" font-size="10" font-weight="600">Legend</text>
-        <rect x="20" y="620" width="14" height="9" rx="2" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/><text x="40" y="628" fill="#94a3b8" font-size="8">gv-web / player</text>
-        <rect x="160" y="620" width="14" height="9" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/><text x="180" y="628" fill="#94a3b8" font-size="8">gv-server / worker</text>
-        <rect x="315" y="620" width="14" height="9" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/><text x="335" y="628" fill="#94a3b8" font-size="8">DB / Storage</text>
-        <rect x="450" y="620" width="14" height="9" rx="2" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/><text x="470" y="628" fill="#94a3b8" font-size="8">External</text>
-        <rect x="565" y="620" width="14" height="9" rx="2" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/><text x="585" y="628" fill="#94a3b8" font-size="8">Browser</text>
-        <line x1="680" y1="625" x2="710" y2="625" stroke="#22d3ee" stroke-width="2.5" stroke-dasharray="8,4"/><text x="718" y="628" fill="#94a3b8" font-size="8">WebRTC P2P</text>
-        <line x1="810" y1="625" x2="840" y2="625" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="5,4"/><text x="848" y="628" fill="#94a3b8" font-size="8">Auth</text>
-        <rect x="905" y="620" width="14" height="9" rx="2" fill="transparent" stroke="#22d3ee" stroke-width="1" stroke-dasharray="3,3"/><text x="925" y="628" fill="#94a3b8" font-size="8">Cloud</text>
-        <rect x="975" y="620" width="14" height="9" rx="2" fill="transparent" stroke="#34d399" stroke-width="1" stroke-dasharray="3,3"/><text x="995" y="628" fill="#94a3b8" font-size="8">Home PC</text>
+        <text x="28" y="710" fill="white" font-size="10" font-weight="600">Legend</text>
+        <rect x="28" y="720" width="14" height="9" rx="2" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1"/><text x="48" y="728" fill="#94a3b8" font-size="8">gv-web / player</text>
+        <rect x="175" y="720" width="14" height="9" rx="2" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1"/><text x="195" y="728" fill="#94a3b8" font-size="8">Server / worker</text>
+        <rect x="330" y="720" width="14" height="9" rx="2" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1"/><text x="350" y="728" fill="#94a3b8" font-size="8">DB / Storage</text>
+        <rect x="480" y="720" width="14" height="9" rx="2" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1"/><text x="500" y="728" fill="#94a3b8" font-size="8">External</text>
+        <rect x="600" y="720" width="14" height="9" rx="2" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1"/><text x="620" y="728" fill="#94a3b8" font-size="8">Browser</text>
+        <line x1="710" y1="725" x2="740" y2="725" stroke="#22d3ee" stroke-width="2.5" stroke-dasharray="8,4"/><text x="748" y="728" fill="#94a3b8" font-size="8">WebRTC</text>
+        <line x1="820" y1="725" x2="850" y2="725" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="5,4"/><text x="858" y="728" fill="#94a3b8" font-size="8">Auth/Pair</text>
+        <rect x="930" y="720" width="14" height="9" rx="2" fill="rgba(251,191,36,0.2)" stroke="#fbbf24" stroke-width="0.5"/><text x="950" y="728" fill="#fbbf24" font-size="8">Code</text>
+        <rect x="1000" y="720" width="14" height="9" rx="2" fill="transparent" stroke="#22d3ee" stroke-width="1" stroke-dasharray="3,3"/><text x="1020" y="728" fill="#94a3b8" font-size="8">Cloud</text>
+        <rect x="1055" y="720" width="14" height="9" rx="2" fill="transparent" stroke="#34d399" stroke-width="1" stroke-dasharray="3,3"/><text x="1075" y="728" fill="#94a3b8" font-size="8">PC</text>
       </svg>
     </div>
 
     <div class="cards">
       <div class="card">
+        <div class="card-header"><div class="card-dot amber"></div><h3>Pairing Flow</h3></div>
+        <ul>
+          <li>• gv-server starts, generates 4-char code</li>
+          <li>• Opens WS to gv-web, presents code</li>
+          <li>• User signs in, enters code on site</li>
+          <li>• gv-web confirms pair over WS</li>
+          <li>• Same code system for clients</li>
+        </ul>
+      </div>
+      <div class="card">
         <div class="card-header"><div class="card-dot cyan"></div><h3>gv-web (Cloud)</h3></div>
         <ul>
-          <li>• Next.js 15 + React 19</li>
+          <li>• Next.js website + signaling WS</li>
           <li>• OAuth (GitHub, Google)</li>
-          <li>• WebSocket signaling only</li>
-          <li>• No video relay — lightweight</li>
-          <li>• PostgreSQL: users, games, sessions</li>
+          <li>• Pairing registry</li>
+          <li>• PostgreSQL</li>
         </ul>
       </div>
       <div class="card">
         <div class="card-header"><div class="card-dot emerald"></div><h3>gv-server (Home PC)</h3></div>
         <ul>
-          <li>• Rust binary, persistent WS to gv-web</li>
+          <li>• Generates code, WS to gv-web</li>
           <li>• Listens for play signals</li>
           <li>• Spawns gv-worker per game</li>
           <li>• Manages ROM library</li>
         </ul>
       </div>
-      <div class="card">
-        <div class="card-header"><div class="card-dot violet"></div><h3>gv-worker (Home PC)</h3></div>
-        <ul>
-          <li>• Rust binary (subprocess)</li>
-          <li>• Libretro core + ROM → video</li>
-          <li>• WebRTC P2P to browser</li>
-          <li>• STUN/TURN for NAT traversal</li>
-        </ul>
-      </div>
     </div>
 
-    <p class="footer">Games Vault v2 · Signaling-Only Architecture · OAuth Auth</p>
+    <p class="footer">Games Vault v2 · Pairing Code Architecture</p>
   </div>
 </body>
 </html>
