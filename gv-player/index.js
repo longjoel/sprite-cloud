@@ -1,184 +1,216 @@
-// gv-player — WebRTC client for gv-worker.
+// ── gv-player — browser-side WebRTC client ────────────────────────────
 //
-// Connects to a gv-worker process, negotiates a WebRTC peer connection,
-// and renders the received VP8 video track to a <video> element.
-//
-// Usage:
-//   const player = new GvPlayer(videoElement);
-//   player.onStateChange = (state) => console.log(state);
-//   await player.connect("http://192.168.86.126:3010");
+// Connects to a gv-worker, negotiates a WebRTC session, and renders
+// the VP8 video stream.  Exported as a module for testing; a small
+// bootstrap at the bottom auto-connects when loaded in a browser
+// with a `?worker=` query parameter.
 
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
+// ── Constants (no magic values) ───────────────────────────────────────
 
-/** Connection states emitted via onStateChange. */
+const STUN_SERVER = "stun:stun.l.google.com:19302";
+const SDP_ENDPOINT = "/sdp";
+const ICE_TIMEOUT_MS = 15_000;
+
+// ── State machine ─────────────────────────────────────────────────────
+
 export const State = Object.freeze({
   IDLE: "idle",
   CONNECTING: "connecting",
-  NEGOTIATING: "negotiating",
   CONNECTED: "connected",
-  DISCONNECTED: "disconnected",
   ERROR: "error",
 });
 
+// ── GvPlayer ──────────────────────────────────────────────────────────
+
 export class GvPlayer {
-  /**
-   * @param {HTMLVideoElement} video — target <video> element (will have
-   *   autoplay, playsinline, and muted set automatically)
-   */
+  /** @param {HTMLVideoElement} video — must be a <video> element */
   constructor(video) {
-    // Accept any object that quacks like a video element — DOM polyfills
-    // in test environments may not expose HTMLVideoElement as a constructor.
-    if (!video || typeof video !== "object" || video.nodeName !== "VIDEO") {
+    if (!video || !video.tagName || video.tagName !== "VIDEO") {
       throw new TypeError("GvPlayer requires a <video> element");
     }
+    this._video = video;
+    this._video.autoplay = true;
+    this._video.playsinline = true;
+    this._video.muted = true;
 
-    /** @type {HTMLVideoElement} */
-    this.video = video;
-    video.autoplay = true;
-    video.playsinline = true;
-    video.muted = true;
-
-    /** @type {RTCPeerConnection|null} */
+    /** @type {RTCPeerConnection | null} */
     this._pc = null;
 
-    /** @type {State[keyof State]} */
+    /** @type {string} */
     this._state = State.IDLE;
 
-    /** @type {string} */
-    this._workerUrl = "";
-
     /** @type {(state: string, detail?: string) => void} */
-    this.onStateChange = () => {};
+    this.onStateChange = null;
 
     /** @type {(track: MediaStreamTrack) => void} */
-    this.onTrack = () => {};
+    this.onTrack = null;
+
+    /** @type {number | null} */
+    this._iceTimer = null;
   }
 
-  // ---- Public methods ----
-
-  /**
-   * Connect to a gv-worker and begin the WebRTC handshake.
-   *
-   * @param {string} workerUrl — base URL of the gv-worker (e.g. "http://192.168.86.126:3010")
-   * @param {object} [options]
-   * @param {RTCConfiguration} [options.rtcConfig] — custom RTCPeerConnection config
-   * @returns {Promise<void>}
-   */
-  async connect(workerUrl, options = {}) {
-    if (this._pc) {
-      this.disconnect();
-    }
-
-    this._workerUrl = workerUrl;
-    this._setState(State.CONNECTING);
-
-    try {
-      const pc = new RTCPeerConnection(
-        options.rtcConfig || {
-          iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-        },
-      );
-
-      pc.oniceconnectionstatechange = () => {
-        if (pc.iceConnectionState === "disconnected" || pc.iceConnectionState === "failed") {
-          this._setState(State.DISCONNECTED, pc.iceConnectionState);
-        }
-      };
-
-      pc.onconnectionstatechange = () => {
-        switch (pc.connectionState) {
-          case "connected":
-            this._setState(State.CONNECTED);
-            break;
-          case "disconnected":
-          case "failed":
-          case "closed":
-            this._setState(State.DISCONNECTED, pc.connectionState);
-            break;
-        }
-      };
-
-      pc.ontrack = (event) => {
-        const [stream] = event.streams;
-        if (stream) {
-          this.video.srcObject = stream;
-        } else {
-          // Some browsers don't populate streams[0] on ontrack.
-          this.video.srcObject = new MediaStream([event.track]);
-        }
-        this.onTrack(event.track);
-      };
-
-      // Add a recvonly video transceiver — we only receive, never send.
-      pc.addTransceiver("video", { direction: "recvonly" });
-
-      this._pc = pc;
-      this._setState(State.NEGOTIATING);
-
-      // Create and send SDP offer to the worker.
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-
-      const response = await fetch(`${workerUrl}/sdp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sdp: offer.sdp }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Worker returned ${response.status}`);
-      }
-
-      const answer = await response.json();
-      if (!answer.sdp) {
-        throw new Error("Worker returned empty SDP answer");
-      }
-      if (typeof answer.sdp === "string" && answer.sdp.startsWith("ERROR")) {
-        throw new Error(answer.sdp);
-      }
-
-      await pc.setRemoteDescription(
-        new RTCSessionDescription({ type: "answer", sdp: answer.sdp }),
-      );
-    } catch (err) {
-      this._setState(State.ERROR, err.message);
-      this.disconnect();
-      throw err;
-    }
-  }
-
-  /**
-   * Close the peer connection and reset to idle.
-   */
-  disconnect() {
-    if (this._pc) {
-      this._pc.close();
-      this._pc = null;
-    }
-    this.video.srcObject = null;
-    if (this._state !== State.ERROR) {
-      this._setState(State.IDLE);
-    }
-  }
-
-  /** Current connection state. */
+  /** Current connection state (one of State.*). */
   get state() {
     return this._state;
   }
 
-  // ---- Internal ----
+  // ── Public API ──────────────────────────────────────────────────
+
+  /**
+   * Connect to a gv-worker at the given URL.
+   * @param {string} workerUrl — e.g. "http://localhost:54321"
+   */
+  async connect(workerUrl) {
+    if (this._state !== State.IDLE) {
+      this.disconnect();
+    }
+
+    const url = this._normaliseUrl(workerUrl);
+    this._setState(State.CONNECTING);
+
+    this._pc = new RTCPeerConnection({
+      iceServers: [{ urls: STUN_SERVER }],
+    });
+
+    this._pc.oniceconnectionstatechange = () => {
+      // no state change — connection state handles it
+    };
+
+    this._pc.onconnectionstatechange = () => {
+      const s = this._pc.connectionState;
+      if (s === "connected") {
+        this._setState(State.CONNECTED);
+        this._clearIceTimer();
+      } else if (s === "failed") {
+        this._setState(State.ERROR, "connection failed");
+        this._cleanup();
+      } else if (s === "disconnected") {
+        // Give ICE a moment to recover before declaring error
+      }
+    };
+
+    this._pc.ontrack = (event) => {
+      const track = event.track;
+      this._video.srcObject = new MediaStream([track]);
+      if (this.onTrack) {
+        try { this.onTrack(track); } catch { /* safety */ }
+      }
+    };
+
+    this._pc.addTransceiver("video", { direction: "recvonly" });
+
+    // ── SDP exchange ──────────────────────────────────────────
+
+    const offer = await this._pc.createOffer();
+    await this._pc.setLocalDescription(offer);
+
+    const sdpUrl = `${url}${SDP_ENDPOINT}`;
+    const resp = await fetch(sdpUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sdp: offer.sdp }),
+    });
+
+    if (!resp.ok) {
+      throw new Error(`SDP POST returned HTTP ${resp.status}`);
+    }
+
+    const answer = await resp.json();
+    if (!answer.sdp) {
+      throw new Error("SDP answer missing sdp field");
+    }
+
+    await this._pc.setRemoteDescription(
+      new RTCSessionDescription({ type: "answer", sdp: answer.sdp }),
+    );
+
+    // ── ICE timeout watchdog ───────────────────────────────────
+
+    this._iceTimer = setTimeout(() => {
+      if (this._state !== State.CONNECTED) {
+        this._setState(State.ERROR, "ICE gathering timed out");
+        this._cleanup();
+      }
+    }, ICE_TIMEOUT_MS);
+  }
+
+  /** Tear down the peer connection. */
+  disconnect() {
+    this._clearIceTimer();
+    if (this._pc) {
+      this._pc.close();
+      this._pc = null;
+    }
+    if (this._video.srcObject) {
+      this._video.srcObject = null;
+    }
+    if (this._state === State.CONNECTED) {
+      this._setState(State.IDLE);
+    }
+  }
+
+  // ── Internal ────────────────────────────────────────────────────
 
   /** @param {string} state */
-  /** @param {string} [detail] */
   _setState(state, detail) {
-    if (this._state === state) return;
+    if (state === this._state) return;
     this._state = state;
-    try {
-      this.onStateChange(state, detail);
-    } catch (_) {
-      // User callback must not break the player.
+    if (this.onStateChange) {
+      try { this.onStateChange(state, detail); } catch { /* safety */ }
+    }
+  }
+
+  _cleanup() {
+    this._clearIceTimer();
+    if (this._pc) {
+      this._pc.close();
+      this._pc = null;
+    }
+  }
+
+  _clearIceTimer() {
+    if (this._iceTimer !== null) {
+      clearTimeout(this._iceTimer);
+      this._iceTimer = null;
+    }
+  }
+
+  /** @param {string} raw */
+  _normaliseUrl(raw) {
+    let u = raw.trim();
+    if (!/^https?:\/\//i.test(u)) {
+      u = `http://${u}`;
+    }
+    return u.replace(/\/+$/, "");
+  }
+}
+
+// ── Auto-connect bootstrap (browser only) ──────────────────────────────
+
+if (typeof window !== "undefined" && typeof document !== "undefined") {
+  const params = new URLSearchParams(location.search);
+  const workerParam = params.get("worker");
+
+  if (workerParam) {
+    const video = /** @type {HTMLVideoElement} */ (document.getElementById("video"));
+    if (video) {
+      const player = new GvPlayer(video);
+
+      const statusEl = document.getElementById("status");
+
+      player.onStateChange = (state, detail) => {
+        if (statusEl) {
+          statusEl.textContent = state + (detail ? `: ${detail}` : "");
+          if (state === State.ERROR) statusEl.classList.add("error");
+        }
+      };
+
+      player.connect(workerParam).catch((err) => {
+        if (statusEl) {
+          statusEl.textContent = `error: ${err.message || err}`;
+          statusEl.classList.add("error");
+        }
+      });
     }
   }
 }
