@@ -1,5 +1,6 @@
 mod config;
 mod gv_web;
+mod retry;
 mod worker;
 
 use anyhow::{Context, Result};
