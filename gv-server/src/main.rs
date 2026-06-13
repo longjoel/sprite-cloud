@@ -92,8 +92,35 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
     );
 
     println!("gv-server running — polling for commands...");
-    // Future: polling loop that dispatches start_game → spawn gv-worker
+
+    // Backoff on poll errors (not a server-controlled interval).
+    const POLL_ERROR_BACKOFF_MS: u64 = 5_000;
+
     loop {
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        match client.poll().await {
+            Ok(resp) => {
+                if resp.commands.is_empty() {
+                    // No commands — sleep as directed by the server.
+                } else {
+                    for cmd in &resp.commands {
+                        println!(
+                            "[POLL] command {}: {} {}",
+                            cmd.id,
+                            cmd.command_type,
+                            cmd.payload,
+                        );
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(resp.next_poll_ms)).await;
+            }
+            Err(e) => {
+                eprintln!("[POLL] error: {:#}", e);
+                eprintln!(
+                    "[POLL] backing off {}s before retry...",
+                    POLL_ERROR_BACKOFF_MS / 1000
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(POLL_ERROR_BACKOFF_MS)).await;
+            }
+        }
     }
 }
