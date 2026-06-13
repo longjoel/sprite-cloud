@@ -145,7 +145,39 @@ impl GvWebClient {
     ///
     /// Called after `start_game` spawns a gv-worker so gv-web can
     /// surface the connect URL to the browser.
+    ///
+    /// Retries up to 3 times with exponential backoff for transient
+    /// network failures.
     pub async fn notify(&self, command_id: &str, worker_url: &str, game_id: &str) -> Result<()> {
+        const MAX_ATTEMPTS: u32 = 3;
+        let mut last_err = None;
+
+        for attempt in 1..=MAX_ATTEMPTS {
+            match self
+                .notify_once(command_id, worker_url, game_id)
+                .await
+            {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    last_err = Some(e);
+                    if attempt < MAX_ATTEMPTS {
+                        let delay = std::time::Duration::from_secs(2u64.pow(attempt - 1));
+                        tokio::time::sleep(delay).await;
+                    }
+                }
+            }
+        }
+
+        Err(last_err.unwrap())
+    }
+
+    /// Single notify attempt (no retry).
+    async fn notify_once(
+        &self,
+        command_id: &str,
+        worker_url: &str,
+        game_id: &str,
+    ) -> Result<()> {
         let url = format!("{}/api/server/notify", self.base_url);
 
         let resp = self

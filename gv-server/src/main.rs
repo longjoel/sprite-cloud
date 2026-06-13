@@ -130,7 +130,11 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         .notify(&cmd.id, &url, game_id)
                                         .await
                                     {
-                                        eprintln!("[NOTIFY] failed: {e:#}");
+                                        eprintln!(
+                                            "[NOTIFY] failed after retries — worker is at {url}\n\
+                                             [NOTIFY]     connect manually or retry from /dev\n\
+                                             [NOTIFY]     error: {e:#}"
+                                        );
                                     }
                                 }
                                 Err(e) => eprintln!("[WORKER] spawn failed: {e:#}"),
