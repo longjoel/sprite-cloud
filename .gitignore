@@ -66,6 +66,7 @@ docker-compose.yml
 .dockerignore
 .editorconfig
 .env.example
+!/.env.example
 .gitattributes
 AGENTS.md
 CODE_OF_CONDUCT.md
