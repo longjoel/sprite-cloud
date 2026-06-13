@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { commands, sessions, servers } from "@/lib/db/schema";
 import { verifyBearerToken, unauthorizedResponse } from "@/lib/server-auth";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -32,9 +32,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Verify this server owns the command
+  // Verify this server owns the command, and read its worker_token
   const [cmd] = await db
-    .select({ id: commands.id })
+    .select({ id: commands.id, workerToken: commands.workerToken })
     .from(commands)
     .where(eq(commands.id, body.command_id))
     .limit(1);
@@ -43,7 +43,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "command not found" }, { status: 404 });
   }
 
-  // Create a session record (or update existing one for this command)
+  // Create a session record (or update existing one for this command).
+  // Propagate the worker_token from the command to the session so the
+  // browser can prove ownership when polling.
   const [existing] = await db
     .select({ id: sessions.id })
     .from(sessions)
@@ -53,7 +55,10 @@ export async function POST(request: NextRequest) {
   if (existing) {
     await db
       .update(sessions)
-      .set({ workerUrl: body.worker_url, status: "ready" })
+      .set({
+        workerUrl: body.worker_url,
+        status: "ready",
+      })
       .where(eq(sessions.id, existing.id));
   } else {
     await db.insert(sessions).values({
@@ -77,7 +82,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "server_id required" }, { status: 400 });
   }
 
-  // Return the latest ready session for this server
+  const workerToken = request.nextUrl.searchParams.get("worker_token");
+  if (!workerToken) {
+    return NextResponse.json({ error: "worker_token required" }, { status: 400 });
+  }
+
+  // Return the session whose server_id matches AND whose command has
+  // the same worker_token — this proves the caller created the command.
   const [session] = await db
     .select({
       workerUrl: sessions.workerUrl,
@@ -85,7 +96,13 @@ export async function GET(request: NextRequest) {
       status: sessions.status,
     })
     .from(sessions)
-    .where(eq(sessions.serverId, serverId))
+    .innerJoin(commands, eq(commands.id, sessions.commandId))
+    .where(
+      and(
+        eq(sessions.serverId, serverId),
+        eq(commands.workerToken, workerToken),
+      ),
+    )
     .orderBy(sessions.createdAt)
     .limit(1);
 
