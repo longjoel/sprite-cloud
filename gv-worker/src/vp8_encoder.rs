@@ -113,7 +113,7 @@ impl Vp8Encoder {
             // Timebase: 1/30 second per tick — one tick = one frame at 30fps
             cfg.g_timebase.num = 1;
             cfg.g_timebase.den = crate::config::VIDEO_FPS as i32;
-            cfg.rc_target_bitrate = crate::config::TARGET_BITRATE_KBPS;
+            cfg.rc_target_bitrate = crate::config::target_bitrate_kbps();
             // Error-resilient: enables intra-refresh and partition boundaries
             // so the browser can recover from packet loss mid-stream
             cfg.g_error_resilient = 1;
