@@ -861,8 +861,11 @@ public class GamesController(
                 throw;
             }
 
-            var result = await uploadImporter.ImportFromStagedDirectoryAsync(stagingDir, cancellationToken);
-            TempData["Message"] = $"Imported {result.Groups.Count} game(s) with {result.TotalMatchedFileCount} matched files.";
+            var jobId = await jobsClient.EnqueueAsync(
+                "upload.import",
+                new BackgroundJobs.Commands.ImportUploadStagingPayload(stagingDir),
+                cancellationToken: cancellationToken);
+            TempData["Message"] = $"Import queued (job #{jobId}). Results will be available when the job completes.";
             return RedirectToAction(nameof(Index));
         }
         catch (Exception ex)
