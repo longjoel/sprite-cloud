@@ -113,11 +113,13 @@ builder.Services.AddSingleton<BackgroundJobCommandRegistry>(_ => new BackgroundJ
 {
     ["preview.generate"] = typeof(GeneratePreviewCommand),
     ["art.backfill"] = typeof(GameArtBackfillCommand),
-    ["libretro.sync"] = typeof(SyncLibretroDatabaseCommand)
+    ["libretro.sync"] = typeof(SyncLibretroDatabaseCommand),
+    ["upload.import"] = typeof(ImportUploadStagingCommand)
 }));
 builder.Services.AddTransient<GeneratePreviewCommand>();
 builder.Services.AddTransient<GameArtBackfillCommand>();
 builder.Services.AddTransient<SyncLibretroDatabaseCommand>();
+builder.Services.AddTransient<ImportUploadStagingCommand>();
 builder.Services.AddHostedService<BackgroundJobWorker>();
 builder.Services.AddHostedService<NosebleedReconciliationService>();
 
