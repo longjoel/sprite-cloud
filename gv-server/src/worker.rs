@@ -16,8 +16,17 @@ const DEFAULT_WORKER_BIN: &str = "./target/debug/gv-worker";
 /// How long to wait for gv-worker to print its port before giving up.
 const PORT_READ_TIMEOUT_SECS: u64 = 5;
 
-/// Hostname reported in the connect URL (localhost for local dev).
-const WORKER_HOST: &str = "localhost";
+/// Hostname reported in the connect URL.
+/// Defaults to the LAN IP when available, falls back to localhost.
+/// Set `GV_WORKER_HOST` to override.
+fn worker_host() -> String {
+    std::env::var("GV_WORKER_HOST").unwrap_or_else(|_| {
+        // Try to find a non-loopback IPv4 address
+        local_ip_address::local_ip()
+            .map(|ip| ip.to_string())
+            .unwrap_or_else(|_| "localhost".to_string())
+    })
+}
 
 // ── Spawn ──────────────────────────────────────────────────────────────
 
@@ -78,5 +87,5 @@ pub async fn spawn_worker() -> Result<String> {
         .and_then(|s| s.trim().split_whitespace().next()?.parse().ok())
         .context("failed to parse port from worker startup line")?;
 
-    Ok(format!("http://{}:{}", WORKER_HOST, port))
+    Ok(format!("http://{}:{}", worker_host(), port))
 }
