@@ -462,6 +462,8 @@ public sealed class NosebleedSessionManager(
         }
 
         await _lock.WaitAsync(cancellationToken);
+        Process? process = null;
+        NosebleedSession? session = null;
         try
         {
             CleanupExitedSessions(disposeRemoved: true);
@@ -570,7 +572,7 @@ public sealed class NosebleedSessionManager(
                 psi.Environment["NOSEBLEED_AUTH_SECRET"] = File.ReadAllText(_options.AuthSecretPath).Trim();
             }
 
-            var process = Process.Start(psi);
+            process = Process.Start(psi);
             if (process is null)
             {
                 return NosebleedStartResult.Fail("Failed to start Nosebleed process.");
@@ -579,16 +581,10 @@ public sealed class NosebleedSessionManager(
             _ = Task.Run(() => DrainAsync(process.StandardOutput, sessionId, false, _drainCts.Token), _drainCts.Token);
             _ = Task.Run(() => DrainAsync(process.StandardError, sessionId, true, _drainCts.Token), _drainCts.Token);
 
-            var healthy = await WaitForHealthAsync(healthUrl, process, cancellationToken);
-            if (!healthy)
-            {
-                var exit = process.HasExited ? $" Process exited with code {process.ExitCode}." : "";
-                TryKill(process);
-                process.Dispose();
-                return NosebleedStartResult.Fail($"Nosebleed did not become healthy at {baseUrl}.{exit}");
-            }
-
-            var session = new NosebleedSession(
+            // Register in _sessions and release the lock *before* waiting for health.
+            // This prevents request threads from blocking on GetSessions() →
+            // CleanupExitedSessions() → _lock.Wait() while we poll the process.
+            session = new NosebleedSession(
                 sessionId,
                 gameId,
                 fileId,
@@ -600,11 +596,6 @@ public sealed class NosebleedSessionManager(
                 corePath,
                 Path.GetFullPath(contentPath));
             _sessions[key] = new ManagedSession(session, process);
-            if (coreWasInstalledOnDemand)
-            {
-                logger.LogInformation("Installed libretro core on demand for system {SystemName}: {CorePath}", systemName, corePath);
-            }
-            return NosebleedStartResult.Ok(session);
         }
         catch (Exception ex)
         {
@@ -615,6 +606,34 @@ public sealed class NosebleedSessionManager(
         {
             _lock.Release();
         }
+
+        // Health check outside the lock — this can take up to 8s and must not
+        // block request threads that call GetSessions().
+        var healthy = await WaitForHealthAsync(session!.LocalUrl, process!, cancellationToken);
+        if (!healthy)
+        {
+            var exit = process!.HasExited ? $" Process exited with code {process.ExitCode}." : "";
+            TryKill(process);
+            process.Dispose();
+
+            await _lock.WaitAsync(cancellationToken);
+            try
+            {
+                _sessions.TryRemove(key, out _);
+            }
+            finally
+            {
+                _lock.Release();
+            }
+
+            return NosebleedStartResult.Fail($"Nosebleed did not become healthy at {session.BaseUrl}.{exit}");
+        }
+
+        if (coreWasInstalledOnDemand)
+        {
+            logger.LogInformation("Installed libretro core on demand for system {SystemName}: {CorePath}", systemName, corePath);
+        }
+        return NosebleedStartResult.Ok(session);
     }
 
     private NosebleedStreamSettings GetStreamSettings()
@@ -683,7 +702,15 @@ public sealed class NosebleedSessionManager(
 
     private void CleanupExitedSessions(bool disposeRemoved = true)
     {
-        _lock.Wait();
+        // Non-blocking try-enter: if the lock is held (e.g. StartOrReuseAsync is
+        // starting a session), skip cleanup and return immediately. This prevents
+        // request threads from blocking on _lock.Wait() while a Nosebleed process
+        // is being started (which can take up to 8s for WaitForHealthAsync).
+        if (!_lock.Wait(0))
+        {
+            return;
+        }
+
         try
         {
             foreach (var pair in _sessions.ToArray())
