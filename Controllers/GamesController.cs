@@ -888,7 +888,7 @@ public class GamesController(
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Edit(int id,
-        [Bind("SystemName,Name,ReleaseDate,NumberOfPlayers,Genre,CriticRating,UserRating,CriticGenre")] Game game,
+        [Bind("Id,SystemName,Name,ReleaseDate,NumberOfPlayers,Genre,CriticRating,UserRating,CriticGenre")] Game game,
         string? returnUrl = null)
     {
         if (!await currentAccess.IsAdminAsync(HttpContext.RequestAborted)) return Forbid();
