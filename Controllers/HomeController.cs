@@ -86,6 +86,8 @@ public class HomeController(
         var now = DateTime.UtcNow;
 
         var recentSessions = playRows
+            .GroupBy(x => x.GameId)
+            .Select(g => g.OrderByDescending(x => x.StartedUtc).First())
             .OrderByDescending(x => x.StartedUtc)
             .Take(8)
             .Select(x => new HomeRecentSessionViewModel
