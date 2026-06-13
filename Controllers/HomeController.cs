@@ -5,6 +5,7 @@ using games_vault.Gameplay;
 using games_vault.Libretro;
 using games_vault.Models.ViewModels;
 using games_vault.Nosebleed;
+using games_vault.BackgroundJobs;
 using games_vault.Web;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -23,7 +24,8 @@ public class HomeController(
     NosebleedProcessInspector nosebleedProcessInspector,
     LibretroDatabaseSyncService libretroSync,
     CurrentProfileService currentProfile,
-    CurrentAccessService currentAccess) : Controller
+    CurrentAccessService currentAccess,
+    IBackgroundJobClient jobsClient) : Controller
 {
     public async Task<IActionResult> Index(CancellationToken cancellationToken = default)
     {
@@ -375,8 +377,8 @@ public class HomeController(
             return RedirectToAction("Index", "Profiles");
         }
 
-        await libretroSync.SyncAsync(force, cancellationToken);
-        TempData["Message"] = force ? "Forced libretro database re-sync complete." : "Libretro database sync complete.";
+        await jobsClient.EnqueueAsync("libretro.sync", new BackgroundJobs.Commands.SyncLibretroDatabasePayload(force), cancellationToken: cancellationToken);
+        TempData["Message"] = force ? "Libretro database re-sync queued." : "Libretro database sync queued.";
         return RedirectToAction("Index", "Admin");
     }
 

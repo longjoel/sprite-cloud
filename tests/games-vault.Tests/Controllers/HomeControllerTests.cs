@@ -269,7 +269,8 @@ public sealed class HomeControllerTests : GamesVaultTestBase
             processInspector,
             null!,
             currentProfile,
-            currentAccess)
+            currentAccess,
+            null!)
         {
             ControllerContext = new ControllerContext
             {

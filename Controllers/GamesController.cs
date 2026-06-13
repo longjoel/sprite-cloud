@@ -22,7 +22,8 @@ public class GamesController(
     LibretroDatabaseSyncService libretroSync,
     GameFileStorage fileStorage,
     CurrentProfileService currentProfile,
-    CurrentAccessService currentAccess) : Controller
+    CurrentAccessService currentAccess,
+    IBackgroundJobClient jobsClient) : Controller
 {
     public async Task<IActionResult> Index(
         [FromQuery] GamesLibraryBrowseQuery browse,
@@ -806,8 +807,8 @@ public class GamesController(
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> StartLibretroSync(CancellationToken cancellationToken)
     {
-        await libretroSync.SyncAsync(cancellationToken: cancellationToken);
-        TempData["Message"] = "Libretro database sync complete.";
+        await jobsClient.EnqueueAsync("libretro.sync", new BackgroundJobs.Commands.SyncLibretroDatabasePayload(), cancellationToken: cancellationToken);
+        TempData["Message"] = "Libretro database sync queued.";
         return RedirectToAction(nameof(Index), new { openAdd = true });
     }
 
