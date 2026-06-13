@@ -960,14 +960,14 @@ public class GamesController(
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> GeneratePreview(int id, bool force = false)
+    public async Task<IActionResult> GeneratePreview(int gameId, bool force = false)
     {
         if (!await currentAccess.IsAdminAsync(HttpContext.RequestAborted)) return Forbid();
 
         var jobs = HttpContext.RequestServices.GetRequiredService<IBackgroundJobClient>();
-        var jobId = await jobs.EnqueueAsync("preview.generate", new BackgroundJobs.Commands.GeneratePreviewJobPayload(id, force));
+        var jobId = await jobs.EnqueueAsync("preview.generate", new BackgroundJobs.Commands.GeneratePreviewJobPayload(gameId, force));
 
-        TempData["Message"] = $"Preview generation job #{jobId} queued for game #{id}.";
-        return RedirectToAction(nameof(Edit), new { id });
+        TempData["Message"] = $"Preview generation job #{jobId} queued for game #{gameId}.";
+        return RedirectToAction(nameof(Edit), new { id = gameId });
     }
 }
