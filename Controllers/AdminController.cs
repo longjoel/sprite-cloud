@@ -276,6 +276,19 @@ public sealed class AdminController(
         TempData["AdminMessage"] = $"Validation job #{jobId} queued.";
         return RedirectToAction(nameof(Index));
     }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> NosebleedAudit(bool cleanup = false, CancellationToken cancellationToken = default)
+    {
+        var client = HttpContext.RequestServices.GetRequiredService<IBackgroundJobClient>();
+        var jobId = await client.EnqueueAsync("nosebleed.audit",
+            new BackgroundJobs.Commands.NosebleedAuditPayload(Cleanup: cleanup),
+            cancellationToken: cancellationToken);
+        var label = cleanup ? "Audit + cleanup" : "Audit";
+        TempData["AdminMessage"] = $"{label} job #{jobId} queued.";
+        return RedirectToAction(nameof(Index));
+    }
 }
 
 internal sealed record AdminRuntimeRoomRow(

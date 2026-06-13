@@ -123,6 +123,15 @@
             <h2 class="h3 mb-1">Nosebleed process survey</h2>
             <div class="text-muted">@Model.NosebleedRuntimeProcesses.Count running</div>
         </div>
+        <div class="d-flex gap-2">
+            <form asp-controller="Admin" asp-action="NosebleedAudit" method="post" asp-antiforgery="true">
+                <button type="submit" class="btn btn-sm btn-outline-primary">Audit</button>
+            </form>
+            <form asp-controller="Admin" asp-action="NosebleedAudit" method="post" asp-antiforgery="true">
+                <input type="hidden" name="cleanup" value="true" />
+                <button type="submit" class="btn btn-sm btn-outline-danger">Audit + cleanup</button>
+            </form>
+        </div>
     </div>
 
     @if (Model.NosebleedRuntimeProcesses.Count == 0)
