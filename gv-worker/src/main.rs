@@ -31,6 +31,7 @@ use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
 use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSample;
 use webrtc::track::track_local::TrackLocal;
+use tower_http::cors::{Any, CorsLayer};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -518,11 +519,17 @@ async fn main() {
         peer_connection: Mutex::new(None),
     });
 
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
     let app = Router::new()
         .route("/", get(handle_index))
         .route("/sdp", post(handle_offer))
         .route("/state", get(handle_connection_state))
         .route("/test-frame", get(handle_test_frame))
+        .layer(cors)
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
