@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::time::Duration;
 
 // ── Config ────────────────────────────────────────────────────────────
 
@@ -51,4 +52,27 @@ pub fn save(config: &Config) -> Result<()> {
     std::fs::write(&path, content)
         .with_context(|| format!("write config to {}", path.display()))?;
     Ok(())
+}
+
+// ── Runtime-configurable constants ─────────────────────────────────────
+
+/// Default HTTP request timeout for gv-web API calls (seconds).
+const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 30;
+
+/// HTTP request timeout for gv-web API calls.
+///
+/// Read from `GV_WEB_TIMEOUT_SECS` env var at runtime, defaulting to 30.
+/// Increase if gv-web is on a high-latency connection, decrease for faster
+/// failure detection on a LAN.
+pub fn http_timeout() -> Duration {
+    use std::sync::LazyLock;
+    static TIMEOUT: LazyLock<Duration> = LazyLock::new(|| {
+        let secs = std::env::var("GV_WEB_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|&v| v > 0)
+            .unwrap_or(DEFAULT_HTTP_TIMEOUT_SECS);
+        Duration::from_secs(secs)
+    });
+    *TIMEOUT
 }
