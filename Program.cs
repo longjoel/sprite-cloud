@@ -61,7 +61,7 @@ builder.Services.AddAntiforgery(options =>
 builder.Services.AddDbContext<games_vault.Data.AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddHealthChecks()
-    .AddDbContextCheck<games_vault.Data.AppDbContext>("database")
+    .AddCheck<games_vault.Nosebleed.DatabaseHealthCheck>("database")
     .AddCheck<NosebleedHealthCheck>("nosebleed");
 builder.Services.AddSingleton<LibretroDatabaseSyncService>();
 builder.Services.AddHttpClient();
@@ -182,6 +182,8 @@ app.Use(async (context, next) =>
 });
 
 app.MapGet("/robots.txt", () => Results.Text("User-agent: *\nDisallow: /\n", "text/plain"));
+
+app.MapGet("/healthz", () => Results.Json(new { status = "Healthy" }));
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
