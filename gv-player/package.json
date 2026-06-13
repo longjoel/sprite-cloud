@@ -3,7 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "main": "index.js",
+  "type": "module",
   "scripts": {
-    "lint": "node -c index.js"
+    "lint": "node -c index.js",
+    "test": "node --test tests/"
+  },
+  "devDependencies": {
+    "linkedom": "^0.18"
   }
 }

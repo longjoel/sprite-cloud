@@ -1,119 +1,99 @@
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use std::time::Duration;
+mod config;
+mod gv_web;
 
-const GV_WEB_URL: &str = "http://localhost:3000";
+use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
 
-#[derive(Debug, Serialize)]
-struct PairRequest {
-    code: String,
+// ── CLI ───────────────────────────────────────────────────────────────
+
+#[derive(Parser)]
+#[command(name = "gv-server", about = "Games Vault server")]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
 }
 
-#[derive(Debug, Deserialize)]
-struct PairResponse {
-    status: String,
-    #[serde(default)]
-    device_id: Option<String>,
-    #[serde(default)]
-    auth_token: Option<String>,
+#[derive(Subcommand)]
+enum Command {
+    /// Pair with gv-web using a one-time code
+    Pair {
+        /// Pairing code from the gv-web dashboard (e.g. MKQZ-APLE)
+        code: String,
+        /// gv-web base URL (default: http://localhost:3001)
+        #[arg(long, default_value = "http://localhost:3001")]
+        gv_web_url: String,
+    },
+    /// Start the server (polls gv-web for game commands)
+    Start {
+        /// gv-web base URL override (uses config value by default)
+        #[arg(long)]
+        gv_web_url: Option<String>,
+    },
 }
 
-#[derive(Debug, Deserialize)]
-struct CommandResponse {
-    commands: Vec<Command>,
-    poll_ms: u64,
-}
-
-#[derive(Debug, Deserialize)]
-struct Command {
-    id: String,
-    #[serde(rename = "type")]
-    cmd_type: String,
-    payload: serde_json::Value,
-}
+// ── Entry point ───────────────────────────────────────────────────────
 
 #[tokio::main]
-async fn main() {
-    let client = Client::new();
-    let code = generate_code();
-    println!("Pairing code: {}", code);
+async fn main() -> Result<()> {
+    let cli = Cli::parse();
 
-    // Phase 1: Pair
-    let pair_resp: PairResponse = loop {
-        let resp = client
-            .post(format!("{}/api/pair/poll", GV_WEB_URL))
-            .json(&PairRequest {
-                code: code.clone(),
-            })
-            .send()
-            .await
-            .unwrap()
-            .json::<PairResponse>()
-            .await
-            .unwrap();
+    match cli.command {
+        Command::Pair { code, gv_web_url } => cmd_pair(&code, &gv_web_url).await,
+        Command::Start { gv_web_url } => cmd_start(gv_web_url).await,
+    }
+}
 
-        if resp.status == "paired" {
-            break resp;
-        }
-        println!("Waiting for pairing... (code: {})", code);
-        tokio::time::sleep(Duration::from_secs(2)).await;
+// ── pair subcommand ───────────────────────────────────────────────────
+
+async fn cmd_pair(code: &str, gv_web_url: &str) -> Result<()> {
+    println!("Pairing with {} ...", gv_web_url);
+
+    let resp = gv_web::GvWebClient::claim(code, gv_web_url).await?;
+
+    let cfg = config::Config {
+        gv_web: config::GvWeb {
+            url: gv_web_url.to_string(),
+        },
+        auth: config::Auth {
+            api_key: resp.api_key.clone(),
+            server_id: resp.server_id.clone(),
+        },
     };
 
-    let auth_token = pair_resp.auth_token.unwrap();
-    println!("Paired! device_id: {}", pair_resp.device_id.unwrap_or_default());
+    config::save(&cfg).context("save config")?;
 
-    // Phase 2: Poll for commands
-    let mut poll_ms = 2000u64;
+    println!("Paired!");
+    println!("  server_id: {}", resp.server_id);
+    println!(
+        "  api_key:   {}",
+        &resp.api_key[..8.min(resp.api_key.len())]
+    );
+    println!("  config saved");
+
+    Ok(())
+}
+
+// ── start subcommand ──────────────────────────────────────────────────
+
+async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
+    let mut cfg = config::load().context("load config (run 'gv-server pair' first)")?;
+
+    if let Some(url) = gv_web_url {
+        cfg.gv_web.url = url;
+    }
+
+    let client = gv_web::GvWebClient::new(cfg.gv_web.url.clone(), cfg.auth.clone());
+
+    // Verify the API key is still valid
+    let verify = client.verify().await?;
+    println!(
+        "Connected to gv-web as server {} (user: {})",
+        verify.server_id, verify.user_id
+    );
+
+    println!("gv-server running — polling for commands...");
+    // Future: polling loop that dispatches start_game → spawn gv-worker
     loop {
-        match client
-            .get(format!("{}/api/commands", GV_WEB_URL))
-            .header("Authorization", format!("Bearer {}", auth_token))
-            .send()
-            .await
-        {
-            Ok(resp) => match resp.json::<CommandResponse>().await {
-                Ok(cr) => {
-                    poll_ms = cr.poll_ms;
-                    for cmd in cr.commands {
-                        match cmd.cmd_type.as_str() {
-                            "start_game" => {
-                                println!("Starting game: {:?}", cmd.payload);
-                            }
-                            other => println!("Unknown command: {}", other),
-                        }
-                    }
-                }
-                Err(e) => eprintln!("Failed to parse commands: {}", e),
-            },
-            Err(e) => eprintln!("Poll failed: {}", e),
-        }
-
-        tokio::time::sleep(Duration::from_millis(poll_ms)).await;
-    }
-}
-
-fn generate_code() -> String {
-    use rand::Rng;
-    let letters: Vec<char> = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".chars().collect();
-    let mut rng = rand::thread_rng();
-    (0..8).map(|_| letters[rng.gen_range(0..letters.len())]).collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn generate_code_produces_8_letters() {
-        let code = generate_code();
-        assert_eq!(code.len(), 8);
-        assert!(code.chars().all(|c| c.is_ascii_uppercase()));
-    }
-
-    #[test]
-    fn generate_code_is_random() {
-        let a = generate_code();
-        let b = generate_code();
-        assert!(a != b || generate_code() != a);
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
     }
 }

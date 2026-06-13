@@ -1,20 +1,45 @@
 # Phase 1: Scaffold & Pairing Implementation Plan
 
-> **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.
+> **Status:** Tasks 1-5 complete (scaffold, OAuth, DB, pairing APIs). Tasks 6-11 pending.
+> The detailed task descriptions below are the original plan — the actual implementation may differ.
+> See the "What Changed from Plan" section for deviations.
 
-**Goal:** Stand up all four projects with basic scaffolding, implement the pairing flow end-to-end (gv-server generates code → user enters on gv-web → pair confirmed).
+**Goal:** Stand up all four projects with basic scaffolding, implement the pairing flow end-to-end (user generates code on gv-web → gv-server claims it → API key issued).
 
-**Architecture:** gv-server polls gv-web for commands. gv-web serves Next.js site with OAuth and SSE push to browser. gv-worker runs a tiny localhost HTTP server for IPC. WebRTC P2P between browser and worker, signaling proxied through gv-server → gv-web.
+**Architecture:** gv-server polls gv-web for commands. gv-web serves Next.js site with OAuth and SSE push to browser. gv-worker runs a tiny localhost HTTP server (axum) with WebRTC video streaming. WebRTC P2P between browser and worker, signaling proxied through gv-server → gv-web polling → SSE push.
 
-**Tech Stack:** Next.js 15 + React 19 (gv-web), vanilla JS (gv-player), Rust 2024 edition (gv-server, gv-worker), PostgreSQL (gv-web DB)
+**Tech Stack:** Next.js 15 + React 19 (gv-web), vanilla JS (gv-player), Rust 2021/2024 edition (gv-server, gv-worker), PostgreSQL (gv-web DB)
 
 **Key decisions:**
-- Polling: 250ms for 5s after command queued, then 2s idle
-- Browser push: SSE via `EventSource`
-- Worker IPC: localhost HTTP server (axum, minimal)
-- Pairing codes: 8 letters, case-insensitive, 5 minute TTL
-- OAuth: NextAuth.js with GitHub + Google providers
-- **Each project is independently testable** — every project has its own test suite that runs without other projects. gv-web tests use mocked DB. gv-server tests mock HTTP responses. gv-worker tests hit its own endpoints. gv-player tests run in Node with no browser.
+- Pairing: Plex-style — user generates a code on gv-web dashboard; gv-server claims it via CLI. 8 chars (no confusable), 5 minute TTL.
+- Servers not devices: gv-server instances are called "servers" (not "devices"). Each server gets an API key (`gvsk_` prefix) stored as SHA-256 hash.
+- OAuth: NextAuth.js v5 beta with GitHub provider, JWT sessions
+- Worker IPC: localhost HTTP server (axum) with SDP exchange, test patterns, and VP8 WebRTC streaming
+- **Each project is independently testable** — every project has its own test suite
+
+**What Changed from Plan:**
+- Pairing flow inverted: plan had gv-server generating codes; implemented Plex-style (gv-web generates, server claims)
+- `devices` table → `servers` table (better naming)
+- `commands` table → `sessions` table (tracks game sessions, command queue not yet built)
+- API routes under `/api/auth/pair/` not `/api/pair/` (auth prefix for clarity)
+- gv-server uses structured CLI (clap) with `pair` and `start` subcommands, not a single polling binary
+- gv-worker is significantly more mature than planned — includes full WebRTC handshake, VP8 hardware encoding via libvpx FFI, test patterns, and integration tests
+- Polling loop is a placeholder (sleep loop); command queue and SSE not yet implemented
+
+**Completed (Tasks 1-5):**
+- ✅ gv-web: Next.js scaffold, NextAuth.js with GitHub OAuth, PostgreSQL schema via Drizzle, pairing code generate/claim/verify APIs, server membership APIs
+- ✅ gv-server: Rust CLI with pairing and start subcommands, config management, gv-web HTTP client
+- ✅ gv-worker: axum HTTP server, WebRTC VP8 streaming, test patterns, 13 unit+integration tests passing
+- ❌ gv-web vitest unit tests (plan called for `__tests__/pairing.test.ts` — not written)
+- ❌ gv-player: only scaffold (package.json), no code yet
+
+**Remaining (Tasks 6-11):**
+- Command queue API + gv-server polling loop
+- Browser SSE push endpoint
+- gv-server spawning gv-worker processes
+- gv-player browser-side WebRTC client
+- SDP relay: browser offer → gv-web → gv-server → gv-worker → answer back through same chain
+- gv-web vitest tests
 
 ---
 
