@@ -301,7 +301,7 @@ export default function DevDashboard() {
           <div style={{ marginTop: 8 }}>
             <a
               style={styles.link}
-              href={`/player?worker=${encodeURIComponent(workerUrl)}`}
+              href={`/player/index.html?worker=${encodeURIComponent(workerUrl)}`}
               target="_blank"
               rel="noreferrer"
             >
