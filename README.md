@@ -11,6 +11,8 @@ gv-server       Rust binary — polls gv-web, spawns gv-worker on demand
 gv-worker       Rust binary — per-game WebRTC peer + VP8 encoder (libvpx)
 ```
 
+Full protocol and wire formats: **[docs/PROTOCOL.md](docs/PROTOCOL.md)**
+
 ## Quick start
 
 ```bash
