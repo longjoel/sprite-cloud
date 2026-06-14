@@ -95,13 +95,13 @@ pub fn reap_stale_workers() {
         std::thread::sleep(std::time::Duration::from_millis(500));
         if unsafe { libc::kill(pid as i32, 0) } == 0 {
             unsafe { libc::kill(pid as i32, libc::SIGKILL) };
-            eprintln!(
+            tracing::warn!(
                 "[REAPER] force-killed stale worker pid {} ({})",
                 pid,
                 path.file_stem().unwrap_or_default().to_string_lossy()
             );
         } else {
-            eprintln!(
+            tracing::info!(
                 "[REAPER] cleaned up stale pid file for {}",
                 path.file_stem().unwrap_or_default().to_string_lossy()
             );
@@ -199,7 +199,7 @@ pub async fn spawn_worker(game_id: &str, worker_bin_override: Option<&str>) -> R
                 loop {
                     match reader.next_line().await {
                         Ok(Some(line)) => {
-                            eprintln!("[WORKER] {line}");
+                            tracing::debug!("[WORKER] {line}");
                             lines_seen.lock().unwrap().push(line.clone());
                             if let Some(rest) = line.strip_prefix("WORKER_READY port=") {
                                 return rest.trim().parse().ok();
@@ -217,15 +217,15 @@ pub async fn spawn_worker(game_id: &str, worker_bin_override: Option<&str>) -> R
             // Timeout — dump what we saw for debugging
             let seen: Vec<_> = lines_seen.lock().unwrap().drain(..).collect();
             if seen.is_empty() {
-                eprintln!(
+                tracing::error!(
                     "[WORKER] timeout after {PORT_READ_TIMEOUT_SECS}s — no stderr output from worker"
                 );
             } else {
-                eprintln!(
+                tracing::error!(
                     "[WORKER] timeout after {PORT_READ_TIMEOUT_SECS}s — received lines:"
                 );
                 for line in &seen {
-                    eprintln!("[WORKER]   {line}");
+                    tracing::error!("[WORKER]   {line}");
                 }
             }
             0
@@ -239,7 +239,7 @@ pub async fn spawn_worker(game_id: &str, worker_bin_override: Option<&str>) -> R
     // Spawn a background task to keep reading stderr (so child doesn't block)
     tokio::spawn(async move {
         while let Ok(Some(line)) = reader.next_line().await {
-            eprintln!("[WORKER] {line}");
+            tracing::debug!("[WORKER] {line}");
         }
     });
 

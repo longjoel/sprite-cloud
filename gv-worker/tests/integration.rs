@@ -18,7 +18,7 @@ fn spawn_worker() -> (Child, u16) {
         .spawn()
         .expect("failed to spawn gv-worker");
 
-    // Read the port from stderr: "open http://localhost:<port>"
+    // Read the port from stderr: "WORKER_READY port=<N>"
     let stderr = child.stderr.take().expect("no stderr");
     let mut reader = BufReader::new(stderr);
     let mut line = String::new();
@@ -31,9 +31,9 @@ fn spawn_worker() -> (Child, u16) {
         if n == 0 {
             break;
         }
-        if line.contains("open http://localhost:") {
+        if line.contains("WORKER_READY port=") {
             let port_str = line
-                .split("localhost:")
+                .split("port=")
                 .nth(1)
                 .unwrap()
                 .trim()
