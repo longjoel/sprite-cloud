@@ -73,7 +73,15 @@ pub const STREAM_ID: &str = "gv-worker";
 /// Logs frame 1-3 always, then every N frames thereafter.
 pub const DIAG_LOG_INTERVAL: u64 = 90; // ~every 3 seconds at 30 fps
 
+/// CORS allowed origin.
+///
+/// In production, set `ALLOWED_ORIGIN` to your gv-web URL (e.g. "https://games.example.com").
+/// Defaults to "http://localhost:3001" for local development.
+pub fn allowed_origin() -> String {
+    std::env::var("ALLOWED_ORIGIN")
+        .unwrap_or_else(|_| "http://localhost:3001".to_string())
+}
+
 /// ICE gathering timeout in seconds.
-/// If the WebRTC handshake can't finish gathering candidates within this
 /// window, the SDP exchange is aborted.
 pub const ICE_GATHERING_TIMEOUT_SECS: u64 = 10;

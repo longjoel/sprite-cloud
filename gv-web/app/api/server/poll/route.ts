@@ -27,8 +27,9 @@ interface PollResponse {
  * GET /api/server/poll
  *
  * gv-server polls this endpoint (with bearer token) to receive queued
- * commands.  Pending commands are marked DELIVERED atomically so they
- * are never returned twice.
+ * commands.  Pending commands are fetched and marked DELIVERED inside
+ * a transaction — SELECT FOR UPDATE locks the rows so concurrent
+ * requests can't deliver the same command twice.
  *
  * The response includes `next_poll_ms` — 250ms when commands were
  * just delivered (fast follow-up for SDP relay latency), 2000ms idle.
@@ -37,32 +38,37 @@ export async function GET(request: Request): Promise<NextResponse<PollResponse>>
   const server = await verifyBearerToken(request.headers.get("authorization"));
   if (!server) return unauthorizedResponse() as NextResponse<PollResponse>;
 
-  // Fetch + atomically mark delivered in one round-trip
-  const pending = await db
-    .select({
-      id: commands.id,
-      type: commands.type,
-      payload: commands.payload,
-    })
-    .from(commands)
-    .where(
-      and(
-        eq(commands.serverId, server.id),
-        eq(commands.status, STATUS_PENDING),
-      ),
-    )
-    .orderBy(commands.createdAt)
-    .limit(25);
+  // Fetch + atomically mark delivered in one transaction.
+  // SELECT … FOR UPDATE locks the rows until the UPDATE commits,
+  // preventing concurrent requests from double-delivering.
+  const pending = await db.transaction(async (tx) => {
+    const rows = await tx
+      .select({
+        id: commands.id,
+        type: commands.type,
+        payload: commands.payload,
+      })
+      .from(commands)
+      .where(
+        and(
+          eq(commands.serverId, server.id),
+          eq(commands.status, STATUS_PENDING),
+        ),
+      )
+      .orderBy(commands.createdAt)
+      .limit(25)
+      .for("update");
 
-  if (pending.length > 0) {
-    // Mark only the fetched commands as delivered (not any that
-    // arrived between our SELECT and UPDATE).
-    const ids = pending.map((c) => c.id);
-    await db
-      .update(commands)
-      .set({ status: STATUS_DELIVERED })
-      .where(inArray(commands.id, ids));
-  }
+    if (rows.length > 0) {
+      const ids = rows.map((c) => c.id);
+      await tx
+        .update(commands)
+        .set({ status: STATUS_DELIVERED })
+        .where(inArray(commands.id, ids));
+    }
+
+    return rows;
+  });
 
   return NextResponse.json({
     commands: pending,

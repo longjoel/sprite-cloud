@@ -54,9 +54,8 @@ export async function verifyBearerToken(
 
   // Constant-time comparison (double-check the full token)
   const expectedHash = results[0].apiKeyHash;
-  const tokenHash = hashApiKey(token);
   try {
-    if (!timingSafeEqual(Buffer.from(tokenHash), Buffer.from(expectedHash))) return null;
+    if (!timingSafeEqual(Buffer.from(hash), Buffer.from(expectedHash))) return null;
   } catch {
     return null;
   }

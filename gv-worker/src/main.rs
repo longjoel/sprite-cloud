@@ -553,7 +553,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(
+            config::allowed_origin()
+                .parse::<axum::http::HeaderValue>()
+                .expect("invalid ALLOWED_ORIGIN"),
+        )
         .allow_methods(Any)
         .allow_headers(Any);
 

@@ -10,6 +10,7 @@
 const STUN_SERVER = "stun:stun.l.google.com:19302";
 const SDP_ENDPOINT = "/sdp";
 const ICE_TIMEOUT_MS = 15_000;
+const DISCONNECTED_GRACE_MS = 5_000;
 
 // ── State machine ─────────────────────────────────────────────────────
 
@@ -47,6 +48,9 @@ export class GvPlayer {
 
     /** @type {number | null} */
     this._iceTimer = null;
+
+    /** @type {number | null} */
+    this._disconnectedTimer = null;
   }
 
   /** Current connection state (one of State.*). */
@@ -85,7 +89,19 @@ export class GvPlayer {
         this._setState(State.ERROR, "connection failed");
         this._cleanup();
       } else if (s === "disconnected") {
-        // Give ICE a moment to recover before declaring error
+        // Give ICE a grace period to recover before declaring error
+        if (this._disconnectedTimer === null) {
+          this._disconnectedTimer = setTimeout(() => {
+            if (this._pc && this._pc.connectionState === "disconnected") {
+              this._setState(State.ERROR, "disconnected (recovery timeout)");
+              this._cleanup();
+            }
+          }, DISCONNECTED_GRACE_MS);
+        }
+      } else {
+        // Connection is connecting, new, or connected — clear any
+        // pending disconnect timeout.
+        this._clearDisconnectedTimer();
       }
     };
 
@@ -137,6 +153,7 @@ export class GvPlayer {
   /** Tear down the peer connection. */
   disconnect() {
     this._clearIceTimer();
+    this._clearDisconnectedTimer();
     if (this._pc) {
       this._pc.close();
       this._pc = null;
@@ -162,6 +179,7 @@ export class GvPlayer {
 
   _cleanup() {
     this._clearIceTimer();
+    this._clearDisconnectedTimer();
     if (this._pc) {
       this._pc.close();
       this._pc = null;
@@ -172,6 +190,13 @@ export class GvPlayer {
     if (this._iceTimer !== null) {
       clearTimeout(this._iceTimer);
       this._iceTimer = null;
+    }
+  }
+
+  _clearDisconnectedTimer() {
+    if (this._disconnectedTimer !== null) {
+      clearTimeout(this._disconnectedTimer);
+      this._disconnectedTimer = null;
     }
   }
 

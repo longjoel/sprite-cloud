@@ -27,7 +27,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
 
-  if (!body.command_id || !body.worker_url || !body.game_id) {
+  // worker_url is not required for stop actions (empty string is not sent)
+  const missing = body.action === "stop"
+    ? !body.command_id || !body.game_id
+    : !body.command_id || !body.worker_url || !body.game_id;
+  if (missing) {
     return NextResponse.json(
       { error: "command_id, worker_url, and game_id required" },
       { status: 400 },

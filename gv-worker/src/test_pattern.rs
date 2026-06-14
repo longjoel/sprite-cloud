@@ -4,12 +4,8 @@
 //! Used by both the HTTP polling endpoint (`/test-frame`) and the
 //! WebRTC video stream for development and debugging.
 
-#[allow(unused_imports)]
-use crate::config::{VIDEO_HEIGHT, VIDEO_WIDTH};
-
 /// Standard color bar values (SMPTE-style, 8 bars).
 /// RGB tuples for a basic color bar pattern at full intensity.
-#[allow(dead_code)]
 const COLOR_BARS: [(u8, u8, u8); 8] = [
     (255, 255, 255), // white
     (255, 255, 0),   // yellow
@@ -31,7 +27,6 @@ const BOUNCE_SPEED: u32 = 2;
 ///
 /// Divides the frame into 8 vertical bars. Frame number is unused
 /// (static pattern) but kept for API consistency with bouncing_square.
-#[allow(dead_code)]
 pub fn generate_color_bars(width: u32, height: u32, _frame: u64) -> Vec<u8> {
     let bar_width = width / 8;
     let mut buf = vec![0u8; (width * height * 3) as usize];
@@ -79,6 +74,7 @@ pub fn generate_bouncing_square(width: u32, height: u32, frame: u64) -> Vec<u8> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{VIDEO_HEIGHT, VIDEO_WIDTH};
 
     #[test]
     fn color_bars_returns_correct_size() {

@@ -30,7 +30,7 @@ async function cleanupOnce() {
     const sessionCutoff = new Date(Date.now() - SESSION_RETENTION_MS);
     await db.delete(sessions).where(lt(sessions.endedAt, sessionCutoff));
   } catch (e) {
-    console.error("[cleanup] error:", e);
+    console.error(JSON.stringify({ service: "gv-web", level: "error", msg: "cleanup error", error: String(e) }));
   }
 }
 
