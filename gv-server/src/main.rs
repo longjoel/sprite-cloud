@@ -171,6 +171,35 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         }
                                         Err(e) => tracing::error!("[WORKER] spawn failed: {e:#}"),
                                     }
+                                } else if cmd.command_type == "stop_game" {
+                                    let game_id = cmd
+                                        .payload
+                                        .get("game_id")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("unknown");
+                                    tracing::info!(
+                                        "[POLL] stop_game command {} (game: {})",
+                                        cmd.id, game_id
+                                    );
+
+                                    if let Some(worker) = workers.remove(game_id) {
+                                        tracing::info!(
+                                            "[WORKER] stopping worker for game {game_id}"
+                                        );
+                                        worker.kill().await;
+                                        if let Err(e) = client
+                                            .notify_stop(&cmd.id, game_id)
+                                            .await
+                                        {
+                                            tracing::error!(
+                                                "[NOTIFY] stop notification failed for game {game_id}: {e:#}"
+                                            );
+                                        }
+                                    } else {
+                                        tracing::warn!(
+                                            "[WORKER] stop_game for unknown game {game_id} — ignoring"
+                                        );
+                                    }
                                 }
                             }
                         }

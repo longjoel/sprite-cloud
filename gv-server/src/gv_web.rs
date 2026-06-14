@@ -45,8 +45,11 @@ pub struct PollResponse {
 #[derive(Debug, Serialize)]
 struct NotifyBody {
     command_id: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
     worker_url: String,
     game_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    action: Option<String>,
 }
 
 // ── Client ────────────────────────────────────────────────────────────
@@ -181,6 +184,7 @@ impl GvWebClient {
                 command_id: command_id.to_string(),
                 worker_url: worker_url.to_string(),
                 game_id: game_id.to_string(),
+                action: None,
             })
             .send()
             .await
@@ -190,6 +194,45 @@ impl GvWebClient {
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
             anyhow::bail!("notify failed (HTTP {}): {}", status.as_u16(), body);
+        }
+
+        Ok(())
+    }
+
+    /// POST /api/server/notify with action: "stop".
+    ///
+    /// Tells gv-web to mark the session as ended so the browser stops
+    /// polling for a worker URL.
+    pub async fn notify_stop(&self, command_id: &str, game_id: &str) -> Result<()> {
+        crate::retry::with_retry(
+            3,
+            std::time::Duration::from_secs(1),
+            || self.notify_stop_once(command_id, game_id),
+        )
+        .await
+    }
+
+    async fn notify_stop_once(&self, command_id: &str, game_id: &str) -> Result<()> {
+        let url = format!("{}/api/server/notify", self.base_url);
+
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(&self.auth.api_key)
+            .json(&NotifyBody {
+                command_id: command_id.to_string(),
+                worker_url: String::new(),
+                game_id: game_id.to_string(),
+                action: Some("stop".to_string()),
+            })
+            .send()
+            .await
+            .context("POST /api/server/notify (stop) — network error")?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("notify stop failed (HTTP {}): {}", status.as_u16(), body);
         }
 
         Ok(())
