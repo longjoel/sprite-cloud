@@ -10,7 +10,9 @@ use axum::{
     Json, Router,
 };
 use config::{
-    DIAG_LOG_INTERVAL, FRAME_INTERVAL_MS, ICE_GATHERING_TIMEOUT_SECS,
+    AUDIO_CHANNELS, AUDIO_RTP_TIMESTAMP_INCREMENT, AUDIO_SAMPLE_RATE,
+    AUDIO_TRACK_ID, DIAG_LOG_INTERVAL, FRAME_INTERVAL_MS,
+    ICE_GATHERING_TIMEOUT_SECS, OPUS_MAX_FRAME_BYTES, OPUS_SDP_FMTP,
     RTP_TIMESTAMP_INCREMENT, STREAM_ID, TRACK_ID,
     VIDEO_HEIGHT, VIDEO_WIDTH, VP8_CLOCK_RATE,
     stun_server,
@@ -223,13 +225,13 @@ async fn do_webrtc_handshake(
     let audio_track = Arc::new(TrackLocalStaticSample::new(
         RTCRtpCodecCapability {
             mime_type: webrtc::api::media_engine::MIME_TYPE_OPUS.to_owned(),
-            clock_rate: 48_000,
-            channels: 2,
-            sdp_fmtp_line: "minptime=10;useinbandfec=1".to_string(),
+            clock_rate: AUDIO_SAMPLE_RATE,
+            channels: AUDIO_CHANNELS,
+            sdp_fmtp_line: OPUS_SDP_FMTP.to_string(),
             rtcp_feedback: vec![],
         },
-        "audio".to_owned(),
-        "gv-worker".to_owned(),
+        AUDIO_TRACK_ID.to_owned(),
+        STREAM_ID.to_owned(),
     ));
 
     peer_connection
@@ -349,7 +351,7 @@ async fn stream_vp8_frames(
     };
 
     let mut opus_encoder = match opus::Encoder::new(
-        test_tone::SAMPLE_RATE,
+        AUDIO_SAMPLE_RATE,
         opus::Channels::Mono,
         opus::Application::Audio,
     ) {
@@ -409,12 +411,12 @@ async fn stream_vp8_frames(
 
                         // ---- Stream audio alongside video ----
                         let tone = test_tone::generate_tone(frame_num);
-                        match opus_encoder.encode_vec(&tone, 4000) {
+                        match opus_encoder.encode_vec(&tone, OPUS_MAX_FRAME_BYTES) {
                             Ok(opus_data) => {
                                 let audio_sample = Sample {
                                     data: opus_data.into(),
                                     duration: frame_interval,
-                                    packet_timestamp: (frame_num as u32).wrapping_mul(1_600),
+                                    packet_timestamp: (frame_num as u32).wrapping_mul(AUDIO_RTP_TIMESTAMP_INCREMENT),
                                     ..Default::default()
                                 };
                                 if let Err(e) = audio_track.write_sample(&audio_sample).await {
