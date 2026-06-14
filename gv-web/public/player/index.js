@@ -343,34 +343,49 @@ export class GvPlayer {
     return u.replace(/\/+$/, "");
   }
 
-  // ── Keyboard input ──────────────────────────────────────────
-  /** Sends keydown/keyup events over the DataChannel as
-   *  {cmd:"input", key:string, pressed:bool}. */
+  // ── Keyboard input (RetroArch binary mask format) ──────────
+  /** Accumulates key state into a 16-bit RetroArch joypad mask
+   *  and sends binary [u8 seat][u16 LE state] on every change.
+   *  Bit layout: Up=4, Down=5, Left=6, Right=7, Start=3,
+   *  Select=2, B=0, A=8. See ADR 008. */
   _setupKeyboardInput() {
-    const KEY_MAP = {
-      ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
-      w: "up", a: "left", s: "down", d: "right",
-      z: "a", x: "b",
-      Enter: "start", " ": "select",
+    const BIT_MAP = {
+      ArrowUp: 4, ArrowDown: 5, ArrowLeft: 6, ArrowRight: 7,
+      w: 4, a: 6, s: 5, d: 7,
+      z: 0, x: 8,           // B, A
+      Enter: 3, ' ': 3,     // Start
+      Shift: 2,             // Select
     };
 
-    const send = (key, pressed) => {
+    this._inputState = 0;
+
+    const sendMask = () => {
       if (!this._dc || this._dc.readyState !== "open") return;
       try {
-        this._dc.send(JSON.stringify({ cmd: "input", key, pressed }));
+        const s = this._inputState;
+        this._dc.send(new Uint8Array([0, s & 0xFF, s >> 8]).buffer);
       } catch { /* channel closing */ }
     };
 
     const handler = (e) => {
-      const mapped = KEY_MAP[e.key];
-      if (!mapped) return;
+      const bit = BIT_MAP[e.key];
+      if (bit === undefined) return;
       e.preventDefault();
-      send(mapped, e.type === "keydown");
+      if (e.type === "keydown") {
+        this._inputState |= (1 << bit);
+      } else {
+        this._inputState &= ~(1 << bit);
+      }
+      sendMask();
     };
 
     this._keyHandler = handler;
     document.addEventListener("keydown", handler);
     document.addEventListener("keyup", handler);
+
+    // Reset state on blur (stuck keys if user tabs away)
+    this._blurHandler = () => { this._inputState = 0; sendMask(); };
+    window.addEventListener("blur", this._blurHandler);
   }
 
   _removeKeyboardInput() {
@@ -378,6 +393,10 @@ export class GvPlayer {
       document.removeEventListener("keydown", this._keyHandler);
       document.removeEventListener("keyup", this._keyHandler);
       this._keyHandler = null;
+    }
+    if (this._blurHandler) {
+      window.removeEventListener("blur", this._blurHandler);
+      this._blurHandler = null;
     }
   }
 

@@ -67,6 +67,11 @@ pub struct AvInfo {
 }
 
 /// Joypad buttons in libretro's SNES-style layout.
+///
+/// Each variant's discriminant is the `RETRO_DEVICE_ID_JOYPAD_*` index.
+/// Use `set_input(port, mask)` to set the full 16-bit state in one call
+/// (RetroArch network input protocol). For single-button convenience,
+/// compose masks with `JoypadButton::Up as u16`, etc.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum JoypadButton {

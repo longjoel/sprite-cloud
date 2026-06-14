@@ -356,6 +356,32 @@ impl Core {
         });
     }
 
+    /// Set the full 16-bit joypad state for a given port.
+    ///
+    /// This is the RetroArch network input format — a single u16 bitmask
+    /// sent every frame. Bit 0 = B, bit 4 = Up, bit 8 = A, etc.
+    /// Call before `run_frame()`.
+    pub fn set_input(&mut self, port: u32, state: u16) {
+        INPUT_STATE.with(|s| {
+            let mut s = s.borrow_mut();
+            let idx = port as usize;
+            if idx < s.len() {
+                s[idx] = state;
+            }
+        });
+    }
+
+    /// Read the current joypad state for a given port.
+    ///
+    /// Returns the 16-bit bitmask. Useful for tests and diagnostics.
+    pub fn joypad_state(&self, port: u32) -> u16 {
+        INPUT_STATE.with(|s| {
+            let s = s.borrow();
+            let idx = port as usize;
+            if idx < s.len() { s[idx] } else { 0 }
+        })
+    }
+
     /// Convert the raw frame in thread-local storage to RGB24 and store on self.
     fn convert_and_store_frame(&mut self) {
         let (fmt, (w, h, _pitch), raw) = PIXEL_FORMAT.with(|f| {
