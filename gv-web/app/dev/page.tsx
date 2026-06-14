@@ -41,14 +41,15 @@ export default function DevDashboard() {
     // gv-web itself
     results.push({ label: "gv-web", value: "up", ok: true });
 
-    // Verify API (tests bearer auth + DB)
+    // Health check (pings DB, no auth required)
     try {
-      const r = await fetch("/api/auth/verify");
-      results.push({
-        label: "DB",
-        value: r.ok ? "connected" : `HTTP ${r.status}`,
-        ok: r.ok,
-      });
+      const r = await fetch("/api/health");
+      if (r.ok) {
+        const data = await r.json();
+        results.push({ label: "DB", value: "connected", ok: data.status === "ok" });
+      } else {
+        results.push({ label: "DB", value: `HTTP ${r.status}`, ok: false });
+      }
     } catch {
       results.push({ label: "DB", value: "unreachable", ok: false });
     }
