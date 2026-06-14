@@ -27,6 +27,10 @@
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
+// Every unsafe operation must be inside an explicit `unsafe {}` block
+// with a `// SAFETY:` comment explaining why it's sound.
+#![deny(unsafe_op_in_unsafe_fn)]
+
 mod ffi;
 mod info;
 
