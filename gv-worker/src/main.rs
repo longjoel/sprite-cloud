@@ -38,7 +38,6 @@ use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
 use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSample;
 use webrtc::track::track_local::TrackLocal;
-use tower_http::cors::{Any, CorsLayer};
 
 // ---------------------------------------------------------------------------
 // Types
@@ -966,26 +965,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         peer_connection: Mutex::new(None),
     });
 
-    let cors = CorsLayer::new()
-        .allow_origin(
-            config::allowed_origins()
-                .iter()
-                .map(|o| o.parse::<axum::http::HeaderValue>().expect("invalid origin"))
-                .collect::<Vec<_>>(),
-        )
-        .allow_methods(Any)
-        .allow_headers(Any);
-
     let app = Router::new()
         .route("/", get(handle_index))
         .route("/sdp", post(handle_offer))
         .route("/state", get(handle_connection_state))
         .route("/test-frame", get(handle_test_frame))
         .route("/health", get(handle_health))
-        .layer(cors)
         .with_state(state);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    // Bind to loopback by default — gv-worker is internal-only.
+    // Set GV_BIND_ADDR=0.0.0.0 for direct dev access.
+    let bind_host: std::net::IpAddr = std::env::var("GV_BIND_ADDR")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(std::net::IpAddr::from([127, 0, 0, 1]));
+
+    let addr = SocketAddr::from((bind_host, port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let actual_port = listener.local_addr()?.port();
 

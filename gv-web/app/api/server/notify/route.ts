@@ -10,6 +10,8 @@ interface NotifyBody {
   command_id: string;
   worker_url: string;
   game_id: string;
+  /** WebRTC SDP answer from worker relay (for sdp_offer commands). */
+  sdp_answer?: string;
   /** "stop" marks the session as ended (optional). */
   action?: "stop";
 }
@@ -64,7 +66,7 @@ export async function POST(request: NextRequest) {
   if (existing) {
     const update: Record<string, unknown> = isStop
       ? { status: "stopped", endedAt: new Date() }
-      : { workerUrl: body.worker_url, status: "ready" };
+      : { workerUrl: body.worker_url, status: "ready", ...(body.sdp_answer ? { sdpAnswer: body.sdp_answer } : {}) };
     await db
       .update(sessions)
       .set(update)
@@ -78,6 +80,7 @@ export async function POST(request: NextRequest) {
       commandId: body.command_id,
       workerUrl: body.worker_url,
       status: "ready",
+      ...(body.sdp_answer ? { sdpAnswer: body.sdp_answer } : {}),
     });
   }
 
@@ -104,6 +107,7 @@ export async function GET(request: NextRequest) {
       workerUrl: sessions.workerUrl,
       gameId: sessions.gameId,
       status: sessions.status,
+      sdpAnswer: sessions.sdpAnswer,
     })
     .from(sessions)
     .innerJoin(commands, eq(commands.id, sessions.commandId))
@@ -124,5 +128,6 @@ export async function GET(request: NextRequest) {
     worker_url: session.workerUrl,
     game_id: session.gameId,
     status: session.status,
+    sdp_answer: session.sdpAnswer ?? null,
   });
 }

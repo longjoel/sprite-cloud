@@ -49,6 +49,8 @@ struct NotifyBody {
     worker_url: String,
     game_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    sdp_answer: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     action: Option<String>,
 }
 
@@ -168,7 +170,33 @@ impl GvWebClient {
         crate::retry::with_retry(
             3,
             std::time::Duration::from_secs(1),
-            || self.notify_once(command_id, worker_url, game_id),
+            || self.notify_once(command_id, worker_url, game_id, None),
+        )
+        .await
+    }
+
+    /// POST /api/server/notify with an SDP answer.
+    ///
+    /// Called after relaying an SDP offer to a gv-worker so the browser
+    /// can retrieve the answer via polling.
+    pub async fn notify_sdp(
+        &self,
+        command_id: &str,
+        worker_url: &str,
+        game_id: &str,
+        sdp_answer: &str,
+    ) -> Result<()> {
+        crate::retry::with_retry(
+            3,
+            std::time::Duration::from_secs(1),
+            || {
+                self.notify_once(
+                    command_id,
+                    worker_url,
+                    game_id,
+                    Some(sdp_answer.to_string()),
+                )
+            },
         )
         .await
     }
@@ -179,19 +207,23 @@ impl GvWebClient {
         command_id: &str,
         worker_url: &str,
         game_id: &str,
+        sdp_answer: Option<String>,
     ) -> Result<()> {
         let url = format!("{}/api/server/notify", self.base_url);
+
+        let body = NotifyBody {
+            command_id: command_id.to_string(),
+            worker_url: worker_url.to_string(),
+            game_id: game_id.to_string(),
+            sdp_answer,
+            action: None,
+        };
 
         let resp = self
             .client
             .post(&url)
             .bearer_auth(&self.auth.api_key)
-            .json(&NotifyBody {
-                command_id: command_id.to_string(),
-                worker_url: worker_url.to_string(),
-                game_id: game_id.to_string(),
-                action: None,
-            })
+            .json(&body)
             .send()
             .await
             .context("POST /api/server/notify — network error")?;
@@ -229,6 +261,7 @@ impl GvWebClient {
                 command_id: command_id.to_string(),
                 worker_url: String::new(),
                 game_id: game_id.to_string(),
+                sdp_answer: None,
                 action: Some("stop".to_string()),
             })
             .send()

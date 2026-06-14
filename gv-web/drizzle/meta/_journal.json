@@ -22,6 +22,13 @@
       "when": 1781386434609,
       "tag": "0002_add_sessions_command_id",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781470764301,
+      "tag": "0003_skinny_colonel_america",
+      "breakpoints": true
     }
   ]
 }
