@@ -113,6 +113,7 @@ export class GvPlayer {
     };
 
     this._pc.addTransceiver("video", { direction: "recvonly" });
+    this._pc.addTransceiver("audio", { direction: "recvonly" });
 
     // ── SDP exchange ──────────────────────────────────────────
 
