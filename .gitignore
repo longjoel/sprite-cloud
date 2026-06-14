@@ -83,3 +83,6 @@ docs/plans/2026-05-*
 docs/plans/2026-06-*
 .github/
 .hermes/plans/97-auto-import-watch-folder.md
+
+# Hermes agent work directory
+.hermes/
