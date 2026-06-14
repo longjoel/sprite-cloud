@@ -1,7 +1,7 @@
 //! Core loading and lifecycle.
 //!
 //! Handles dlopen, symbol lookup, callback registration, retro_init,
-//! content loading, and AV info extraction.
+//! content loading, AV info extraction, and the frame run loop.
 
 use std::cell::{Cell, RefCell};
 use std::ffi::{CStr, CString};
@@ -33,8 +33,11 @@ thread_local! {
     /// Preloaded ROM data — must outlive the retro_load_game call.
     static CONTENT_DATA: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
 
-    /// Frame buffer populated by the video refresh callback.
-    static FRAME_BUFFER: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+    /// Raw frame buffer populated by the video refresh callback.
+    static RAW_FRAME: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+
+    /// Most recent frame dimensions from the callback: (width, height, pitch_bytes).
+    static RAW_FRAME_DIMS: RefCell<(u32, u32, usize)> = const { RefCell::new((0, 0, 0)) };
 
     /// Audio buffer populated by the audio sample batch callback.
     static AUDIO_BUFFER: RefCell<Vec<i16>> = RefCell::new(Vec::new());
@@ -105,6 +108,12 @@ pub struct Core {
 
     /// Whether a game is currently loaded.
     game_loaded: bool,
+
+    /// Converted RGB24 frame from the most recent run_frame().
+    current_frame: Vec<u8>,
+
+    /// Dimensions of the current frame (width, height).
+    current_frame_dims: (u32, u32),
 }
 
 impl Core {
@@ -183,7 +192,7 @@ impl Core {
         // SAFETY: registering function pointers that match the ABI.
         // The C side will call back into our safe Rust wrappers.
         unsafe { retro_set_environment(environment_callback) };
-        unsafe { retro_set_video_refresh(stub_video_refresh) };
+        unsafe { retro_set_video_refresh(video_refresh_callback) };
         unsafe { retro_set_audio_sample_batch(stub_audio_batch) };
         unsafe { retro_set_input_poll(stub_input_poll) };
         unsafe { retro_set_input_state(stub_input_state) };
@@ -276,7 +285,94 @@ impl Core {
             retro_unserialize,
             av_info,
             game_loaded: true,
+            current_frame: Vec::new(),
+            current_frame_dims: (0, 0),
         })
+    }
+
+    /// Run a single frame — calls `retro_run()` and captures video output.
+    ///
+    /// After this call, read the frame with [`frame()`](Self::frame) and
+    /// audio with [`audio()`](Self::audio).
+    ///
+    /// # Safety
+    ///
+    /// The core must be loaded and initialized. Callbacks are invoked
+    /// synchronously within this call.
+    pub fn run_frame(&mut self) -> Result<(), Error> {
+        // Clear audio accumulation (will be populated by the callback)
+        AUDIO_BUFFER.with(|buf| buf.borrow_mut().clear());
+
+        // SAFETY: retro_run is a valid function pointer. The library is loaded
+        // and callbacks are registered. The core will call our video/audio/input
+        // callbacks synchronously.
+        unsafe { (self.retro_run)() };
+
+        // Convert captured raw frame to RGB24
+        self.convert_and_store_frame();
+
+        Ok(())
+    }
+
+    /// Returns the most recent frame as RGB24 bytes, or `None` if no frame
+    /// has been captured yet.
+    pub fn frame(&self) -> Option<&[u8]> {
+        if self.current_frame.is_empty() {
+            None
+        } else {
+            Some(&self.current_frame)
+        }
+    }
+
+    /// Returns the dimensions of the most recent frame (width, height).
+    pub fn frame_size(&self) -> (u32, u32) {
+        self.current_frame_dims
+    }
+
+    /// Returns accumulated audio samples since the last `run_frame()`.
+    pub fn audio(&self) -> &[i16] {
+        // Audio buffer is cleared in run_frame — return whatever accumulated.
+        // We use a small hack: read the thread-local directly since Core
+        // doesn't own it (callbacks write to thread-locals).
+        AUDIO_BUFFER.with(|buf| {
+            // SAFETY: we're returning a reference to thread-local data.
+            // The caller must not hold this across subsequent run_frame() calls.
+            let leak: &'static [i16] = unsafe {
+                std::slice::from_raw_parts(buf.borrow().as_ptr(), buf.borrow().len())
+            };
+            leak
+        })
+    }
+
+    /// Convert the raw frame in thread-local storage to RGB24 and store on self.
+    fn convert_and_store_frame(&mut self) {
+        let (fmt, (w, h, _pitch), raw) = PIXEL_FORMAT.with(|f| {
+            let fmt = f.get();
+            let dims = RAW_FRAME_DIMS.with(|d| *d.borrow());
+            // Copy raw frame out of thread-local to avoid borrow conflicts
+            let raw = RAW_FRAME.with(|buf| buf.borrow().clone());
+            (fmt, dims, raw)
+        });
+
+        if w == 0 || h == 0 || raw.is_empty() {
+            // No frame this tick — keep previous
+            return;
+        }
+
+        self.current_frame_dims = (w, h);
+
+        match fmt {
+            RETRO_PIXEL_FORMAT_XRGB8888 => {
+                self.current_frame = xrgb8888_to_rgb24(&raw, w as usize, h as usize);
+            }
+            RETRO_PIXEL_FORMAT_RGB565 => {
+                self.current_frame = rgb565_to_rgb24(&raw, w as usize, h as usize);
+            }
+            _ => {
+                // Unknown format — store raw as-is (caller beware)
+                self.current_frame = raw;
+            }
+        }
     }
 }
 
@@ -356,6 +452,100 @@ unsafe extern "C" fn environment_callback(cmd: u32, data: *mut std::ffi::c_void)
         // For all other commands, return false (core will try fallbacks)
         _ => false,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Video callback
+// ---------------------------------------------------------------------------
+
+/// Video refresh callback — called by the core each frame with rendered pixels.
+///
+/// `data` is null for duplicate frames or HW-rendered cores. In that case we
+/// keep the previous frame buffer.
+unsafe extern "C" fn video_refresh_callback(
+    data: *const std::ffi::c_void,
+    width: u32,
+    height: u32,
+    pitch: usize,
+) {
+    if data.is_null() {
+        // Duplicate frame — keep previous raw frame buffer
+        return;
+    }
+
+    if width == 0 || height == 0 {
+        return;
+    }
+
+    let byte_count = pitch * height as usize;
+
+    RAW_FRAME_DIMS.with(|dims| {
+        *dims.borrow_mut() = (width, height, pitch);
+    });
+
+    RAW_FRAME.with(|buf| {
+        let mut buf = buf.borrow_mut();
+        buf.resize(byte_count, 0);
+        // SAFETY: data is a valid pointer from the core. The core guarantees
+        // it points to at least `byte_count` bytes of pixel data.
+        unsafe {
+            ptr::copy_nonoverlapping(data as *const u8, buf.as_mut_ptr(), byte_count);
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Pixel format conversion
+// ---------------------------------------------------------------------------
+
+/// Convert XRGB8888 to RGB24 by dropping the alpha byte from each pixel.
+fn xrgb8888_to_rgb24(data: &[u8], width: usize, height: usize) -> Vec<u8> {
+    let pixel_count = width * height;
+    let expected_bytes = pixel_count * 4;
+    if data.len() < expected_bytes {
+        return Vec::new();
+    }
+
+    let mut rgb = Vec::with_capacity(pixel_count * 3);
+    // SAFETY: bytemuck cast from &[u8] to &[u32] is safe — u32 has no
+    // alignment requirement on x86_64, and we've verified the byte length.
+    let pixels: &[u32] = bytemuck::cast_slice(&data[..expected_bytes]);
+
+    for &p in pixels {
+        // XRGB8888 layout: 0xXXRRGGBB (little-endian: B, G, R, X in memory)
+        rgb.push((p >> 16) as u8); // R
+        rgb.push((p >> 8) as u8);  // G
+        rgb.push(p as u8);          // B
+    }
+
+    rgb
+}
+
+/// Convert RGB565 to RGB24 by unpacking 5-6-5 bit fields into 8-8-8.
+fn rgb565_to_rgb24(data: &[u8], width: usize, height: usize) -> Vec<u8> {
+    let pixel_count = width * height;
+    let expected_bytes = pixel_count * 2;
+    if data.len() < expected_bytes {
+        return Vec::new();
+    }
+
+    let mut rgb = Vec::with_capacity(pixel_count * 3);
+    let pixels: &[u16] = bytemuck::cast_slice(&data[..expected_bytes]);
+
+    for &p in pixels {
+        // RGB565 layout: RRRRRGGGGGGBBBBB (big-endian 16-bit)
+        let r = ((p >> 11) & 0x1F) as u8;
+        let g = ((p >> 5) & 0x3F) as u8;
+        let b = (p & 0x1F) as u8;
+
+        // Scale 5-bit to 8-bit: (x << 3) | (x >> 2)
+        // Scale 6-bit to 8-bit: (x << 2) | (x >> 4)
+        rgb.push((r << 3) | (r >> 2));
+        rgb.push((g << 2) | (g >> 4));
+        rgb.push((b << 3) | (b >> 2));
+    }
+
+    rgb
 }
 
 // ---------------------------------------------------------------------------
@@ -456,16 +646,8 @@ fn load_game_content(
 }
 
 // ---------------------------------------------------------------------------
-// Stub callbacks (replaced in Tasks 5-7)
+// Remaining stub callbacks (replaced in Tasks 6-7)
 // ---------------------------------------------------------------------------
-
-unsafe extern "C" fn stub_video_refresh(
-    _data: *const std::ffi::c_void,
-    _width: u32,
-    _height: u32,
-    _pitch: usize,
-) {
-}
 
 unsafe extern "C" fn stub_audio_batch(_data: *const i16, _frames: usize) -> usize {
     0
