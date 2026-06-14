@@ -1,3 +1,3 @@
 [workspace]
 resolver = "2"
-members = ["gv-server", "gv-worker"]
+members = ["gv-server", "gv-worker", "libretro-runner"]
