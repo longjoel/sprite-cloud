@@ -19,6 +19,7 @@ use config::{
 };
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -186,23 +187,101 @@ async fn do_webrtc_handshake(
             .map_err(|e| format!("create peer connection: {}", e))?,
     );
 
-    // ---- Create DataChannel for diagnostics (stats + ping/pong) ----
+    // ---- Create DataChannel for diagnostics (stats + control) ----
     let dc = peer_connection
         .create_data_channel("diagnostics", None)
         .await
         .map_err(|e| format!("create data channel: {}", e))?;
 
-    // Echo pings for RTT measurement
-    let dc_pong = dc.clone();
-    dc.on_message(Box::new(move |msg| {
-        let dc = dc_pong.clone();
-        Box::pin(async move {
-            let text = String::from_utf8_lossy(&msg.data);
-            if text.trim() == "ping" {
-                let _ = dc.send_text("pong").await;
-            }
-        })
-    }));
+    // Shared state between DC message handler and streaming loop
+    let encoder_mutex: Arc<std::sync::Mutex<vp8_encoder::Vp8Encoder>> =
+        Arc::new(std::sync::Mutex::new(
+            vp8_encoder::Vp8Encoder::new(VIDEO_WIDTH, VIDEO_HEIGHT)
+                .map_err(|e| format!("create VP8 encoder: {}", e))?,
+        ));
+    let force_keyframe = Arc::new(AtomicBool::new(false));
+    let pattern = Arc::new(AtomicU8::new(0)); // 0=square, 1=bars
+
+    // Dispatch DataChannel messages: stats are sent by the stream loop;
+    // incoming messages are control commands or pings.
+    {
+        let dc_encoder = encoder_mutex.clone();
+        let dc_force_kf = force_keyframe.clone();
+        let dc_pattern = pattern.clone();
+        let dc_cmd = dc.clone();
+        dc.on_message(Box::new(move |msg| {
+            let encoder = dc_encoder.clone();
+            let force_kf = dc_force_kf.clone();
+            let pat = dc_pattern.clone();
+            let dc = dc_cmd.clone();
+            Box::pin(async move {
+                let text = String::from_utf8_lossy(&msg.data);
+                let text = text.trim();
+
+                // Legacy: raw "ping" for backward compat
+                if text == "ping" {
+                    let now_ms = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis();
+                    let resp = serde_json::json!({
+                        "type": "pong",
+                        "server_ts_ms": now_ms
+                    });
+                    let _ = dc.send_text(&resp.to_string()).await;
+                    return;
+                }
+
+                // Parse JSON command
+                let cmd: serde_json::Value = match serde_json::from_str(text) {
+                    Ok(v) => v,
+                    Err(_) => return,
+                };
+
+                match cmd.get("cmd").and_then(|v| v.as_str()) {
+                    Some("set_bitrate") => {
+                        if let Some(kbps) = cmd.get("kbps").and_then(|v| v.as_u64()) {
+                            if let Ok(mut enc) = encoder.lock() {
+                                if let Err(e) = enc.set_bitrate(kbps as u32) {
+                                    tracing::warn!("[DC] set_bitrate({}) failed: {}", kbps, e);
+                                } else {
+                                    tracing::info!("[DC] bitrate set to {} kbps", kbps);
+                                }
+                            }
+                        }
+                    }
+                    Some("set_pattern") => {
+                        if let Some(p) = cmd.get("pattern").and_then(|v| v.as_str()) {
+                            let val: u8 = match p {
+                                "bars" => 1,
+                                _ => 0,
+                            };
+                            pat.store(val, Ordering::Relaxed);
+                            tracing::info!("[DC] pattern set to {}", p);
+                        }
+                    }
+                    Some("force_keyframe") => {
+                        force_kf.store(true, Ordering::Relaxed);
+                        tracing::info!("[DC] force_keyframe requested");
+                    }
+                    Some("ping") => {
+                        let seq = cmd.get("seq").and_then(|v| v.as_u64()).unwrap_or(0);
+                        let now_ms = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis();
+                        let resp = serde_json::json!({
+                            "type": "pong",
+                            "seq": seq,
+                            "server_ts_ms": now_ms
+                        });
+                        let _ = dc.send_text(&resp.to_string()).await;
+                    }
+                    _ => {}
+                }
+            })
+        }));
+    }
 
     // Clone for the streaming task to send stats
     let dc_stream = dc.clone();
@@ -309,6 +388,9 @@ async fn do_webrtc_handshake(
     let peer_connection_clone = Arc::clone(&peer_connection);
     let state_clone = Arc::clone(&state);
     let audio_track_clone = Arc::clone(&audio_track);
+    let stream_encoder = encoder_mutex.clone();
+    let stream_force_kf = force_keyframe.clone();
+    let stream_pattern = pattern.clone();
 
     // Watch for peer disconnection — if the browser leaves, kill the stream.
     peer_connection.on_peer_connection_state_change(Box::new(
@@ -329,7 +411,7 @@ async fn do_webrtc_handshake(
     ));
 
     let handle = tokio::spawn(async move {
-        stream_vp8_frames(stream_track, audio_track_clone, dc_stream, stream_cancel, peer_connection_clone, state_clone).await;
+        stream_vp8_frames(stream_track, audio_track_clone, dc_stream, stream_cancel, peer_connection_clone, state_clone, stream_encoder, stream_force_kf, stream_pattern).await;
     });
 
     {
@@ -360,17 +442,12 @@ async fn stream_vp8_frames(
     cancel: CancellationToken,
     peer_connection: Arc<RTCPeerConnection>,
     app_state: Arc<AppState>,
+    encoder_mutex: Arc<std::sync::Mutex<vp8_encoder::Vp8Encoder>>,
+    force_keyframe: Arc<AtomicBool>,
+    pattern: Arc<AtomicU8>,
 ) {
     use std::time::Duration;
     use webrtc::media::Sample;
-
-    let mut encoder = match vp8_encoder::Vp8Encoder::new(VIDEO_WIDTH, VIDEO_HEIGHT) {
-        Ok(e) => e,
-        Err(e) => {
-            tracing::error!("[STREAM] Failed to create VP8 encoder: {}", e);
-            return;
-        }
-    };
 
     let mut opus_encoder = match opus::Encoder::new(
         AUDIO_SAMPLE_RATE,
@@ -413,11 +490,26 @@ async fn stream_vp8_frames(
                 break;
             }
             _ = tick.tick() => {
-                let pixels = test_pattern::generate_bouncing_square(VIDEO_WIDTH, VIDEO_HEIGHT, frame_num);
+                // ---- Check force_keyframe flag ----
+                if force_keyframe.swap(false, Ordering::Relaxed) {
+                    if let Ok(mut enc) = encoder_mutex.lock() {
+                        enc.force_keyframe();
+                    }
+                }
+
+                // ---- Generate test pattern ----
+                let pixels = match pattern.load(Ordering::Relaxed) {
+                    1 => test_pattern::generate_color_bars(VIDEO_WIDTH, VIDEO_HEIGHT, frame_num),
+                    _ => test_pattern::generate_bouncing_square(VIDEO_WIDTH, VIDEO_HEIGHT, frame_num),
+                };
                 frame_num = frame_num.wrapping_add(1);
 
                 let encode_start = std::time::Instant::now();
-                match encoder.encode(&pixels) {
+                let encode_result = {
+                    let mut enc = encoder_mutex.lock().unwrap();
+                    enc.encode(&pixels)
+                };
+                match encode_result {
                     Ok((encoded, is_keyframe)) => {
                         let encode_us = encode_start.elapsed().as_micros();
                         let byte_count = encoded.len();

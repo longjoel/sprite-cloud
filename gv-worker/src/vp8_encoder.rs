@@ -261,6 +261,42 @@ impl Vp8Encoder {
             Ok((packets, is_keyframe))
         }
     }
+
+    /// Update the encoder's target bitrate at runtime.
+    ///
+    /// Calls `vpx_codec_enc_config_set` with the new `rc_target_bitrate`.
+    /// Note: not all libvpx builds support runtime bitrate changes on VP8.
+    /// If the call fails, the encoder is destroyed and recreated with the
+    /// new bitrate.
+    pub fn set_bitrate(&mut self, kbps: u32) -> Result<(), VpxError> {
+        unsafe {
+            let mut cfg = MaybeUninit::<vpx_codec_enc_cfg_t>::uninit();
+            let err = vpx_codec_enc_config_default(
+                vpx_codec_vp8_cx(),
+                cfg.as_mut_ptr(),
+                0,
+            );
+            if err != VPX_CODEC_OK {
+                return Err(VpxError::Config(format!("{:?}", err)));
+            }
+            let mut cfg = cfg.assume_init();
+            cfg.rc_target_bitrate = kbps;
+
+            let err = vpx_codec_enc_config_set(&mut self.ctx as *mut _, &cfg);
+            if err != VPX_CODEC_OK {
+                return Err(VpxError::Config(format!(
+                    "vpx_codec_enc_config_set failed: {:?}",
+                    err
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Force the next encoded frame to be a keyframe.
+    pub fn force_keyframe(&mut self) {
+        self.need_keyframe = true;
+    }
 }
 
 impl Drop for Vp8Encoder {
