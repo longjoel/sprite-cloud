@@ -1371,6 +1371,7 @@ dependencies = [
  "axum",
  "env-libvpx-sys",
  "image",
+ "local-ip-address",
  "serde",
  "serde_json",
  "tokio",
