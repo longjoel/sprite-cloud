@@ -14,6 +14,18 @@ const DISCONNECTED_GRACE_MS = 5_000;
 const PING_INTERVAL_MS = 2000;
 const MAX_PENDING_PINGS = 20;
 
+/** Poll interval when waiting for relay SDP answer (ms). */
+const RELAY_POLL_MS = 500;
+/** Max time to wait for relay SDP answer (ms). */
+const RELAY_TIMEOUT_MS = 30_000;
+
+/** Bits in the RetroArch mask that the gamepad can set.
+ *  Keyboard and gamepad share the same mask; gamepad-owned bits
+ *  are cleared each frame so keyboard presses persist across
+ *  gamepad poll frames. */
+const GAMEPAD_MASK = (1 << 0) | (1 << 2) | (1 << 3) | (1 << 4)
+                   | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8);
+
 // ── State machine ─────────────────────────────────────────────────────
 
 export const State = Object.freeze({
@@ -53,6 +65,9 @@ export class GvPlayer {
     /** @type {(stats: object) => void} */
     this.onStats = null;
 
+    /** @type {({slot: number, ok: boolean}) => void} */
+    this.onSaveResult = null;
+
     /** @type {number | null} */
     this._iceTimer = null;
 
@@ -73,6 +88,14 @@ export class GvPlayer {
 
     /** @private @type {Map<number, number>} seq → performance.now() */
     this._pendingPings = new Map();
+
+    // ── Gamepad state ──────────────────────────────────────────────
+    /** @private @type {boolean} */
+    this._gamepadActive = false;
+    /** @private @type {number} last raw gamepad mask */
+    this._gamepadState = 0;
+    /** @private @type {number | null} rAF handle for gamepad poll */
+    this._gamepadRAF = null;
   }
 
   /** Current connection state (one of State.*). */
@@ -93,7 +116,7 @@ export class GvPlayer {
   // ── Public API ──────────────────────────────────────────────────
 
   /**
-   * Connect to a gv-worker at the given URL.
+   * Connect to a gv-worker at the given URL (direct path — dev only).
    * @param {string} workerUrl — e.g. "http://localhost:54321"
    */
   async connect(workerUrl) {
@@ -104,6 +127,139 @@ export class GvPlayer {
     const url = this._normaliseUrl(workerUrl);
     this._setState(State.CONNECTING);
 
+    this._createPeerConnection();
+
+    // ── SDP exchange (direct to worker) ──────────────────────────
+
+    const offer = await this._pc.createOffer();
+    await this._pc.setLocalDescription(offer);
+
+    const sdpUrl = `${url}${SDP_ENDPOINT}`;
+    const resp = await fetch(sdpUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sdp: offer.sdp }),
+    });
+
+    if (!resp.ok) {
+      throw new Error(`SDP POST returned HTTP ${resp.status}`);
+    }
+
+    const answer = await resp.json();
+    if (!answer.sdp) {
+      throw new Error("SDP answer missing sdp field");
+    }
+
+    await this._pc.setRemoteDescription(
+      new RTCSessionDescription({ type: "answer", sdp: answer.sdp }),
+    );
+
+    // ── ICE timeout watchdog ───────────────────────────────────
+
+    this._iceTimer = setTimeout(() => {
+      if (this._state !== State.CONNECTED) {
+        this._setState(State.ERROR, "ICE gathering timed out");
+        this._cleanup();
+      }
+    }, ICE_TIMEOUT_MS);
+  }
+
+  /**
+   * Connect through the signaling relay.
+   *
+   * 1. Creates peer connection + DataChannel + keyboard/gamepad
+   * 2. POSTs sdp_offer to /api/server/command
+   * 3. Polls /api/server/notify for the worker's SDP answer
+   * 4. Sets the remote description — WebRTC media flows directly
+   *
+   * @param {string} serverId   — server UUID
+   * @param {string} workerToken — worker token from command POST
+   * @param {string} gameId     — game identifier
+   */
+  async connectViaRelay(serverId, workerToken, gameId) {
+    if (this._state !== State.IDLE) {
+      this.disconnect();
+    }
+
+    this._setState(State.CONNECTING);
+
+    this._createPeerConnection();
+
+    // ── SDP exchange (via relay) ──────────────────────────────────
+
+    const offer = await this._pc.createOffer();
+    await this._pc.setLocalDescription(offer);
+
+    // POST sdp_offer command
+    const cmdResp = await fetch("/api/server/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        server_id: serverId,
+        type: "sdp_offer",
+        payload: { game_id: gameId, sdp: offer.sdp },
+      }),
+    });
+
+    if (!cmdResp.ok) {
+      const errData = await cmdResp.json().catch(() => ({}));
+      throw new Error(
+        `sdp_offer POST failed: HTTP ${cmdResp.status} — ${errData.error || "unknown"}`,
+      );
+    }
+
+    // Poll for the worker's SDP answer
+    const answerSdp = await this._pollForAnswer(serverId, workerToken);
+
+    await this._pc.setRemoteDescription(
+      new RTCSessionDescription({ type: "answer", sdp: answerSdp }),
+    );
+
+    // ── ICE timeout watchdog ───────────────────────────────────
+
+    this._iceTimer = setTimeout(() => {
+      if (this._state !== State.CONNECTED) {
+        this._setState(State.ERROR, "ICE gathering timed out");
+        this._cleanup();
+      }
+    }, ICE_TIMEOUT_MS);
+  }
+
+  /** Tear down the peer connection. */
+  disconnect() {
+    this._clearIceTimer();
+    this._clearDisconnectedTimer();
+    this._stopPingInterval();
+    this._removeGamepadInput();
+    if (this._dc) {
+      this._dc.close();
+      this._dc = null;
+    }
+    if (this._pc) {
+      this._pc.close();
+      this._pc = null;
+    }
+    if (this._mediaStream) {
+      this._mediaStream.getTracks().forEach(t => t.stop());
+      this._mediaStream = null;
+    }
+    this._video.srcObject = null;
+    this._stats = { video: {}, audio: {}, pipeline: {} };
+    this._rttMs = null;
+    this._pendingPings.clear();
+    if (this._state === State.CONNECTED) {
+      this._setState(State.IDLE);
+    }
+  }
+
+  // ── Internal ────────────────────────────────────────────────────
+
+  /**
+   * Create the RTCPeerConnection, DataChannel, and input handlers.
+   * Shared by both connect() and connectViaRelay().
+   * @private
+   */
+  _createPeerConnection() {
     this._pc = new RTCPeerConnection({
       iceServers: [{ urls: STUN_SERVER }],
     });
@@ -170,74 +326,13 @@ export class GvPlayer {
       }
     };
 
-    // ── Keyboard → DataChannel ─────────────────────────────────
+    // ── Input ─────────────────────────────────────────────────
     this._setupKeyboardInput();
+    this._setupGamepadInput();
 
     // ── RTT ping interval ────────────────────────────────────
     this._startPingInterval();
-
-    // ── SDP exchange ──────────────────────────────────────────
-
-    const offer = await this._pc.createOffer();
-    await this._pc.setLocalDescription(offer);
-
-    const sdpUrl = `${url}${SDP_ENDPOINT}`;
-    const resp = await fetch(sdpUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sdp: offer.sdp }),
-    });
-
-    if (!resp.ok) {
-      throw new Error(`SDP POST returned HTTP ${resp.status}`);
-    }
-
-    const answer = await resp.json();
-    if (!answer.sdp) {
-      throw new Error("SDP answer missing sdp field");
-    }
-
-    await this._pc.setRemoteDescription(
-      new RTCSessionDescription({ type: "answer", sdp: answer.sdp }),
-    );
-
-    // ── ICE timeout watchdog ───────────────────────────────────
-
-    this._iceTimer = setTimeout(() => {
-      if (this._state !== State.CONNECTED) {
-        this._setState(State.ERROR, "ICE gathering timed out");
-        this._cleanup();
-      }
-    }, ICE_TIMEOUT_MS);
   }
-
-  /** Tear down the peer connection. */
-  disconnect() {
-    this._clearIceTimer();
-    this._clearDisconnectedTimer();
-    this._stopPingInterval();
-    if (this._dc) {
-      this._dc.close();
-      this._dc = null;
-    }
-    if (this._pc) {
-      this._pc.close();
-      this._pc = null;
-    }
-    if (this._mediaStream) {
-      this._mediaStream.getTracks().forEach(t => t.stop());
-      this._mediaStream = null;
-    }
-    this._video.srcObject = null;
-    this._stats = { video: {}, audio: {}, pipeline: {} };
-    this._rttMs = null;
-    this._pendingPings.clear();
-    if (this._state === State.CONNECTED) {
-      this._setState(State.IDLE);
-    }
-  }
-
-  // ── Internal ────────────────────────────────────────────────────
 
   /** @param {string} state */
   _setState(state, detail) {
@@ -253,6 +348,7 @@ export class GvPlayer {
     this._clearDisconnectedTimer();
     this._stopPingInterval();
     this._removeKeyboardInput();
+    this._removeGamepadInput();
     if (this._dc) {
       this._dc.close();
       this._dc = null;
@@ -277,6 +373,30 @@ export class GvPlayer {
     }
   }
 
+  /**
+   * Poll GET /api/server/notify until sdp_answer is available.
+   * @private
+   * @param {string} serverId
+   * @param {string} workerToken
+   * @returns {Promise<string>} the SDP answer
+   */
+  async _pollForAnswer(serverId, workerToken) {
+    const start = Date.now();
+
+    while (Date.now() - start < RELAY_TIMEOUT_MS) {
+      const resp = await fetch(
+        `/api/server/notify?server_id=${encodeURIComponent(serverId)}&worker_token=${encodeURIComponent(workerToken)}`,
+      );
+      if (!resp.ok) {
+        throw new Error(`Notify poll failed: HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      if (data.sdp_answer) return data.sdp_answer;
+      await new Promise(r => setTimeout(r, RELAY_POLL_MS));
+    }
+    throw new Error("Timed out waiting for SDP answer from relay");
+  }
+
   /** @param {object} msg — parsed JSON from DataChannel */
   _handleDataChannelMessage(msg) {
     switch (msg.type) {
@@ -298,6 +418,13 @@ export class GvPlayer {
               this._pendingPings.clear();
             }
           }
+        }
+        break;
+      case "save_result":
+        if (this.onSaveResult) {
+          try {
+            this.onSaveResult({ slot: msg.slot, ok: msg.ok });
+          } catch { /* safety */ }
         }
         break;
     }
@@ -366,6 +493,8 @@ export class GvPlayer {
         this._dc.send(new Uint8Array([0, s & 0xFF, s >> 8]).buffer);
       } catch { /* channel closing */ }
     };
+    // Expose sendMask so gamepad can reuse the same DataChannel sender
+    this._sendMask = sendMask;
 
     const handler = (e) => {
       const bit = BIT_MAP[e.key];
@@ -397,6 +526,61 @@ export class GvPlayer {
     if (this._blurHandler) {
       window.removeEventListener("blur", this._blurHandler);
       this._blurHandler = null;
+    }
+  }
+
+  // ── Gamepad input ───────────────────────────────────────────
+  /**
+   * Poll navigator.getGamepads() on every rAF frame and merge
+   * gamepad state into the shared RetroArch joypad mask.
+   * Keyboard bits are preserved — gamepad only touches GAMEPAD_MASK bits.
+   * @private
+   */
+  _setupGamepadInput() {
+    if (typeof navigator === "undefined" || !navigator.getGamepads) return;
+
+    this._gamepadActive = true;
+    this._gamepadState = 0;
+
+    const poll = () => {
+      if (!this._gamepadActive) return;
+
+      const gp = navigator.getGamepads()?.[0];
+      if (!gp) {
+        this._gamepadRAF = requestAnimationFrame(poll);
+        return;
+      }
+
+      let state = 0;
+      // D-pad (buttons 12-15 are the dedicated D-pad on standard mapping)
+      // Fall back to left stick axes for controllers without D-pad buttons
+      if (gp.buttons[12]?.pressed || gp.axes[1] < -0.5) state |= (1 << 4); // Up
+      if (gp.buttons[13]?.pressed || gp.axes[1] >  0.5) state |= (1 << 5); // Down
+      if (gp.buttons[14]?.pressed || gp.axes[0] < -0.5) state |= (1 << 6); // Left
+      if (gp.buttons[15]?.pressed || gp.axes[0] >  0.5) state |= (1 << 7); // Right
+
+      // Standard mapping face/shoulder buttons
+      if (gp.buttons[9]?.pressed)  state |= (1 << 3); // Start
+      if (gp.buttons[8]?.pressed)  state |= (1 << 2); // Select
+      if (gp.buttons[0]?.pressed)  state |= (1 << 8); // A (cross / bottom)
+      if (gp.buttons[1]?.pressed)  state |= (1 << 0); // B (circle / right)
+
+      if (state !== this._gamepadState) {
+        this._gamepadState = state;
+        // Merge: keep keyboard bits, replace gamepad-owned bits
+        this._inputState = (this._inputState & ~GAMEPAD_MASK) | state;
+        this._sendMask?.();
+      }
+      this._gamepadRAF = requestAnimationFrame(poll);
+    };
+    this._gamepadRAF = requestAnimationFrame(poll);
+  }
+
+  _removeGamepadInput() {
+    this._gamepadActive = false;
+    if (this._gamepadRAF !== null) {
+      cancelAnimationFrame(this._gamepadRAF);
+      this._gamepadRAF = null;
     }
   }
 
