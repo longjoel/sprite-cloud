@@ -107,13 +107,84 @@ Browser: dc.send({cmd:"load_state",slot:1})
 - Atomic file writes (`.tmp` → fsync → rename)
 - Env var `GV_SAVE_DIR` (already exists, defaults to `/tmp`)
 
-## Non-goals
+## Non-goals (MVP)
 
-- Per-user save slots — MVP is single-user. Multi-seat/multi-user saves come
-  later (user ID in path: `{save_dir}/{user_id}/{hash}/...`)
-- Cloud sync — files on disk, not in DB or S3
-- Compression — save states stored raw. Add zstd later if needed
-- Save state preview thumbnails
+- Per-user save slots — single-user only. Multi-user path prefix comes later.
+- Cloud sync — files on local disk, not DB or S3.
+- Compression — raw save states. zstd later if needed.
+- Save state preview thumbnails.
+
+## Phase 2: Retrieval, deletion, upload
+
+Once the signaling relay (issue #151) is in place, saves need a CRUD API:
+
+### Where artifacts live
+
+Worker's local filesystem at `GV_SAVE_DIR`. On VPS, this is a Docker
+bind-mount to a persistent host directory (e.g. `/srv/games-vault/saves`).
+Container restarts don't lose saves. Multiple workers share the same
+volume if they mount the same host path.
+
+### API (gv-web, relayed through gv-server → gv-worker)
+
+```
+GET  /api/saves/{sessionId}/list
+  → [{ type: "sram", name: "battery.srm", size: 8192 },
+     { type: "state", slot: 1, size: 1048576 }, ...]
+
+GET  /api/saves/{sessionId}/download/sram
+  → raw bytes of battery.srm (Content-Disposition: attachment)
+
+GET  /api/saves/{sessionId}/download/state/{slot}
+  → raw bytes of slot-NN.state
+
+DELETE /api/saves/{sessionId}/sram
+  → delete battery.srm (next load starts fresh)
+
+DELETE /api/saves/{sessionId}/state/{slot}
+  → delete slot-NN.state
+
+POST /api/saves/{sessionId}/upload/sram
+  Body: multipart/form-data with .srm file
+  → overwrite battery.srm (then reload core or restore on next frame)
+
+POST /api/saves/{sessionId}/upload/state/{slot}
+  Body: multipart/form-data with .state file
+  → overwrite slot-NN.state
+```
+
+### Worker endpoints (internal, 127.0.0.1 only)
+
+These are called by gv-server, not the browser:
+
+```
+POST /internal/saves/sram        → { action: "read"|"write"|"delete", data?: base64 }
+POST /internal/saves/state/{slot} → { action: "read"|"write"|"delete", data?: base64 }
+GET  /internal/saves/list         → JSON array of { type, slot?, size }
+```
+
+The worker stores bytes in base64 over the internal HTTP channel.
+gv-server re-encodes as raw bytes for browser download (multipart
+or direct binary response).
+
+### Why HTTP for saves when DataChannel exists?
+
+- Browser download UX: `Content-Disposition: attachment` gives a proper
+  file save dialog. DataChannel requires JS to buffer and trigger a blob
+  download manually.
+- Upload: multipart/form-data is the standard browser file upload mechanism.
+  DataChannel would require reading a File object into an ArrayBuffer.
+- Large states (8+ MB N64): HTTP streaming is simpler than chunked
+  DataChannel reassembly.
+- Save management doesn't need real-time latency — it's an occasional
+  operation, not per-frame.
+
+### Implementation order
+
+1. Task 9 + 9.5 (SRAM auto-save + save state commands) — works today
+2. Issue #151 (signaling relay) — gv-server relays HTTP to worker
+3. Save CRUD endpoints on gv-web → gv-server → gv-worker
+4. Optional: browser UI for save management (download/upload/delete buttons)
 
 ## Consequences
 
