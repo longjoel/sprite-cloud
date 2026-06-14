@@ -195,7 +195,7 @@ impl Core {
         unsafe { retro_set_video_refresh(video_refresh_callback) };
         unsafe { retro_set_audio_sample_batch(audio_batch_callback) };
         unsafe { retro_set_input_poll(stub_input_poll) };
-        unsafe { retro_set_input_state(stub_input_state) };
+        unsafe { retro_set_input_state(input_state_callback) };
 
         // ---- Step 5: retro_init ----
         // SAFETY: callbacks are registered. retro_init must be called once
@@ -335,6 +335,25 @@ impl Core {
     /// The caller feeds these samples to an audio encoder.
     pub fn audio(&self) -> Vec<i16> {
         AUDIO_BUFFER.with(|buf| buf.borrow().clone())
+    }
+
+    /// Set a joypad button state for a given port.
+    ///
+    /// `port` is 0-indexed (0–3). Call this before `run_frame()` — the
+    /// core reads input state during `retro_run()` via the input callback.
+    pub fn set_joypad(&mut self, port: u32, button: crate::JoypadButton, pressed: bool) {
+        let mask = 1u16 << (button as u8);
+        INPUT_STATE.with(|state| {
+            let mut state = state.borrow_mut();
+            let idx = port as usize;
+            if idx < state.len() {
+                if pressed {
+                    state[idx] |= mask;
+                } else {
+                    state[idx] &= !mask;
+                }
+            }
+        });
     }
 
     /// Convert the raw frame in thread-local storage to RGB24 and store on self.
@@ -669,16 +688,46 @@ unsafe extern "C" fn audio_batch_callback(data: *const i16, frames: usize) -> us
 }
 
 // ---------------------------------------------------------------------------
-// Remaining stub callbacks (replaced in Task 7)
+// Input callback
+// ---------------------------------------------------------------------------
+
+/// Input state callback — called by the core to read button/axis state.
+///
+/// Returns 0x7FFF for pressed (joypad), -32767..32767 for analog,
+/// or 0 for unpressed.
+unsafe extern "C" fn input_state_callback(
+    port: u32,
+    device: u32,
+    _index: u32,
+    id: u32,
+) -> i16 {
+    if device == RETRO_DEVICE_JOYPAD {
+        INPUT_STATE.with(|state| {
+            let state = state.borrow();
+            let idx = port as usize;
+            if idx >= state.len() {
+                return 0;
+            }
+            if id == RETRO_DEVICE_ID_JOYPAD_MASK {
+                // Return the full 16-bit button mask
+                state[idx] as i16
+            } else {
+                let mask = 1u16 << id;
+                if state[idx] & mask != 0 {
+                    0x7FFF
+                } else {
+                    0
+                }
+            }
+        })
+    } else {
+        // Analog and other devices not yet implemented
+        0
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Remaining stub callbacks
 // ---------------------------------------------------------------------------
 
 unsafe extern "C" fn stub_input_poll() {}
-
-unsafe extern "C" fn stub_input_state(
-    _port: u32,
-    _device: u32,
-    _index: u32,
-    _id: u32,
-) -> i16 {
-    0
-}

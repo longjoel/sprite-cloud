@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use libretro_runner::{Core, CoreConfig};
+use libretro_runner::{Core, CoreConfig, JoypadButton};
 
 #[test]
 fn load_and_run_2048_core() {
@@ -110,4 +110,74 @@ fn load_and_run_2048_core() {
         fh,
         fw as usize * fh as usize * 3
     );
+
+    // ---- Test input: pressing Start then Up should change game state ----
+    // Press Start to skip any intro screen
+    core.set_joypad(0, JoypadButton::Start, true);
+    core.run_frame().unwrap();
+    core.set_joypad(0, JoypadButton::Start, false);
+    // Run a few frames to let the game settle
+    for _ in 0..10 {
+        core.run_frame().unwrap();
+    }
+
+    // Baseline: capture a frame with no input
+    core.run_frame().unwrap();
+    let before = core.frame().unwrap().to_vec();
+
+    // Hold Up for 5 frames (2048 needs held input)
+    core.set_joypad(0, JoypadButton::Up, true);
+    for _ in 0..5 {
+        core.run_frame().unwrap();
+    }
+    let during = core.frame().unwrap().to_vec();
+    core.set_joypad(0, JoypadButton::Up, false);
+
+    // Release and run a few frames
+    for _ in 0..10 {
+        core.run_frame().unwrap();
+    }
+    core.run_frame().unwrap();
+    let after = core.frame().unwrap().to_vec();
+
+    // The frame during Up hold should differ from baseline
+    let before_hash: u64 = before.iter().fold(0, |h, &b| h.wrapping_mul(31).wrapping_add(b as u64));
+    let during_hash: u64 = during.iter().fold(0, |h, &b| h.wrapping_mul(31).wrapping_add(b as u64));
+    let after_hash: u64 = after.iter().fold(0, |h, &b| h.wrapping_mul(31).wrapping_add(b as u64));
+
+    // At least one of during/after should differ from baseline
+    // (the game might not respond on frame-perfect input, or might have
+    // a different button layout)
+    let input_changed = before_hash != during_hash || before_hash != after_hash;
+
+    if !input_changed {
+        // Try Right as well — some 2048 builds map differently
+        core.set_joypad(0, JoypadButton::Right, true);
+        for _ in 0..5 {
+            core.run_frame().unwrap();
+        }
+        let right_frame = core.frame().unwrap().to_vec();
+        let right_hash: u64 = right_frame
+            .iter()
+            .fold(0, |h, &b| h.wrapping_mul(31).wrapping_add(b as u64));
+        core.set_joypad(0, JoypadButton::Right, false);
+
+        let right_changed = before_hash != right_hash;
+
+        assert!(
+            right_changed,
+            "Neither Up nor Right input changed the frame.              before={}, during={}, after={}, right={}",
+            before_hash, during_hash, after_hash, right_hash
+        );
+
+        println!(
+            "Input test: Up didn't change, but Right did — before={}, right={}",
+            before_hash, right_hash
+        );
+    } else {
+        println!(
+            "Input test: before={}, during={}, after={} — input changes verified",
+            before_hash, during_hash, after_hash
+        );
+    }
 }

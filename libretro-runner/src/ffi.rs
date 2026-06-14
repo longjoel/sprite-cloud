@@ -234,6 +234,8 @@ pub const RETRO_DEVICE_ID_JOYPAD_R2: u32 = 13;
 pub const RETRO_DEVICE_ID_JOYPAD_L3: u32 = 14;
 /// Right stick button.
 pub const RETRO_DEVICE_ID_JOYPAD_R3: u32 = 15;
+/// Full 16-bit button mask (returns entire state as one value).
+pub const RETRO_DEVICE_ID_JOYPAD_MASK: u32 = 256;
 
 // ---------------------------------------------------------------------------
 // Analog axis indices (RETRO_DEVICE_INDEX_ANALOG_*)
