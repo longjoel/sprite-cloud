@@ -73,13 +73,27 @@ pub const STREAM_ID: &str = "gv-worker";
 /// Logs frame 1-3 always, then every N frames thereafter.
 pub const DIAG_LOG_INTERVAL: u64 = 90; // ~every 3 seconds at 30 fps
 
-/// CORS allowed origin.
+/// CORS allowed origins.
 ///
-/// In production, set `ALLOWED_ORIGIN` to your gv-web URL (e.g. "https://games.example.com").
-/// Defaults to "http://localhost:3001" for local development.
-pub fn allowed_origin() -> String {
-    std::env::var("ALLOWED_ORIGIN")
-        .unwrap_or_else(|_| "http://localhost:3001".to_string())
+/// In production, set `ALLOWED_ORIGIN` to your gv-web URL
+/// (e.g. "https://games.example.com").
+///
+/// In dev (no env var set), allows localhost and any LAN IP that
+/// gv-web might be accessed from — so the browser on a different
+/// machine can reach the worker without CORS blocking.
+pub fn allowed_origins() -> Vec<String> {
+    if let Ok(origin) = std::env::var("ALLOWED_ORIGIN") {
+        return origin.split(',').map(|s| s.trim().to_string()).collect();
+    }
+
+    let mut origins = vec!["http://localhost:3001".to_string()];
+
+    // Auto-detect LAN IPs for dev convenience
+    if let Ok(ip) = local_ip_address::local_ip() {
+        origins.push(format!("http://{}:3001", ip));
+    }
+
+    origins
 }
 
 /// ICE gathering timeout in seconds.
