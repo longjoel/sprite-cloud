@@ -2,12 +2,13 @@
 //!
 //! The core must run on a dedicated OS thread because libretro callbacks
 //! use thread-local storage. Frames are sent via a bounded sync channel
-//! to the tokio task that encodes and streams them.
+//! to the tokio task that encodes and streams them. Input commands flow
+//! in the opposite direction via a separate channel.
 
-use std::sync::mpsc;
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::time::Duration;
 
-use libretro_runner::{Core, CoreConfig};
+use libretro_runner::{Core, CoreConfig, JoypadButton};
 
 /// A frame produced by the core: RGB24 pixels + dimensions.
 #[derive(Clone)]
@@ -19,16 +20,29 @@ pub struct CoreFrame {
     pub height: u32,
 }
 
+/// Commands sent from the streaming task to the core thread.
+#[derive(Clone, Copy)]
+pub enum CoreCommand {
+    SetJoypad { port: u32, button: JoypadButton, pressed: bool },
+}
+
+/// Handle returned from `spawn_core_thread`.
+pub struct CoreHandle {
+    pub width: u32,
+    pub height: u32,
+    pub frame_rx: Receiver<CoreFrame>,
+    pub cmd_tx: SyncSender<CoreCommand>,
+}
+
 /// Spawn a dedicated OS thread that loads the 2048 core (or the core
 /// specified by GV_CORE_PATH) and runs it in a loop.
 ///
-/// Returns the frame dimensions and a channel receiver. The thread
-/// exits when the receiver is dropped (channel closed).
-pub fn spawn_core_thread() -> Option<((u32, u32), mpsc::Receiver<CoreFrame>)> {
+/// Returns a `CoreHandle` with frame dimensions, frame receiver, and
+/// a command sender. The thread exits when the frame receiver is dropped.
+pub fn spawn_core_thread() -> Option<CoreHandle> {
     let core_path = std::env::var("GV_CORE_PATH").unwrap_or_else(|_| {
-        // Default: 2048 core relative to workspace root
         let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.pop(); // gv-worker dir → workspace root
+        p.pop();
         p.push("test-data/cores/2048_libretro.so");
         p.to_string_lossy().to_string()
     });
@@ -66,10 +80,20 @@ pub fn spawn_core_thread() -> Option<((u32, u32), mpsc::Receiver<CoreFrame>)> {
         width, height, fps, core.av_info.sample_rate
     );
 
-    let (tx, rx) = mpsc::sync_channel::<CoreFrame>(1);
+    let (frame_tx, frame_rx) = mpsc::sync_channel::<CoreFrame>(1);
+    let (cmd_tx, cmd_rx) = mpsc::sync_channel::<CoreCommand>(16);
 
     std::thread::spawn(move || {
         loop {
+            // Drain pending input commands
+            while let Ok(cmd) = cmd_rx.try_recv() {
+                match cmd {
+                    CoreCommand::SetJoypad { port, button, pressed } => {
+                        core.set_joypad(port, button, pressed);
+                    }
+                }
+            }
+
             if let Err(e) = core.run_frame() {
                 tracing::error!("[CORE] run_frame failed: {} — exiting core thread", e);
                 break;
@@ -81,10 +105,7 @@ pub fn spawn_core_thread() -> Option<((u32, u32), mpsc::Receiver<CoreFrame>)> {
                     width: core.frame_size().0,
                     height: core.frame_size().1,
                 };
-                // sync_channel(1): block until the consumer takes the previous frame.
-                // This provides natural backpressure — we don't build up a queue.
-                if tx.send(frame).is_err() {
-                    // Receiver dropped — streaming stopped
+                if frame_tx.send(frame).is_err() {
                     break;
                 }
             }
@@ -96,5 +117,10 @@ pub fn spawn_core_thread() -> Option<((u32, u32), mpsc::Receiver<CoreFrame>)> {
         }
     });
 
-    Some(((width, height), rx))
+    Some(CoreHandle {
+        width,
+        height,
+        frame_rx,
+        cmd_tx,
+    })
 }
