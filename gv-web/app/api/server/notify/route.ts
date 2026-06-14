@@ -10,6 +10,8 @@ interface NotifyBody {
   command_id: string;
   worker_url: string;
   game_id: string;
+  /** "stop" marks the session as ended (optional). */
+  action?: "stop";
 }
 
 // ── POST — gv-server reports worker URL after spawn ────────────────────
@@ -52,15 +54,19 @@ export async function POST(request: NextRequest) {
     .where(eq(sessions.commandId, body.command_id))
     .limit(1);
 
+  // If action is \"stop\", mark the session as ended.
+  const isStop = body.action === "stop";
+
   if (existing) {
+    const update: Record<string, unknown> = isStop
+      ? { status: "stopped", endedAt: new Date() }
+      : { workerUrl: body.worker_url, status: "ready" };
     await db
       .update(sessions)
-      .set({
-        workerUrl: body.worker_url,
-        status: "ready",
-      })
+      .set(update)
       .where(eq(sessions.id, existing.id));
-  } else {
+  } else if (!isStop) {
+    // Only create a session on first notify if this isn't a stop.
     await db.insert(sessions).values({
       userId: server.userId,
       serverId: server.id,
