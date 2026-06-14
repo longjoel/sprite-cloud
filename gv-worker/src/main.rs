@@ -186,6 +186,27 @@ async fn do_webrtc_handshake(
             .map_err(|e| format!("create peer connection: {}", e))?,
     );
 
+    // ---- Create DataChannel for diagnostics (stats + ping/pong) ----
+    let dc = peer_connection
+        .create_data_channel("diagnostics", None)
+        .await
+        .map_err(|e| format!("create data channel: {}", e))?;
+
+    // Echo pings for RTT measurement
+    let dc_pong = dc.clone();
+    dc.on_message(Box::new(move |msg| {
+        let dc = dc_pong.clone();
+        Box::pin(async move {
+            let text = String::from_utf8_lossy(&msg.data);
+            if text.trim() == "ping" {
+                let _ = dc.send_text("pong").await;
+            }
+        })
+    }));
+
+    // Clone for the streaming task to send stats
+    let dc_stream = dc.clone();
+
     // ---- ICE gathering: register callback BEFORE set_local_description ----
     // Must register before calling set_local_description so we don't miss
     // the null-sentinel if ICE gathering completes synchronously.
@@ -308,7 +329,7 @@ async fn do_webrtc_handshake(
     ));
 
     let handle = tokio::spawn(async move {
-        stream_vp8_frames(stream_track, audio_track_clone, stream_cancel, peer_connection_clone, state_clone).await;
+        stream_vp8_frames(stream_track, audio_track_clone, dc_stream, stream_cancel, peer_connection_clone, state_clone).await;
     });
 
     {
@@ -335,6 +356,7 @@ async fn do_webrtc_handshake(
 async fn stream_vp8_frames(
     track: Arc<TrackLocalStaticSample>,
     audio_track: Arc<TrackLocalStaticSample>,
+    dc_stream: Arc<webrtc::data_channel::RTCDataChannel>,
     cancel: CancellationToken,
     peer_connection: Arc<RTCPeerConnection>,
     app_state: Arc<AppState>,
@@ -389,10 +411,13 @@ async fn stream_vp8_frames(
                 let pixels = test_pattern::generate_bouncing_square(VIDEO_WIDTH, VIDEO_HEIGHT, frame_num);
                 frame_num = frame_num.wrapping_add(1);
 
+                let encode_start = std::time::Instant::now();
                 match encoder.encode(&pixels) {
                     Ok(encoded) => {
+                        let encode_us = encode_start.elapsed().as_micros();
+                        let byte_count = encoded.len();
                         if frame_num <= 3 || frame_num.is_multiple_of(DIAG_LOG_INTERVAL) {
-                            tracing::debug!("[STREAM] frame {}: encoded {} bytes", frame_num, encoded.len());
+                            tracing::debug!("[STREAM] frame {}: encoded {} bytes in {}μs", frame_num, byte_count, encode_us);
                         }
                         if encoded.is_empty() {
                             tracing::warn!("[STREAM] frame {}: EMPTY encoded data, skipping", frame_num);
@@ -407,6 +432,20 @@ async fn stream_vp8_frames(
                         if let Err(e) = track.write_sample(&sample).await {
                             tracing::error!("[STREAM] Write sample error at frame {}: {}", frame_num, e);
                             break;
+                        }
+
+                        // ---- Send per-frame stats over DataChannel ----
+                        // Throttle to every 10th frame (~3 Hz) to keep
+                        // DataChannel overhead negligible.
+                        if frame_num % 10 == 0 {
+                            if let Ok(stats) = serde_json::to_string(&serde_json::json!({
+                                "type": "stats",
+                                "frame": frame_num,
+                                "bytes": byte_count,
+                                "encode_us": encode_us,
+                            })) {
+                                let _ = dc_stream.send_text(stats).await;
+                            }
                         }
 
                         // ---- Stream audio alongside video ----
