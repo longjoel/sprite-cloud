@@ -11,6 +11,8 @@ const STUN_SERVER = "stun:stun.l.google.com:19302";
 const SDP_ENDPOINT = "/sdp";
 const ICE_TIMEOUT_MS = 15_000;
 const DISCONNECTED_GRACE_MS = 5_000;
+const PING_INTERVAL_MS = 2000;
+const MAX_PENDING_PINGS = 20;
 
 // ── State machine ─────────────────────────────────────────────────────
 
@@ -144,8 +146,8 @@ export class GvPlayer {
       // Mobile requires explicit play() call; start muted then unmute
       this._video.play().then(() => {
         this._video.muted = false;
-      }).catch(() => {
-        // Browser blocked autoplay — user must tap
+      }).catch((e) => {
+        console.debug("play() blocked:", e.message || e);
       });
       if (this.onTrack) {
         try { this.onTrack(event.track); } catch { /* safety */ }
@@ -164,7 +166,7 @@ export class GvPlayer {
         const msg = JSON.parse(msgEvent.data);
         this._handleDataChannelMessage(msg);
       } catch {
-        // Ignore non-JSON.
+        console.debug("DataChannel non-JSON message:", msgEvent.data?.slice?.(0, 80) || msgEvent.data);
       }
     };
 
@@ -246,6 +248,11 @@ export class GvPlayer {
   _cleanup() {
     this._clearIceTimer();
     this._clearDisconnectedTimer();
+    this._stopPingInterval();
+    if (this._dc) {
+      this._dc.close();
+      this._dc = null;
+    }
     if (this._pc) {
       this._pc.close();
       this._pc = null;
@@ -283,7 +290,7 @@ export class GvPlayer {
             this._pendingPings.delete(seq);
             this._rttMs = performance.now() - sentAt;
             // Clean up old entries to prevent unbounded growth
-            if (this._pendingPings.size > 20) {
+            if (this._pendingPings.size > MAX_PENDING_PINGS) {
               this._pendingPings.clear();
             }
           }
@@ -297,7 +304,7 @@ export class GvPlayer {
     // Send a ping every 2 seconds for RTT measurement
     this._rttTimer = setInterval(() => {
       this._sendPing();
-    }, 2000);
+    }, PING_INTERVAL_MS);
   }
 
   _sendPing() {
@@ -312,7 +319,7 @@ export class GvPlayer {
         client_ts: clientTs,
       }));
     } catch {
-      // DC send failed (channel closing)
+      console.warn("DC send(ping) failed — channel closing");
     }
   }
 

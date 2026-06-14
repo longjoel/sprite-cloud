@@ -142,3 +142,18 @@ pub fn allowed_origins() -> Vec<String> {
 /// ICE gathering timeout in seconds.
 /// window, the SDP exchange is aborted.
 pub const ICE_GATHERING_TIMEOUT_SECS: u64 = 10;
+
+// ---------------------------------------------------------------------------
+// DataChannel diagnostics configuration
+// ---------------------------------------------------------------------------
+
+/// Test pattern constants.
+pub const PATTERN_SQUARE: u8 = 0;
+pub const PATTERN_BARS: u8 = 1;
+
+/// How long to wait for the browser's DataChannel after SDP exchange.
+pub const DC_RECEIVE_TIMEOUT_SECS: u64 = 5;
+
+/// How often to send per-frame stats over DataChannel (in frames).
+/// Every 5th frame (~6 Hz) for smooth HUD updates.
+pub const STATS_SEND_INTERVAL: u64 = 5;
