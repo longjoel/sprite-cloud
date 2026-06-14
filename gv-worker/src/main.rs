@@ -1,4 +1,5 @@
 mod config;
+mod core_bridge;
 mod test_pattern;
 mod test_tone;
 mod vp8_encoder;
@@ -187,10 +188,29 @@ async fn do_webrtc_handshake(
             .map_err(|e| format!("create peer connection: {}", e))?,
     );
 
+    // ---- Load libretro core (or fall back to test pattern) ----
+    let (enc_width, enc_height, core_frame_rx) =
+        match core_bridge::spawn_core_thread() {
+            Some((dims, rx)) => {
+                tracing::info!(
+                    "[STREAM] Using libretro core at {}×{}",
+                    dims.0, dims.1
+                );
+                (dims.0, dims.1, Some(rx))
+            }
+            None => {
+                tracing::info!(
+                    "[STREAM] Core not available — using test pattern at {}×{}",
+                    VIDEO_WIDTH, VIDEO_HEIGHT
+                );
+                (VIDEO_WIDTH, VIDEO_HEIGHT, None)
+            }
+        };
+
     // ---- Create encoder + shared state ----
     let encoder_mutex: Arc<std::sync::Mutex<vp8_encoder::Vp8Encoder>> =
         Arc::new(std::sync::Mutex::new(
-            vp8_encoder::Vp8Encoder::new(VIDEO_WIDTH, VIDEO_HEIGHT)
+            vp8_encoder::Vp8Encoder::new(enc_width, enc_height)
                 .map_err(|e| format!("create VP8 encoder: {}", e))?,
         ));
     let force_keyframe = Arc::new(AtomicBool::new(false));
@@ -429,6 +449,7 @@ async fn do_webrtc_handshake(
     let stream_force_kf = force_keyframe.clone();
     let stream_pattern = pattern.clone();
     let stream_dc = dc_stream_for_loop.clone();
+    let stream_core_rx = core_frame_rx;
 
     // Watch for peer disconnection — if the browser leaves, kill the stream.
     peer_connection.on_peer_connection_state_change(Box::new(
@@ -449,7 +470,7 @@ async fn do_webrtc_handshake(
     ));
 
     let handle = tokio::spawn(async move {
-        stream_vp8_frames(stream_track, audio_track_clone, stream_dc, stream_cancel, peer_connection_clone, state_clone, stream_encoder, stream_force_kf, stream_pattern).await;
+        stream_vp8_frames(stream_track, audio_track_clone, stream_dc, stream_cancel, peer_connection_clone, state_clone, stream_encoder, stream_force_kf, stream_pattern, stream_core_rx).await;
     });
 
     {
@@ -483,6 +504,7 @@ async fn stream_vp8_frames(
     encoder_mutex: Arc<std::sync::Mutex<vp8_encoder::Vp8Encoder>>,
     force_keyframe: Arc<AtomicBool>,
     pattern: Arc<AtomicU8>,
+    core_frame_rx: Option<std::sync::mpsc::Receiver<core_bridge::CoreFrame>>,
 ) {
     use std::time::Duration;
     use webrtc::media::Sample;
@@ -537,10 +559,23 @@ async fn stream_vp8_frames(
                     // If lock failed: leave flag set, retry next frame
                 }
 
-                // ---- Generate test pattern ----
-                let pixels = match pattern.load(Ordering::Relaxed) {
-                    1 => test_pattern::generate_color_bars(VIDEO_WIDTH, VIDEO_HEIGHT, frame_num),
-                    _ => test_pattern::generate_bouncing_square(VIDEO_WIDTH, VIDEO_HEIGHT, frame_num),
+                // ---- Generate frame (core or test pattern) ----
+                let pixels = if let Some(ref rx) = core_frame_rx {
+                    // Drain any backlog — only keep the latest frame
+                    let mut latest = None;
+                    while let Ok(f) = rx.try_recv() {
+                        latest = Some(f);
+                    }
+                    match latest {
+                        Some(f) => f.pixels,
+                        None => continue, // no frame available yet, skip this tick
+                    }
+                } else {
+                    // Fall back to test pattern
+                    match pattern.load(Ordering::Relaxed) {
+                        1 => test_pattern::generate_color_bars(VIDEO_WIDTH, VIDEO_HEIGHT, frame_num),
+                        _ => test_pattern::generate_bouncing_square(VIDEO_WIDTH, VIDEO_HEIGHT, frame_num),
+                    }
                 };
                 frame_num = frame_num.wrapping_add(1);
 
