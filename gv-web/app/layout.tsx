@@ -1,3 +1,4 @@
+import "@/lib/db/cleanup";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
