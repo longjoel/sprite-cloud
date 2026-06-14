@@ -1,5 +1,6 @@
 mod config;
 mod core_bridge;
+mod saves;
 mod test_pattern;
 mod test_tone;
 mod vp8_encoder;
@@ -189,22 +190,28 @@ async fn do_webrtc_handshake(
             .map_err(|e| format!("create peer connection: {}", e))?,
     );
 
-    // ---- Load libretro core (or fall back to test pattern) ----
-    let (enc_width, enc_height, core_frame_rx, core_cmd_tx) =
+    // ---- Load libretro core (or fall back to test pattern) ----//
+    let (enc_width, enc_height, core_frame_rx, core_cmd_tx, core_response_rx) =
         match core_bridge::spawn_core_thread() {
             Some(handle) => {
                 tracing::info!(
                     "[STREAM] Using libretro core at {}×{}",
                     handle.width, handle.height
                 );
-                (handle.width, handle.height, Some(handle.frame_rx), Some(handle.cmd_tx))
+                (
+                    handle.width,
+                    handle.height,
+                    Some(handle.frame_rx),
+                    Some(handle.cmd_tx),
+                    Some(handle.response_rx),
+                )
             }
             None => {
                 tracing::info!(
                     "[STREAM] Core not available — using test pattern at {}×{}",
                     VIDEO_WIDTH, VIDEO_HEIGHT
                 );
-                (VIDEO_WIDTH, VIDEO_HEIGHT, None, None)
+                (VIDEO_WIDTH, VIDEO_HEIGHT, None, None, None)
             }
         };
 
@@ -404,21 +411,47 @@ async fn do_webrtc_handshake(
                                 }
                             }
                             Some("input") => {
-                                // Keyboard/gamepad input from browser —
-                                // binary format: [u8 seat][u16 LE state]
-                                // This replaces the old JSON {cmd:"input",key,pressed} format.
-                                let data = &msg.data;
-                                if data.len() == 3 {
-                                    let seat = data[0] as u32;
-                                    let state = u16::from_le_bytes([data[1], data[2]]);
-                                    let _ = core_tx.as_ref().map(|tx| {
-                                        tx.try_send(CoreCommand::SetInput { port: seat, state })
-                                    });
+                                // Keyboard/gamepad input from browser
+                                if let (Some(key), Some(pressed)) = (
+                                    cmd.get("key").and_then(|v| v.as_str()),
+                                    cmd.get("pressed").and_then(|v| v.as_bool()),
+                                ) {
+                                    if let Some(button) = map_key_to_joypad(key) {
+                                        let _ = core_tx.as_ref().map(|tx| {
+                                            tx.try_send(CoreCommand::SetJoypad {
+                                                port: cmd.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                                                button,
+                                                pressed,
+                                            })
+                                        });
+                                    }
                                 }
                             }
                             Some("force_keyframe") => {
                                 force_kf.store(true, Ordering::Relaxed);
                                 tracing::info!("[DC] force_keyframe requested");
+                            }
+                            Some("save_state") => {
+                                // Save emulator state to slot (1–9)
+                                if let Some(slot) = cmd.get("slot").and_then(|v| v.as_u64()) {
+                                    let slot = slot.min(9) as u8;
+                                    if slot >= 1 {
+                                        let _ = core_tx.as_ref().map(|tx| {
+                                            tx.try_send(CoreCommand::SaveState { slot })
+                                        });
+                                    }
+                                }
+                            }
+                            Some("load_state") => {
+                                // Load emulator state from slot (1–9)
+                                if let Some(slot) = cmd.get("slot").and_then(|v| v.as_u64()) {
+                                    let slot = slot.min(9) as u8;
+                                    if slot >= 1 {
+                                        let _ = core_tx.as_ref().map(|tx| {
+                                            tx.try_send(CoreCommand::LoadState { slot })
+                                        });
+                                    }
+                                }
                             }
                             Some("ping") => {
                                 let seq = cmd.get("seq").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -448,6 +481,40 @@ async fn do_webrtc_handshake(
             }
         }
     });
+
+    // ---- Spawn task to drain core responses (save/load state results) ----//
+    if let Some(core_response_rx) = core_response_rx {
+        let dc_for_responses = dc_stream_for_loop.clone();
+        tokio::spawn(async move {
+            loop {
+                match core_response_rx.recv() {
+                    Ok(resp) => {
+                        let json = match resp {
+                            core_bridge::CoreResponse::SaveStateResult { slot, ok, data } => {
+                                serde_json::json!({
+                                    "type": "save_state_result",
+                                    "slot": slot,
+                                    "ok": ok,
+                                    "bytes": data.len()
+                                })
+                            }
+                            core_bridge::CoreResponse::LoadStateResult { slot, ok } => {
+                                serde_json::json!({
+                                    "type": "load_state_result",
+                                    "slot": slot,
+                                    "ok": ok
+                                })
+                            }
+                        };
+                        if let Some(dc) = dc_for_responses.lock().await.as_ref() {
+                            let _ = dc.send_text(&json.to_string()).await;
+                        }
+                    }
+                    Err(_) => break, // channel closed
+                }
+            }
+        });
+    }
 
     // ---- Store state ----
     {
@@ -700,6 +767,26 @@ async fn stream_vp8_frames(
 }
 
 // ---------------------------------------------------------------------------
+// Keyboard → joypad mapping
+// ---------------------------------------------------------------------------
+
+/// Map a browser KeyboardEvent.key string to a libretro JoypadButton.
+fn map_key_to_joypad(key: &str) -> Option<libretro_runner::JoypadButton> {
+    use libretro_runner::JoypadButton;
+    match key {
+        "ArrowUp" | "w" | "W" => Some(JoypadButton::Up),
+        "ArrowDown" | "s" | "S" => Some(JoypadButton::Down),
+        "ArrowLeft" | "a" | "A" => Some(JoypadButton::Left),
+        "ArrowRight" | "d" | "D" => Some(JoypadButton::Right),
+        "Enter" | " " => Some(JoypadButton::Start),
+        "Shift" => Some(JoypadButton::Select),
+        "z" | "Z" => Some(JoypadButton::B),
+        "x" | "X" => Some(JoypadButton::A),
+        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Test page
 // ---------------------------------------------------------------------------
 
@@ -788,43 +875,19 @@ async function testWebrtc() {{
   dc.onopen = () => log("DC open — keyboard input active");
   dc.onclose = () => log("DC closed");
 
-  // Binary input: accumulate key state into a 16-bit RetroArch mask.
-  // Key -> bit: Up=4, Down=5, Left=6, Right=7, Start=3, Select=2, B=0, A=8.
-  const keyBit = (k) => {{
-    switch(k) {{
-      case "ArrowUp": return 4;
-      case "ArrowDown": case "s": case "S": return 5;
-      case "ArrowLeft": case "a": case "A": return 6;
-      case "ArrowRight": case "d": case "D": return 7;
-      case "q": case "Q": case "Enter": case " ": return 3;   // Start
-      case "w": case "W": return 2;                           // Select
-      case "z": case "Z": return 0;   // B
-      case "x": case "X": return 8;   // A
-    }}
-    return -1;
-  }};
-  let state = 0;
-  const sendState = () => {{
+  const sendKey = (key, pressed) => {{
     if (dc.readyState === "open") {{
-      const buf = new Uint8Array([0, state & 0xFF, state >> 8]);
-      dc.send(buf.buffer);
+      dc.send(JSON.stringify({{ cmd: "input", key, pressed, port: 0 }}));
     }}
   }};
+
   document.addEventListener("keydown", (e) => {{
     if (e.target.tagName === "BUTTON") return;
-    const bit = keyBit(e.key);
-    if (bit < 0) return;
-    e.preventDefault();
-    state |= (1 << bit);
-    sendState();
+    if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Enter"," "].includes(e.key)) e.preventDefault();
+    sendKey(e.key, true);
   }});
-  document.addEventListener("keyup", (e) => {{
-    const bit = keyBit(e.key);
-    if (bit < 0) return;
-    state &= ~(1 << bit);
-    sendState();
-  }});
-  log("Keyboard: Q=Start W=Select, arrows/WASD=move, Z=B X=A");
+  document.addEventListener("keyup", (e) => sendKey(e.key, false));
+  log("Keyboard listeners active — WASD/arrows to play, Z/X for A/B");
 
   pc.oniceconnectionstatechange = () => {{
     log("ICE state: " + pc.iceConnectionState);
