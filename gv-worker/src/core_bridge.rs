@@ -4,11 +4,18 @@
 //! use thread-local storage. Frames are sent via a bounded sync channel
 //! to the tokio task that encodes and streams them. Input commands flow
 //! in the opposite direction via a separate channel.
+//!
+//! SRAM lifecycle:
+//! - On load: hash ROM, derive save dir, restore battery.srm if present
+//! - On exit: save SRAM atomically before core unload
 
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::time::Duration;
 
 use libretro_runner::{Core, CoreConfig, JoypadButton};
+
+use crate::saves;
 
 /// A frame produced by the core: RGB24 pixels + dimensions.
 #[derive(Clone)]
@@ -21,9 +28,16 @@ pub struct CoreFrame {
 }
 
 /// Commands sent from the streaming task to the core thread.
-#[derive(Clone, Copy)]
 pub enum CoreCommand {
     SetJoypad { port: u32, button: JoypadButton, pressed: bool },
+    SaveState { slot: u8 },
+    LoadState { slot: u8 },
+}
+
+/// Responses sent from the core thread back to the streaming task.
+pub enum CoreResponse {
+    SaveStateResult { slot: u8, data: Vec<u8>, ok: bool },
+    LoadStateResult { slot: u8, ok: bool },
 }
 
 /// Handle returned from `spawn_core_thread`.
@@ -32,13 +46,14 @@ pub struct CoreHandle {
     pub height: u32,
     pub frame_rx: Receiver<CoreFrame>,
     pub cmd_tx: SyncSender<CoreCommand>,
+    pub response_rx: Receiver<CoreResponse>,
 }
 
-/// Spawn a dedicated OS thread that loads the 2048 core (or the core
-/// specified by GV_CORE_PATH) and runs it in a loop.
+/// Spawn a dedicated OS thread that loads the core specified by GV_CORE_PATH
+/// (or falls back to 2048) and runs it in a loop.
 ///
-/// Returns a `CoreHandle` with frame dimensions, frame receiver, and
-/// a command sender. The thread exits when the frame receiver is dropped.
+/// Returns a `CoreHandle` with frame dimensions, frame receiver,
+/// command sender, and response receiver.
 pub fn spawn_core_thread() -> Option<CoreHandle> {
     let core_path = std::env::var("GV_CORE_PATH").unwrap_or_else(|_| {
         let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -47,17 +62,19 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
         p.to_string_lossy().to_string()
     });
 
-    let rom_path = std::env::var("GV_CONTENT_PATH").ok();
+    let rom_path: Option<PathBuf> = std::env::var("GV_CONTENT_PATH").ok().map(|s| s.into());
+
+    let save_dir: PathBuf = std::env::var("GV_SAVE_DIR")
+        .unwrap_or_else(|_| "/tmp".into())
+        .into();
 
     let core_config = CoreConfig {
         core_path: core_path.into(),
-        content_path: rom_path.map(|s| s.into()),
+        content_path: rom_path.clone(),
         system_dir: std::env::var("GV_SYSTEM_DIR")
             .unwrap_or_else(|_| "/tmp".into())
             .into(),
-        save_dir: std::env::var("GV_SAVE_DIR")
-            .unwrap_or_else(|_| "/tmp".into())
-            .into(),
+        save_dir,
     };
 
     // SAFETY: the core is loaded in a dedicated thread. The core path
@@ -80,8 +97,42 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
         width, height, fps, core.av_info.sample_rate
     );
 
+    // ---- ROM hashing + SRAM restore ----//
+    let rom_hash: Option<String> = rom_path
+        .as_ref()
+        .and_then(|p| saves::hash_rom(p));
+
+    if let Some(ref hash) = rom_hash {
+        tracing::info!("[CORE] ROM hash: {}", hash);
+
+        // Restore battery SRAM if present
+        let sram_path = saves::sram_path(hash);
+        if sram_path.exists() {
+            match std::fs::read(&sram_path) {
+                Ok(data) => {
+                    core.restore_sram(&data);
+                    tracing::info!(
+                        "[CORE] Restored SRAM from {} ({} bytes)",
+                        sram_path.display(),
+                        data.len()
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "[CORE] Failed to read SRAM at {}: {}",
+                        sram_path.display(),
+                        e
+                    );
+                }
+            }
+        } else {
+            tracing::info!("[CORE] No existing SRAM file — starting fresh");
+        }
+    }
+
     let (frame_tx, frame_rx) = mpsc::sync_channel::<CoreFrame>(1);
     let (cmd_tx, cmd_rx) = mpsc::sync_channel::<CoreCommand>(16);
+    let (response_tx, response_rx) = mpsc::sync_channel::<CoreResponse>(4);
 
     std::thread::spawn(move || {
         loop {
@@ -90,6 +141,12 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
                 match cmd {
                     CoreCommand::SetJoypad { port, button, pressed } => {
                         core.set_joypad(port, button, pressed);
+                    }
+                    CoreCommand::SaveState { slot } => {
+                        handle_save_state(&core, slot, rom_hash.as_deref(), &response_tx);
+                    }
+                    CoreCommand::LoadState { slot } => {
+                        handle_load_state(&mut core, slot, rom_hash.as_deref(), &response_tx);
                     }
                 }
             }
@@ -115,6 +172,28 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
                 std::thread::sleep(Duration::from_millis(1));
             }
         }
+
+        // ---- Save SRAM before core is dropped ----//
+        if let Some(ref hash) = rom_hash {
+            if let Some(sram_data) = core.sram() {
+                if !sram_data.is_empty() {
+                    let path = saves::sram_path(hash);
+                    match saves::write_atomic(&path, &sram_data) {
+                        Ok(()) => tracing::info!(
+                            "[CORE] Saved SRAM to {} ({} bytes)",
+                            path.display(),
+                            sram_data.len()
+                        ),
+                        Err(e) => tracing::error!(
+                            "[CORE] Failed to save SRAM to {}: {}",
+                            path.display(),
+                            e
+                        ),
+                    }
+                }
+            }
+        }
+        // core is dropped here → retro_unload_game() + retro_deinit()
     });
 
     Some(CoreHandle {
@@ -122,5 +201,88 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
         height,
         frame_rx,
         cmd_tx,
+        response_rx,
     })
+}
+
+/// Handle a save state command on the core thread.
+fn handle_save_state(
+    core: &Core,
+    slot: u8,
+    rom_hash: Option<&str>,
+    response_tx: &SyncSender<CoreResponse>,
+) {
+    let data = core.save_state();
+    let ok = data.is_some();
+
+    if let (Some(data), Some(hash)) = (&data, rom_hash) {
+        let path = saves::state_path(hash, slot);
+        if let Err(e) = saves::write_atomic(&path, data) {
+            tracing::error!(
+                "[CORE] Failed to save state slot {} to {}: {}",
+                slot,
+                path.display(),
+                e
+            );
+        } else {
+            tracing::info!(
+                "[CORE] Saved state slot {} to {} ({} bytes)",
+                slot,
+                path.display(),
+                data.len()
+            );
+        }
+    }
+
+    let _ = response_tx.send(CoreResponse::SaveStateResult {
+        slot,
+        data: data.unwrap_or_default(),
+        ok,
+    });
+}
+
+/// Handle a load state command on the core thread.
+fn handle_load_state(
+    core: &mut Core,
+    slot: u8,
+    rom_hash: Option<&str>,
+    response_tx: &SyncSender<CoreResponse>,
+) {
+    let ok = match rom_hash {
+        Some(hash) => {
+            let path = saves::state_path(hash, slot);
+            match std::fs::read(&path) {
+                Ok(data) => {
+                    let success = core.load_state(&data);
+                    if success {
+                        tracing::info!(
+                            "[CORE] Loaded state slot {} from {} ({} bytes)",
+                            slot,
+                            path.display(),
+                            data.len()
+                        );
+                    } else {
+                        tracing::warn!(
+                            "[CORE] Failed to unserialize state slot {} from {}",
+                            slot,
+                            path.display()
+                        );
+                    }
+                    success
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "[CORE] No save state at slot {} ({}): {}",
+                        slot,
+                        path.display(),
+                        e
+                    );
+                    false
+                }
+            }
+        }
+        None => false,
+    };
+
+    let _ = response_tx.send(CoreResponse::LoadStateResult { slot, ok });
 }

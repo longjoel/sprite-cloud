@@ -33,3 +33,4 @@ test-data/
 
 # Hermes agent work directory
 .hermes/
+.next/
