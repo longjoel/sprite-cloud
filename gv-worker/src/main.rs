@@ -1,5 +1,6 @@
 mod config;
 mod test_pattern;
+mod test_tone;
 mod vp8_encoder;
 
 use axum::{
@@ -218,6 +219,24 @@ async fn do_webrtc_handshake(
         .await
         .map_err(|e| format!("add track: {}", e))?;
 
+    // ---- Create audio track ----
+    let audio_track = Arc::new(TrackLocalStaticSample::new(
+        RTCRtpCodecCapability {
+            mime_type: webrtc::api::media_engine::MIME_TYPE_OPUS.to_owned(),
+            clock_rate: 48_000,
+            channels: 2,
+            sdp_fmtp_line: "minptime=10;useinbandfec=1".to_string(),
+            rtcp_feedback: vec![],
+        },
+        "audio".to_owned(),
+        "gv-worker".to_owned(),
+    ));
+
+    peer_connection
+        .add_track(Arc::clone(&audio_track) as Arc<dyn TrackLocal + Send + Sync>)
+        .await
+        .map_err(|e| format!("add audio track: {}", e))?;
+
     // ---- SDP exchange ----
     let offer_desc = RTCSessionDescription::offer(offer_sdp.to_string())
         .map_err(|e| format!("parse offer: {}", e))?;
@@ -266,6 +285,7 @@ async fn do_webrtc_handshake(
     let disconnect_cancel = cancel.clone();
     let peer_connection_clone = Arc::clone(&peer_connection);
     let state_clone = Arc::clone(&state);
+    let audio_track_clone = Arc::clone(&audio_track);
 
     // Watch for peer disconnection — if the browser leaves, kill the stream.
     peer_connection.on_peer_connection_state_change(Box::new(
@@ -286,7 +306,7 @@ async fn do_webrtc_handshake(
     ));
 
     let handle = tokio::spawn(async move {
-        stream_vp8_frames(stream_track, stream_cancel, peer_connection_clone, state_clone).await;
+        stream_vp8_frames(stream_track, audio_track_clone, stream_cancel, peer_connection_clone, state_clone).await;
     });
 
     {
@@ -312,6 +332,7 @@ async fn do_webrtc_handshake(
 /// and cleared from AppState so no zombie PC lingers.
 async fn stream_vp8_frames(
     track: Arc<TrackLocalStaticSample>,
+    audio_track: Arc<TrackLocalStaticSample>,
     cancel: CancellationToken,
     peer_connection: Arc<RTCPeerConnection>,
     app_state: Arc<AppState>,
@@ -372,6 +393,21 @@ async fn stream_vp8_frames(
                         if let Err(e) = track.write_sample(&sample).await {
                             tracing::error!("[STREAM] Write sample error at frame {}: {}", frame_num, e);
                             break;
+                        }
+
+                        // ---- Stream audio alongside video ----
+                        let tone = test_tone::generate_tone(frame_num);
+                        let audio_bytes: Vec<u8> = tone.iter()
+                            .flat_map(|s| s.to_le_bytes())
+                            .collect();
+                        let audio_sample = Sample {
+                            data: audio_bytes.into(),
+                            duration: frame_interval,
+                            packet_timestamp: (frame_num as u32).wrapping_mul(1_600), // 48k / 30fps = 1600
+                            ..Default::default()
+                        };
+                        if let Err(e) = audio_track.write_sample(&audio_sample).await {
+                            tracing::error!("[STREAM] Audio write error at frame {}: {}", frame_num, e);
                         }
                     }
                     Err(e) => {
