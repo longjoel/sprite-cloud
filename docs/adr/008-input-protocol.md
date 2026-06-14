@@ -43,6 +43,36 @@ Ordered delivery with low-latency label.
 
 ## Consequences
 
-- Input contract needs `seat` field (0–3)
+- Input contract: browser sends joypad state every frame as a 16-bit
+  bitmask matching RetroArch's RETRO_DEVICE_ID_JOYPAD_* layout.
+  Multi-seat: array of masks, one per seat (seat 0 = index 0).
 - Worker must handle two DataChannels (`"diagnostics"` + `"input"`)
 - Browser creates both channels before `createOffer()`
+
+## Input message format (RetroArch-compatible)
+
+Browser → Worker over `"input"` DataChannel, binary (ArrayBuffer):
+
+```
+Offset | Size | Field
+     0 |    1 | seat (u8, 0–3)
+     1 |    2 | state (u16 LE, joypad bitmask)
+
+Per RETRO_DEVICE_ID_JOYPAD_*:
+  bit 0  = B        bit 8  = A
+  bit 1  = Y        bit 9  = X
+  bit 2  = Select   bit 10 = L
+  bit 3  = Start    bit 11 = R
+  bit 4  = Up       bit 12 = L2
+  bit 5  = Down     bit 13 = R2
+  bit 6  = Left     bit 14 = L3
+  bit 7  = Right    bit 15 = R3
+```
+
+Full state sent every frame (not individual key events). Binary
+encoding chosen over JSON for sub-millisecond parse and zero
+allocation — matching RetroArch's network input protocol.
+
+Keyboard/gamepad mapping (browser side) accumulates key state into
+the mask; the mask is sent verbatim to the core via
+`retro_set_controller_port_device` + `retro_set_input_state` callback.
