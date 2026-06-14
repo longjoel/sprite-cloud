@@ -1,0 +1,1 @@
+../gv-web/public/player/index.js
