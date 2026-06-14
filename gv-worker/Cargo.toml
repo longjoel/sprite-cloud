@@ -18,6 +18,8 @@ image = "0.25"
 webrtc = { version = "0.17", features = ["pem"] }
 env-libvpx-sys = { version = "5.1", features = ["generate"] }
 tower-http = { version = "0.6.11", features = ["cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "time"] }
 
 [dev-dependencies]
 ureq = { version = "2", features = ["json"] }

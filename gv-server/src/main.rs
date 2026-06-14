@@ -40,6 +40,15 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .json()
+        .with_target(false)
+        .with_timer(tracing_subscriber::fmt::time::UtcTime::rfc_3339())
+        .init();
+
+    // Root span attaches a `service` field to every log line.
+    let _root = tracing::info_span!("", service = "gv-server").entered();
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -51,7 +60,7 @@ async fn main() -> Result<()> {
 // ── pair subcommand ───────────────────────────────────────────────────
 
 async fn cmd_pair(code: &str, gv_web_url: &str) -> Result<()> {
-    println!("Pairing with {} ...", gv_web_url);
+    tracing::info!("Pairing with {} ...", gv_web_url);
 
     let resp = gv_web::GvWebClient::claim(code, gv_web_url).await?;
 
@@ -69,13 +78,13 @@ async fn cmd_pair(code: &str, gv_web_url: &str) -> Result<()> {
 
     config::save(&cfg).context("save config")?;
 
-    println!("Paired!");
-    println!("  server_id: {}", resp.server_id);
-    println!(
+    tracing::info!("Paired!");
+    tracing::info!("  server_id: {}", resp.server_id);
+    tracing::info!(
         "  api_key:   {}",
         &resp.api_key[..8.min(resp.api_key.len())]
     );
-    println!("  config saved");
+    tracing::info!("  config saved");
 
     Ok(())
 }
@@ -96,12 +105,12 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
 
     // Verify the API key is still valid
     let verify = client.verify().await?;
-    println!(
+    tracing::info!(
         "Connected to gv-web as server {} (user: {})",
         verify.server_id, verify.user_id
     );
 
-    println!("gv-server running — polling for commands...");
+    tracing::info!("gv-server running — polling for commands...");
 
     // Kill any workers orphaned by a previous crash
     worker::reap_stale_workers();
@@ -115,7 +124,7 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
     loop {
         tokio::select! {
             _ = shutdown_signal() => {
-                println!("\n[SHUTDOWN] received signal, stopping workers...");
+                tracing::info!("[SHUTDOWN] received signal, stopping workers...");
                 break;
             }
             _ = async {
@@ -123,7 +132,7 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                     Ok(resp) => {
                         if !resp.commands.is_empty() {
                             for cmd in &resp.commands {
-                                println!(
+                                tracing::info!(
                                     "[POLL] command {}: {} {}",
                                     cmd.id,
                                     cmd.command_type,
@@ -136,7 +145,7 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         .get("game_id")
                                         .and_then(|v| v.as_str())
                                         .unwrap_or("unknown");
-                                    println!(
+                                    tracing::info!(
                                         "[POLL] start_game command {} (game: {})",
                                         cmd.id, game_id
                                     );
@@ -144,14 +153,14 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                     match worker::spawn_worker(game_id, worker_bin.as_deref()).await {
                                         Ok(worker) => {
                                             let url = worker.url.clone();
-                                            println!("[WORKER] spawned at {url}");
+                                            tracing::info!("[WORKER] spawned at {url}");
 
                                             // Notify gv-web
                                             if let Err(e) = client
                                                 .notify(&cmd.id, &url, game_id)
                                                 .await
                                             {
-                                                eprintln!(
+                                                tracing::error!(
                                                     "[NOTIFY] failed after retries — worker is at {url}\n\
                                                      [NOTIFY]     connect manually or retry from /dev\n\
                                                      [NOTIFY]     error: {e:#}"
@@ -160,7 +169,7 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
 
                                             workers.insert(game_id.to_string(), worker);
                                         }
-                                        Err(e) => eprintln!("[WORKER] spawn failed: {e:#}"),
+                                        Err(e) => tracing::error!("[WORKER] spawn failed: {e:#}"),
                                     }
                                 }
                             }
@@ -168,8 +177,8 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                         tokio::time::sleep(Duration::from_millis(resp.next_poll_ms)).await;
                     }
                     Err(e) => {
-                        eprintln!("[POLL] error: {:#}", e);
-                        eprintln!(
+                        tracing::error!("[POLL] error: {:#}", e);
+                        tracing::warn!(
                             "[POLL] backing off {}s before retry...",
                             POLL_ERROR_BACKOFF_MS / 1000
                         );
@@ -182,11 +191,11 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
 
     // Drain workers — kill each one and wait for it to exit
     for (game_id, worker) in workers {
-        println!("[SHUTDOWN] stopping worker for game {game_id}");
+        tracing::info!("[SHUTDOWN] stopping worker for game {game_id}");
         worker.kill().await;
     }
 
-    println!("[SHUTDOWN] done");
+    tracing::info!("[SHUTDOWN] done");
     Ok(())
 }
 

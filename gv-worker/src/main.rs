@@ -87,7 +87,7 @@ async fn handle_offer(
         .await
         .map(Json)
         .map_err(|e| {
-            eprintln!("[SDP] handshake failed: {}", e);
+            tracing::error!("[SDP] handshake failed: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, e)
         })
 }
@@ -267,7 +267,7 @@ async fn do_webrtc_handshake(
                     RTCPeerConnectionState::Disconnected
                     | RTCPeerConnectionState::Failed
                     | RTCPeerConnectionState::Closed => {
-                        eprintln!("[STREAM] Peer {} — cancelling stream", s);
+                        tracing::info!("[STREAM] Peer {} — cancelling stream", s);
                         cancel.cancel();
                     }
                     _ => {}
@@ -313,7 +313,7 @@ async fn stream_vp8_frames(
     let mut encoder = match vp8_encoder::Vp8Encoder::new(VIDEO_WIDTH, VIDEO_HEIGHT) {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("[STREAM] Failed to create VP8 encoder: {}", e);
+            tracing::error!("[STREAM] Failed to create VP8 encoder: {}", e);
             return;
         }
     };
@@ -327,7 +327,7 @@ async fn stream_vp8_frames(
     let mut tick = tokio::time::interval(frame_interval);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    eprintln!(
+    tracing::info!(
         "[STREAM] Starting VP8 frame loop ({}×{} @ {}fps, {}kbps)",
         VIDEO_WIDTH,
         VIDEO_HEIGHT,
@@ -338,7 +338,7 @@ async fn stream_vp8_frames(
     loop {
         tokio::select! {
             _ = cancel.cancelled() => {
-                eprintln!("[STREAM] Cancelled");
+                tracing::info!("[STREAM] Cancelled");
                 break;
             }
             _ = tick.tick() => {
@@ -348,10 +348,10 @@ async fn stream_vp8_frames(
                 match encoder.encode(&pixels) {
                     Ok(encoded) => {
                         if frame_num <= 3 || frame_num.is_multiple_of(DIAG_LOG_INTERVAL) {
-                            eprintln!("[STREAM] frame {}: encoded {} bytes", frame_num, encoded.len());
+                            tracing::debug!("[STREAM] frame {}: encoded {} bytes", frame_num, encoded.len());
                         }
                         if encoded.is_empty() {
-                            eprintln!("[STREAM] frame {}: EMPTY encoded data, skipping", frame_num);
+                            tracing::warn!("[STREAM] frame {}: EMPTY encoded data, skipping", frame_num);
                             continue;
                         }
                         let sample = Sample {
@@ -361,25 +361,25 @@ async fn stream_vp8_frames(
                             ..Default::default()
                         };
                         if let Err(e) = track.write_sample(&sample).await {
-                            eprintln!("[STREAM] Write sample error at frame {}: {}", frame_num, e);
+                            tracing::error!("[STREAM] Write sample error at frame {}: {}", frame_num, e);
                             break;
                         }
                     }
                     Err(e) => {
-                        eprintln!("[STREAM] VP8 encode error at frame {}: {}", frame_num, e);
+                        tracing::error!("[STREAM] VP8 encode error at frame {}: {}", frame_num, e);
                         break;
                     }
                 }
             }
         }
     }
-    eprintln!("[STREAM] Loop exited");
+    tracing::info!("[STREAM] Loop exited");
 
     // Close the peer connection so it doesn't linger as a zombie
     let _ = peer_connection.close().await;
     let mut pc_lock = app_state.peer_connection.lock().await;
     *pc_lock = None;
-    eprintln!("[STREAM] Peer connection closed and removed from state");
+    tracing::info!("[STREAM] Peer connection closed and removed from state");
 }
 
 // ---------------------------------------------------------------------------
@@ -523,6 +523,15 @@ function stopAll() {{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing_subscriber::fmt()
+        .json()
+        .with_target(false)
+        .with_timer(tracing_subscriber::fmt::time::UtcTime::rfc_3339())
+        .init();
+
+    // Root span attaches a `service` field to every log line.
+    let _root = tracing::info_span!("", service = "gv-worker").entered();
+
     let port: u16 = std::env::args()
         .nth(1)
         .and_then(|p| p.parse().ok())
@@ -551,9 +560,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let actual_port = listener.local_addr()?.port();
 
-    println!("gv-worker listening on port {}", actual_port);
+    tracing::info!("gv-worker listening on port {}", actual_port);
     eprintln!("WORKER_READY port={}", actual_port);
-    eprintln!("open http://localhost:{}", actual_port);
+    tracing::info!("open http://localhost:{}", actual_port);
     axum::serve(listener, app).await?;
     Ok(())
 }
