@@ -10,6 +10,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use core_bridge::CoreCommand;
 use config::{
     AUDIO_CHANNELS, AUDIO_RTP_TIMESTAMP_INCREMENT, AUDIO_SAMPLE_RATE,
     AUDIO_TRACK_ID, DC_RECEIVE_TIMEOUT_SECS, DIAG_LOG_INTERVAL, FRAME_INTERVAL_MS,
@@ -189,21 +190,21 @@ async fn do_webrtc_handshake(
     );
 
     // ---- Load libretro core (or fall back to test pattern) ----
-    let (enc_width, enc_height, core_frame_rx) =
+    let (enc_width, enc_height, core_frame_rx, core_cmd_tx) =
         match core_bridge::spawn_core_thread() {
-            Some((dims, rx)) => {
+            Some(handle) => {
                 tracing::info!(
                     "[STREAM] Using libretro core at {}×{}",
-                    dims.0, dims.1
+                    handle.width, handle.height
                 );
-                (dims.0, dims.1, Some(rx))
+                (handle.width, handle.height, Some(handle.frame_rx), Some(handle.cmd_tx))
             }
             None => {
                 tracing::info!(
                     "[STREAM] Core not available — using test pattern at {}×{}",
                     VIDEO_WIDTH, VIDEO_HEIGHT
                 );
-                (VIDEO_WIDTH, VIDEO_HEIGHT, None)
+                (VIDEO_WIDTH, VIDEO_HEIGHT, None, None)
             }
         };
 
@@ -332,6 +333,7 @@ async fn do_webrtc_handshake(
     let dc_encoder = encoder_mutex.clone();
     let dc_force_kf = force_keyframe.clone();
     let dc_pattern = pattern.clone();
+    let dc_core_cmd = core_cmd_tx.clone();
     tokio::spawn(async move {
         match tokio::time::timeout(
             std::time::Duration::from_secs(DC_RECEIVE_TIMEOUT_SECS),
@@ -351,11 +353,13 @@ async fn do_webrtc_handshake(
 
                 // Set up control message handler
                 let dc_cmd = dc.clone();
+                let dc_core = dc_core_cmd.clone();
                 dc.on_message(Box::new(move |msg| {
                     let encoder = dc_encoder.clone();
                     let force_kf = dc_force_kf.clone();
                     let pat = dc_pattern.clone();
                     let dc = dc_cmd.clone();
+                    let core_tx = dc_core.clone();
                     Box::pin(async move {
                         let text = String::from_utf8_lossy(&msg.data);
                         let text = text.trim();
@@ -397,6 +401,23 @@ async fn do_webrtc_handshake(
                                     let val: u8 = match p { "bars" => 1, _ => 0 };
                                     pat.store(val, Ordering::Relaxed);
                                     tracing::info!("[DC] pattern set to {}", p);
+                                }
+                            }
+                            Some("input") => {
+                                // Keyboard/gamepad input from browser
+                                if let (Some(key), Some(pressed)) = (
+                                    cmd.get("key").and_then(|v| v.as_str()),
+                                    cmd.get("pressed").and_then(|v| v.as_bool()),
+                                ) {
+                                    if let Some(button) = map_key_to_joypad(key) {
+                                        let _ = core_tx.as_ref().map(|tx| {
+                                            tx.try_send(CoreCommand::SetJoypad {
+                                                port: cmd.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                                                button,
+                                                pressed,
+                                            })
+                                        });
+                                    }
                                 }
                             }
                             Some("force_keyframe") => {
@@ -450,6 +471,7 @@ async fn do_webrtc_handshake(
     let stream_pattern = pattern.clone();
     let stream_dc = dc_stream_for_loop.clone();
     let stream_core_rx = core_frame_rx;
+    let stream_core_cmd = core_cmd_tx;
 
     // Watch for peer disconnection — if the browser leaves, kill the stream.
     peer_connection.on_peer_connection_state_change(Box::new(
@@ -470,7 +492,7 @@ async fn do_webrtc_handshake(
     ));
 
     let handle = tokio::spawn(async move {
-        stream_vp8_frames(stream_track, audio_track_clone, stream_dc, stream_cancel, peer_connection_clone, state_clone, stream_encoder, stream_force_kf, stream_pattern, stream_core_rx).await;
+        stream_vp8_frames(stream_track, audio_track_clone, stream_dc, stream_cancel, peer_connection_clone, state_clone, stream_encoder, stream_force_kf, stream_pattern, stream_core_rx, stream_core_cmd).await;
     });
 
     {
@@ -505,6 +527,7 @@ async fn stream_vp8_frames(
     force_keyframe: Arc<AtomicBool>,
     pattern: Arc<AtomicU8>,
     core_frame_rx: Option<std::sync::mpsc::Receiver<core_bridge::CoreFrame>>,
+    _core_cmd_tx: Option<std::sync::mpsc::SyncSender<core_bridge::CoreCommand>>,
 ) {
     use std::time::Duration;
     use webrtc::media::Sample;
@@ -681,6 +704,26 @@ async fn stream_vp8_frames(
 }
 
 // ---------------------------------------------------------------------------
+// Keyboard → joypad mapping
+// ---------------------------------------------------------------------------
+
+/// Map a browser KeyboardEvent.key string to a libretro JoypadButton.
+fn map_key_to_joypad(key: &str) -> Option<libretro_runner::JoypadButton> {
+    use libretro_runner::JoypadButton;
+    match key {
+        "ArrowUp" | "w" | "W" => Some(JoypadButton::Up),
+        "ArrowDown" | "s" | "S" => Some(JoypadButton::Down),
+        "ArrowLeft" | "a" | "A" => Some(JoypadButton::Left),
+        "ArrowRight" | "d" | "D" => Some(JoypadButton::Right),
+        "Enter" | " " => Some(JoypadButton::Start),
+        "Shift" => Some(JoypadButton::Select),
+        "z" | "Z" => Some(JoypadButton::B),
+        "x" | "X" => Some(JoypadButton::A),
+        _ => None,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Test page
 // ---------------------------------------------------------------------------
 
@@ -763,6 +806,25 @@ async function testWebrtc() {{
   pc = new RTCPeerConnection({{
     iceServers: [{{ urls: "{stun}" }}]
   }});
+
+  // Create DataChannel for keyboard input
+  const dc = pc.createDataChannel("diagnostics");
+  dc.onopen = () => log("DC open — keyboard input active");
+  dc.onclose = () => log("DC closed");
+
+  const sendKey = (key, pressed) => {{
+    if (dc.readyState === "open") {{
+      dc.send(JSON.stringify({{ cmd: "input", key, pressed, port: 0 }}));
+    }}
+  }};
+
+  document.addEventListener("keydown", (e) => {{
+    if (e.target.tagName === "BUTTON") return;
+    if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Enter"," "].includes(e.key)) e.preventDefault();
+    sendKey(e.key, true);
+  }});
+  document.addEventListener("keyup", (e) => sendKey(e.key, false));
+  log("Keyboard listeners active — WASD/arrows to play, Z/X for A/B");
 
   pc.oniceconnectionstatechange = () => {{
     log("ICE state: " + pc.iceConnectionState);
