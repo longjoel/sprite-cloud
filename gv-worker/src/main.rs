@@ -249,6 +249,18 @@ async fn do_webrtc_handshake(
         .await
         .map_err(|e| format!("add audio track: {}", e))?;
 
+    // ---- Receive DataChannel from browser (offerer creates it) ----
+    // The browser creates the "diagnostics" DataChannel in its offer.
+    // We receive it here and set up the message handler.
+    let (dc_tx, mut dc_rx) = tokio::sync::mpsc::channel::<Arc<webrtc::data_channel::RTCDataChannel>>(1);
+
+    peer_connection.on_data_channel(Box::new(move |d: Arc<webrtc::data_channel::RTCDataChannel>| {
+        let tx = dc_tx.clone();
+        Box::pin(async move {
+            let _ = tx.send(d).await;
+        })
+    }));
+
     // ---- SDP exchange ----
     let offer_desc = RTCSessionDescription::offer(offer_sdp.to_string())
         .map_err(|e| format!("parse offer: {}", e))?;
@@ -257,103 +269,12 @@ async fn do_webrtc_handshake(
         .await
         .map_err(|e| format!("set remote: {}", e))?;
 
-    // ---- Create DataChannel for diagnostics (stats + control) ----
-    // Must be after set_remote_description (SCTP init) but before create_answer (SDP).
-    let dc = peer_connection
-        .create_data_channel("diagnostics", None)
-        .await
-        .map_err(|e| format!("create data channel: {}", e))?;
-
-    // Dispatch DataChannel messages: stats are sent by the stream loop;
-    // incoming messages are control commands or pings.
-    {
-        let dc_encoder = encoder_mutex.clone();
-        let dc_force_kf = force_keyframe.clone();
-        let dc_pattern = pattern.clone();
-        let dc_cmd = dc.clone();
-        dc.on_message(Box::new(move |msg| {
-            let encoder = dc_encoder.clone();
-            let force_kf = dc_force_kf.clone();
-            let pat = dc_pattern.clone();
-            let dc = dc_cmd.clone();
-            Box::pin(async move {
-                let text = String::from_utf8_lossy(&msg.data);
-                let text = text.trim();
-
-                // Legacy: raw "ping" for backward compat
-                if text == "ping" {
-                    let now_ms = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis();
-                    let resp = serde_json::json!({
-                        "type": "pong",
-                        "server_ts_ms": now_ms
-                    });
-                    let _ = dc.send_text(&resp.to_string()).await;
-                    return;
-                }
-
-                // Parse JSON command
-                let cmd: serde_json::Value = match serde_json::from_str(text) {
-                    Ok(v) => v,
-                    Err(_) => return,
-                };
-
-                match cmd.get("cmd").and_then(|v| v.as_str()) {
-                    Some("set_bitrate") => {
-                        if let Some(kbps) = cmd.get("kbps").and_then(|v| v.as_u64()) {
-                            if let Ok(mut enc) = encoder.lock() {
-                                if let Err(e) = enc.set_bitrate(kbps as u32) {
-                                    tracing::warn!("[DC] set_bitrate({}) failed: {}", kbps, e);
-                                } else {
-                                    tracing::info!("[DC] bitrate set to {} kbps", kbps);
-                                }
-                            }
-                        }
-                    }
-                    Some("set_pattern") => {
-                        if let Some(p) = cmd.get("pattern").and_then(|v| v.as_str()) {
-                            let val: u8 = match p {
-                                "bars" => 1,
-                                _ => 0,
-                            };
-                            pat.store(val, Ordering::Relaxed);
-                            tracing::info!("[DC] pattern set to {}", p);
-                        }
-                    }
-                    Some("force_keyframe") => {
-                        force_kf.store(true, Ordering::Relaxed);
-                        tracing::info!("[DC] force_keyframe requested");
-                    }
-                    Some("ping") => {
-                        let seq = cmd.get("seq").and_then(|v| v.as_u64()).unwrap_or(0);
-                        let now_ms = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis();
-                        let resp = serde_json::json!({
-                            "type": "pong",
-                            "seq": seq,
-                            "server_ts_ms": now_ms
-                        });
-                        let _ = dc.send_text(&resp.to_string()).await;
-                    }
-                    _ => {}
-                }
-            })
-        }));
-    }
-
-    // Clone for the streaming task to send stats
-    let dc_stream = dc.clone();
-
-    let answer = peer_connection
+    let answer_desc = peer_connection
         .create_answer(None)
         .await
         .map_err(|e| format!("create answer: {}", e))?;
     peer_connection
-        .set_local_description(answer)
+        .set_local_description(answer_desc)
         .await
         .map_err(|e| format!("set local: {}", e))?;
 
@@ -376,6 +297,115 @@ async fn do_webrtc_handshake(
         sdp: local_desc.sdp,
     };
 
+    // ---- Spawn task to receive DataChannel from browser ----
+    // The browser creates the "diagnostics" channel in its offer.
+    // We receive it asynchronously — the SDP response must not wait for it.
+    // The streaming loop holds a clone of dc_stream; if no DC arrives,
+    // stats and control silently fail (video + audio still work).
+    let dc_stream_for_loop: Arc<tokio::sync::Mutex<Option<Arc<webrtc::data_channel::RTCDataChannel>>>> =
+        Arc::new(tokio::sync::Mutex::new(None));
+
+    // Clone for the DC receive task
+    let dc_stream_clone = dc_stream_for_loop.clone();
+    let dc_encoder = encoder_mutex.clone();
+    let dc_force_kf = force_keyframe.clone();
+    let dc_pattern = pattern.clone();
+    tokio::spawn(async move {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            dc_rx.recv(),
+        )
+        .await
+        {
+            Ok(Some(dc)) => {
+                tracing::info!(
+                    "[DC] Received diagnostics channel, readyState={:?}, id={}",
+                    dc.ready_state(),
+                    dc.id()
+                );
+
+                // Store for the streaming loop
+                *dc_stream_clone.lock().await = Some(dc.clone());
+
+                // Set up control message handler
+                let dc_cmd = dc.clone();
+                dc.on_message(Box::new(move |msg| {
+                    let encoder = dc_encoder.clone();
+                    let force_kf = dc_force_kf.clone();
+                    let pat = dc_pattern.clone();
+                    let dc = dc_cmd.clone();
+                    Box::pin(async move {
+                        let text = String::from_utf8_lossy(&msg.data);
+                        let text = text.trim();
+
+                        if text == "ping" {
+                            let now_ms = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis();
+                            let resp = serde_json::json!({
+                                "type": "pong",
+                                "server_ts_ms": now_ms
+                            });
+                            let _ = dc.send_text(&resp.to_string()).await;
+                            return;
+                        }
+
+                        let cmd: serde_json::Value = match serde_json::from_str(text) {
+                            Ok(v) => v,
+                            Err(_) => return,
+                        };
+
+                        match cmd.get("cmd").and_then(|v| v.as_str()) {
+                            Some("set_bitrate") => {
+                                if let Some(kbps) = cmd.get("kbps").and_then(|v| v.as_u64()) {
+                                    if let Ok(mut enc) = encoder.lock() {
+                                        if let Err(e) = enc.set_bitrate(kbps as u32) {
+                                            tracing::warn!("[DC] set_bitrate({}) failed: {}", kbps, e);
+                                        } else {
+                                            tracing::info!("[DC] bitrate set to {} kbps", kbps);
+                                        }
+                                    }
+                                }
+                            }
+                            Some("set_pattern") => {
+                                if let Some(p) = cmd.get("pattern").and_then(|v| v.as_str()) {
+                                    let val: u8 = match p { "bars" => 1, _ => 0 };
+                                    pat.store(val, Ordering::Relaxed);
+                                    tracing::info!("[DC] pattern set to {}", p);
+                                }
+                            }
+                            Some("force_keyframe") => {
+                                force_kf.store(true, Ordering::Relaxed);
+                                tracing::info!("[DC] force_keyframe requested");
+                            }
+                            Some("ping") => {
+                                let seq = cmd.get("seq").and_then(|v| v.as_u64()).unwrap_or(0);
+                                let now_ms = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis();
+                                let resp = serde_json::json!({
+                                    "type": "pong",
+                                    "seq": seq,
+                                    "server_ts_ms": now_ms
+                                });
+                                let _ = dc.send_text(&resp.to_string()).await;
+                            }
+                            _ => {}
+                        }
+                    })
+                }));
+            }
+            Ok(None) => {
+                tracing::warn!("[DC] DataChannel receive channel closed unexpectedly");
+            }
+            Err(_) => {
+                tracing::info!("[DC] No DataChannel from browser (test offer or no DC support)");
+            }
+        }
+    });
+
     // ---- Store state ----
     {
         let mut pc_lock = state.peer_connection.lock().await;
@@ -392,6 +422,7 @@ async fn do_webrtc_handshake(
     let stream_encoder = encoder_mutex.clone();
     let stream_force_kf = force_keyframe.clone();
     let stream_pattern = pattern.clone();
+    let stream_dc = dc_stream_for_loop.clone();
 
     // Watch for peer disconnection — if the browser leaves, kill the stream.
     peer_connection.on_peer_connection_state_change(Box::new(
@@ -412,7 +443,7 @@ async fn do_webrtc_handshake(
     ));
 
     let handle = tokio::spawn(async move {
-        stream_vp8_frames(stream_track, audio_track_clone, dc_stream, stream_cancel, peer_connection_clone, state_clone, stream_encoder, stream_force_kf, stream_pattern).await;
+        stream_vp8_frames(stream_track, audio_track_clone, stream_dc, stream_cancel, peer_connection_clone, state_clone, stream_encoder, stream_force_kf, stream_pattern).await;
     });
 
     {
@@ -439,7 +470,7 @@ async fn do_webrtc_handshake(
 async fn stream_vp8_frames(
     track: Arc<TrackLocalStaticSample>,
     audio_track: Arc<TrackLocalStaticSample>,
-    dc_stream: Arc<webrtc::data_channel::RTCDataChannel>,
+    dc_stream: Arc<tokio::sync::Mutex<Option<Arc<webrtc::data_channel::RTCDataChannel>>>>,
     cancel: CancellationToken,
     peer_connection: Arc<RTCPeerConnection>,
     app_state: Arc<AppState>,
@@ -579,7 +610,9 @@ async fn stream_vp8_frames(
                                     "uptime_sec": start_instant.elapsed().as_secs()
                                 }
                             })) {
-                                let _ = dc_stream.send_text(stats).await;
+                                if let Some(dc) = dc_stream.lock().await.as_ref() {
+                                    let _ = dc.send_text(stats).await;
+                                }
                             }
                         }
                     }
