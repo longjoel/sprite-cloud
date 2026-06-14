@@ -121,11 +121,19 @@ pub fn allowed_origins() -> Vec<String> {
         return origin.split(',').map(|s| s.trim().to_string()).collect();
     }
 
-    let mut origins = vec!["http://localhost:3001".to_string()];
+    let mut origins = vec![
+        "http://localhost:3001".to_string(),
+        "http://localhost:3000".to_string(),
+        "http://127.0.0.1:3001".to_string(),
+        "http://127.0.0.1:3000".to_string(),
+        "http://vault.local:8080".to_string(),
+    ];
 
     // Auto-detect LAN IPs for dev convenience
     if let Ok(ip) = local_ip_address::local_ip() {
         origins.push(format!("http://{}:3001", ip));
+        origins.push(format!("http://{}:3000", ip));
+        origins.push(format!("http://{}:8080", ip));
     }
 
     origins
