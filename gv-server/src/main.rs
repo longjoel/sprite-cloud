@@ -155,6 +155,25 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                             let url = worker.url.clone();
                                             tracing::info!("[WORKER] spawned at {url}");
 
+                                            // Probe health before notifying gv-web
+                                            let health_url = format!("{url}/health");
+                                            match client
+                                                .http_client()
+                                                .get(&health_url)
+                                                .send()
+                                                .await
+                                            {
+                                                Ok(resp) if resp.status().is_success() => {
+                                                    tracing::info!("[WORKER] health check passed for {url}");
+                                                }
+                                                other => {
+                                                    tracing::warn!(
+                                                        "[WORKER] health check failed for {url}: {:?}",
+                                                        other.err().map(|e| e.to_string())
+                                                    );
+                                                }
+                                            }
+
                                             // Notify gv-web
                                             if let Err(e) = client
                                                 .notify(&cmd.id, &url, game_id)

@@ -349,10 +349,9 @@ processes whose PID files still exist.
 | id | uuid | Command ID |
 | userId | uuid | Who created it |
 | serverId | uuid | Target server |
-| commandType | string | `"start_game"` or `"stop_game"` |
+| type | string | `"start_game"` or `"stop_game"` |
 | payload | jsonb | `{game_id: "..."}` |
-| deliveredAt | timestamp | When server polled it |
-| notifiedAt | timestamp | When server sent notify |
+| status | string | `"pending"` → `"delivered"` |
 | workerToken | string? | Random token (start_game only) |
 | createdAt | timestamp | |
 
@@ -405,6 +404,17 @@ for active workers.
 gv-server ignores command types it doesn't recognize. Adding a new
 command type requires no server restart — just deploy the new handler
 code.
+
+### TTL cleanup
+
+gv-web runs a periodic cleanup (`lib/db/cleanup.ts`) on startup and
+every 60 seconds:
+
+- **Delivered commands** older than 1 hour are deleted
+- **Ended sessions** (`endedAt` set, older than 1 hour) are deleted
+
+Cleanup failures are logged, not fatal — the server continues to
+function without it.
 
 ---
 

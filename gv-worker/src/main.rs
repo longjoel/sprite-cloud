@@ -114,6 +114,15 @@ async fn handle_test_frame(Query(q): Query<FrameQuery>) -> axum::body::Bytes {
     ))
 }
 
+/// GET /health — liveness check.
+///
+/// Returns 200 OK when the HTTP server is ready.  gv-server probes this
+/// after reading WORKER_READY before notifying gv-web that the worker is
+/// available.
+async fn handle_health() -> StatusCode {
+    StatusCode::OK
+}
+
 /// GET / — test page with HTTP poll and WebRTC test buttons.
 async fn handle_index() -> axum::response::Html<String> {
     axum::response::Html(build_index_html())
@@ -553,6 +562,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/sdp", post(handle_offer))
         .route("/state", get(handle_connection_state))
         .route("/test-frame", get(handle_test_frame))
+        .route("/health", get(handle_health))
         .layer(cors)
         .with_state(state);
 
