@@ -117,6 +117,8 @@ pub const TEST_TONE_AMPLITUDE: f64 = 16_384.0;
 /// gv-web might be accessed from — so the browser on a different
 /// machine can reach the worker without CORS blocking.
 pub fn allowed_origins() -> Vec<String> {
+    use local_ip_address::local_ip;
+
     if let Ok(origin) = std::env::var("ALLOWED_ORIGIN") {
         return origin.split(',').map(|s| s.trim().to_string()).collect();
     }
@@ -129,11 +131,12 @@ pub fn allowed_origins() -> Vec<String> {
         "http://vault.local:8080".to_string(),
     ];
 
-    // Auto-detect LAN IPs for dev convenience
-    if let Ok(ip) = local_ip_address::local_ip() {
-        origins.push(format!("http://{}:3001", ip));
-        origins.push(format!("http://{}:3000", ip));
-        origins.push(format!("http://{}:8080", ip));
+    // Allow gv-web origins from any LAN IP the browser might use.
+    // In dev, the browser may connect from any local address.
+    if let Ok(ip) = local_ip() {
+        for port in &[3000u16, 3001, 8080] {
+            origins.push(format!("http://{}:{}", ip, port));
+        }
     }
 
     origins
