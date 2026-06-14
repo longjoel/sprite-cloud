@@ -187,13 +187,7 @@ async fn do_webrtc_handshake(
             .map_err(|e| format!("create peer connection: {}", e))?,
     );
 
-    // ---- Create DataChannel for diagnostics (stats + control) ----
-    let dc = peer_connection
-        .create_data_channel("diagnostics", None)
-        .await
-        .map_err(|e| format!("create data channel: {}", e))?;
-
-    // Shared state between DC message handler and streaming loop
+    // ---- Create encoder + shared state ----
     let encoder_mutex: Arc<std::sync::Mutex<vp8_encoder::Vp8Encoder>> =
         Arc::new(std::sync::Mutex::new(
             vp8_encoder::Vp8Encoder::new(VIDEO_WIDTH, VIDEO_HEIGHT)
@@ -201,6 +195,74 @@ async fn do_webrtc_handshake(
         ));
     let force_keyframe = Arc::new(AtomicBool::new(false));
     let pattern = Arc::new(AtomicU8::new(0)); // 0=square, 1=bars
+
+    // ---- ICE gathering: register callback BEFORE set_local_description ----
+    // Must register before calling set_local_description so we don't miss
+    // the null-sentinel if ICE gathering completes synchronously.
+    let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
+
+    peer_connection.on_ice_candidate(Box::new({
+        move |candidate: Option<webrtc::ice_transport::ice_candidate::RTCIceCandidate>| {
+            let done_tx = done_tx.clone();
+            Box::pin(async move {
+                if candidate.is_none() {
+                    // null candidate = ICE gathering complete
+                    let _ = done_tx.try_send(());
+                }
+            })
+        }
+    }));
+
+    // ---- Create video track ----
+    let video_track = Arc::new(TrackLocalStaticSample::new(
+        RTCRtpCodecCapability {
+            mime_type: MIME_TYPE_VP8.to_owned(),
+            clock_rate: VP8_CLOCK_RATE,
+            channels: 0,
+            sdp_fmtp_line: String::new(),
+            rtcp_feedback: vec![],
+        },
+        TRACK_ID.to_owned(),
+        STREAM_ID.to_owned(),
+    ));
+
+    peer_connection
+        .add_track(Arc::clone(&video_track) as Arc<dyn TrackLocal + Send + Sync>)
+        .await
+        .map_err(|e| format!("add track: {}", e))?;
+
+    // ---- Create audio track ----
+    let audio_track = Arc::new(TrackLocalStaticSample::new(
+        RTCRtpCodecCapability {
+            mime_type: webrtc::api::media_engine::MIME_TYPE_OPUS.to_owned(),
+            clock_rate: AUDIO_SAMPLE_RATE,
+            channels: AUDIO_CHANNELS,
+            sdp_fmtp_line: OPUS_SDP_FMTP.to_string(),
+            rtcp_feedback: vec![],
+        },
+        AUDIO_TRACK_ID.to_owned(),
+        STREAM_ID.to_owned(),
+    ));
+
+    peer_connection
+        .add_track(Arc::clone(&audio_track) as Arc<dyn TrackLocal + Send + Sync>)
+        .await
+        .map_err(|e| format!("add audio track: {}", e))?;
+
+    // ---- SDP exchange ----
+    let offer_desc = RTCSessionDescription::offer(offer_sdp.to_string())
+        .map_err(|e| format!("parse offer: {}", e))?;
+    peer_connection
+        .set_remote_description(offer_desc)
+        .await
+        .map_err(|e| format!("set remote: {}", e))?;
+
+    // ---- Create DataChannel for diagnostics (stats + control) ----
+    // Must be after set_remote_description (SCTP init) but before create_answer (SDP).
+    let dc = peer_connection
+        .create_data_channel("diagnostics", None)
+        .await
+        .map_err(|e| format!("create data channel: {}", e))?;
 
     // Dispatch DataChannel messages: stats are sent by the stream loop;
     // incoming messages are control commands or pings.
@@ -285,67 +347,6 @@ async fn do_webrtc_handshake(
 
     // Clone for the streaming task to send stats
     let dc_stream = dc.clone();
-
-    // ---- ICE gathering: register callback BEFORE set_local_description ----
-    // Must register before calling set_local_description so we don't miss
-    // the null-sentinel if ICE gathering completes synchronously.
-    let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
-
-    peer_connection.on_ice_candidate(Box::new({
-        move |candidate: Option<webrtc::ice_transport::ice_candidate::RTCIceCandidate>| {
-            let done_tx = done_tx.clone();
-            Box::pin(async move {
-                if candidate.is_none() {
-                    // null candidate = ICE gathering complete
-                    let _ = done_tx.try_send(());
-                }
-            })
-        }
-    }));
-
-    // ---- Create video track ----
-    let video_track = Arc::new(TrackLocalStaticSample::new(
-        RTCRtpCodecCapability {
-            mime_type: MIME_TYPE_VP8.to_owned(),
-            clock_rate: VP8_CLOCK_RATE,
-            channels: 0,
-            sdp_fmtp_line: String::new(),
-            rtcp_feedback: vec![],
-        },
-        TRACK_ID.to_owned(),
-        STREAM_ID.to_owned(),
-    ));
-
-    peer_connection
-        .add_track(Arc::clone(&video_track) as Arc<dyn TrackLocal + Send + Sync>)
-        .await
-        .map_err(|e| format!("add track: {}", e))?;
-
-    // ---- Create audio track ----
-    let audio_track = Arc::new(TrackLocalStaticSample::new(
-        RTCRtpCodecCapability {
-            mime_type: webrtc::api::media_engine::MIME_TYPE_OPUS.to_owned(),
-            clock_rate: AUDIO_SAMPLE_RATE,
-            channels: AUDIO_CHANNELS,
-            sdp_fmtp_line: OPUS_SDP_FMTP.to_string(),
-            rtcp_feedback: vec![],
-        },
-        AUDIO_TRACK_ID.to_owned(),
-        STREAM_ID.to_owned(),
-    ));
-
-    peer_connection
-        .add_track(Arc::clone(&audio_track) as Arc<dyn TrackLocal + Send + Sync>)
-        .await
-        .map_err(|e| format!("add audio track: {}", e))?;
-
-    // ---- SDP exchange ----
-    let offer_desc = RTCSessionDescription::offer(offer_sdp.to_string())
-        .map_err(|e| format!("parse offer: {}", e))?;
-    peer_connection
-        .set_remote_description(offer_desc)
-        .await
-        .map_err(|e| format!("set remote: {}", e))?;
 
     let answer = peer_connection
         .create_answer(None)
