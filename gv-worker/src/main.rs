@@ -1,5 +1,6 @@
 mod config;
 mod core_bridge;
+mod saves;
 mod test_pattern;
 mod test_tone;
 mod vp8_encoder;
@@ -189,22 +190,28 @@ async fn do_webrtc_handshake(
             .map_err(|e| format!("create peer connection: {}", e))?,
     );
 
-    // ---- Load libretro core (or fall back to test pattern) ----
-    let (enc_width, enc_height, core_frame_rx, core_cmd_tx) =
+    // ---- Load libretro core (or fall back to test pattern) ----//
+    let (enc_width, enc_height, core_frame_rx, core_cmd_tx, core_response_rx) =
         match core_bridge::spawn_core_thread() {
             Some(handle) => {
                 tracing::info!(
                     "[STREAM] Using libretro core at {}×{}",
                     handle.width, handle.height
                 );
-                (handle.width, handle.height, Some(handle.frame_rx), Some(handle.cmd_tx))
+                (
+                    handle.width,
+                    handle.height,
+                    Some(handle.frame_rx),
+                    Some(handle.cmd_tx),
+                    Some(handle.response_rx),
+                )
             }
             None => {
                 tracing::info!(
                     "[STREAM] Core not available — using test pattern at {}×{}",
                     VIDEO_WIDTH, VIDEO_HEIGHT
                 );
-                (VIDEO_WIDTH, VIDEO_HEIGHT, None, None)
+                (VIDEO_WIDTH, VIDEO_HEIGHT, None, None, None)
             }
         };
 
@@ -424,6 +431,28 @@ async fn do_webrtc_handshake(
                                 force_kf.store(true, Ordering::Relaxed);
                                 tracing::info!("[DC] force_keyframe requested");
                             }
+                            Some("save_state") => {
+                                // Save emulator state to slot (1–9)
+                                if let Some(slot) = cmd.get("slot").and_then(|v| v.as_u64()) {
+                                    let slot = slot.min(9) as u8;
+                                    if slot >= 1 {
+                                        let _ = core_tx.as_ref().map(|tx| {
+                                            tx.try_send(CoreCommand::SaveState { slot })
+                                        });
+                                    }
+                                }
+                            }
+                            Some("load_state") => {
+                                // Load emulator state from slot (1–9)
+                                if let Some(slot) = cmd.get("slot").and_then(|v| v.as_u64()) {
+                                    let slot = slot.min(9) as u8;
+                                    if slot >= 1 {
+                                        let _ = core_tx.as_ref().map(|tx| {
+                                            tx.try_send(CoreCommand::LoadState { slot })
+                                        });
+                                    }
+                                }
+                            }
                             Some("ping") => {
                                 let seq = cmd.get("seq").and_then(|v| v.as_u64()).unwrap_or(0);
                                 let now_ms = std::time::SystemTime::now()
@@ -452,6 +481,40 @@ async fn do_webrtc_handshake(
             }
         }
     });
+
+    // ---- Spawn task to drain core responses (save/load state results) ----//
+    if let Some(core_response_rx) = core_response_rx {
+        let dc_for_responses = dc_stream_for_loop.clone();
+        tokio::spawn(async move {
+            loop {
+                match core_response_rx.recv() {
+                    Ok(resp) => {
+                        let json = match resp {
+                            core_bridge::CoreResponse::SaveStateResult { slot, ok, data } => {
+                                serde_json::json!({
+                                    "type": "save_state_result",
+                                    "slot": slot,
+                                    "ok": ok,
+                                    "bytes": data.len()
+                                })
+                            }
+                            core_bridge::CoreResponse::LoadStateResult { slot, ok } => {
+                                serde_json::json!({
+                                    "type": "load_state_result",
+                                    "slot": slot,
+                                    "ok": ok
+                                })
+                            }
+                        };
+                        if let Some(dc) = dc_for_responses.lock().await.as_ref() {
+                            let _ = dc.send_text(&json.to_string()).await;
+                        }
+                    }
+                    Err(_) => break, // channel closed
+                }
+            }
+        });
+    }
 
     // ---- Store state ----
     {
