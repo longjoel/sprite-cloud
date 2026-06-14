@@ -1,20 +1,48 @@
 "use client";
 
 import { useParams, useSearchParams } from "next/navigation";
+import Script from "next/script";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 // ── Constants ────────────────────────────────────────────────────────
 
-const RECONNECT_DELAY_MS = 3_000;
-const MAX_RECONNECT_ATTEMPTS = 5;
 const TOAST_DURATION_MS = 2_000;
 const CONTROLS_HIDE_MS = 3_000;
+const RTT_POLL_MS = 500;
 
 // ── Types ─────────────────────────────────────────────────────────────
 
 interface Toast {
   text: string;
   ok: boolean;
+}
+
+interface GvPlay {
+  startPlayer: (
+    video: HTMLVideoElement,
+    serverId: string,
+    workerToken: string,
+    gameId: string,
+    callbacks: PlayerCallbacks,
+  ) => any;
+  saveState: (player: any, slot: number) => boolean;
+  loadState: (player: any, slot: number) => boolean;
+}
+
+interface PlayerCallbacks {
+  onStateChange: (state: string, detail?: string) => void;
+  onStats: (stats: object) => void;
+  onSaveResult: (slot: number, ok: boolean) => void;
+  onError: (msg: string) => void;
+  onReconnecting: (attempt: number) => void;
+  onReconnected: () => void;
+  onReconnectFailed: () => void;
+}
+
+declare global {
+  interface Window {
+    gvPlay?: GvPlay;
+  }
 }
 
 // ── Page ──────────────────────────────────────────────────────────────
@@ -40,8 +68,11 @@ export default function PlayPage() {
   const [toast, setToast] = useState<Toast | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [scriptReady, setScriptReady] = useState(false);
 
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startedRef = useRef(false);
 
   // ── Toast ─────────────────────────────────────────────────────────
 
@@ -63,6 +94,100 @@ export default function PlayPage() {
     return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
   }, [wakeControls]);
 
+  // ── Player init (after script loads) ──────────────────────────────
+
+  useEffect(() => {
+    if (!scriptReady || !videoRef.current || !serverId || !workerToken) return;
+    if (startedRef.current) return;
+
+    const gvPlay = window.gvPlay;
+    if (!gvPlay) return;
+
+    startedRef.current = true;
+
+    let rttTimer: ReturnType<typeof setInterval> | null = null;
+
+    const player = gvPlay.startPlayer(
+      videoRef.current,
+      serverId,
+      workerToken,
+      gameId,
+      {
+        onStateChange(state: string, detail?: string) {
+          setStatus(state);
+          if (state === "error") {
+            setError(detail ?? "connection error");
+            setConnected(false);
+          }
+          if (state === "connected") {
+            setError(null);
+            setConnected(true);
+            setShowDisconnect(false);
+          }
+          if (state === "idle" || state === "connecting") {
+            setConnected(false);
+          }
+        },
+        onStats(_stats: object) {},
+        onSaveResult(slot: number, ok: boolean) {
+          showToast(
+            ok ? `Saved to slot ${slot}` : `Save failed — slot ${slot}`,
+            ok,
+          );
+        },
+        onError(msg: string) {
+          setError(msg);
+        },
+        onReconnecting(attempt: number) {
+          setShowDisconnect(true);
+          setReconnectAttempt(attempt);
+          setReconnectMsg(`Reconnecting in 3s… (attempt ${attempt})`);
+        },
+        onReconnected() {
+          setShowDisconnect(false);
+          setReconnectAttempt(0);
+          showToast("Reconnected", true);
+        },
+        onReconnectFailed() {
+          setReconnectMsg("Reconnection failed — refresh the page");
+        },
+      },
+    );
+
+    playerRef.current = player;
+
+    // RTT polling
+    rttTimer = setInterval(() => {
+      if (player.rttMs != null) {
+        setRttMs(player.rttMs);
+      }
+    }, RTT_POLL_MS);
+
+    return () => {
+      if (rttTimer) clearInterval(rttTimer);
+    };
+  }, [scriptReady, serverId, workerToken, gameId, showToast]);
+
+  // ── Cleanup on unmount ────────────────────────────────────────────
+
+  useEffect(() => {
+    return () => {
+      if (playerRef.current) {
+        playerRef.current.disconnect();
+        playerRef.current = null;
+      }
+      startedRef.current = false;
+    };
+  }, []);
+
+  // ── Fullscreen listener ───────────────────────────────────────────
+
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", handler);
+    return () => document.removeEventListener("fullscreenchange", handler);
+  }, []);
+
   // ── Missing params guard ──────────────────────────────────────────
 
   if (!serverId || !workerToken) {
@@ -83,7 +208,6 @@ export default function PlayPage() {
   const toggleFullscreen = async () => {
     if (!document.fullscreenElement) {
       await document.documentElement.requestFullscreen();
-      // Only lock landscape if already landscape — don't force on portrait mobile
       try {
         if (
           "orientation" in screen &&
@@ -92,29 +216,44 @@ export default function PlayPage() {
           await (screen.orientation as any).lock?.("landscape");
         }
       } catch { /* orientation lock not supported */ }
-      setIsFullscreen(true);
     } else {
       await document.exitFullscreen();
-      setIsFullscreen(false);
     }
   };
 
   // ── Save/load slot click ──────────────────────────────────────────
 
   const handleSave = (slot: number) => {
-    // Wired in Task 3
-    showToast(`Saved to slot ${slot}`, true);
+    const gvPlay = window.gvPlay;
+    if (!gvPlay || !playerRef.current) {
+      showToast("Not connected", false);
+      return;
+    }
+    const ok = gvPlay.saveState(playerRef.current, slot);
+    if (!ok) showToast("Not connected", false);
   };
 
   const handleLoad = (slot: number) => {
-    // Wired in Task 3
-    showToast(`Loaded from slot ${slot}`, true);
+    const gvPlay = window.gvPlay;
+    if (!gvPlay || !playerRef.current) {
+      showToast("Not connected", false);
+      return;
+    }
+    const ok = gvPlay.loadState(playerRef.current, slot);
+    if (!ok) showToast("Not connected", false);
   };
 
   // ── Render ────────────────────────────────────────────────────────
 
   return (
     <main style={styles.shell} onMouseMove={wakeControls} onKeyDown={wakeControls}>
+      {/* ── Load player script ────────────────────────────────── */}
+      <Script
+        src="/player/play.js"
+        type="module"
+        onLoad={() => setScriptReady(true)}
+      />
+
       {/* ── Game video ─────────────────────────────────────────── */}
       <video
         ref={videoRef}
@@ -128,8 +267,8 @@ export default function PlayPage() {
       <div
         style={{
           ...styles.topBar,
-          opacity: controlsVisible ? 1 : 0,
-          pointerEvents: controlsVisible ? "auto" : "none",
+          opacity: connected && controlsVisible ? 1 : 0,
+          pointerEvents: connected && controlsVisible ? "auto" : "none",
         }}
       >
         <span style={styles.gameTitle}>{gameId}</span>
@@ -149,8 +288,8 @@ export default function PlayPage() {
       <div
         style={{
           ...styles.bottomBar,
-          opacity: controlsVisible ? 1 : 0,
-          pointerEvents: controlsVisible ? "auto" : "none",
+          opacity: connected && controlsVisible ? 1 : 0,
+          pointerEvents: connected && controlsVisible ? "auto" : "none",
         }}
       >
         <span style={styles.hint}>
@@ -166,13 +305,11 @@ export default function PlayPage() {
         </div>
       </div>
 
-      {/* ── Status (connecting state) ──────────────────────────── */}
-      {status !== "connected" && !showDisconnect && (
+      {/* ── Connecting / loading state ─────────────────────────── */}
+      {!connected && !showDisconnect && (
         <div style={styles.centerMessage}>
-          <p>
-            {status}
-            {error ? `: ${error}` : ""}
-          </p>
+          <p>{status}</p>
+          {error && <p style={styles.errorText}>{error}</p>}
         </div>
       )}
 
@@ -180,7 +317,7 @@ export default function PlayPage() {
       {showDisconnect && (
         <div style={styles.overlay}>
           <div style={styles.overlayPanel}>
-            {reconnectAttempt < MAX_RECONNECT_ATTEMPTS ? (
+            {reconnectAttempt < 5 ? (
               <>
                 <p style={styles.overlayTitle}>Connection lost</p>
                 <p style={styles.overlaySub}>
@@ -244,14 +381,6 @@ export default function PlayPage() {
           {toast.text}
         </div>
       )}
-
-      {/* ── Status text (bottom edge, debug) ───────────────────── */}
-      {status !== "connected" && (
-        <pre style={styles.debugStatus}>
-          {status}
-          {error ? ` — ${error}` : ""}
-        </pre>
-      )}
     </main>
   );
 }
@@ -290,7 +419,6 @@ const styles: Record<string, React.CSSProperties> = {
     background: "rgba(0,0,0,0.6)",
     zIndex: 10,
     transition: "opacity 0.3s",
-    pointerEvents: "none",
   },
   gameTitle: {
     color: "#fff",
@@ -311,7 +439,6 @@ const styles: Record<string, React.CSSProperties> = {
     background: "rgba(0,0,0,0.6)",
     zIndex: 10,
     transition: "opacity 0.3s",
-    pointerEvents: "none",
   },
   hint: {
     fontSize: 12,
@@ -320,7 +447,6 @@ const styles: Record<string, React.CSSProperties> = {
   bottomRight: {
     display: "flex",
     gap: 8,
-    pointerEvents: "auto",
   },
   btn: {
     padding: "4px 14px",
@@ -331,7 +457,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "monospace",
     fontSize: 13,
     borderRadius: 2,
-    pointerEvents: "auto",
   },
   btnClose: {
     background: "none",
@@ -349,6 +474,11 @@ const styles: Record<string, React.CSSProperties> = {
     transform: "translate(-50%, -50%)",
     textAlign: "center" as const,
     zIndex: 20,
+  },
+  errorText: {
+    color: "#a22",
+    fontSize: 13,
+    marginTop: 8,
   },
   overlay: {
     position: "absolute",
@@ -380,7 +510,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   slotPanel: {
     position: "absolute",
-    bottom: 48,
+    bottom: 56,
     left: "50%",
     transform: "translateX(-50%)",
     background: "rgba(0,0,0,0.92)",
@@ -388,7 +518,6 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 4,
     padding: "12px 16px",
     zIndex: 26,
-    pointerEvents: "auto",
   },
   slotHeader: {
     display: "flex",
@@ -424,15 +553,5 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "8px 20px",
     fontSize: 13,
     zIndex: 40,
-    pointerEvents: "none",
-  },
-  debugStatus: {
-    position: "absolute",
-    bottom: 4,
-    right: 8,
-    fontSize: 10,
-    color: "#444",
-    zIndex: 5,
-    margin: 0,
   },
 };
