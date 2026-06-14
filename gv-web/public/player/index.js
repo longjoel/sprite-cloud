@@ -105,10 +105,13 @@ export class GvPlayer {
     };
 
     this._pc.ontrack = (event) => {
-      const track = event.track;
-      this._video.srcObject = new MediaStream([track]);
+      if (!this._mediaStream) {
+        this._mediaStream = new MediaStream();
+        this._video.srcObject = this._mediaStream;
+      }
+      this._mediaStream.addTrack(event.track);
       if (this.onTrack) {
-        try { this.onTrack(track); } catch { /* safety */ }
+        try { this.onTrack(event.track); } catch { /* safety */ }
       }
     };
 
@@ -158,9 +161,11 @@ export class GvPlayer {
       this._pc.close();
       this._pc = null;
     }
-    if (this._video.srcObject) {
-      this._video.srcObject = null;
+    if (this._mediaStream) {
+      this._mediaStream.getTracks().forEach(t => t.stop());
+      this._mediaStream = null;
     }
+    this._video.srcObject = null;
     if (this._state === State.CONNECTED) {
       this._setState(State.IDLE);
     }
