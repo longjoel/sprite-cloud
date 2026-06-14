@@ -356,6 +356,152 @@ impl Core {
         });
     }
 
+    /// Set the full 16-bit joypad bitmask for a given port.
+    ///
+    /// `port` is 0-indexed (0–3). The bitmask uses the RetroArch layout
+    /// (B=0, Y=1, Select=2, Start=3, Up=4, Down=5, …). Call this before
+    /// `run_frame()`.
+    pub fn set_input(&mut self, port: u32, state: u16) {
+        INPUT_STATE.with(|s| {
+            let mut s = s.borrow_mut();
+            let idx = port as usize;
+            if idx < s.len() {
+                s[idx] = state;
+            }
+        });
+    }
+
+    /// Read the current joypad state for a port (for testing).
+    pub fn joypad_state(&self, port: u32) -> u16 {
+        INPUT_STATE.with(|s| {
+            let s = s.borrow();
+            let idx = port as usize;
+            if idx < s.len() { s[idx] } else { 0 }
+        })
+    }
+
+    // -----------------------------------------------------------------------
+    // Save states
+    // -----------------------------------------------------------------------
+
+    /// Whether the core supports save states via `retro_serialize`.
+    pub fn can_save_state(&self) -> bool {
+        self.retro_serialize.is_some()
+    }
+
+    /// Serialize the current emulator state.
+    ///
+    /// Returns `None` if the core does not support serialization or the
+    /// state size is 0. The returned bytes are opaque — do not parse them.
+    /// May block for tens of milliseconds on large cores (e.g. N64: 8+ MB).
+    pub fn save_state(&self) -> Option<Vec<u8>> {
+        let serialize = self.retro_serialize?;
+        let serialize_size = self.retro_serialize_size?;
+
+        // SAFETY: the function pointer is valid and the library is loaded.
+        let size = unsafe { serialize_size() };
+        if size == 0 {
+            return None;
+        }
+
+        let mut buf = vec![0u8; size];
+        // SAFETY: the buffer is large enough. The core writes `size` bytes.
+        let ok = unsafe { serialize(buf.as_mut_ptr() as *mut std::ffi::c_void, size) };
+        if ok {
+            Some(buf)
+        } else {
+            None
+        }
+    }
+
+    /// Deserialize a previously-saved emulator state.
+    ///
+    /// Returns `false` if the core does not support deserialization or
+    /// the operation fails (e.g. corrupted or incompatible state data).
+    pub fn load_state(&mut self, data: &[u8]) -> bool {
+        let unserialize = match self.retro_unserialize {
+            Some(f) => f,
+            None => return false,
+        };
+
+        if data.is_empty() {
+            return false;
+        }
+
+        // SAFETY: the function pointer is valid and the library is loaded.
+        unsafe { unserialize(data.as_ptr() as *const std::ffi::c_void, data.len()) }
+    }
+
+    // -----------------------------------------------------------------------
+    // SRAM (battery-backed save RAM)
+    // -----------------------------------------------------------------------
+
+    /// Whether the core supports SRAM access.
+    pub fn can_sram(&self) -> bool {
+        self.retro_get_memory_data.is_some() && self.retro_get_memory_size.is_some()
+    }
+
+    /// Copy battery-backed save RAM from the core's internal buffer.
+    ///
+    /// Returns `None` if the core does not support SRAM or has 0 bytes.
+    /// **Call this BEFORE `unload_game()`** — the pointer becomes invalid
+    /// after the game is unloaded.
+    pub fn sram(&self) -> Option<Vec<u8>> {
+        let get_data = self.retro_get_memory_data?;
+        let get_size = self.retro_get_memory_size?;
+
+        // SAFETY: the function pointers are valid and the library is loaded.
+        let size = unsafe { get_size(RETRO_MEMORY_SAVE_RAM) };
+        if size == 0 {
+            return None;
+        }
+
+        // SAFETY: the returned pointer is valid for `size` bytes. We must
+        // copy immediately — the core may free or reuse this buffer.
+        let ptr = unsafe { get_data(RETRO_MEMORY_SAVE_RAM) };
+        if ptr.is_null() {
+            return None;
+        }
+
+        let mut buf = vec![0u8; size];
+        // SAFETY: ptr is valid for `size` bytes as guaranteed by the core.
+        unsafe {
+            std::ptr::copy_nonoverlapping(ptr as *const u8, buf.as_mut_ptr(), size);
+        }
+        Some(buf)
+    }
+
+    /// Restore battery-backed save RAM into the core.
+    ///
+    /// Call this AFTER `retro_load_game()` but BEFORE the first
+    /// `retro_run()`. Truncates to `min(data.len(), core SRAM size)`.
+    pub fn restore_sram(&self, data: &[u8]) {
+        let Some(get_data) = self.retro_get_memory_data else {
+            return;
+        };
+        let Some(get_size) = self.retro_get_memory_size else {
+            return;
+        };
+
+        // SAFETY: the function pointers are valid and the library is loaded.
+        let size = unsafe { get_size(RETRO_MEMORY_SAVE_RAM) };
+        if size == 0 {
+            return;
+        }
+
+        let ptr = unsafe { get_data(RETRO_MEMORY_SAVE_RAM) };
+        if ptr.is_null() {
+            return;
+        }
+
+        let copy_len = data.len().min(size);
+        // SAFETY: ptr is valid for `size` bytes; we copy at most `size`
+        // bytes from `data`, which has length `copy_len`.
+        unsafe {
+            std::ptr::copy_nonoverlapping(data.as_ptr(), ptr as *mut u8, copy_len);
+        }
+    }
+
     /// Convert the raw frame in thread-local storage to RGB24 and store on self.
     fn convert_and_store_frame(&mut self) {
         let (fmt, (w, h, _pitch), raw) = PIXEL_FORMAT.with(|f| {
