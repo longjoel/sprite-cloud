@@ -33,29 +33,29 @@ target/
 .next/
 
 # Old ASP.NET v1 (tagged 0.1.2, not part of v2 monorepo)
-Controllers/
-Views/
-Models/
-Services/
-Hubs/
-Data/
-Migrations/
-Properties/
-Web/
-Gameplay/
-Profiles/
-Libretro/
-Local/
-Arcade/
-BackgroundJobs/
-EverDrive/
-NetworkShares/
-Nosebleed/
-wwwroot/
-tests/
-sketches/
-scripts/
-tools/
+/Controllers/
+/Views/
+/Models/
+/Services/
+/Hubs/
+/Data/
+/Migrations/
+/Properties/
+/Web/
+/Gameplay/
+/Profiles/
+/Libretro/
+/Local/
+/Arcade/
+/BackgroundJobs/
+/EverDrive/
+/NetworkShares/
+/Nosebleed/
+/wwwroot/
+/tests/
+/sketches/
+/scripts/
+/tools/
 *.csproj
 *.sln
 Program.cs
@@ -79,6 +79,9 @@ docs/infrastructure/
 docs/plans/2026-05-*
 docs/plans/2026-06-*
 .github/
+
+# Test data — built binaries, not committed
+test-data/
 .hermes/plans/97-auto-import-watch-folder.md
 
 # Hermes agent work directory

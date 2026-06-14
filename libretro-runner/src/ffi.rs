@@ -166,6 +166,8 @@ pub const RETRO_ENVIRONMENT_SET_VARIABLES: u32 = 16;
 pub const RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE: u32 = 17;
 /// Get the preferred hardware render API.
 pub const RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: u32 = 69;
+/// Core declares it can run without a game loaded.
+pub const RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME: u32 = 18;
 
 // ---------------------------------------------------------------------------
 // Device types
