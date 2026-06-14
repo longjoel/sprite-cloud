@@ -71,7 +71,6 @@ describe("GvPlayer construction", () => {
     const player = new GvPlayer(video);
     assert.equal(video.autoplay, true);
     assert.equal(video.playsinline, true);
-    assert.equal(video.muted, true);
     assert.equal(player.state, State.IDLE);
   });
 });

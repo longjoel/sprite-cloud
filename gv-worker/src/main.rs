@@ -348,6 +348,18 @@ async fn stream_vp8_frames(
         }
     };
 
+    let mut opus_encoder = match opus::Encoder::new(
+        test_tone::SAMPLE_RATE,
+        opus::Channels::Mono,
+        opus::Application::Audio,
+    ) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::error!("[STREAM] Failed to create Opus encoder: {}", e);
+            return;
+        }
+    };
+
     let mut frame_num: u64 = 0;
     let frame_interval = Duration::from_millis(FRAME_INTERVAL_MS);
 
@@ -397,17 +409,21 @@ async fn stream_vp8_frames(
 
                         // ---- Stream audio alongside video ----
                         let tone = test_tone::generate_tone(frame_num);
-                        let audio_bytes: Vec<u8> = tone.iter()
-                            .flat_map(|s| s.to_le_bytes())
-                            .collect();
-                        let audio_sample = Sample {
-                            data: audio_bytes.into(),
-                            duration: frame_interval,
-                            packet_timestamp: (frame_num as u32).wrapping_mul(1_600), // 48k / 30fps = 1600
-                            ..Default::default()
-                        };
-                        if let Err(e) = audio_track.write_sample(&audio_sample).await {
-                            tracing::error!("[STREAM] Audio write error at frame {}: {}", frame_num, e);
+                        match opus_encoder.encode_vec(&tone, 4000) {
+                            Ok(opus_data) => {
+                                let audio_sample = Sample {
+                                    data: opus_data.into(),
+                                    duration: frame_interval,
+                                    packet_timestamp: (frame_num as u32).wrapping_mul(1_600),
+                                    ..Default::default()
+                                };
+                                if let Err(e) = audio_track.write_sample(&audio_sample).await {
+                                    tracing::error!("[STREAM] Audio write error at frame {}: {}", frame_num, e);
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("[STREAM] Opus encode error at frame {}: {}", frame_num, e);
+                            }
                         }
                     }
                     Err(e) => {
