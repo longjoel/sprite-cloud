@@ -360,6 +360,9 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
           statusEl.classList.add("error");
         }
       });
+
+      // Expose for debugging (console access)
+      window.gvPlayer = player;
     }
   }
 }
