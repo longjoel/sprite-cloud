@@ -91,6 +91,7 @@ export const sessions = pgTable("sessions", {
   commandId: uuid("command_id").references(() => commands.id),
   gameId: text("game_id").notNull(),
   workerUrl: text("worker_url"),
+  sdpAnswer: text("sdp_answer"),
   status: text("status").notNull().default("pending"),
   // pending → ready → active → ended
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
