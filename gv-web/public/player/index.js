@@ -32,7 +32,6 @@ export class GvPlayer {
     this._video = video;
     this._video.autoplay = true;
     this._video.playsinline = true;
-    this._video.muted = true;
 
     /** @type {RTCPeerConnection | null} */
     this._pc = null;
