@@ -351,10 +351,10 @@ export class GvPlayer {
   _setupKeyboardInput() {
     const BIT_MAP = {
       ArrowUp: 4, ArrowDown: 5, ArrowLeft: 6, ArrowRight: 7,
-      w: 4, a: 6, s: 5, d: 7,
-      z: 0, x: 8,           // B, A
-      Enter: 3, ' ': 3,     // Start
-      Shift: 2,             // Select
+      w: 2, a: 6, s: 5, d: 7,    // W=Select, A=Left, S=Down, D=Right
+      q: 3,                       // Q=Start
+      z: 0, x: 8,                 // B, A
+      Enter: 3, ' ': 3,           // Start
     };
 
     this._inputState = 0;
