@@ -36,6 +36,9 @@ export class GvPlayer {
     /** @type {RTCPeerConnection | null} */
     this._pc = null;
 
+    /** @type {RTCDataChannel | null} */
+    this._dc = null;
+
     /** @type {string} */
     this._state = State.IDLE;
 
@@ -45,16 +48,44 @@ export class GvPlayer {
     /** @type {(track: MediaStreamTrack) => void} */
     this.onTrack = null;
 
+    /** @type {(stats: object) => void} */
+    this.onStats = null;
+
     /** @type {number | null} */
     this._iceTimer = null;
 
     /** @type {number | null} */
     this._disconnectedTimer = null;
+
+    /** @type {number | null} */
+    this._rttTimer = null;
+
+    /** @private @type {object} */
+    this._stats = { video: {}, audio: {}, pipeline: {} };
+
+    /** @private @type {number | null} */
+    this._rttMs = null;
+
+    /** @private @type {number} */
+    this._pingSeq = 0;
+
+    /** @private @type {Map<number, number>} seq → performance.now() */
+    this._pendingPings = new Map();
   }
 
   /** Current connection state (one of State.*). */
   get state() {
     return this._state;
+  }
+
+  /** Latest worker stats from DataChannel (or empty objects). */
+  get stats() {
+    return this._stats;
+  }
+
+  /** Latest RTT in milliseconds from DataChannel ping/pong (or null). */
+  get rttMs() {
+    return this._rttMs;
   }
 
   // ── Public API ──────────────────────────────────────────────────
@@ -124,6 +155,23 @@ export class GvPlayer {
     this._pc.addTransceiver("video", { direction: "recvonly" });
     this._pc.addTransceiver("audio", { direction: "recvonly" });
 
+    // ── DataChannel (diagnostics) ────────────────────────────
+
+    this._pc.ondatachannel = (event) => {
+      this._dc = event.channel;
+      this._dc.onmessage = (msgEvent) => {
+        try {
+          const msg = JSON.parse(msgEvent.data);
+          this._handleDataChannelMessage(msg);
+        } catch {
+          // Ignore non-JSON (e.g., legacy raw "pong").
+        }
+      };
+    };
+
+    // ── RTT ping interval ────────────────────────────────────
+    this._startPingInterval();
+
     // ── SDP exchange ──────────────────────────────────────────
 
     const offer = await this._pc.createOffer();
@@ -163,6 +211,11 @@ export class GvPlayer {
   disconnect() {
     this._clearIceTimer();
     this._clearDisconnectedTimer();
+    this._stopPingInterval();
+    if (this._dc) {
+      this._dc.close();
+      this._dc = null;
+    }
     if (this._pc) {
       this._pc.close();
       this._pc = null;
@@ -172,6 +225,9 @@ export class GvPlayer {
       this._mediaStream = null;
     }
     this._video.srcObject = null;
+    this._stats = { video: {}, audio: {}, pipeline: {} };
+    this._rttMs = null;
+    this._pendingPings.clear();
     if (this._state === State.CONNECTED) {
       this._setState(State.IDLE);
     }
@@ -208,6 +264,63 @@ export class GvPlayer {
     if (this._disconnectedTimer !== null) {
       clearTimeout(this._disconnectedTimer);
       this._disconnectedTimer = null;
+    }
+  }
+
+  /** @param {object} msg — parsed JSON from DataChannel */
+  _handleDataChannelMessage(msg) {
+    switch (msg.type) {
+      case "stats":
+        this._stats = msg;
+        if (this.onStats) {
+          try { this.onStats(msg); } catch { /* safety */ }
+        }
+        break;
+      case "pong":
+        {
+          const seq = msg.seq;
+          if (seq != null && this._pendingPings.has(seq)) {
+            const sentAt = this._pendingPings.get(seq);
+            this._pendingPings.delete(seq);
+            this._rttMs = performance.now() - sentAt;
+            // Clean up old entries to prevent unbounded growth
+            if (this._pendingPings.size > 20) {
+              this._pendingPings.clear();
+            }
+          }
+        }
+        break;
+    }
+  }
+
+  _startPingInterval() {
+    this._stopPingInterval();
+    // Send a ping every 2 seconds for RTT measurement
+    this._rttTimer = setInterval(() => {
+      this._sendPing();
+    }, 2000);
+  }
+
+  _sendPing() {
+    if (!this._dc || this._dc.readyState !== "open") return;
+    const seq = ++this._pingSeq;
+    const clientTs = performance.now();
+    this._pendingPings.set(seq, clientTs);
+    try {
+      this._dc.send(JSON.stringify({
+        cmd: "ping",
+        seq: seq,
+        client_ts: clientTs,
+      }));
+    } catch {
+      // DC send failed (channel closing)
+    }
+  }
+
+  _stopPingInterval() {
+    if (this._rttTimer !== null) {
+      clearInterval(this._rttTimer);
+      this._rttTimer = null;
     }
   }
 
