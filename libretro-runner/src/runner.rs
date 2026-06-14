@@ -193,7 +193,7 @@ impl Core {
         // The C side will call back into our safe Rust wrappers.
         unsafe { retro_set_environment(environment_callback) };
         unsafe { retro_set_video_refresh(video_refresh_callback) };
-        unsafe { retro_set_audio_sample_batch(stub_audio_batch) };
+        unsafe { retro_set_audio_sample_batch(audio_batch_callback) };
         unsafe { retro_set_input_poll(stub_input_poll) };
         unsafe { retro_set_input_state(stub_input_state) };
 
@@ -330,18 +330,11 @@ impl Core {
     }
 
     /// Returns accumulated audio samples since the last `run_frame()`.
-    pub fn audio(&self) -> &[i16] {
-        // Audio buffer is cleared in run_frame — return whatever accumulated.
-        // We use a small hack: read the thread-local directly since Core
-        // doesn't own it (callbacks write to thread-locals).
-        AUDIO_BUFFER.with(|buf| {
-            // SAFETY: we're returning a reference to thread-local data.
-            // The caller must not hold this across subsequent run_frame() calls.
-            let leak: &'static [i16] = unsafe {
-                std::slice::from_raw_parts(buf.borrow().as_ptr(), buf.borrow().len())
-            };
-            leak
-        })
+    ///
+    /// Returns an empty vec for cores without audio (e.g. 2048).
+    /// The caller feeds these samples to an audio encoder.
+    pub fn audio(&self) -> Vec<i16> {
+        AUDIO_BUFFER.with(|buf| buf.borrow().clone())
     }
 
     /// Convert the raw frame in thread-local storage to RGB24 and store on self.
@@ -646,12 +639,38 @@ fn load_game_content(
 }
 
 // ---------------------------------------------------------------------------
-// Remaining stub callbacks (replaced in Tasks 6-7)
+// Audio callback
 // ---------------------------------------------------------------------------
 
-unsafe extern "C" fn stub_audio_batch(_data: *const i16, _frames: usize) -> usize {
-    0
+/// Audio sample batch callback — called by the core with interleaved stereo
+/// i16 PCM samples. Accumulates into the thread-local audio buffer.
+///
+/// Returns the number of frames consumed (always `frames` — we accept all).
+unsafe extern "C" fn audio_batch_callback(data: *const i16, frames: usize) -> usize {
+    if data.is_null() || frames == 0 {
+        return 0;
+    }
+    let sample_count = frames * 2; // stereo interleaved
+    AUDIO_BUFFER.with(|buf| {
+        let mut buf = buf.borrow_mut();
+        let offset = buf.len();
+        buf.resize(offset + sample_count, 0);
+        // SAFETY: data is a valid pointer from the core. The core guarantees
+        // it points to at least `sample_count` i16 values.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                data,
+                buf.as_mut_ptr().add(offset),
+                sample_count,
+            );
+        }
+    });
+    frames
 }
+
+// ---------------------------------------------------------------------------
+// Remaining stub callbacks (replaced in Task 7)
+// ---------------------------------------------------------------------------
 
 unsafe extern "C" fn stub_input_poll() {}
 
