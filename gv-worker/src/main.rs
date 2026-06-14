@@ -792,12 +792,12 @@ async function testWebrtc() {{
   // Key -> bit: Up=4, Down=5, Left=6, Right=7, Start=3, Select=2, B=0, A=8.
   const keyBit = (k) => {{
     switch(k) {{
-      case "ArrowUp": case "w": case "W": return 4;
+      case "ArrowUp": return 4;
       case "ArrowDown": case "s": case "S": return 5;
       case "ArrowLeft": case "a": case "A": return 6;
       case "ArrowRight": case "d": case "D": return 7;
-      case "Enter": case " ": return 3;
-      case "Shift": return 2;
+      case "q": case "Q": case "Enter": case " ": return 3;   // Start
+      case "w": case "W": return 2;                           // Select
       case "z": case "Z": return 0;   // B
       case "x": case "X": return 8;   // A
     }}
@@ -824,7 +824,7 @@ async function testWebrtc() {{
     state &= ~(1 << bit);
     sendState();
   }});
-  log("Keyboard listeners active — WASD/arrows + Z/X, binary mask format");
+  log("Keyboard: Q=Start W=Select, arrows/WASD=move, Z=B X=A");
 
   pc.oniceconnectionstatechange = () => {{
     log("ICE state: " + pc.iceConnectionState);
