@@ -14,7 +14,7 @@
 
 ---
 
-### Task 1: Add audio test tone track to worker
+### Task 1: ✅ Add audio test tone track to worker — DONE (`4f51c40`, `0562e30`, `5bbf502`)
 
 **Objective:** Worker creates an audio track alongside video and streams a 440 Hz sine wave test tone. This proves the audio pipeline works end-to-end before we need real emulator audio.
 
