@@ -129,7 +129,10 @@ async fn handle_health() -> StatusCode {
     StatusCode::OK
 }
 
-/// GET / — test page with HTTP poll and WebRTC test buttons.
+/// GET / — embedded test page.
+///
+/// Deprecated: use gv-web production player at /play/:game_id instead.
+/// Kept for local dev smoke testing only.
 async fn handle_index() -> axum::response::Html<String> {
     axum::response::Html(build_index_html())
 }
