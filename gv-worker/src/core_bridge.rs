@@ -13,7 +13,9 @@ use libretro_runner::{Core, CoreConfig};
 #[derive(Clone)]
 pub struct CoreFrame {
     pub pixels: Vec<u8>,
+    #[allow(dead_code)]
     pub width: u32,
+    #[allow(dead_code)]
     pub height: u32,
 }
 

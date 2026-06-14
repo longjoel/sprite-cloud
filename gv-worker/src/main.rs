@@ -14,7 +14,7 @@ use config::{
     AUDIO_CHANNELS, AUDIO_RTP_TIMESTAMP_INCREMENT, AUDIO_SAMPLE_RATE,
     AUDIO_TRACK_ID, DC_RECEIVE_TIMEOUT_SECS, DIAG_LOG_INTERVAL, FRAME_INTERVAL_MS,
     ICE_GATHERING_TIMEOUT_SECS, OPUS_MAX_FRAME_BYTES, OPUS_SDP_FMTP,
-    PATTERN_SQUARE, RTP_TIMESTAMP_INCREMENT, STATS_SEND_INTERVAL,
+    PATTERN_BARS, PATTERN_SQUARE, RTP_TIMESTAMP_INCREMENT, STATS_SEND_INTERVAL,
     STREAM_ID, TRACK_ID, VIDEO_HEIGHT, VIDEO_WIDTH, VP8_CLOCK_RATE,
     stun_server,
 };
@@ -573,7 +573,7 @@ async fn stream_vp8_frames(
                 } else {
                     // Fall back to test pattern
                     match pattern.load(Ordering::Relaxed) {
-                        1 => test_pattern::generate_color_bars(VIDEO_WIDTH, VIDEO_HEIGHT, frame_num),
+                        PATTERN_BARS => test_pattern::generate_color_bars(VIDEO_WIDTH, VIDEO_HEIGHT, frame_num),
                         _ => test_pattern::generate_bouncing_square(VIDEO_WIDTH, VIDEO_HEIGHT, frame_num),
                     }
                 };
