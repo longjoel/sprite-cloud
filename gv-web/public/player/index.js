@@ -155,18 +155,17 @@ export class GvPlayer {
     this._pc.addTransceiver("video", { direction: "recvonly" });
     this._pc.addTransceiver("audio", { direction: "recvonly" });
 
-    // ── DataChannel (diagnostics) ────────────────────────────
-
-    this._pc.ondatachannel = (event) => {
-      this._dc = event.channel;
-      this._dc.onmessage = (msgEvent) => {
-        try {
-          const msg = JSON.parse(msgEvent.data);
-          this._handleDataChannelMessage(msg);
-        } catch {
-          // Ignore non-JSON (e.g., legacy raw "pong").
-        }
-      };
+    // ── DataChannel (diagnostics) — create BEFORE offer ──────
+    // The offerer must create the DataChannel so it appears in the
+    // SDP offer. The worker (answerer) receives it via ondatachannel.
+    this._dc = this._pc.createDataChannel("diagnostics");
+    this._dc.onmessage = (msgEvent) => {
+      try {
+        const msg = JSON.parse(msgEvent.data);
+        this._handleDataChannelMessage(msg);
+      } catch {
+        // Ignore non-JSON.
+      }
     };
 
     // ── RTT ping interval ────────────────────────────────────
