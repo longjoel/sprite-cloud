@@ -387,6 +387,11 @@ async fn stream_vp8_frames(
     let mut frame_num: u64 = 0;
     let frame_interval = Duration::from_millis(FRAME_INTERVAL_MS);
 
+    // Cumulative counters for pipeline health
+    let mut video_drops: u64 = 0;
+    let mut audio_write_errs: u64 = 0;
+    let start_instant = std::time::Instant::now();
+
     // Use an interval timer for steady frame rate.
     // Skip missed ticks — if encoding takes too long, we drop frames
     // rather than queuing them up (realtime streaming priority).
@@ -413,7 +418,7 @@ async fn stream_vp8_frames(
 
                 let encode_start = std::time::Instant::now();
                 match encoder.encode(&pixels) {
-                    Ok(encoded) => {
+                    Ok((encoded, is_keyframe)) => {
                         let encode_us = encode_start.elapsed().as_micros();
                         let byte_count = encoded.len();
                         if frame_num <= 3 || frame_num.is_multiple_of(DIAG_LOG_INTERVAL) {
@@ -421,6 +426,7 @@ async fn stream_vp8_frames(
                         }
                         if encoded.is_empty() {
                             tracing::warn!("[STREAM] frame {}: EMPTY encoded data, skipping", frame_num);
+                            video_drops = video_drops.wrapping_add(1);
                             continue;
                         }
                         let sample = Sample {
@@ -434,24 +440,15 @@ async fn stream_vp8_frames(
                             break;
                         }
 
-                        // ---- Send per-frame stats over DataChannel ----
-                        // Throttle to every 10th frame (~3 Hz) to keep
-                        // DataChannel overhead negligible.
-                        if frame_num % 10 == 0 {
-                            if let Ok(stats) = serde_json::to_string(&serde_json::json!({
-                                "type": "stats",
-                                "frame": frame_num,
-                                "bytes": byte_count,
-                                "encode_us": encode_us,
-                            })) {
-                                let _ = dc_stream.send_text(stats).await;
-                            }
-                        }
-
-                        // ---- Stream audio alongside video ----
+                        // ---- Encode audio ---- (before stats so we can include audio timing)
                         let tone = test_tone::generate_tone(frame_num);
+                        let audio_encode_start = std::time::Instant::now();
+                        let mut audio_bytes: usize = 0;
+                        let mut audio_encode_us: u64 = 0;
                         match opus_encoder.encode_vec(&tone, OPUS_MAX_FRAME_BYTES) {
                             Ok(opus_data) => {
+                                audio_encode_us = audio_encode_start.elapsed().as_micros() as u64;
+                                audio_bytes = opus_data.len();
                                 let audio_sample = Sample {
                                     data: opus_data.into(),
                                     duration: frame_interval,
@@ -460,10 +457,36 @@ async fn stream_vp8_frames(
                                 };
                                 if let Err(e) = audio_track.write_sample(&audio_sample).await {
                                     tracing::error!("[STREAM] Audio write error at frame {}: {}", frame_num, e);
+                                    audio_write_errs = audio_write_errs.wrapping_add(1);
                                 }
                             }
                             Err(e) => {
                                 tracing::error!("[STREAM] Opus encode error at frame {}: {}", frame_num, e);
+                            }
+                        }
+
+                        // ---- Send per-frame stats over DataChannel ----
+                        // Every 5th frame (~6 Hz) for smooth HUD updates.
+                        if frame_num % 5 == 0 {
+                            if let Ok(stats) = serde_json::to_string(&serde_json::json!({
+                                "type": "stats",
+                                "frame": frame_num,
+                                "video": {
+                                    "bytes": byte_count,
+                                    "encode_us": encode_us,
+                                    "keyframe": is_keyframe
+                                },
+                                "audio": {
+                                    "bytes": audio_bytes,
+                                    "encode_us": audio_encode_us
+                                },
+                                "pipeline": {
+                                    "drops": video_drops,
+                                    "audio_write_errs": audio_write_errs,
+                                    "uptime_sec": start_instant.elapsed().as_secs()
+                                }
+                            })) {
+                                let _ = dc_stream.send_text(stats).await;
                             }
                         }
                     }
