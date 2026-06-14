@@ -404,20 +404,16 @@ async fn do_webrtc_handshake(
                                 }
                             }
                             Some("input") => {
-                                // Keyboard/gamepad input from browser
-                                if let (Some(key), Some(pressed)) = (
-                                    cmd.get("key").and_then(|v| v.as_str()),
-                                    cmd.get("pressed").and_then(|v| v.as_bool()),
-                                ) {
-                                    if let Some(button) = map_key_to_joypad(key) {
-                                        let _ = core_tx.as_ref().map(|tx| {
-                                            tx.try_send(CoreCommand::SetJoypad {
-                                                port: cmd.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                                                button,
-                                                pressed,
-                                            })
-                                        });
-                                    }
+                                // Keyboard/gamepad input from browser —
+                                // binary format: [u8 seat][u16 LE state]
+                                // This replaces the old JSON {cmd:"input",key,pressed} format.
+                                let data = &msg.data;
+                                if data.len() == 3 {
+                                    let seat = data[0] as u32;
+                                    let state = u16::from_le_bytes([data[1], data[2]]);
+                                    let _ = core_tx.as_ref().map(|tx| {
+                                        tx.try_send(CoreCommand::SetInput { port: seat, state })
+                                    });
                                 }
                             }
                             Some("force_keyframe") => {
@@ -704,26 +700,6 @@ async fn stream_vp8_frames(
 }
 
 // ---------------------------------------------------------------------------
-// Keyboard → joypad mapping
-// ---------------------------------------------------------------------------
-
-/// Map a browser KeyboardEvent.key string to a libretro JoypadButton.
-fn map_key_to_joypad(key: &str) -> Option<libretro_runner::JoypadButton> {
-    use libretro_runner::JoypadButton;
-    match key {
-        "ArrowUp" | "w" | "W" => Some(JoypadButton::Up),
-        "ArrowDown" | "s" | "S" => Some(JoypadButton::Down),
-        "ArrowLeft" | "a" | "A" => Some(JoypadButton::Left),
-        "ArrowRight" | "d" | "D" => Some(JoypadButton::Right),
-        "Enter" | " " => Some(JoypadButton::Start),
-        "Shift" => Some(JoypadButton::Select),
-        "z" | "Z" => Some(JoypadButton::B),
-        "x" | "X" => Some(JoypadButton::A),
-        _ => None,
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Test page
 // ---------------------------------------------------------------------------
 
@@ -812,19 +788,43 @@ async function testWebrtc() {{
   dc.onopen = () => log("DC open — keyboard input active");
   dc.onclose = () => log("DC closed");
 
-  const sendKey = (key, pressed) => {{
+  // Binary input: accumulate key state into a 16-bit RetroArch mask.
+  // Key -> bit: Up=4, Down=5, Left=6, Right=7, Start=3, Select=2, B=0, A=8.
+  const keyBit = (k) => {{
+    switch(k) {{
+      case "ArrowUp": case "w": case "W": return 4;
+      case "ArrowDown": case "s": case "S": return 5;
+      case "ArrowLeft": case "a": case "A": return 6;
+      case "ArrowRight": case "d": case "D": return 7;
+      case "Enter": case " ": return 3;
+      case "Shift": return 2;
+      case "z": case "Z": return 0;   // B
+      case "x": case "X": return 8;   // A
+    }}
+    return -1;
+  }};
+  let state = 0;
+  const sendState = () => {{
     if (dc.readyState === "open") {{
-      dc.send(JSON.stringify({{ cmd: "input", key, pressed, port: 0 }}));
+      const buf = new Uint8Array([0, state & 0xFF, state >> 8]);
+      dc.send(buf.buffer);
     }}
   }};
-
   document.addEventListener("keydown", (e) => {{
     if (e.target.tagName === "BUTTON") return;
-    if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Enter"," "].includes(e.key)) e.preventDefault();
-    sendKey(e.key, true);
+    const bit = keyBit(e.key);
+    if (bit < 0) return;
+    e.preventDefault();
+    state |= (1 << bit);
+    sendState();
   }});
-  document.addEventListener("keyup", (e) => sendKey(e.key, false));
-  log("Keyboard listeners active — WASD/arrows to play, Z/X for A/B");
+  document.addEventListener("keyup", (e) => {{
+    const bit = keyBit(e.key);
+    if (bit < 0) return;
+    state &= ~(1 << bit);
+    sendState();
+  }});
+  log("Keyboard listeners active — WASD/arrows + Z/X, binary mask format");
 
   pc.oniceconnectionstatechange = () => {{
     log("ICE state: " + pc.iceConnectionState);

@@ -8,7 +8,7 @@
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::time::Duration;
 
-use libretro_runner::{Core, CoreConfig, JoypadButton};
+use libretro_runner::{Core, CoreConfig};
 
 /// A frame produced by the core: RGB24 pixels + dimensions.
 #[derive(Clone)]
@@ -23,7 +23,8 @@ pub struct CoreFrame {
 /// Commands sent from the streaming task to the core thread.
 #[derive(Clone, Copy)]
 pub enum CoreCommand {
-    SetJoypad { port: u32, button: JoypadButton, pressed: bool },
+    /// Set the full 16-bit joypad state for a port (RetroArch format).
+    SetInput { port: u32, state: u16 },
 }
 
 /// Handle returned from `spawn_core_thread`.
@@ -88,8 +89,8 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
             // Drain pending input commands
             while let Ok(cmd) = cmd_rx.try_recv() {
                 match cmd {
-                    CoreCommand::SetJoypad { port, button, pressed } => {
-                        core.set_joypad(port, button, pressed);
+                    CoreCommand::SetInput { port, state } => {
+                        core.set_input(port, state);
                     }
                 }
             }
