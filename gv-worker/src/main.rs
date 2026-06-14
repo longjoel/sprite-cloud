@@ -11,10 +11,10 @@ use axum::{
 };
 use config::{
     AUDIO_CHANNELS, AUDIO_RTP_TIMESTAMP_INCREMENT, AUDIO_SAMPLE_RATE,
-    AUDIO_TRACK_ID, DIAG_LOG_INTERVAL, FRAME_INTERVAL_MS,
+    AUDIO_TRACK_ID, DC_RECEIVE_TIMEOUT_SECS, DIAG_LOG_INTERVAL, FRAME_INTERVAL_MS,
     ICE_GATHERING_TIMEOUT_SECS, OPUS_MAX_FRAME_BYTES, OPUS_SDP_FMTP,
-    RTP_TIMESTAMP_INCREMENT, STREAM_ID, TRACK_ID,
-    VIDEO_HEIGHT, VIDEO_WIDTH, VP8_CLOCK_RATE,
+    PATTERN_SQUARE, RTP_TIMESTAMP_INCREMENT, STATS_SEND_INTERVAL,
+    STREAM_ID, TRACK_ID, VIDEO_HEIGHT, VIDEO_WIDTH, VP8_CLOCK_RATE,
     stun_server,
 };
 use serde::{Deserialize, Serialize};
@@ -194,7 +194,7 @@ async fn do_webrtc_handshake(
                 .map_err(|e| format!("create VP8 encoder: {}", e))?,
         ));
     let force_keyframe = Arc::new(AtomicBool::new(false));
-    let pattern = Arc::new(AtomicU8::new(0)); // 0=square, 1=bars
+    let pattern = Arc::new(AtomicU8::new(PATTERN_SQUARE));
 
     // ---- ICE gathering: register callback BEFORE set_local_description ----
     // Must register before calling set_local_description so we don't miss
@@ -257,7 +257,9 @@ async fn do_webrtc_handshake(
     peer_connection.on_data_channel(Box::new(move |d: Arc<webrtc::data_channel::RTCDataChannel>| {
         let tx = dc_tx.clone();
         Box::pin(async move {
-            let _ = tx.send(d).await;
+            if let Err(e) = tx.send(d).await {
+                tracing::warn!("[DC] Failed to send DataChannel to receiver: {}", e);
+            }
         })
     }));
 
@@ -312,7 +314,7 @@ async fn do_webrtc_handshake(
     let dc_pattern = pattern.clone();
     tokio::spawn(async move {
         match tokio::time::timeout(
-            std::time::Duration::from_secs(5),
+            std::time::Duration::from_secs(DC_RECEIVE_TIMEOUT_SECS),
             dc_rx.recv(),
         )
         .await
@@ -347,7 +349,9 @@ async fn do_webrtc_handshake(
                                 "type": "pong",
                                 "server_ts_ms": now_ms
                             });
-                            let _ = dc.send_text(&resp.to_string()).await;
+                            if let Err(e) = dc.send_text(&resp.to_string()).await {
+                                tracing::warn!("[DC] send_text(pong) failed: {}", e);
+                            }
                             return;
                         }
 
@@ -390,7 +394,9 @@ async fn do_webrtc_handshake(
                                     "seq": seq,
                                     "server_ts_ms": now_ms
                                 });
-                                let _ = dc.send_text(&resp.to_string()).await;
+                                if let Err(e) = dc.send_text(&resp.to_string()).await {
+                                    tracing::warn!("[DC] send_text(pong seq={}) failed: {}", seq, e);
+                                }
                             }
                             _ => {}
                         }
@@ -523,10 +529,12 @@ async fn stream_vp8_frames(
             }
             _ = tick.tick() => {
                 // ---- Check force_keyframe flag ----
-                if force_keyframe.swap(false, Ordering::Relaxed) {
+                if force_keyframe.load(Ordering::Relaxed) {
                     if let Ok(mut enc) = encoder_mutex.lock() {
                         enc.force_keyframe();
+                        force_keyframe.store(false, Ordering::Relaxed);
                     }
+                    // If lock failed: leave flag set, retry next frame
                 }
 
                 // ---- Generate test pattern ----
@@ -537,9 +545,12 @@ async fn stream_vp8_frames(
                 frame_num = frame_num.wrapping_add(1);
 
                 let encode_start = std::time::Instant::now();
-                let encode_result = {
-                    let mut enc = encoder_mutex.lock().unwrap();
-                    enc.encode(&pixels)
+                let encode_result = match encoder_mutex.lock() {
+                    Ok(mut enc) => enc.encode(&pixels),
+                    Err(e) => {
+                        tracing::error!("[STREAM] encoder mutex poisoned: {}", e);
+                        break;
+                    }
                 };
                 match encode_result {
                     Ok((encoded, is_keyframe)) => {
@@ -590,8 +601,7 @@ async fn stream_vp8_frames(
                         }
 
                         // ---- Send per-frame stats over DataChannel ----
-                        // Every 5th frame (~6 Hz) for smooth HUD updates.
-                        if frame_num % 5 == 0 {
+                        if frame_num % STATS_SEND_INTERVAL == 0 {
                             if let Ok(stats) = serde_json::to_string(&serde_json::json!({
                                 "type": "stats",
                                 "frame": frame_num,
@@ -611,7 +621,9 @@ async fn stream_vp8_frames(
                                 }
                             })) {
                                 if let Some(dc) = dc_stream.lock().await.as_ref() {
-                                    let _ = dc.send_text(stats).await;
+                                    if let Err(e) = dc.send_text(stats).await {
+                                        tracing::warn!("[STREAM] DC stats send failed: {}", e);
+                                    }
                                 }
                             }
                         }
