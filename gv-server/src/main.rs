@@ -219,6 +219,99 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                             "[WORKER] stop_game for unknown game {game_id} — ignoring"
                                         );
                                     }
+                                } else if cmd.command_type == "sdp_offer" {
+                                    let sdp = cmd
+                                        .payload
+                                        .get("sdp")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
+                                    let game_id = cmd
+                                        .payload
+                                        .get("game_id")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("unknown");
+
+                                    if sdp.is_empty() {
+                                        tracing::warn!("[SDP] sdp_offer with empty SDP — ignoring");
+                                        continue;
+                                    }
+
+                                    tracing::info!(
+                                        "[SDP] relay offer for game {game_id} ({} chars)",
+                                        sdp.len()
+                                    );
+
+                                    // Find the worker for this game and relay the SDP
+                                    if let Some(worker) = workers.get(game_id) {
+                                        let internal_url =
+                                            internal_worker_url(&worker.url);
+                                        tracing::info!(
+                                            "[SDP] forwarding to worker at {internal_url}"
+                                        );
+
+                                        match client
+                                            .http_client()
+                                            .post(&format!("{internal_url}/sdp"))
+                                            .json(&serde_json::json!({ "sdp": sdp }))
+                                            .send()
+                                            .await
+                                        {
+                                            Ok(resp) if resp.status().is_success() => {
+                                                match resp.json::<serde_json::Value>().await {
+                                                    Ok(answer) => {
+                                                        if let Some(answer_sdp) =
+                                                            answer.get("sdp").and_then(|v| v.as_str())
+                                                        {
+                                                            tracing::info!(
+                                                                "[SDP] got answer from worker ({} chars)",
+                                                                answer_sdp.len()
+                                                            );
+                                                            if let Err(e) = client
+                                                                .notify_sdp(
+                                                                    &cmd.id,
+                                                                    &worker.url,
+                                                                    game_id,
+                                                                    answer_sdp,
+                                                                )
+                                                                .await
+                                                            {
+                                                                tracing::error!(
+                                                                    "[SDP] notify_sdp failed: {e:#}"
+                                                                );
+                                                            }
+                                                        } else {
+                                                            tracing::error!(
+                                                                "[SDP] worker response missing 'sdp' field"
+                                                            );
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        tracing::error!(
+                                                            "[SDP] failed to parse worker answer: {e}"
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                            Ok(resp) => {
+                                                let status = resp.status();
+                                                let body = resp.text().await.unwrap_or_default();
+                                                tracing::error!(
+                                                    "[SDP] worker returned HTTP {}: {}",
+                                                    status.as_u16(),
+                                                    body
+                                                );
+                                            }
+                                            Err(e) => {
+                                                tracing::error!(
+                                                    "[SDP] failed to reach worker at {internal_url}: {e}"
+                                                );
+                                            }
+                                        }
+                                    } else {
+                                        tracing::warn!(
+                                            "[SDP] no worker running for game {game_id} — ignoring sdp_offer"
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -245,6 +338,18 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
 
     tracing::info!("[SHUTDOWN] done");
     Ok(())
+}
+
+fn internal_worker_url(public_url: &str) -> String {
+    // Extract port from public URL like "http://192.168.86.126:3060"
+    // and rewrite to "http://127.0.0.1:{port}"
+    if let Some(colon) = public_url.rfind(':') {
+        if let Ok(port) = public_url[colon + 1..].parse::<u16>() {
+            return format!("http://127.0.0.1:{port}");
+        }
+    }
+    // Fallback — shouldn't happen with well-formed worker URLs
+    public_url.to_string()
 }
 
 // ── Shutdown signal ───────────────────────────────────────────────────
