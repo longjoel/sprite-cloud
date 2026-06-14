@@ -110,6 +110,12 @@ export class GvPlayer {
         this._video.srcObject = this._mediaStream;
       }
       this._mediaStream.addTrack(event.track);
+      // Mobile requires explicit play() call; start muted then unmute
+      this._video.play().then(() => {
+        this._video.muted = false;
+      }).catch(() => {
+        // Browser blocked autoplay — user must tap
+      });
       if (this.onTrack) {
         try { this.onTrack(event.track); } catch { /* safety */ }
       }
