@@ -155,7 +155,10 @@ impl Vp8Encoder {
     /// The first frame is always a keyframe; subsequent frames are delta
     /// frames for bandwidth efficiency (unless the encoder decides
     /// otherwise internally).
-    pub fn encode(&mut self, rgb: &[u8]) -> Result<Vec<u8>, VpxError> {
+    ///
+    /// Returns the encoded bitstream and a flag indicating whether this
+    /// frame is a keyframe.
+    pub fn encode(&mut self, rgb: &[u8]) -> Result<(Vec<u8>, bool), VpxError> {
         let expected = self.width as usize * self.height as usize * 3;
         if rgb.len() < expected {
             return Err(VpxError::BufferTooSmall {
@@ -234,6 +237,7 @@ impl Vp8Encoder {
             }
 
             let mut packets = Vec::new();
+            let mut is_keyframe = false;
             let mut iter: vpx_codec_iter_t = std::ptr::null();
             loop {
                 let pkt = vpx_codec_get_cx_data(&mut self.ctx as *mut _, &mut iter);
@@ -248,10 +252,13 @@ impl Vp8Encoder {
                         frame.sz as usize,
                     );
                     packets.extend_from_slice(data);
+                    if frame.flags & vpx_sys::VPX_FRAME_IS_KEY != 0 {
+                        is_keyframe = true;
+                    }
                 }
             }
 
-            Ok(packets)
+            Ok((packets, is_keyframe))
         }
     }
 }
@@ -338,7 +345,13 @@ mod tests {
         let mut enc = Vp8Encoder::new(320, 240).unwrap();
         let rgb = vec![128u8; 320 * 240 * 3];
         let result = enc.encode(&rgb);
-        assert!(result.is_ok(), "first frame must encode: {:?}", result.err());
-        assert!(!result.unwrap().is_empty(), "first frame must produce data");
+        assert!(
+            result.is_ok(),
+            "first frame must encode: {:?}",
+            result.err()
+        );
+        let (data, is_key) = result.unwrap();
+        assert!(!data.is_empty(), "first frame must produce data");
+        assert!(is_key, "first frame must be a keyframe");
     }
 }
