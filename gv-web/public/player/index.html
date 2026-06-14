@@ -12,12 +12,14 @@
   video { image-rendering: pixelated; max-width: 100vw; max-height: 80vh;
           border: 1px solid #222; }
   #status { margin-top: 12px; font-size: 12px; opacity: 0.6; }
+  #controls-hint { margin-top: 8px; font-size: 11px; opacity: 0.35; }
   .error { color: #f44; }
 </style>
 </head>
 <body>
 <video id="video" autoplay playsinline muted controls></video>
 <pre id="status">connecting…</pre>
+<pre id="controls-hint">WASD/arrows + Z/X (A/B)</pre>
 <script type="module" src="index.js"></script>
 </body>
 </html>

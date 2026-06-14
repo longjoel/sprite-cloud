@@ -170,6 +170,9 @@ export class GvPlayer {
       }
     };
 
+    // ── Keyboard → DataChannel ─────────────────────────────────
+    this._setupKeyboardInput();
+
     // ── RTT ping interval ────────────────────────────────────
     this._startPingInterval();
 
@@ -249,6 +252,7 @@ export class GvPlayer {
     this._clearIceTimer();
     this._clearDisconnectedTimer();
     this._stopPingInterval();
+    this._removeKeyboardInput();
     if (this._dc) {
       this._dc.close();
       this._dc = null;
@@ -338,6 +342,46 @@ export class GvPlayer {
     }
     return u.replace(/\/+$/, "");
   }
+
+  // ── Keyboard input ──────────────────────────────────────────
+  /** Sends keydown/keyup events over the DataChannel as
+   *  {cmd:"input", key:string, pressed:bool}. */
+  _setupKeyboardInput() {
+    const KEY_MAP = {
+      ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
+      w: "up", a: "left", s: "down", d: "right",
+      z: "a", x: "b",
+      Enter: "start", " ": "select",
+    };
+
+    const send = (key, pressed) => {
+      if (!this._dc || this._dc.readyState !== "open") return;
+      try {
+        this._dc.send(JSON.stringify({ cmd: "input", key, pressed }));
+      } catch { /* channel closing */ }
+    };
+
+    const handler = (e) => {
+      const mapped = KEY_MAP[e.key];
+      if (!mapped) return;
+      e.preventDefault();
+      send(mapped, e.type === "keydown");
+    };
+
+    this._keyHandler = handler;
+    document.addEventListener("keydown", handler);
+    document.addEventListener("keyup", handler);
+  }
+
+  _removeKeyboardInput() {
+    if (this._keyHandler) {
+      document.removeEventListener("keydown", this._keyHandler);
+      document.removeEventListener("keyup", this._keyHandler);
+      this._keyHandler = null;
+    }
+  }
+
+  // ── Cleanup ──────────────────────────────────────────────────
 }
 
 // ── Auto-connect bootstrap (browser only) ──────────────────────────────
