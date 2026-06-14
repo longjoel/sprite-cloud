@@ -73,6 +73,12 @@ impl GvWebClient {
         }
     }
 
+    /// Return a reference to the underlying reqwest client.
+    /// Useful for health checks and other non-gv-web HTTP calls.
+    pub fn http_client(&self) -> &Client {
+        &self.client
+    }
+
     /// POST /api/auth/pair/claim — exchange pairing code for API key
     pub async fn claim(code: &str, gv_web_url: &str) -> Result<ClaimResponse> {
         let client = reqwest::Client::builder()
