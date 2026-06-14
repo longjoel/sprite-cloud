@@ -1,16 +1,16 @@
-// Video pipeline configuration.
-//
-// Resolution: 320×240 QVGA
-//   Chosen for low bandwidth and CPU overhead during development.
-//   The real resolution will come from the emulator core at runtime.
-//
-// Frame rate: 30 fps
-//   Matches NTSC console output (29.97 ~ 30). The RTP clock is 90 kHz
-//   (VP8 standard), giving a timestamp increment of 90_000 / 30 = 3_000.
-//
-// Bitrate: 500 kbps VP8 (CBR)
-//   Conservative default for 320×240 — high enough to avoid macroblocking
-//   on fast motion, low enough for a real-time LAN stream.
+/// Video pipeline configuration.
+///
+/// Resolution: 320×240 QVGA
+///   Chosen for low bandwidth and CPU overhead during development.
+///   The real resolution will come from the emulator core at runtime.
+///
+/// Frame rate: 30 fps
+///   Matches NTSC console output (29.97 ~ 30). The RTP clock is 90 kHz
+///   (VP8 standard), giving a timestamp increment of 90_000 / 30 = 3_000.
+///
+/// Bitrate: 500 kbps VP8 (CBR)
+///   Conservative default for 320×240 — high enough to avoid macroblocking
+///   on fast motion, low enough for a real-time LAN stream.
 
 /// Video frame width in pixels.
 pub const VIDEO_WIDTH: u32 = 320;
@@ -72,6 +72,41 @@ pub const STREAM_ID: &str = "gv-worker";
 /// How often to emit a diagnostic log line (in frames).
 /// Logs frame 1-3 always, then every N frames thereafter.
 pub const DIAG_LOG_INTERVAL: u64 = 90; // ~every 3 seconds at 30 fps
+
+// ---------------------------------------------------------------------------
+// Audio pipeline configuration
+// ---------------------------------------------------------------------------
+
+/// Audio sample rate (Hz). Opus native rate.
+pub const AUDIO_SAMPLE_RATE: u32 = 48_000;
+
+/// Audio channels in the RTP stream. Opus supports 1 (mono) or 2 (stereo).
+/// Test tone is mono; the SDP advertises stereo for compatibility.
+pub const AUDIO_CHANNELS: u16 = 2;
+
+/// RTP timestamp increment per audio frame (sample_rate / fps).
+pub const AUDIO_RTP_TIMESTAMP_INCREMENT: u32 = AUDIO_SAMPLE_RATE / VIDEO_FPS; // 1600
+
+/// Max encoded bytes per Opus frame.
+/// 20 ms mono @ 48 kHz fits in ~4000 bytes with generous headroom.
+pub const OPUS_MAX_FRAME_BYTES: usize = 4000;
+
+/// Opus SDP fmtp line — forward error correction + 10 ms minimum packet time.
+pub const OPUS_SDP_FMTP: &str = "minptime=10;useinbandfec=1";
+
+/// Audio track ID sent in SDP.
+pub const AUDIO_TRACK_ID: &str = "audio";
+
+// ---------------------------------------------------------------------------
+// Test tone constants
+// ---------------------------------------------------------------------------
+
+/// Test tone frequency in Hz. A4 = 440 Hz.
+pub const TEST_TONE_FREQ: f64 = 440.0;
+
+/// Test tone amplitude. 16_384 ≈ -18 dBFS for a 16-bit PCM signal —
+/// loud enough to hear without risking clipping during Opus encoding.
+pub const TEST_TONE_AMPLITUDE: f64 = 16_384.0;
 
 /// CORS allowed origins.
 ///
