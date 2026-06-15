@@ -8,6 +8,12 @@
 //! All function pointer types in this module are `unsafe extern "C"`.
 //! Callers must ensure the function pointer is valid, the library is
 //! still loaded, and the ABI contract is followed.
+//!
+//! Many FFI constants and type aliases are declared for completeness
+//! but not yet used by the runner — silence dead-code warnings until
+//! they are wired into real callbacks and input mapping.
+
+#![allow(dead_code)]
 
 use std::ffi::{c_char, c_void};
 

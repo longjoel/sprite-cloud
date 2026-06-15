@@ -93,6 +93,7 @@ pub struct Core {
 
     /// Required function pointers.
     retro_run: RetroRun,
+    #[allow(dead_code)]
     retro_load_game: RetroLoadGame,
     retro_unload_game: RetroUnloadGame,
 
