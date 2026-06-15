@@ -280,4 +280,32 @@ impl GvWebClient {
 
         Ok(())
     }
+
+    /// POST /api/server/result — report the result of a completed command.
+    ///
+    /// Used by browse_files and scan_paths to report file trees and
+    /// match results back to gv-web for browser polling.
+    pub async fn command_result(&self, command_id: &str, result: &serde_json::Value) -> Result<()> {
+        let url = format!("{}/api/server/result", self.base_url);
+
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(&self.auth.api_key)
+            .json(&serde_json::json!({
+                "command_id": command_id,
+                "result": result,
+            }))
+            .send()
+            .await
+            .context("POST /api/server/result — network error")?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("command_result failed (HTTP {}): {}", status.as_u16(), body);
+        }
+
+        Ok(())
+    }
 }

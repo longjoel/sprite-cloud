@@ -1,6 +1,8 @@
 mod config;
+mod dat;
 mod gv_web;
 mod retry;
+mod scan;
 mod worker;
 
 use anyhow::{Context, Result};
@@ -136,6 +138,21 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
     // Track spawned workers so we can kill them on shutdown.
     // Key is the game_id from the start_game command.
     let mut workers: HashMap<String, SpawnedWorker> = HashMap::new();
+
+    // Scan serialization — one concurrent scan per server
+    let scan_lock: std::sync::Arc<tokio::sync::Mutex<()>> =
+        std::sync::Arc::new(tokio::sync::Mutex::new(()));
+
+    // DAT index — loaded lazily on first scan
+    let dat_index: std::sync::Arc<tokio::sync::RwLock<Option<dat::DatIndex>>> =
+        std::sync::Arc::new(tokio::sync::RwLock::new(None));
+
+    // ROM roots — configured via GV_ROM_ROOTS env var or config.toml
+    let rom_roots: Vec<String> = cfg
+        .rom
+        .as_ref()
+        .map(|r| r.roots.clone())
+        .unwrap_or_default();
 
     loop {
         tokio::select! {
@@ -330,6 +347,160 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                     } else {
                                         tracing::warn!(
                                             "[SDP] no worker running for game {game_id} — ignoring sdp_offer"
+                                        );
+                                    }
+                                } else if cmd.command_type == "browse_files" {
+                                    let path = cmd
+                                        .payload
+                                        .get("path")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("");
+
+                                    let tree = match scan::resolve_within_roots(
+                                        std::path::Path::new(path),
+                                        &rom_roots,
+                                    ) {
+                                        Ok(resolved) => scan::browse_path(&resolved),
+                                        Err(e) => {
+                                            tracing::warn!("[BROWSE] path rejected: {e:#}");
+                                            scan::TreeNode {
+                                                name: format!("Error: {e}"),
+                                                node_type: "error".into(),
+                                                children: vec![],
+                                            }
+                                        }
+                                    };
+
+                                    let result = serde_json::json!({ "tree": tree });
+                                    if let Err(e) = client
+                                        .command_result(&cmd.id, &result)
+                                        .await
+                                    {
+                                        tracing::error!(
+                                            "[BROWSE] failed to report result: {e:#}"
+                                        );
+                                    }
+                                } else if cmd.command_type == "scan_paths" {
+                                    let paths: Vec<String> = cmd
+                                        .payload
+                                        .get("paths")
+                                        .and_then(|v| v.as_array())
+                                        .map(|arr| {
+                                            arr.iter()
+                                                .filter_map(|v| {
+                                                    v.as_str().map(String::from)
+                                                })
+                                                .collect()
+                                        })
+                                        .unwrap_or_default();
+
+                                    // DoS guard — one scan at a time
+                                    if scan_lock.try_lock().is_err() {
+                                        tracing::warn!(
+                                            "[SCAN] rejected — scan already in progress"
+                                        );
+                                        let result = serde_json::json!({
+                                            "error": "A scan is already in progress."
+                                        });
+                                        let _ = client
+                                            .command_result(&cmd.id, &result)
+                                            .await;
+                                        continue;
+                                    }
+
+                                    // Lock held until this block exits (dropped
+                                    // after result is reported).
+                                    let _guard = scan_lock.lock().await;
+
+                                    let mut all_files = Vec::new();
+                                    for p in &paths {
+                                        let resolved = match scan::resolve_within_roots(
+                                            std::path::Path::new(p),
+                                            &rom_roots,
+                                        ) {
+                                            Ok(r) => r,
+                                            Err(e) => {
+                                                tracing::warn!(
+                                                    "[SCAN] path rejected: {e:#}"
+                                                );
+                                                continue;
+                                            }
+                                        };
+
+                                        let mut files =
+                                            scan::discover_roms(&resolved)
+                                                .unwrap_or_default();
+                                        scan::hash_files(&mut files, &resolved);
+                                        all_files.extend(files);
+                                    }
+
+                                    // Match against DAT index (loaded lazily)
+                                    let mut dat_lock = dat_index.write().await;
+                                    if dat_lock.is_none() {
+                                        // Try to load DATs for each extension we found
+                                        // sharing the mutability borrow
+                                        for file in &all_files {
+                                            if let Some(ext) = file
+                                                .relative_path
+                                                .rsplit('.')
+                                                .next()
+                                            {
+                                                if let Some(index) = crate::dat::load_for_extension(
+                                                    ext,
+                                                    &dirs::cache_dir()
+                                                        .unwrap_or_default()
+                                                        .join("games-vault")
+                                                        .join("dat"),
+                                                )
+                                                .await
+                                                {
+                                                    *dat_lock = Some(index);
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    let mut matches = Vec::new();
+                                    for file in &all_files {
+                                        let dat_match = if let (
+                                            Some(crc),
+                                            Some(sha),
+                                        ) = (&file.crc, &file.sha256)
+                                        {
+                                            dat_lock
+                                                .as_ref()
+                                                .and_then(|idx| {
+                                                    crate::dat::match_entry(
+                                                        idx, crc, sha,
+                                                    )
+                                                })
+                                                .map(|e| {
+                                                    serde_json::json!({
+                                                        "name": e.canonical_name,
+                                                        "game_name": e.game_name,
+                                                    })
+                                                })
+                                        } else {
+                                            None
+                                        };
+
+                                        matches.push(serde_json::json!({
+                                            "file": file,
+                                            "match": dat_match,
+                                        }));
+                                    }
+
+                                    drop(dat_lock);
+
+                                    let result =
+                                        serde_json::json!({ "matches": matches });
+                                    if let Err(e) = client
+                                        .command_result(&cmd.id, &result)
+                                        .await
+                                    {
+                                        tracing::error!(
+                                            "[SCAN] failed to report result: {e:#}"
                                         );
                                     }
                                 }
