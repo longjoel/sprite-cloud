@@ -296,7 +296,7 @@ export default function PlayPage() {
         }}
       >
         <span style={styles.hint}>
-          Q=Start W=Select | arrows/WASD=move | Z=B X=A
+          Q=Start E=Select | arrows/WASD=move | Z=B X=A
         </span>
         <div style={styles.bottomRight}>
           <button style={styles.btn} onClick={() => setShowSlots(!showSlots)}>
