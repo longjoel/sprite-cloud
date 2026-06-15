@@ -55,6 +55,13 @@ struct SdpAnswer {
     sdp: String,
 }
 
+/// Role assigned to a DataChannel peer after auth.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum PeerRole {
+    Host,
+    Viewer,
+}
+
 #[derive(Deserialize, Default)]
 struct FrameQuery {
     frame: Option<u64>,
@@ -352,6 +359,12 @@ async fn do_webrtc_handshake(
     let dc_stream_for_loop: Arc<tokio::sync::Mutex<Option<Arc<webrtc::data_channel::RTCDataChannel>>>> =
         Arc::new(tokio::sync::Mutex::new(None));
 
+    // Clone host token for DataChannel auth
+    let dc_host_token = {
+        let ht = state.host_token.lock().await;
+        ht.clone()
+    };
+
     // Clone for the DC receive task
     let dc_stream_clone = dc_stream_for_loop.clone();
     let dc_encoder = encoder_mutex.clone();
@@ -375,6 +388,21 @@ async fn do_webrtc_handshake(
                 // Store for the streaming loop
                 *dc_stream_clone.lock().await = Some(dc.clone());
 
+                // Per-DC role — None until auth, then Host or Viewer
+                let role: Arc<tokio::sync::Mutex<Option<PeerRole>>> =
+                    Arc::new(tokio::sync::Mutex::new(None));
+
+                // Auth timeout: close DC if no auth within 5 seconds
+                let dc_timeout = dc.clone();
+                let role_timeout = role.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    if role_timeout.lock().await.is_none() {
+                        tracing::warn!("[DC] auth timeout — closing channel");
+                        dc_timeout.close().await.ok();
+                    }
+                });
+
                 // Set up control message handler
                 let dc_cmd = dc.clone();
                 let dc_core = dc_core_cmd.clone();
@@ -384,10 +412,11 @@ async fn do_webrtc_handshake(
                     let pat = dc_pattern.clone();
                     let dc = dc_cmd.clone();
                     let core_tx = dc_core.clone();
+                    let role = role.clone();
+                    let session_token = dc_host_token.clone();
                     Box::pin(async move {
                         // ── Binary input (RetroArch format) ──────────
-                        // Browser sends [u8 port][u16 LE state] = 3 bytes.
-                        // This is the primary input path — keyboard + gamepad.
+                        // Always allowed — port byte identifies the seat.
                         if msg.data.len() == 3 {
                             let port = msg.data[0] as u32;
                             let state = u16::from_le_bytes([msg.data[1], msg.data[2]]);
@@ -400,6 +429,7 @@ async fn do_webrtc_handshake(
                         let text = String::from_utf8_lossy(&msg.data);
                         let text = text.trim();
 
+                        // Plain "ping" (no JSON wrapper) — always allowed
                         if text == "ping" {
                             let now_ms = std::time::SystemTime::now()
                                 .duration_since(std::time::UNIX_EPOCH)
@@ -420,8 +450,54 @@ async fn do_webrtc_handshake(
                             Err(_) => return,
                         };
 
-                        match cmd.get("cmd").and_then(|v| v.as_str()) {
-                            Some("set_bitrate") => {
+                        let cmd_type = cmd.get("cmd").and_then(|v| v.as_str()).unwrap_or("");
+
+                        // ── Auth — always allowed ───────────────────
+                        if cmd_type == "auth" {
+                            if let Some(token) = cmd.get("host_token").and_then(|v| v.as_str()) {
+                                let is_host = session_token.as_deref() == Some(token);
+                                let mut r = role.lock().await;
+                                *r = Some(if is_host { PeerRole::Host } else { PeerRole::Viewer });
+                                tracing::info!(
+                                    "[DC] peer authenticated as {:?}",
+                                    r.unwrap()
+                                );
+                            }
+                            return;
+                        }
+
+                        // ── JSON ping — always allowed ──────────────
+                        if cmd_type == "ping" {
+                            let seq = cmd.get("seq").and_then(|v| v.as_u64()).unwrap_or(0);
+                            let now_ms = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis();
+                            let resp = serde_json::json!({
+                                "type": "pong",
+                                "seq": seq,
+                                "server_ts_ms": now_ms
+                            });
+                            if let Err(e) = dc.send_text(&resp.to_string()).await {
+                                tracing::warn!("[DC] send_text(pong seq={}) failed: {}", seq, e);
+                            }
+                            return;
+                        }
+
+                        // ── All other commands — role-gated ─────────
+                        let current_role = *role.lock().await;
+                        let is_host = current_role == Some(PeerRole::Host);
+
+                        if !is_host {
+                            tracing::warn!(
+                                "[DC] viewer attempted privileged command: {} — dropping",
+                                cmd_type
+                            );
+                            return;
+                        }
+
+                        match cmd_type {
+                            "set_bitrate" => {
                                 if let Some(kbps) = cmd.get("kbps").and_then(|v| v.as_u64()) {
                                     if let Ok(mut enc) = encoder.lock() {
                                         if let Err(e) = enc.set_bitrate(kbps as u32) {
@@ -432,15 +508,15 @@ async fn do_webrtc_handshake(
                                     }
                                 }
                             }
-                            Some("set_pattern") => {
+                            "set_pattern" => {
                                 if let Some(p) = cmd.get("pattern").and_then(|v| v.as_str()) {
                                     let val: u8 = match p { "bars" => 1, _ => 0 };
                                     pat.store(val, Ordering::Relaxed);
                                     tracing::info!("[DC] pattern set to {}", p);
                                 }
                             }
-                            Some("input") => {
-                                // Keyboard/gamepad input from browser
+                            "input" => {
+                                // Legacy JSON input — kept for backward compat, host only
                                 if let (Some(key), Some(pressed)) = (
                                     cmd.get("key").and_then(|v| v.as_str()),
                                     cmd.get("pressed").and_then(|v| v.as_bool()),
@@ -456,12 +532,11 @@ async fn do_webrtc_handshake(
                                     }
                                 }
                             }
-                            Some("force_keyframe") => {
+                            "force_keyframe" => {
                                 force_kf.store(true, Ordering::Relaxed);
                                 tracing::info!("[DC] force_keyframe requested");
                             }
-                            Some("save_state") => {
-                                // Save emulator state to slot (1–9)
+                            "save_state" => {
                                 if let Some(slot) = cmd.get("slot").and_then(|v| v.as_u64()) {
                                     let slot = slot.min(9) as u8;
                                     if slot >= 1 {
@@ -471,8 +546,7 @@ async fn do_webrtc_handshake(
                                     }
                                 }
                             }
-                            Some("load_state") => {
-                                // Load emulator state from slot (1–9)
+                            "load_state" => {
                                 if let Some(slot) = cmd.get("slot").and_then(|v| v.as_u64()) {
                                     let slot = slot.min(9) as u8;
                                     if slot >= 1 {
@@ -482,22 +556,9 @@ async fn do_webrtc_handshake(
                                     }
                                 }
                             }
-                            Some("ping") => {
-                                let seq = cmd.get("seq").and_then(|v| v.as_u64()).unwrap_or(0);
-                                let now_ms = std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_millis();
-                                let resp = serde_json::json!({
-                                    "type": "pong",
-                                    "seq": seq,
-                                    "server_ts_ms": now_ms
-                                });
-                                if let Err(e) = dc.send_text(&resp.to_string()).await {
-                                    tracing::warn!("[DC] send_text(pong seq={}) failed: {}", seq, e);
-                                }
+                            _ => {
+                                tracing::debug!("[DC] unknown command: {}", cmd_type);
                             }
-                            _ => {}
                         }
                     })
                 }));
