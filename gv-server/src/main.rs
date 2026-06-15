@@ -185,7 +185,22 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                     let rom_path = cmd
                                         .payload
                                         .get("rom_path")
-                                        .and_then(|v| v.as_str());
+                                        .and_then(|v| v.as_str())
+                                        .and_then(|rel| {
+                                            // Resolve relative path against ROM roots
+                                            for root in &rom_roots {
+                                                let full = std::path::Path::new(root).join(rel);
+                                                if full.exists() {
+                                                    return Some(
+                                                        full.to_string_lossy().to_string(),
+                                                    );
+                                                }
+                                            }
+                                            tracing::warn!(
+                                                "[POLL] rom_path not found in any ROM root: {rel}"
+                                            );
+                                            None
+                                        });
                                     let platform = cmd
                                         .payload
                                         .get("platform")
@@ -195,7 +210,7 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         cmd.id, game_id
                                     );
 
-                                    match worker::spawn_worker(game_id, worker_bin.as_deref(), host_token, rom_path, platform).await {
+                                    match worker::spawn_worker(game_id, worker_bin.as_deref(), host_token, rom_path.as_deref(), platform).await {
                                         Ok(worker) => {
                                             let url = worker.url.clone();
                                             tracing::info!("[WORKER] spawned at {url}");
