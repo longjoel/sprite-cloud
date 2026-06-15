@@ -97,3 +97,26 @@ export const sessions = pgTable("sessions", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   endedAt: timestamp("ended_at", { withTimezone: true }),
 });
+
+// ── Server ROM roots (directories gv-server scans for game files) ─────
+//
+// Reported by gv-server during pairing. gv-web uses these to discover
+// ROMs and resolve full paths for start_game commands.
+
+export const serverRomRoots = pgTable(
+  "server_rom_roots",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    serverId: uuid("server_id")
+      .references(() => servers.id)
+      .notNull(),
+    path: text("path").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    unq: unique("server_rom_roots_server_path").on(
+      table.serverId,
+      table.path,
+    ),
+  }),
+);

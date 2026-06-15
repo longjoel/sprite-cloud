@@ -62,7 +62,18 @@ async fn main() -> Result<()> {
 async fn cmd_pair(code: &str, gv_web_url: &str) -> Result<()> {
     tracing::info!("Pairing with {} ...", gv_web_url);
 
-    let resp = gv_web::GvWebClient::claim(code, gv_web_url).await?;
+    // Collect ROM root paths from env var or existing config.
+    // GV_ROM_ROOTS is a comma-separated list of directories.
+    let rom_roots: Vec<String> = std::env::var("GV_ROM_ROOTS")
+        .ok()
+        .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
+        .unwrap_or_default();
+
+    if !rom_roots.is_empty() {
+        tracing::info!("  rom_roots: {:?}", rom_roots);
+    }
+
+    let resp = gv_web::GvWebClient::claim(code, gv_web_url, rom_roots.clone()).await?;
 
     let cfg = config::Config {
         gv_web: config::GvWeb {
@@ -73,6 +84,11 @@ async fn cmd_pair(code: &str, gv_web_url: &str) -> Result<()> {
         auth: config::Auth {
             api_key: resp.api_key.clone(),
             server_id: resp.server_id.clone(),
+        },
+        rom: if rom_roots.is_empty() {
+            None
+        } else {
+            Some(config::Rom { roots: rom_roots })
         },
     };
 
