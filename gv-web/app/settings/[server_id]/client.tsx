@@ -48,6 +48,7 @@ export default function ServerManager({
   const [error, setError] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [added, setAdded] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   async function browse(path: string) {
     setBrowsing(true);
@@ -101,6 +102,37 @@ export default function ServerManager({
       else next.add(path);
       return next;
     });
+  }
+
+  async function importToLibrary() {
+    if (!results) return;
+    setImporting(true);
+    setError(null);
+    try {
+      const files = results.map((r) => ({
+        name: overrides[r.file.relative_path] ?? r.match?.name ?? r.file.file_name,
+        platform: r.file.platform ?? "Unknown",
+        rom_path: r.file.relative_path,
+        file_name: r.file.file_name,
+        file_size: r.file.file_size,
+      }));
+      const resp = await fetch("/api/library/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ server_id: serverId, files }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${resp.status}`);
+      }
+      const data = await resp.json();
+      setAdded(true);
+      setError(`${data.imported} imported, ${data.skipped} skipped`);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Import failed");
+    } finally {
+      setImporting(false);
+    }
   }
 
   return (
@@ -212,10 +244,10 @@ export default function ServerManager({
 
           <button
             style={{ ...S.btn, ...S.btnAdd, marginTop: 12 }}
-            onClick={() => setAdded(true)}
-            disabled={added}
+            onClick={importToLibrary}
+            disabled={added || importing}
           >
-            {added ? "✓ Added" : "Add to library"}
+            {importing ? "Importing..." : added ? "✓ Added" : "Add to library"}
           </button>
           {added && (
             <p style={S.note}>
