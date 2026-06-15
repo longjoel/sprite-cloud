@@ -405,6 +405,10 @@ pub async fn spawn_worker(
     let mut cmd = Command::new(&bin);
     cmd.arg("0").stderr(std::process::Stdio::piped());
 
+    // Bind to all interfaces so the health check and WebRTC media work
+    // from other machines on the LAN (default is 127.0.0.1).
+    cmd.env("GV_BIND_ADDR", "0.0.0.0");
+
     // Forward host token to the worker so it knows who's in charge
     if let Some(token) = host_token {
         cmd.env("GV_HOST_TOKEN", token);

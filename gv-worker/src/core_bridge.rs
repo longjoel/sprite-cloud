@@ -48,6 +48,8 @@ pub enum CoreResponse {
 pub struct CoreHandle {
     pub width: u32,
     pub height: u32,
+    /// Core's actual frame rate (e.g. 59.94 for NES, 60.0 for most).
+    pub fps: f64,
     pub sample_rate: f64,
     pub frame_rx: Receiver<CoreFrame>,
     pub cmd_tx: SyncSender<CoreCommand>,
@@ -92,11 +94,38 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
         }
     };
 
+    let mut sample_rate = core.av_info.sample_rate;
+
+    // Some cores (e.g. nestopia) report sample_rate=0 after load and only
+    // set it properly after the first retro_run().  Run one dummy frame
+    // so we can capture the real rate for the audio pipeline.
+    if sample_rate <= 0.0 {
+        tracing::info!(
+            "[CORE] sample_rate={:.0} after load — running one frame to discover real rate",
+            sample_rate
+        );
+        if let Err(e) = core.run_frame() {
+            tracing::warn!(
+                "[CORE] first run_frame failed: {} — audio disabled",
+                e
+            );
+        } else {
+            sample_rate = core.av_info.sample_rate;
+            tracing::info!(
+                "[CORE] sample_rate after first frame: {:.0}Hz",
+                sample_rate
+            );
+        }
+    }
+
     let width = core.av_info.base_width;
     let height = core.av_info.base_height;
     let fps = core.av_info.fps;
-    let sample_rate = core.av_info.sample_rate;
     let frame_interval = Duration::from_secs_f64(1.0 / fps);
+
+    // SRAM flush every 30s (in frames) — derived from actual core FPS
+    // instead of a hardcoded constant.
+    let sram_flush_interval = (fps * 30.0).round() as u64;
 
     tracing::info!(
         "[CORE] Loaded: {}×{} @ {:.1}fps, {:.0}Hz",
@@ -210,7 +239,7 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
 
             // Periodic SRAM flush: write battery saves every 30s
             // so a process kill doesn't lose hours of progress.
-            if frame_num > 0 && frame_num.is_multiple_of(1800) {
+            if frame_num > 0 && frame_num.is_multiple_of(sram_flush_interval) {
                 if let Some(ref hash) = rom_hash {
                     if let Some(sram_data) = core.sram() {
                         if !sram_data.is_empty() {
@@ -258,6 +287,7 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
     Some(CoreHandle {
         width,
         height,
+        fps,
         sample_rate,
         frame_rx,
         cmd_tx,

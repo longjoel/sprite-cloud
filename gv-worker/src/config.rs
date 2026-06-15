@@ -31,8 +31,10 @@ pub fn frame_interval() -> std::time::Duration {
 /// VP8 RTP clock rate (Hz). Standard for VP8 payload.
 pub const VP8_CLOCK_RATE: u32 = 90_000;
 
-/// RTP timestamp increment per frame (clock_rate / fps).
-pub const RTP_TIMESTAMP_INCREMENT: u32 = VP8_CLOCK_RATE / VIDEO_FPS; // 3000
+/// RTP timestamp increment per frame (clock_rate / fps) — for reference only.
+/// Actual RTP timestamps use wall-clock time to avoid drift.
+#[allow(dead_code)]
+pub const RTP_TIMESTAMP_INCREMENT: u32 = VP8_CLOCK_RATE / VIDEO_FPS; // 1500
 
 /// Target encoder bitrate in kbps (fallback default).
 const DEFAULT_BITRATE_KBPS: u32 = 500;
@@ -146,6 +148,20 @@ pub const PATTERN_BARS: u8 = 1;
 
 /// How long to wait for the browser's DataChannel after SDP exchange.
 pub const DC_RECEIVE_TIMEOUT_SECS: u64 = 5;
+
+/// How long the DataChannel has to send an auth message after opening.
+/// Read from `DC_AUTH_TIMEOUT_SECS` env var at runtime, defaulting to 5.
+pub fn dc_auth_timeout_secs() -> u64 {
+    use std::sync::LazyLock;
+    static TIMEOUT: LazyLock<u64> = LazyLock::new(|| {
+        std::env::var("DC_AUTH_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|&v| v > 0)
+            .unwrap_or(5)
+    });
+    *TIMEOUT
+}
 
 /// How often to send per-frame stats over DataChannel (in frames).
 /// Every 5th frame (~6 Hz) for smooth HUD updates.

@@ -9,8 +9,16 @@ const LAN_CIDRS = ["127.", "10.", "192.168.", "172.16.", "172.17.", "172.18.",
   "172.26.", "172.27.", "172.28.", "172.29.", "172.30.", "172.31."];
 
 function isLanIp(ip: string): boolean {
-  const clean = ip.split(",")[0]!.trim(); // x-forwarded-for may be chained
-  return LAN_CIDRS.some((prefix) => clean.startsWith(prefix)) || clean === "::1";
+  let clean = ip.split(",")[0]!.trim(); // x-forwarded-for may be chained
+  // Normalise IPv4-mapped IPv6 addresses (::ffff:192.168.x.x → 192.168.x.x)
+  if (clean.startsWith("::ffff:")) {
+    clean = clean.slice(7);
+  }
+  return (
+    LAN_CIDRS.some((prefix) => clean.startsWith(prefix)) ||
+    clean === "::1" ||
+    clean === "127.0.0.1"
+  );
 }
 
 // ── LAN credentials ───────────────────────────────────────────────────
