@@ -186,12 +186,16 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         .payload
                                         .get("rom_path")
                                         .and_then(|v| v.as_str());
+                                    let platform = cmd
+                                        .payload
+                                        .get("platform")
+                                        .and_then(|v| v.as_str());
                                     tracing::info!(
                                         "[POLL] start_game command {} (game: {})",
                                         cmd.id, game_id
                                     );
 
-                                    match worker::spawn_worker(game_id, worker_bin.as_deref(), host_token, rom_path).await {
+                                    match worker::spawn_worker(game_id, worker_bin.as_deref(), host_token, rom_path, platform).await {
                                         Ok(worker) => {
                                             let url = worker.url.clone();
                                             tracing::info!("[WORKER] spawned at {url}");
