@@ -452,8 +452,11 @@ pub async fn spawn_worker(
     let pid = child
         .id()
         .context("child process has no PID (already exited?)")?;
-    std::fs::create_dir_all(WORKER_PID_DIR).context("create pid dir")?;
-    std::fs::write(pid_path(game_id), pid.to_string()).context("write pid file")?;
+    if let Err(e) = std::fs::create_dir_all(WORKER_PID_DIR) {
+        tracing::warn!("[WORKER] create pid dir failed (non-fatal): {e}");
+    } else if let Err(e) = std::fs::write(pid_path(game_id), pid.to_string()) {
+        tracing::warn!("[WORKER] write pid file failed (non-fatal): {e}");
+    }
 
     let stderr = child.stderr.take().context("no stderr pipe")?;
     let mut reader = BufReader::new(stderr).lines();
