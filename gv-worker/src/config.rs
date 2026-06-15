@@ -12,17 +12,21 @@
 ///   Conservative default for 320×240 — high enough to avoid macroblocking
 ///   on fast motion, low enough for a real-time LAN stream.
 ///
-/// Video frame width in pixels.
+/// Video frame width in pixels (test-pattern fallback).
 pub const VIDEO_WIDTH: u32 = 320;
 
-/// Video frame height in pixels.
+/// Video frame height in pixels (test-pattern fallback).
 pub const VIDEO_HEIGHT: u32 = 240;
 
-/// Target frames per second.
-pub const VIDEO_FPS: u32 = 30;
+/// Target frames per second. Must match the core's native rate.
+pub const VIDEO_FPS: u32 = 60;
 
-/// Duration of one frame in milliseconds.
-pub const FRAME_INTERVAL_MS: u64 = 1000 / VIDEO_FPS as u64; // 33
+/// Duration of one frame.
+/// Float math avoids integer-truncation (1000/60 = 16 ms → 62.5 fps
+/// instead of the intended 60 fps).  Returns exactly 16.667 ms @ 60 fps.
+pub fn frame_interval() -> std::time::Duration {
+    std::time::Duration::from_secs_f64(1.0 / VIDEO_FPS as f64)
+}
 
 /// VP8 RTP clock rate (Hz). Standard for VP8 payload.
 pub const VP8_CLOCK_RATE: u32 = 90_000;
@@ -81,14 +85,10 @@ pub const DIAG_LOG_INTERVAL: u64 = 90; // ~every 3 seconds at 30 fps
 pub const AUDIO_SAMPLE_RATE: u32 = 48_000;
 
 /// Audio channels in the RTP stream. Opus supports 1 (mono) or 2 (stereo).
-/// Test tone is mono; the SDP advertises stereo for compatibility.
 pub const AUDIO_CHANNELS: u16 = 2;
 
-/// RTP timestamp increment per audio frame (sample_rate / fps).
-pub const AUDIO_RTP_TIMESTAMP_INCREMENT: u32 = AUDIO_SAMPLE_RATE / VIDEO_FPS; // 1600
-
 /// Max encoded bytes per Opus frame.
-/// 20 ms mono @ 48 kHz fits in ~4000 bytes with generous headroom.
+/// 20 ms stereo @ 48 kHz fits in ~4000 bytes with generous headroom.
 pub const OPUS_MAX_FRAME_BYTES: usize = 4000;
 
 /// Opus SDP fmtp line — forward error correction + 10 ms minimum packet time.
@@ -96,17 +96,6 @@ pub const OPUS_SDP_FMTP: &str = "minptime=10;useinbandfec=1";
 
 /// Audio track ID sent in SDP.
 pub const AUDIO_TRACK_ID: &str = "audio";
-
-// ---------------------------------------------------------------------------
-// Test tone constants
-// ---------------------------------------------------------------------------
-
-/// Test tone frequency in Hz. A4 = 440 Hz.
-pub const TEST_TONE_FREQ: f64 = 440.0;
-
-/// Test tone amplitude. 16_384 ≈ -18 dBFS for a 16-bit PCM signal —
-/// loud enough to hear without risking clipping during Opus encoding.
-pub const TEST_TONE_AMPLITUDE: f64 = 16_384.0;
 
 /// CORS allowed origins.
 ///

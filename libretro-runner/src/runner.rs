@@ -175,6 +175,10 @@ impl Core {
             unsafe { load_optional_symbol::<RetroSerialize>(&library, c"retro_serialize") };
         let retro_unserialize =
             unsafe { load_optional_symbol::<RetroUnserialize>(&library, c"retro_unserialize") };
+        let retro_set_controller_port_device =
+            unsafe { load_optional_symbol::<RetroSetControllerPortDevice>(&library, c"retro_set_controller_port_device") };
+        let retro_set_audio_sample =
+            unsafe { load_optional_symbol::<RetroSetAudioSample>(&library, c"retro_set_audio_sample") };
 
         // ---- Step 3: stash config for callbacks ----
         SYSTEM_DIR.with(|cell| {
@@ -194,6 +198,10 @@ impl Core {
         unsafe { retro_set_environment(environment_callback) };
         unsafe { retro_set_video_refresh(video_refresh_callback) };
         unsafe { retro_set_audio_sample_batch(audio_batch_callback) };
+        if let Some(set_sample) = retro_set_audio_sample {
+            unsafe { set_sample(audio_sample_callback) };
+            tracing::info!("[CORE] Registered per-sample audio callback");
+        }
         unsafe { retro_set_input_poll(stub_input_poll) };
         unsafe { retro_set_input_state(input_state_callback) };
 
@@ -201,6 +209,18 @@ impl Core {
         // SAFETY: callbacks are registered. retro_init must be called once
         // before any other core operations.
         unsafe { retro_init() };
+
+        // ---- Set controller ports to joypad ----
+        // Without this, most cores default to RETRO_DEVICE_NONE and ignore
+        // all input. Set all 4 ports to standard joypad.
+        if let Some(set_controller) = retro_set_controller_port_device {
+            for port in 0..4u32 {
+                unsafe { set_controller(port, RETRO_DEVICE_JOYPAD) };
+            }
+            tracing::info!("[CORE] Controller ports 0-3 set to RETRO_DEVICE_JOYPAD");
+        } else {
+            tracing::warn!("[CORE] retro_set_controller_port_device not available in this core");
+        }
 
         // ---- Step 6: determine content loading strategy ----
         let need_fullpath = if let Some(get_system_info) = retro_get_system_info {
@@ -335,6 +355,17 @@ impl Core {
     /// The caller feeds these samples to an audio encoder.
     pub fn audio(&self) -> Vec<i16> {
         AUDIO_BUFFER.with(|buf| buf.borrow().clone())
+    }
+
+    /// Drain accumulated audio samples, clearing the internal buffer.
+    /// Returns interleaved stereo i16 PCM samples.
+    pub fn drain_audio(&self) -> Vec<i16> {
+        AUDIO_BUFFER.with(|buf| {
+            let mut buf = buf.borrow_mut();
+            let samples = buf.clone();
+            buf.clear();
+            samples
+        })
     }
 
     /// Set a joypad button state for a given port.
@@ -504,7 +535,7 @@ impl Core {
 
     /// Convert the raw frame in thread-local storage to RGB24 and store on self.
     fn convert_and_store_frame(&mut self) {
-        let (fmt, (w, h, _pitch), raw) = PIXEL_FORMAT.with(|f| {
+        let (fmt, (w, h, pitch), raw) = PIXEL_FORMAT.with(|f| {
             let fmt = f.get();
             let dims = RAW_FRAME_DIMS.with(|d| *d.borrow());
             // Copy raw frame out of thread-local to avoid borrow conflicts
@@ -517,17 +548,53 @@ impl Core {
             return;
         }
 
+        let bpp = match fmt {
+            RETRO_PIXEL_FORMAT_XRGB8888 => 4,
+            RETRO_PIXEL_FORMAT_RGB565 => 2,
+            RETRO_PIXEL_FORMAT_0RGB1555 => 2,
+            _ => 0,
+        };
+        let expected_row_bytes = w as usize * bpp;
+        let has_padding = pitch != expected_row_bytes;
+
+        // Log first frame and any dimension/format/pitch change
+        if self.current_frame.is_empty()
+            || self.current_frame_dims != (w, h)
+            || has_padding
+        {
+            tracing::info!(
+                "[CORE] Frame: {}×{} pitch={} fmt={} (expected row bytes={}, padding={})",
+                w, h, pitch, fmt, expected_row_bytes, has_padding
+            );
+        }
+
         self.current_frame_dims = (w, h);
 
         match fmt {
             RETRO_PIXEL_FORMAT_XRGB8888 => {
-                self.current_frame = xrgb8888_to_rgb24(&raw, w as usize, h as usize);
+                if has_padding {
+                    self.current_frame = xrgb8888_to_rgb24_strided(&raw, w as usize, h as usize, pitch);
+                } else {
+                    self.current_frame = xrgb8888_to_rgb24(&raw, w as usize, h as usize);
+                }
             }
             RETRO_PIXEL_FORMAT_RGB565 => {
-                self.current_frame = rgb565_to_rgb24(&raw, w as usize, h as usize);
+                if has_padding {
+                    self.current_frame = rgb565_to_rgb24_strided(&raw, w as usize, h as usize, pitch);
+                } else {
+                    self.current_frame = rgb565_to_rgb24(&raw, w as usize, h as usize);
+                }
+            }
+            RETRO_PIXEL_FORMAT_0RGB1555 => {
+                if has_padding {
+                    self.current_frame = xrgb1555_to_rgb24_strided(&raw, w as usize, h as usize, pitch);
+                } else {
+                    self.current_frame = xrgb1555_to_rgb24(&raw, w as usize, h as usize);
+                }
             }
             _ => {
                 // Unknown format — store raw as-is (caller beware)
+                tracing::warn!("[CORE] Unknown pixel format {} — storing raw frame ({})", fmt, raw.len());
                 self.current_frame = raw;
             }
         }
@@ -555,14 +622,25 @@ impl Drop for Core {
 /// and tracks whether the core supports no-game mode.
 unsafe extern "C" fn environment_callback(cmd: u32, data: *mut std::ffi::c_void) -> bool {
     match cmd {
-        // Accept only XRGB8888 and RGB565 pixel formats
+        // Accept XRGB8888, RGB565, and 0RGB1555 pixel formats
         RETRO_ENVIRONMENT_SET_PIXEL_FORMAT => {
             if !data.is_null() {
                 let fmt = unsafe { *(data as *const u32) };
-                if fmt == RETRO_PIXEL_FORMAT_XRGB8888 || fmt == RETRO_PIXEL_FORMAT_RGB565 {
+                let name = match fmt {
+                    RETRO_PIXEL_FORMAT_XRGB8888 => "XRGB8888",
+                    RETRO_PIXEL_FORMAT_RGB565 => "RGB565",
+                    RETRO_PIXEL_FORMAT_0RGB1555 => "0RGB1555",
+                    _ => "unknown",
+                };
+                if fmt == RETRO_PIXEL_FORMAT_XRGB8888
+                    || fmt == RETRO_PIXEL_FORMAT_RGB565
+                    || fmt == RETRO_PIXEL_FORMAT_0RGB1555
+                {
+                    tracing::info!("[CORE] SET_PIXEL_FORMAT: {} ({}) — accepted", name, fmt);
                     PIXEL_FORMAT.set(fmt);
                     return true;
                 }
+                tracing::warn!("[CORE] SET_PIXEL_FORMAT: {} ({}) — REJECTED", name, fmt);
             }
             false
         }
@@ -702,6 +780,111 @@ fn rgb565_to_rgb24(data: &[u8], width: usize, height: usize) -> Vec<u8> {
     rgb
 }
 
+/// Convert XRGB8888 to RGB24 with proper stride handling.
+///
+/// `pitch` is the distance in bytes from start of one row to the next.
+/// When pitch > width * 4, padding bytes between rows are skipped.
+fn xrgb8888_to_rgb24_strided(data: &[u8], width: usize, height: usize, pitch: usize) -> Vec<u8> {
+    let row_bytes = width * 4;
+    let expected_total = pitch * height;
+    if data.len() < expected_total {
+        return Vec::new();
+    }
+
+    let mut rgb = Vec::with_capacity(width * height * 3);
+    for row in 0..height {
+        let row_start = row * pitch;
+        let row_data = &data[row_start..row_start + row_bytes];
+        let pixels: &[u32] = bytemuck::cast_slice(row_data);
+        for &p in pixels {
+            rgb.push((p >> 16) as u8); // R
+            rgb.push((p >> 8) as u8);  // G
+            rgb.push(p as u8);          // B
+        }
+    }
+    rgb
+}
+
+/// Convert RGB565 to RGB24 with proper stride handling.
+///
+/// `pitch` is the distance in bytes from start of one row to the next.
+/// When pitch > width * 2, padding bytes between rows are skipped.
+fn rgb565_to_rgb24_strided(data: &[u8], width: usize, height: usize, pitch: usize) -> Vec<u8> {
+    let row_bytes = width * 2;
+    let expected_total = pitch * height;
+    if data.len() < expected_total {
+        return Vec::new();
+    }
+
+    let mut rgb = Vec::with_capacity(width * height * 3);
+    for row in 0..height {
+        let row_start = row * pitch;
+        let row_data = &data[row_start..row_start + row_bytes];
+        let pixels: &[u16] = bytemuck::cast_slice(row_data);
+        for &p in pixels {
+            let r = ((p >> 11) & 0x1F) as u8;
+            let g = ((p >> 5) & 0x3F) as u8;
+            let b = (p & 0x1F) as u8;
+            rgb.push((r << 3) | (r >> 2));
+            rgb.push((g << 2) | (g >> 4));
+            rgb.push((b << 3) | (b >> 2));
+        }
+    }
+    rgb
+}
+
+/// Convert 0RGB1555 to RGB24 by unpacking 5-5-5 bit fields into 8-8-8.
+///
+/// 0RGB1555 layout (little-endian u16): bit 15=0(unused), bits 14-10=R,
+/// bits 9-5=G, bits 4-0=B. Same as RGB565 but green is 5-bit instead of 6-bit.
+fn xrgb1555_to_rgb24(data: &[u8], width: usize, height: usize) -> Vec<u8> {
+    let pixel_count = width * height;
+    let expected_bytes = pixel_count * 2;
+    if data.len() < expected_bytes {
+        return Vec::new();
+    }
+
+    let mut rgb = Vec::with_capacity(pixel_count * 3);
+    let pixels: &[u16] = bytemuck::cast_slice(&data[..expected_bytes]);
+
+    for &p in pixels {
+        let r = ((p >> 10) & 0x1F) as u8;
+        let g = ((p >> 5) & 0x1F) as u8;
+        let b = (p & 0x1F) as u8;
+        // Scale 5-bit to 8-bit: (x << 3) | (x >> 2)
+        rgb.push((r << 3) | (r >> 2));
+        rgb.push((g << 3) | (g >> 2));
+        rgb.push((b << 3) | (b >> 2));
+    }
+
+    rgb
+}
+
+/// Convert 0RGB1555 to RGB24 with proper stride handling.
+fn xrgb1555_to_rgb24_strided(data: &[u8], width: usize, height: usize, pitch: usize) -> Vec<u8> {
+    let row_bytes = width * 2;
+    let expected_total = pitch * height;
+    if data.len() < expected_total {
+        return Vec::new();
+    }
+
+    let mut rgb = Vec::with_capacity(width * height * 3);
+    for row in 0..height {
+        let row_start = row * pitch;
+        let row_data = &data[row_start..row_start + row_bytes];
+        let pixels: &[u16] = bytemuck::cast_slice(row_data);
+        for &p in pixels {
+            let r = ((p >> 10) & 0x1F) as u8;
+            let g = ((p >> 5) & 0x1F) as u8;
+            let b = (p & 0x1F) as u8;
+            rgb.push((r << 3) | (r >> 2));
+            rgb.push((g << 3) | (g >> 2));
+            rgb.push((b << 3) | (b >> 2));
+        }
+    }
+    rgb
+}
+
 // ---------------------------------------------------------------------------
 // Content loading helpers
 // ---------------------------------------------------------------------------
@@ -802,6 +985,18 @@ fn load_game_content(
 // ---------------------------------------------------------------------------
 // Audio callback
 // ---------------------------------------------------------------------------
+
+/// Audio sample callback — called by the core with a single stereo sample pair.
+/// Accumulates into the same thread-local buffer as the batch callback.
+///
+/// Some cores (e.g. nestopia) use this instead of the batch callback.
+unsafe extern "C" fn audio_sample_callback(left: i16, right: i16) {
+    AUDIO_BUFFER.with(|buf| {
+        let mut buf = buf.borrow_mut();
+        buf.push(left);
+        buf.push(right);
+    });
+}
 
 /// Audio sample batch callback — called by the core with interleaved stereo
 /// i16 PCM samples. Accumulates into the thread-local audio buffer.

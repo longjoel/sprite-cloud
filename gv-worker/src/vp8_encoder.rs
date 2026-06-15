@@ -63,6 +63,8 @@ pub struct Vp8Encoder {
     height: u32,
     /// Tracks whether the next frame should be a keyframe.
     need_keyframe: bool,
+    /// Monotonically increasing frame counter (used as PTS).
+    frame_count: u64,
 }
 
 impl std::fmt::Debug for Vp8Encoder {
@@ -114,6 +116,9 @@ impl Vp8Encoder {
             cfg.g_timebase.num = 1;
             cfg.g_timebase.den = crate::config::VIDEO_FPS as i32;
             cfg.rc_target_bitrate = crate::config::target_bitrate_kbps();
+            // Periodic keyframe: ~every 2.5s (150 frames @ 60fps).
+            // Without this, mid-stream viewers decode garbage.
+            cfg.kf_max_dist = 150;
             // Error-resilient: enables intra-refresh and partition boundaries
             // so the browser can recover from packet loss mid-stream
             cfg.g_error_resilient = 1;
@@ -145,6 +150,7 @@ impl Vp8Encoder {
                 width,
                 height,
                 need_keyframe: true,
+                frame_count: 0,
             })
         }
     }
@@ -216,11 +222,15 @@ impl Vp8Encoder {
                 0
             };
 
+            // Increment frame counter for monotonic PTS.
+            self.frame_count = self.frame_count.wrapping_add(1);
+            let pts = self.frame_count as i64;
+
             let err = vpx_codec_encode(
                 &mut self.ctx as *mut _,
                 &img as *const _,
-                1,            // pts: frame number in timebase units
-                1,            // duration: one timebase unit per frame
+                pts,           // pts: monotonically increasing frame number
+                1,             // duration: one timebase unit per frame
                 flags,
                 DL_REALTIME,  // realtime deadline — no frame reordering
             );
@@ -260,6 +270,16 @@ impl Vp8Encoder {
 
             Ok((packets, is_keyframe))
         }
+    }
+
+    /// Return the configured encoder width.
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Return the configured encoder height.
+    pub fn height(&self) -> u32 {
+        self.height
     }
 
     /// Update the encoder's target bitrate at runtime.

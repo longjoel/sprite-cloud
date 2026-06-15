@@ -43,6 +43,13 @@
       "when": 1781492009737,
       "tag": "0005_blue_zodiak",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781549803451,
+      "tag": "0006_boring_wendell_vaughn",
+      "breakpoints": true
     }
   ]
 }
