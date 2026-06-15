@@ -67,6 +67,7 @@ pub type RetroSetAudioSample = unsafe extern "C" fn(cb: RetroAudioSampleFn);
 pub type RetroSetAudioSampleBatch = unsafe extern "C" fn(cb: RetroAudioSampleBatchFn);
 pub type RetroSetInputPoll = unsafe extern "C" fn(cb: RetroInputPollFn);
 pub type RetroSetInputState = unsafe extern "C" fn(cb: RetroInputStateFn);
+pub type RetroSetControllerPortDevice = unsafe extern "C" fn(port: u32, device: u32);
 
 pub type RetroInit = unsafe extern "C" fn();
 pub type RetroDeinit = unsafe extern "C" fn();

@@ -1,0 +1,1 @@
+ALTER TABLE "commands" ADD COLUMN "result" jsonb;
