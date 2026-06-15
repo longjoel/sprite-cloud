@@ -36,6 +36,13 @@
       "when": 1781488283194,
       "tag": "0004_married_invaders",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1781492009737,
+      "tag": "0005_blue_zodiak",
+      "breakpoints": true
     }
   ]
 }
