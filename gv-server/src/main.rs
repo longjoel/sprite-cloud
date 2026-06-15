@@ -210,6 +210,15 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         cmd.id, game_id
                                     );
 
+                                    // Kill any previous worker for this game
+                                    // (e.g. from a reconnect or ICE failure retry)
+                                    if let Some(old) = workers.remove(game_id) {
+                                        tracing::info!(
+                                            "[WORKER] killing previous worker for game {game_id}"
+                                        );
+                                        old.kill().await;
+                                    }
+
                                     match worker::spawn_worker(game_id, worker_bin.as_deref(), host_token, rom_path.as_deref(), platform).await {
                                         Ok(worker) => {
                                             let url = worker.url.clone();

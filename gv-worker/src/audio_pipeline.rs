@@ -26,7 +26,7 @@ use crate::config::{AUDIO_SAMPLE_RATE, OPUS_MAX_FRAME_BYTES};
 const OPUS_FRAME_STEREO_SAMPLES: usize = 960 * 2; // 1920 i16 values
 
 /// Output chunk size in samples per channel (one Opus frame worth).
-const OUTPUT_CHUNK_SAMPLES: usize = 960;
+pub const OUTPUT_CHUNK_SAMPLES: usize = 960;
 
 /// How many channels we resample and encode.
 const CHANNELS: usize = 2;

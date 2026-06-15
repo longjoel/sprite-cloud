@@ -61,6 +61,8 @@ pub struct Vp8Encoder {
     ctx: vpx_codec_ctx_t,
     width: u32,
     height: u32,
+    /// Core frame rate — used to reconstruct full config on set_bitrate().
+    fps: f64,
     /// Tracks whether the next frame should be a keyframe.
     need_keyframe: bool,
     /// Monotonically increasing frame counter (used as PTS).
@@ -90,7 +92,9 @@ impl Vp8Encoder {
     /// Create a new VP8 encoder.
     ///
     /// `width` and `height` must both be even (I420 chroma subsampling).
-    pub fn new(width: u32, height: u32) -> Result<Self, VpxError> {
+    /// `fps` is the core's actual frame rate (e.g. 60.0, 59.94) — used for
+    /// encoder timebase and periodic keyframe interval.
+    pub fn new(width: u32, height: u32, fps: f64) -> Result<Self, VpxError> {
         // I420 requires even dimensions
         if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
             return Err(VpxError::OddDimensions { width, height });
@@ -112,13 +116,16 @@ impl Vp8Encoder {
 
             cfg.g_w = width;
             cfg.g_h = height;
-            // Timebase: 1/30 second per tick — one tick = one frame at 30fps
+            // Timebase matches the core's actual frame rate (not a global constant).
+            // libvpx treats one tick = g_timebase.num / g_timebase.den seconds.
+            // We round fps to the nearest integer — rate control is robust to small
+            // differences (e.g. 59.94 → 60).  The RTP timestamp uses wall-clock time
+            // so drift cannot accumulate.
             cfg.g_timebase.num = 1;
-            cfg.g_timebase.den = crate::config::VIDEO_FPS as i32;
+            cfg.g_timebase.den = fps.round() as i32;
             cfg.rc_target_bitrate = crate::config::target_bitrate_kbps();
-            // Periodic keyframe: ~every 2.5s (150 frames @ 60fps).
-            // Without this, mid-stream viewers decode garbage.
-            cfg.kf_max_dist = 150;
+            // Periodic keyframe: ~every 2.5s.  kf_max_dist is in timebase units.
+            cfg.kf_max_dist = (fps * 2.5).round() as u32;
             // Error-resilient: enables intra-refresh and partition boundaries
             // so the browser can recover from packet loss mid-stream
             cfg.g_error_resilient = 1;
@@ -149,6 +156,7 @@ impl Vp8Encoder {
                 ctx,
                 width,
                 height,
+                fps,
                 need_keyframe: true,
                 frame_count: 0,
             })
@@ -282,12 +290,12 @@ impl Vp8Encoder {
         self.height
     }
 
-    /// Update the encoder's target bitrate at runtime.
+    /// Update the encoder's target bitrate at runtime, preserving all other
+    /// encoder settings from construction (dimensions, timebase, keyframe
+    /// interval, error resilience).
     ///
-    /// Calls `vpx_codec_enc_config_set` with the new `rc_target_bitrate`.
-    /// Note: not all libvpx builds support runtime bitrate changes on VP8.
-    /// If the call fails, the encoder is destroyed and recreated with the
-    /// new bitrate.
+    /// `vpx_codec_enc_config_get` is unavailable in the env-libvpx-sys
+    /// bindings, so we fetch defaults and restore the stored fields.
     pub fn set_bitrate(&mut self, kbps: u32) -> Result<(), VpxError> {
         unsafe {
             let mut cfg = MaybeUninit::<vpx_codec_enc_cfg_t>::uninit();
@@ -300,6 +308,14 @@ impl Vp8Encoder {
                 return Err(VpxError::Config(format!("{:?}", err)));
             }
             let mut cfg = cfg.assume_init();
+
+            // Restore stored encoder parameters — only bitrate changes
+            cfg.g_w = self.width;
+            cfg.g_h = self.height;
+            cfg.g_timebase.num = 1;
+            cfg.g_timebase.den = self.fps.round() as i32;
+            cfg.kf_max_dist = (self.fps * 2.5).round() as u32;
+            cfg.g_error_resilient = 1;
             cfg.rc_target_bitrate = kbps;
 
             let err = vpx_codec_enc_config_set(&mut self.ctx as *mut _, &cfg);
@@ -384,13 +400,13 @@ mod tests {
 
     #[test]
     fn test_rejects_odd_width() {
-        let err = Vp8Encoder::new(321, 240).unwrap_err();
+        let err = Vp8Encoder::new(321, 240, 60.0).unwrap_err();
         assert!(matches!(err, VpxError::OddDimensions { .. }));
     }
 
     #[test]
     fn test_rejects_undersized_buffer() {
-        let mut enc = Vp8Encoder::new(320, 240).unwrap();
+        let mut enc = Vp8Encoder::new(320, 240, 60.0).unwrap();
         let too_small = vec![0u8; 100];
         let err = enc.encode(&too_small).unwrap_err();
         assert!(matches!(err, VpxError::BufferTooSmall { .. }));
@@ -398,7 +414,7 @@ mod tests {
 
     #[test]
     fn test_first_frame_is_keyframe() {
-        let mut enc = Vp8Encoder::new(320, 240).unwrap();
+        let mut enc = Vp8Encoder::new(320, 240, 60.0).unwrap();
         let rgb = vec![128u8; 320 * 240 * 3];
         let result = enc.encode(&rgb);
         assert!(

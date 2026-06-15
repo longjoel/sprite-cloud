@@ -39,7 +39,7 @@ export const State = Object.freeze({
 
 export class GvPlayer {
   /** @param {HTMLVideoElement} video — must be a <video> element
-   *  @param {{ iceServers?: Array<{urls: string|string[], username?: string, credential?: string}> }} [options] */
+   *  @param {{ iceServers?: Array<{urls: string|string[], username?: string, credential?: string}>, seat?: number, iceTimeout?: number, disconnectedGrace?: number }} [options] */
   constructor(video, options) {
     if (!video || !video.tagName || video.tagName !== "VIDEO") {
       throw new TypeError("GvPlayer requires a <video> element");
@@ -50,6 +50,15 @@ export class GvPlayer {
 
     /** @type {Array<{urls: string|string[], username?: string, credential?: string}>} */
     this._iceServers = (options && options.iceServers) || [{ urls: STUN_SERVER }];
+
+    /** @type {number} Player seat index (0 = default, 1–N for multi-seat). */
+    this._seat = (options && typeof options.seat === "number") ? options.seat : 0;
+
+    /** @type {number} ICE gathering timeout in ms. */
+    this._iceTimeout = (options && typeof options.iceTimeout === "number") ? options.iceTimeout : ICE_TIMEOUT_MS;
+
+    /** @type {number} Grace period in ms before declaring connection lost after ICE disconnect. */
+    this._disconnectedGrace = (options && typeof options.disconnectedGrace === "number") ? options.disconnectedGrace : DISCONNECTED_GRACE_MS;
 
     /** @type {RTCPeerConnection | null} */
     this._pc = null;
@@ -170,7 +179,7 @@ export class GvPlayer {
         this._setState(State.ERROR, "ICE gathering timed out");
         this._cleanup();
       }
-    }, ICE_TIMEOUT_MS);
+    }, this._iceTimeout);
   }
 
   /**
@@ -239,7 +248,7 @@ export class GvPlayer {
         this._setState(State.ERROR, "ICE gathering timed out");
         this._cleanup();
       }
-    }, ICE_TIMEOUT_MS);
+    }, this._iceTimeout);
   }
 
   /** Tear down the peer connection. */
@@ -301,7 +310,7 @@ export class GvPlayer {
               this._setState(State.ERROR, "disconnected (recovery timeout)");
               this._cleanup();
             }
-          }, DISCONNECTED_GRACE_MS);
+          }, this._disconnectedGrace);
         }
       } else {
         // Connection is connecting, new, or connected — clear any
@@ -355,7 +364,10 @@ export class GvPlayer {
       if (this._hostToken) {
         try {
           this._dc.send(JSON.stringify({ cmd: "auth", host_token: this._hostToken }));
-        } catch { /* channel closing */ }
+        } catch (e) {
+          console.warn("[DC] auth send failed:", e?.message || e, "— DC closing");
+          this._dc.close();
+        }
       }
       if (this._sendMask) this._sendMask();
     };
@@ -559,9 +571,13 @@ export class GvPlayer {
       }
       try {
         const s = this._inputState;
-        this._dc.send(new Uint8Array([0, s & 0xFF, s >> 8]).buffer);
-        console.debug("[INPUT] sent mask port=0 state=0x%s", s.toString(16).padStart(4, "0"));
-      } catch { /* channel closing */ }
+        this._dc.send(new Uint8Array([this._seat, s & 0xFF, s >> 8]).buffer);
+        console.debug("[INPUT] sent mask port=%d state=0x%s", this._seat, s.toString(16).padStart(4, "0"));
+      } catch (e) {
+        console.warn("[INPUT] sendMask failed — DC may be closed:", e?.message || e);
+        // Close the DC so the reconnect flow picks up the failure
+        if (this._dc) this._dc.close();
+      }
     };
     // Expose sendMask so gamepad can reuse the same DataChannel sender
     this._sendMask = sendMask;
