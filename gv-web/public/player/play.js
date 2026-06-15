@@ -8,6 +8,36 @@
 
 import { GvPlayer, State } from "./index.js";
 
+// ── UUID polyfill ────────────────────────────────────────────────────
+// crypto.randomUUID() is secure-context-only (HTTPS / localhost).
+// On plain HTTP we fall back to crypto.getRandomValues → Math.random.
+
+function randomUUID() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // RFC 4122 v4 UUID via crypto.getRandomValues (works without HTTPS)
+  if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+    const buf = new Uint8Array(16);
+    crypto.getRandomValues(buf);
+    buf[6] = (buf[6] & 0x0f) | 0x40; // version 4
+    buf[8] = (buf[8] & 0x3f) | 0x80; // variant 10
+    const hex = Array.from(buf, (b) => b.toString(16).padStart(2, "0"));
+    return [
+      hex.slice(0, 4).join(""),
+      hex.slice(4, 6).join(""),
+      hex.slice(6, 8).join(""),
+      hex.slice(8, 10).join(""),
+      hex.slice(10, 16).join(""),
+    ].join("-");
+  }
+  // Last resort (not cryptographically random, but works anywhere)
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 // ── Constants ───────────────────────────────────────────────────────
 
 const RECONNECT_DELAY_MS = 3_000;
@@ -99,7 +129,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks) {
 
   // Generate a host token once — reused across reconnects so the
   // worker recognizes the same host after a disconnect.
-  const hostToken = crypto.randomUUID();
+  const hostToken = randomUUID();
 
   const doConnect = async () => {
     callbacks.onStateChange?.("connecting");
