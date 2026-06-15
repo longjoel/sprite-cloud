@@ -34,16 +34,15 @@ thread_local! {
     static CONTENT_DATA: RefCell<Option<Vec<u8>>> = const { RefCell::new(None) };
 
     /// Raw frame buffer populated by the video refresh callback.
-    static RAW_FRAME: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+    static RAW_FRAME: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 
     /// Most recent frame dimensions from the callback: (width, height, pitch_bytes).
     static RAW_FRAME_DIMS: RefCell<(u32, u32, usize)> = const { RefCell::new((0, 0, 0)) };
 
     /// Audio buffer populated by the audio sample batch callback.
-    static AUDIO_BUFFER: RefCell<Vec<i16>> = RefCell::new(Vec::new());
-
+    static AUDIO_BUFFER: RefCell<Vec<i16>> = const { RefCell::new(Vec::new()) };
     /// Input state bitmask per port.
-    static INPUT_STATE: RefCell<[u16; 4]> = RefCell::new([0; 4]);
+    static INPUT_STATE: RefCell<[u16; 4]> = const { RefCell::new([0; 4]) };
 
     /// Pixel format negotiated with the core.
     static PIXEL_FORMAT: Cell<u32> = const { Cell::new(RETRO_PIXEL_FORMAT_XRGB8888) };
@@ -64,8 +63,8 @@ unsafe fn load_symbol<T: Copy>(lib: &Library, name: &CStr) -> Result<T, Error> {
     // SAFETY: caller guarantees the symbol exists and has the correct type.
     unsafe {
         lib.get::<T>(name.to_bytes_with_nul())
+            .map_err(Error::Load)
             .map(|sym| *sym)
-            .map_err(|e| Error::Load(e))
     }
 }
 
@@ -134,7 +133,7 @@ impl Core {
         // ---- Step 1: dlopen ----
         // SAFETY: caller guarantees the path points to a valid shared library.
         let library = unsafe {
-            Library::new(&config.core_path).map_err(|e| Error::Load(e))?
+            Library::new(&config.core_path).map_err(Error::Load)?
         };
 
         // ---- Step 2: symbol lookup ----
@@ -569,37 +568,33 @@ unsafe extern "C" fn environment_callback(cmd: u32, data: *mut std::ffi::c_void)
         }
 
         // Provide system directory path
-        RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY => {
-            if !data.is_null() {
-                SYSTEM_DIR.with(|cell| {
-                    if let Some(ref dir) = *cell.borrow() {
-                        unsafe {
-                            *(data as *mut *const std::ffi::c_char) = dir.as_ptr();
-                        }
-                        return true;
+        RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY
+            if !data.is_null() =>
+        {
+            SYSTEM_DIR.with(|cell| {
+                if let Some(ref dir) = *cell.borrow() {
+                    unsafe {
+                        *(data as *mut *const std::ffi::c_char) = dir.as_ptr();
                     }
-                    false
-                })
-            } else {
+                    return true;
+                }
                 false
-            }
+            })
         }
 
         // Provide save directory path
-        RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY => {
-            if !data.is_null() {
-                SAVE_DIR.with(|cell| {
-                    if let Some(ref dir) = *cell.borrow() {
-                        unsafe {
-                            *(data as *mut *const std::ffi::c_char) = dir.as_ptr();
-                        }
-                        return true;
+        RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY
+            if !data.is_null() =>
+        {
+            SAVE_DIR.with(|cell| {
+                if let Some(ref dir) = *cell.borrow() {
+                    unsafe {
+                        *(data as *mut *const std::ffi::c_char) = dir.as_ptr();
                     }
-                    false
-                })
-            } else {
+                    return true;
+                }
                 false
-            }
+            })
         }
 
         // Track that the core supports no-game mode

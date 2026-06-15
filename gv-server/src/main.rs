@@ -182,12 +182,16 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         .payload
                                         .get("host_token")
                                         .and_then(|v| v.as_str());
+                                    let rom_path = cmd
+                                        .payload
+                                        .get("rom_path")
+                                        .and_then(|v| v.as_str());
                                     tracing::info!(
                                         "[POLL] start_game command {} (game: {})",
                                         cmd.id, game_id
                                     );
 
-                                    match worker::spawn_worker(game_id, worker_bin.as_deref(), host_token).await {
+                                    match worker::spawn_worker(game_id, worker_bin.as_deref(), host_token, rom_path).await {
                                         Ok(worker) => {
                                             let url = worker.url.clone();
                                             tracing::info!("[WORKER] spawned at {url}");
@@ -288,7 +292,7 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
 
                                         match client
                                             .http_client()
-                                            .post(&format!("{internal_url}/sdp"))
+                                            .post(format!("{internal_url}/sdp"))
                                             .json(&serde_json::json!({ "sdp": sdp }))
                                             .send()
                                             .await
@@ -444,8 +448,7 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                                 .relative_path
                                                 .rsplit('.')
                                                 .next()
-                                            {
-                                                if let Some(index) = crate::dat::load_for_extension(
+                                                && let Some(index) = crate::dat::load_for_extension(
                                                     ext,
                                                     &dirs::cache_dir()
                                                         .unwrap_or_default()
@@ -453,10 +456,9 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                                         .join("dat"),
                                                 )
                                                 .await
-                                                {
-                                                    *dat_lock = Some(index);
-                                                    break;
-                                                }
+                                            {
+                                                *dat_lock = Some(index);
+                                                break;
                                             }
                                         }
                                     }
@@ -534,10 +536,10 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
 fn internal_worker_url(public_url: &str) -> String {
     // Extract port from public URL like "http://192.168.86.126:3060"
     // and rewrite to "http://127.0.0.1:{port}"
-    if let Some(colon) = public_url.rfind(':') {
-        if let Ok(port) = public_url[colon + 1..].parse::<u16>() {
-            return format!("http://127.0.0.1:{port}");
-        }
+    if let Some(colon) = public_url.rfind(':')
+        && let Ok(port) = public_url[colon + 1..].parse::<u16>()
+    {
+        return format!("http://127.0.0.1:{port}");
     }
     // Fallback — shouldn't happen with well-formed worker URLs
     public_url.to_string()
