@@ -15,6 +15,63 @@ use std::path::PathBuf;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 
+// ── Core mapping ──────────────────────────────────────────────────────
+
+/// Map a DAT platform string to a libretro core filename.
+///
+/// These are the canonical RetroArch DAT platform names.  Unknown
+/// platforms return `None` — the worker falls back to test pattern.
+///
+/// Override via `GV_CORE_OVERRIDE_<platform>` env var, e.g.:
+///   GV_CORE_OVERRIDE_Nintendo_-_Game_Boy=my_gambatte.so
+fn core_for_platform(platform: &str) -> Option<String> {
+    // Check for a platform-specific override env var
+    let override_key = platform.replace(' ', "_").replace('-', "_");
+    let env_key = format!("GV_CORE_OVERRIDE_{override_key}");
+    if let Ok(custom) = std::env::var(&env_key) {
+        return Some(custom);
+    }
+
+    // Known platform → core mapping
+    match platform {
+        "Nintendo - Game Boy" => Some("gambatte_libretro.so".into()),
+        "Nintendo - Game Boy Color" => Some("gambatte_libretro.so".into()),
+        "Nintendo - Game Boy Advance" => Some("mgba_libretro.so".into()),
+        "Nintendo - Nintendo Entertainment System" => Some("nestopia_libretro.so".into()),
+        "Sega - Mega Drive - Genesis" => Some("genesis_plus_gx_libretro.so".into()),
+        "Sega - Master System - Mark III" => Some("genesis_plus_gx_libretro.so".into()),
+        "Sega - Game Gear" => Some("genesis_plus_gx_libretro.so".into()),
+        "Nintendo - Super Nintendo Entertainment System" => Some("snes9x_libretro.so".into()),
+        _ => {
+            tracing::debug!("[CORE] no mapping for platform: {platform}");
+            None
+        }
+    }
+}
+
+/// Resolve the full path to a core file.
+///
+/// Looks in `GV_CORES_DIR` (defaults to `./test-data/cores/` relative to
+/// the worker binary, or `./cores/` as fallback).
+fn resolve_core_path(core_filename: &str) -> PathBuf {
+    let cores_dir = std::env::var("GV_CORES_DIR").unwrap_or_else(|_| {
+        // Default: cores at workspace/test-data/cores/
+        // CARGO_MANIFEST_DIR = <workspace>/gv-server → pop to workspace root
+        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        p.pop(); // → <workspace>
+        p.push("test-data/cores");
+        if p.exists() {
+            return p.to_string_lossy().to_string();
+        }
+        // Fallback: <workspace>/cores/
+        p.pop();
+        p.pop();
+        p.push("cores");
+        p.to_string_lossy().to_string()
+    });
+    PathBuf::from(&cores_dir).join(core_filename)
+}
+
 // ── Constants (no magic values) ───────────────────────────────────────
 
 /// Auto-detect the gv-worker binary.
@@ -167,7 +224,17 @@ pub fn resolve_worker_bin(override_: Option<&str>) -> String {
 /// 1. This argument (from `config.toml` `gv_web.worker_bin`)
 /// 2. `GV_WORKER_BIN` env var
 /// 3. Auto-detect (`./target/release/gv-worker` → `./target/debug/gv-worker`)
-pub async fn spawn_worker(game_id: &str, worker_bin_override: Option<&str>, host_token: Option<&str>, content_path: Option<&str>) -> Result<SpawnedWorker> {
+///
+/// `platform` — DAT platform string (e.g. "Nintendo - Game Boy").
+/// Mapped to a core via `core_for_platform()` and passed as `GV_CORE_PATH`.
+/// If `None` or unrecognized, the worker falls back to test pattern.
+pub async fn spawn_worker(
+    game_id: &str,
+    worker_bin_override: Option<&str>,
+    host_token: Option<&str>,
+    content_path: Option<&str>,
+    platform: Option<&str>,
+) -> Result<SpawnedWorker> {
     let bin = resolve_worker_bin(worker_bin_override);
 
     // Pass port 0 — gv-worker binds a random available port and prints it
@@ -182,6 +249,18 @@ pub async fn spawn_worker(game_id: &str, worker_bin_override: Option<&str>, host
     // Forward ROM path so the worker loads the right game
     if let Some(path) = content_path {
         cmd.env("GV_CONTENT_PATH", path);
+    }
+
+    // Map platform to a libretro core and pass it to the worker
+    if let Some(plat) = platform {
+        if let Some(core_file) = core_for_platform(plat) {
+            let core_path = resolve_core_path(&core_file);
+            tracing::info!(
+                "[WORKER] platform={plat} → core={core_file} ({})",
+                core_path.display()
+            );
+            cmd.env("GV_CORE_PATH", core_path);
+        }
     }
 
     let mut child = cmd.spawn()
