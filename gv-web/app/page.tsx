@@ -8,7 +8,7 @@ import { eq } from "drizzle-orm";
 
 export default async function Home() {
   const session = await auth();
-  const games = listGames();
+  const games = await listGames();
 
   // Find the user's server (first server they're a member of)
   let serverId: string | null = null;
