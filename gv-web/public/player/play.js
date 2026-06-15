@@ -1,7 +1,7 @@
 // ── gv-player app — production player glue ───────────────────────────
 //
 // Imports GvPlayer and wires it to the production player page.
-// Handles save/load state commands, reconnect logic, and RTT polling.
+// Handles game start, save/load state commands, reconnect logic.
 //
 // Loaded from the Next.js player page via <script type="module">.
 // Exposes window.gvPlay with startPlayer(), saveState(), loadState().
@@ -12,23 +12,119 @@ import { GvPlayer, State } from "./index.js";
 
 const RECONNECT_DELAY_MS = 3_000;
 const MAX_RECONNECT_ATTEMPTS = 5;
+const GAME_START_POLL_MS = 500;
+const GAME_START_TIMEOUT_MS = 60_000;
+
+// ── startGame helper ────────────────────────────────────────────────
+
+/**
+ * Start a game via the signaling relay, wait for the worker to be ready.
+ *
+ * 1. POSTs start_game to /api/server/command
+ * 2. Polls /api/server/notify for worker_url
+ * 3. Returns when worker is ready
+ *
+ * @param {string} serverId
+ * @param {string} gameId
+ * @param {string} corePath — path to libretro core
+ * @param {object} [callbacks] — { onProgress(msg) }
+ * @returns {Promise<{workerToken: string, workerUrl: string}>}
+ */
+async function startGame(serverId, gameId, corePath, hostToken, callbacks) {
+  callbacks?.onProgress?.("Starting game…");
+
+  const cmdResp = await fetch("/api/server/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      server_id: serverId,
+      type: "start_game",
+      payload: {
+        game_id: gameId,
+        core_path: corePath,
+        host_token: hostToken,
+      },
+    }),
+  });
+
+  if (!cmdResp.ok) {
+    const errData = await cmdResp.json().catch(() => ({}));
+    throw new Error(
+      `start_game failed: HTTP ${cmdResp.status} — ${errData.error || "unknown"}`,
+    );
+  }
+
+  const cmdData = await cmdResp.json();
+  const workerToken = cmdData.worker_token;
+  if (!workerToken) {
+    throw new Error("start_game response missing worker_token");
+  }
+
+  callbacks?.onProgress?.("Waiting for worker…");
+
+  // Poll for worker URL
+  const start = Date.now();
+  while (Date.now() - start < GAME_START_TIMEOUT_MS) {
+    const resp = await fetch(
+      `/api/server/notify?server_id=${encodeURIComponent(serverId)}&worker_token=${encodeURIComponent(workerToken)}`,
+    );
+    if (!resp.ok) {
+      throw new Error(`Notify poll failed: HTTP ${resp.status}`);
+    }
+    const data = await resp.json();
+    if (data.worker_url) {
+      return { workerToken, workerUrl: data.worker_url };
+    }
+    await new Promise((r) => setTimeout(r, GAME_START_POLL_MS));
+  }
+  throw new Error("Timed out waiting for worker to start");
+}
 
 // ── startPlayer ─────────────────────────────────────────────────────
 
 /**
- * Create a GvPlayer, connect via relay, and wire callbacks.
+ * Start a game, create a GvPlayer, connect via relay, and wire callbacks.
  *
  * @param {HTMLVideoElement} video
  * @param {string} serverId
- * @param {string} workerToken
  * @param {string} gameId
+ * @param {string} corePath — path to libretro core for start_game
  * @param {object} callbacks
  * @returns {GvPlayer}
  */
-function startPlayer(video, serverId, workerToken, gameId, callbacks) {
+function startPlayer(video, serverId, gameId, corePath, callbacks) {
   let player = new GvPlayer(video);
   let reconnectAttempts = 0;
   let reconnectTimer = null;
+
+  // Generate a host token once — reused across reconnects so the
+  // worker recognizes the same host after a disconnect.
+  const hostToken = crypto.randomUUID();
+
+  const doConnect = async () => {
+    callbacks.onStateChange?.("connecting");
+
+    try {
+      // Auto-start the game first
+      await startGame(serverId, gameId, corePath, hostToken, callbacks);
+    } catch (err) {
+      callbacks.onError?.(err.message || String(err));
+      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        doReconnect();
+      }
+      return;
+    }
+
+    // Now connect via relay
+    try {
+      await player.connectViaRelay(serverId, gameId, hostToken);
+    } catch (err) {
+      callbacks.onError?.(err.message || String(err));
+      if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        doReconnect();
+      }
+    }
+  };
 
   const doReconnect = () => {
     reconnectAttempts++;
@@ -36,7 +132,7 @@ function startPlayer(video, serverId, workerToken, gameId, callbacks) {
       callbacks.onReconnecting?.(reconnectAttempts);
       reconnectTimer = setTimeout(() => {
         player.disconnect();
-        player = startPlayer(video, serverId, workerToken, gameId, callbacks);
+        player = startPlayer(video, serverId, gameId, corePath, callbacks);
       }, RECONNECT_DELAY_MS);
     } else {
       callbacks.onReconnectFailed?.();
@@ -62,12 +158,8 @@ function startPlayer(video, serverId, workerToken, gameId, callbacks) {
     callbacks.onSaveResult?.(slot, ok);
   };
 
-  player.connectViaRelay(serverId, workerToken, gameId).catch((err) => {
-    callbacks.onError?.(err.message || String(err));
-    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-      doReconnect();
-    }
-  });
+  // Start the connection flow
+  doConnect();
 
   return player;
 }

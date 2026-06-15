@@ -168,15 +168,14 @@ export class GvPlayer {
    * Connect through the signaling relay.
    *
    * 1. Creates peer connection + DataChannel + keyboard/gamepad
-   * 2. POSTs sdp_offer to /api/server/command
+   * 2. POSTs sdp_offer to /api/server/command (gets worker_token)
    * 3. Polls /api/server/notify for the worker's SDP answer
    * 4. Sets the remote description — WebRTC media flows directly
    *
    * @param {string} serverId   — server UUID
-   * @param {string} workerToken — worker token from command POST
    * @param {string} gameId     — game identifier
    */
-  async connectViaRelay(serverId, workerToken, gameId) {
+  async connectViaRelay(serverId, gameId, hostToken) {
     if (this._state !== State.IDLE) {
       this.disconnect();
     }
@@ -190,14 +189,14 @@ export class GvPlayer {
     const offer = await this._pc.createOffer();
     await this._pc.setLocalDescription(offer);
 
-    // POST sdp_offer command
+    // POST sdp_offer command — returns a worker_token we use to poll
     const cmdResp = await fetch("/api/server/command", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         server_id: serverId,
         type: "sdp_offer",
-        payload: { game_id: gameId, sdp: offer.sdp },
+        payload: { game_id: gameId, sdp: offer.sdp, host_token: hostToken },
       }),
     });
 
@@ -206,6 +205,12 @@ export class GvPlayer {
       throw new Error(
         `sdp_offer POST failed: HTTP ${cmdResp.status} — ${errData.error || "unknown"}`,
       );
+    }
+
+    const cmdData = await cmdResp.json();
+    const workerToken = cmdData.worker_token;
+    if (!workerToken) {
+      throw new Error("sdp_offer response missing worker_token");
     }
 
     // Poll for the worker's SDP answer
@@ -324,6 +329,11 @@ export class GvPlayer {
       } catch {
         console.debug("DataChannel non-JSON message:", msgEvent.data?.slice?.(0, 80) || msgEvent.data);
       }
+    };
+
+    // Flush any accumulated input state when the DataChannel opens
+    this._dc.onopen = () => {
+      if (this._sendMask) this._sendMask();
     };
 
     // ── Input ─────────────────────────────────────────────────
