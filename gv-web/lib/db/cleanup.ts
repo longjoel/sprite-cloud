@@ -38,6 +38,10 @@ let _started = false;
 
 export function startCleanup() {
   if (_started) return;
+
+  // Skip during Next.js build phase — no DB connection available.
+  if (process.env.NEXT_PHASE === "phase-production-build") return;
+
   _started = true;
 
   // Run once at startup
@@ -47,4 +51,5 @@ export function startCleanup() {
 }
 
 // Auto-start when the module is first imported (server startup).
+// Guarded above to skip during build.
 startCleanup();

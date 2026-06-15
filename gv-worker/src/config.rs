@@ -11,7 +11,7 @@
 /// Bitrate: 500 kbps VP8 (CBR)
 ///   Conservative default for 320×240 — high enough to avoid macroblocking
 ///   on fast motion, low enough for a real-time LAN stream.
-
+///
 /// Video frame width in pixels.
 pub const VIDEO_WIDTH: u32 = 320;
 
@@ -116,6 +116,7 @@ pub const TEST_TONE_AMPLITUDE: f64 = 16_384.0;
 /// In dev (no env var set), allows localhost and any LAN IP that
 /// gv-web might be accessed from — so the browser on a different
 /// machine can reach the worker without CORS blocking.
+#[allow(dead_code)]
 pub fn allowed_origins() -> Vec<String> {
     use local_ip_address::local_ip;
 
