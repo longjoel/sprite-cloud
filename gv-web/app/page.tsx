@@ -29,6 +29,9 @@ export default async function Home() {
         {session ? (
           <div style={styles.userInfo}>
             <span style={styles.userName}>{session.user?.name || session.user?.email || "User"}</span>
+            <a style={styles.link} href="/settings">
+              Settings
+            </a>
             <a style={styles.link} href="/api/auth/signout">
               Sign out
             </a>
