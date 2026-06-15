@@ -171,17 +171,15 @@ pub async fn spawn_worker(game_id: &str, worker_bin_override: Option<&str>, host
     let bin = resolve_worker_bin(worker_bin_override);
 
     // Pass port 0 — gv-worker binds a random available port and prints it
-    let mut child = Command::new(&bin)
-        .arg("0")
-        .stderr(std::process::Stdio::piped());
+    let mut cmd = Command::new(&bin);
+    cmd.arg("0").stderr(std::process::Stdio::piped());
 
     // Forward host token to the worker so it knows who's in charge
     if let Some(token) = host_token {
-        child.env("GV_HOST_TOKEN", token);
+        cmd.env("GV_HOST_TOKEN", token);
     }
 
-    let mut child = child
-        .spawn()
+    let mut child = cmd.spawn()
         .with_context(|| format!("spawn gv-worker at {bin}"))?;
 
     // Write PID file immediately so it exists even if we crash during port read
