@@ -11,6 +11,7 @@ fn save_and_load_roundtrip() {
             api_key: "gvsk_test_key_12345".into(),
             server_id: "svr_test".into(),
         },
+        rom: None,
     };
 
     let content = toml::to_string_pretty(&cfg).unwrap();
