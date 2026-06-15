@@ -466,7 +466,7 @@ pub async fn spawn_worker(
                 loop {
                     match reader.next_line().await {
                         Ok(Some(line)) => {
-                            tracing::debug!("[WORKER] {line}");
+                            tracing::info!("[WORKER] {line}");
                             lines_seen.lock().unwrap().push(line.clone());
                             if let Some(rest) = line.strip_prefix("WORKER_READY port=") {
                                 return rest.trim().parse().ok();
@@ -506,7 +506,7 @@ pub async fn spawn_worker(
     // Spawn a background task to keep reading stderr (so child doesn't block)
     tokio::spawn(async move {
         while let Ok(Some(line)) = reader.next_line().await {
-            tracing::debug!("[WORKER] {line}");
+            tracing::info!("[WORKER] {line}");
         }
     });
 

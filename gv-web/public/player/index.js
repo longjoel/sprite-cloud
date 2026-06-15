@@ -38,14 +38,18 @@ export const State = Object.freeze({
 // ── GvPlayer ──────────────────────────────────────────────────────────
 
 export class GvPlayer {
-  /** @param {HTMLVideoElement} video — must be a <video> element */
-  constructor(video) {
+  /** @param {HTMLVideoElement} video — must be a <video> element
+   *  @param {{ iceServers?: Array<{urls: string|string[], username?: string, credential?: string}> }} [options] */
+  constructor(video, options) {
     if (!video || !video.tagName || video.tagName !== "VIDEO") {
       throw new TypeError("GvPlayer requires a <video> element");
     }
     this._video = video;
     this._video.autoplay = true;
     this._video.playsinline = true;
+
+    /** @type {Array<{urls: string|string[], username?: string, credential?: string}>} */
+    this._iceServers = (options && options.iceServers) || [{ urls: STUN_SERVER }];
 
     /** @type {RTCPeerConnection | null} */
     this._pc = null;
@@ -96,6 +100,11 @@ export class GvPlayer {
     this._gamepadState = 0;
     /** @private @type {number | null} rAF handle for gamepad poll */
     this._gamepadRAF = null;
+
+    /** @private @type {boolean} play deferred until user gesture (Safari iOS) */
+    this._playbackDeferred = false;
+    /** @private @type {Function | null} bound gesture handler */
+    this._gestureHandler = null;
   }
 
   /** Current connection state (one of State.*). */
@@ -269,7 +278,7 @@ export class GvPlayer {
    */
   _createPeerConnection() {
     this._pc = new RTCPeerConnection({
-      iceServers: [{ urls: STUN_SERVER }],
+      iceServers: this._iceServers,
     });
 
     this._pc.oniceconnectionstatechange = () => {
@@ -307,12 +316,18 @@ export class GvPlayer {
         this._video.srcObject = this._mediaStream;
       }
       this._mediaStream.addTrack(event.track);
-      // Mobile requires explicit play() call; start muted then unmute
+
+      // Defer play until a user gesture (required by Safari iOS).
+      // On desktop, play() succeeds immediately; on iOS it fails
+      // and the gesture handler picks it up.
+      this._playbackDeferred = true;
       this._video.play().then(() => {
         this._video.muted = false;
+        this._playbackDeferred = false;
       }).catch((e) => {
-        console.debug("play() blocked:", e.message || e);
+        console.debug("play() deferred — waiting for user gesture:", e.message || e);
       });
+
       if (this.onTrack) {
         try { this.onTrack(event.track); } catch { /* safety */ }
       }
@@ -349,6 +364,29 @@ export class GvPlayer {
     this._setupKeyboardInput();
     this._setupGamepadInput();
 
+    // ── Safari iOS deferred play ──────────────────────────────
+    const deferredPlay = () => {
+      if (!this._playbackDeferred) return;
+      this._playbackDeferred = false;
+      this._video.play().then(() => {
+        this._video.muted = false;
+      }).catch((e) => {
+        console.debug("deferred play() still blocked:", e.message || e);
+      });
+      // Remove the gesture listener after first successful trigger
+      if (this._gestureHandler) {
+        document.removeEventListener("pointerdown", this._gestureHandler, true);
+        document.removeEventListener("touchstart", this._gestureHandler, true);
+        document.removeEventListener("keydown", this._gestureHandler, true);
+        this._gestureHandler = null;
+      }
+    };
+    // Capture phase so we catch events even on child elements
+    this._gestureHandler = deferredPlay;
+    document.addEventListener("pointerdown", deferredPlay, true);
+    document.addEventListener("touchstart", deferredPlay, true);
+    document.addEventListener("keydown", deferredPlay, true);
+
     // ── RTT ping interval ────────────────────────────────────
     this._startPingInterval();
   }
@@ -368,6 +406,14 @@ export class GvPlayer {
     this._stopPingInterval();
     this._removeKeyboardInput();
     this._removeGamepadInput();
+    // Remove Safari iOS deferred-play gesture listener
+    if (this._gestureHandler) {
+      document.removeEventListener("pointerdown", this._gestureHandler, true);
+      document.removeEventListener("touchstart", this._gestureHandler, true);
+      document.removeEventListener("keydown", this._gestureHandler, true);
+      this._gestureHandler = null;
+    }
+    this._playbackDeferred = false;
     if (this._dc) {
       this._dc.close();
       this._dc = null;
@@ -507,10 +553,14 @@ export class GvPlayer {
     this._inputState = 0;
 
     const sendMask = () => {
-      if (!this._dc || this._dc.readyState !== "open") return;
+      if (!this._dc || this._dc.readyState !== "open") {
+        console.debug("[INPUT] sendMask skipped — dc readyState=%s", this._dc?.readyState ?? "null");
+        return;
+      }
       try {
         const s = this._inputState;
         this._dc.send(new Uint8Array([0, s & 0xFF, s >> 8]).buffer);
+        console.debug("[INPUT] sent mask port=0 state=0x%s", s.toString(16).padStart(4, "0"));
       } catch { /* channel closing */ }
     };
     // Expose sendMask so gamepad can reuse the same DataChannel sender
@@ -525,6 +575,10 @@ export class GvPlayer {
       } else {
         this._inputState &= ~(1 << bit);
       }
+      console.debug("[INPUT] key=%s type=%s bit=%d state=0x%s dc=%s",
+        e.key, e.type, bit,
+        this._inputState.toString(16).padStart(4, "0"),
+        this._dc?.readyState ?? "none");
       sendMask();
     };
 

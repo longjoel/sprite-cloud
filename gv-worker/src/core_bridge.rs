@@ -25,6 +25,8 @@ pub struct CoreFrame {
     pub width: u32,
     #[allow(dead_code)]
     pub height: u32,
+    /// Interleaved stereo i16 PCM audio samples for this frame.
+    pub audio: Vec<i16>,
 }
 
 /// Commands sent from the streaming task to the core thread.
@@ -46,6 +48,7 @@ pub enum CoreResponse {
 pub struct CoreHandle {
     pub width: u32,
     pub height: u32,
+    pub sample_rate: f64,
     pub frame_rx: Receiver<CoreFrame>,
     pub cmd_tx: SyncSender<CoreCommand>,
     pub response_rx: Receiver<CoreResponse>,
@@ -92,6 +95,7 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
     let width = core.av_info.base_width;
     let height = core.av_info.base_height;
     let fps = core.av_info.fps;
+    let sample_rate = core.av_info.sample_rate;
     let frame_interval = Duration::from_secs_f64(1.0 / fps);
 
     tracing::info!(
@@ -137,7 +141,11 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
     let (response_tx, response_rx) = mpsc::sync_channel::<CoreResponse>(4);
 
     std::thread::spawn(move || {
+        let mut frame_num: u64 = 0;
         loop {
+            // Snapshot time at loop entry for frame pacing
+            let next_tick_start = std::time::Instant::now();
+
             // Drain pending input commands
             while let Ok(cmd) = cmd_rx.try_recv() {
                 match cmd {
@@ -145,6 +153,7 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
                         core.set_joypad(port, button, pressed);
                     }
                     CoreCommand::SetInput { port, state } => {
+                        tracing::info!("[CORE] SetInput port={} state=0x{:04X}", port, state);
                         core.set_input(port, state);
                     }
                     CoreCommand::SaveState { slot } => {
@@ -158,23 +167,68 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
 
             if let Err(e) = core.run_frame() {
                 tracing::error!("[CORE] run_frame failed: {} — exiting core thread", e);
+                // Send sentinel None so the streaming loop knows we died
+                let _ = frame_tx.send(CoreFrame {
+                    pixels: Vec::new(),
+                    width: 0,
+                    height: 0,
+                    audio: Vec::new(),
+                });
                 break;
             }
 
             if let Some(frame_data) = core.frame() {
+                let audio = core.drain_audio();
                 let frame = CoreFrame {
                     pixels: frame_data.to_vec(),
                     width: core.frame_size().0,
                     height: core.frame_size().1,
+                    audio,
                 };
                 if frame_tx.send(frame).is_err() {
                     break;
                 }
             }
 
-            let next_tick = std::time::Instant::now() + frame_interval;
-            while std::time::Instant::now() < next_tick {
-                std::thread::sleep(Duration::from_millis(1));
+            frame_num = frame_num.wrapping_add(1);
+
+            // Pace the core to its native frame rate.
+            // Measure how long run + drain took, then sleep the remainder.
+            let elapsed = next_tick_start.elapsed();
+            if let Some(remaining) = frame_interval.checked_sub(elapsed) {
+                if !remaining.is_zero() {
+                    std::thread::sleep(remaining);
+                }
+            } else if frame_num > 0 && frame_num.is_multiple_of(300) {
+                // Only log periodically — a single slow frame is normal
+                // (e.g. GC pause, OS scheduler). Log every ~5s at 60fps.
+                tracing::warn!(
+                    "[CORE] Frame {} took {:?} (target {:?}) — falling behind",
+                    frame_num, elapsed, frame_interval,
+                );
+            }
+
+            // Periodic SRAM flush: write battery saves every 30s
+            // so a process kill doesn't lose hours of progress.
+            if frame_num > 0 && frame_num.is_multiple_of(1800) {
+                if let Some(ref hash) = rom_hash {
+                    if let Some(sram_data) = core.sram() {
+                        if !sram_data.is_empty() {
+                            let path = saves::sram_path(hash);
+                            match saves::write_atomic(&path, &sram_data) {
+                                Ok(()) => tracing::info!(
+                                    "[CORE] Periodic SRAM flush to {} ({} bytes)",
+                                    path.display(),
+                                    sram_data.len(),
+                                ),
+                                Err(e) => tracing::warn!(
+                                    "[CORE] Periodic SRAM flush failed: {}",
+                                    e,
+                                ),
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -204,6 +258,7 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
     Some(CoreHandle {
         width,
         height,
+        sample_rate,
         frame_rx,
         cmd_tx,
         response_rx,

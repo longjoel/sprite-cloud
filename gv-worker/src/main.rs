@@ -2,8 +2,8 @@ mod config;
 mod core_bridge;
 mod saves;
 mod test_pattern;
-mod test_tone;
 mod vp8_encoder;
+mod audio_pipeline;
 
 use axum::{
     extract::{Query, State},
@@ -13,12 +13,13 @@ use axum::{
 };
 use core_bridge::CoreCommand;
 use config::{
-    AUDIO_CHANNELS, AUDIO_RTP_TIMESTAMP_INCREMENT, AUDIO_SAMPLE_RATE,
-    AUDIO_TRACK_ID, DC_RECEIVE_TIMEOUT_SECS, DIAG_LOG_INTERVAL, FRAME_INTERVAL_MS,
-    ICE_GATHERING_TIMEOUT_SECS, OPUS_MAX_FRAME_BYTES, OPUS_SDP_FMTP,
-    PATTERN_BARS, PATTERN_SQUARE, RTP_TIMESTAMP_INCREMENT, STATS_SEND_INTERVAL,
-    STREAM_ID, TRACK_ID, VIDEO_HEIGHT, VIDEO_WIDTH, VP8_CLOCK_RATE,
-    stun_server,
+    AUDIO_CHANNELS, AUDIO_SAMPLE_RATE, AUDIO_TRACK_ID,
+    DC_RECEIVE_TIMEOUT_SECS, DIAG_LOG_INTERVAL,
+    ICE_GATHERING_TIMEOUT_SECS, OPUS_SDP_FMTP,
+    PATTERN_BARS, PATTERN_SQUARE, RTP_TIMESTAMP_INCREMENT,
+    STATS_SEND_INTERVAL, STREAM_ID, TRACK_ID,
+    VIDEO_HEIGHT, VIDEO_WIDTH, VP8_CLOCK_RATE,
+    frame_interval, stun_server,
 };
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
@@ -27,6 +28,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
+// CORS layer for browser access (dev: permissive, prod: configure ALLOWED_ORIGIN)
+use tower_http::cors::CorsLayer;
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_VP8};
 use webrtc::api::APIBuilder;
@@ -38,6 +41,7 @@ use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
 use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSample;
 use webrtc::track::track_local::TrackLocal;
+use crate::audio_pipeline::AudioPipeline;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -215,12 +219,12 @@ async fn do_webrtc_handshake(
     );
 
     // ---- Load libretro core (or fall back to test pattern) ----//
-    let (enc_width, enc_height, core_frame_rx, core_cmd_tx, core_response_rx) =
+    let (enc_width, enc_height, core_frame_rx, core_cmd_tx, core_response_rx, core_sample_rate) =
         match core_bridge::spawn_core_thread() {
             Some(handle) => {
                 tracing::info!(
-                    "[STREAM] Using libretro core at {}×{}",
-                    handle.width, handle.height
+                    "[STREAM] Using libretro core at {}×{} @ {:.0}Hz",
+                    handle.width, handle.height, handle.sample_rate
                 );
                 (
                     handle.width,
@@ -228,6 +232,7 @@ async fn do_webrtc_handshake(
                     Some(handle.frame_rx),
                     Some(handle.cmd_tx),
                     Some(handle.response_rx),
+                    Some(handle.sample_rate),
                 )
             }
             None => {
@@ -235,7 +240,7 @@ async fn do_webrtc_handshake(
                     "[STREAM] Core not available — using test pattern at {}×{}",
                     VIDEO_WIDTH, VIDEO_HEIGHT
                 );
-                (VIDEO_WIDTH, VIDEO_HEIGHT, None, None, None)
+                (VIDEO_WIDTH, VIDEO_HEIGHT, None, None, None, None)
             }
         };
 
@@ -245,6 +250,20 @@ async fn do_webrtc_handshake(
             vp8_encoder::Vp8Encoder::new(enc_width, enc_height)
                 .map_err(|e| format!("create VP8 encoder: {}", e))?,
         ));
+
+    // Create audio pipeline if we have a core sample rate
+    let audio_pipeline: Arc<tokio::sync::Mutex<Option<AudioPipeline>>> =
+        Arc::new(tokio::sync::Mutex::new(match core_sample_rate {
+            Some(rate) => match AudioPipeline::new(rate) {
+                Ok(p) => Some(p),
+                Err(e) => {
+                    tracing::error!("[AUDIO] Failed to create pipeline: {} — audio disabled", e);
+                    None
+                }
+            },
+            None => None,
+        }));
+
     let force_keyframe = Arc::new(AtomicBool::new(false));
     let pattern = Arc::new(AtomicU8::new(PATTERN_SQUARE));
 
@@ -420,8 +439,19 @@ async fn do_webrtc_handshake(
                         if msg.data.len() == 3 {
                             let port = msg.data[0] as u32;
                             let state = u16::from_le_bytes([msg.data[1], msg.data[2]]);
+                            tracing::info!(
+                                "[DC] binary input: port={} state=0x{:04X} ({})",
+                                port, state,
+                                if state != 0 { "pressed" } else { "released" }
+                            );
                             let _ = core_tx.as_ref().map(|tx| {
-                                tx.try_send(CoreCommand::SetInput { port, state })
+                                match tx.try_send(CoreCommand::SetInput { port, state }) {
+                                    Ok(()) => tracing::info!("[DC] SetInput queued OK"),
+                                    Err(std::sync::mpsc::TrySendError::Full(_)) =>
+                                        tracing::warn!("[DC] SetInput dropped — core cmd channel full"),
+                                    Err(std::sync::mpsc::TrySendError::Disconnected(_)) =>
+                                        tracing::warn!("[DC] SetInput dropped — core cmd channel disconnected"),
+                                }
                             });
                             return;
                         }
@@ -595,7 +625,9 @@ async fn do_webrtc_handshake(
                     }
                 };
                 if let Some(dc) = dc_for_responses.lock().await.as_ref() {
-                    let _ = dc.send_text(&json.to_string()).await;
+                    if let Err(e) = dc.send_text(&json.to_string()).await {
+                        tracing::warn!("[DC] Failed to send response to browser: {}", e);
+                    }
                 }
             }
         });
@@ -615,6 +647,7 @@ async fn do_webrtc_handshake(
     let state_clone = Arc::clone(&state);
     let audio_track_clone = Arc::clone(&audio_track);
     let stream_encoder = encoder_mutex.clone();
+    let stream_audio = audio_pipeline.clone();
     let stream_force_kf = force_keyframe.clone();
     let stream_pattern = pattern.clone();
     let stream_dc = dc_stream_for_loop.clone();
@@ -622,16 +655,21 @@ async fn do_webrtc_handshake(
     let stream_core_cmd = core_cmd_tx;
 
     // Watch for peer disconnection — if the browser leaves, kill the stream.
+    // Only cancel on terminal states (Failed, Closed). "Disconnected" is
+    // transient — ICE will attempt to reconnect and the DataChannel may
+    // still deliver messages (e.g. keyboard input).
     peer_connection.on_peer_connection_state_change(Box::new(
         move |s: RTCPeerConnectionState| {
             let cancel = disconnect_cancel.clone();
             Box::pin(async move {
                 match s {
-                    RTCPeerConnectionState::Disconnected
-                    | RTCPeerConnectionState::Failed
+                    RTCPeerConnectionState::Failed
                     | RTCPeerConnectionState::Closed => {
                         tracing::info!("[STREAM] Peer {} — cancelling stream", s);
                         cancel.cancel();
+                    }
+                    RTCPeerConnectionState::Disconnected => {
+                        tracing::info!("[STREAM] Peer Disconnected — waiting for reconnect or timeout");
                     }
                     _ => {}
                 }
@@ -648,6 +686,7 @@ async fn do_webrtc_handshake(
             peer_connection: peer_connection_clone,
             app_state: state_clone,
             encoder_mutex: stream_encoder,
+            audio_pipeline: stream_audio,
             force_keyframe: stream_force_kf,
             pattern: stream_pattern,
             core_frame_rx: stream_core_rx,
@@ -679,11 +718,13 @@ async fn do_webrtc_handshake(
 struct StreamCtx {
     track: Arc<TrackLocalStaticSample>,
     audio_track: Arc<TrackLocalStaticSample>,
+    #[allow(dead_code)] // stats send disabled due to SCTP ErrChunk
     dc_stream: Arc<tokio::sync::Mutex<Option<Arc<webrtc::data_channel::RTCDataChannel>>>>,
     cancel: CancellationToken,
     peer_connection: Arc<RTCPeerConnection>,
     app_state: Arc<AppState>,
     encoder_mutex: Arc<std::sync::Mutex<vp8_encoder::Vp8Encoder>>,
+    audio_pipeline: Arc<tokio::sync::Mutex<Option<AudioPipeline>>>,
     force_keyframe: Arc<AtomicBool>,
     pattern: Arc<AtomicU8>,
     core_frame_rx: Option<std::sync::mpsc::Receiver<core_bridge::CoreFrame>>,
@@ -695,20 +736,9 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
     use std::time::Duration;
     use webrtc::media::Sample;
 
-    let mut opus_encoder = match opus::Encoder::new(
-        AUDIO_SAMPLE_RATE,
-        opus::Channels::Mono,
-        opus::Application::Audio,
-    ) {
-        Ok(e) => e,
-        Err(e) => {
-            tracing::error!("[STREAM] Failed to create Opus encoder: {}", e);
-            return;
-        }
-    };
-
     let mut frame_num: u64 = 0;
-    let frame_interval = Duration::from_millis(FRAME_INTERVAL_MS);
+    let mut audio_frame_num: u64 = 0;
+    let frame_interval = frame_interval();
 
     // Cumulative counters for pipeline health
     let mut video_drops: u64 = 0;
@@ -721,10 +751,13 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
     let mut tick = tokio::time::interval(frame_interval);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
+    let (log_w, log_h) = match ctx.encoder_mutex.lock() {
+        Ok(ref enc) => (enc.width(), enc.height()),
+        Err(_) => (0, 0),
+    };
     tracing::info!(
         "[STREAM] Starting VP8 frame loop ({}×{} @ {}fps, {}kbps)",
-        VIDEO_WIDTH,
-        VIDEO_HEIGHT,
+        log_w, log_h,
         crate::config::VIDEO_FPS,
         crate::config::target_bitrate_kbps()
     );
@@ -746,22 +779,40 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
                 }
 
                 // ---- Generate frame (core or test pattern) ----
-                let pixels = if let Some(ref rx) = ctx.core_frame_rx {
+                let mut pixels = Vec::new();
+                let mut audio = Vec::new();
+                let mut sentinel = false;
+
+                if let Some(ref rx) = ctx.core_frame_rx {
                     // Drain any backlog — only keep the latest frame
                     let mut latest = None;
                     while let Ok(f) = rx.try_recv() {
                         latest = Some(f);
                     }
                     match latest {
-                        Some(f) => f.pixels,
+                        Some(f) if f.width == 0 => {
+                            // Core sentinel — frame with width=0 means core died
+                            tracing::error!("[STREAM] Core sent empty sentinel frame — core thread died, stopping stream");
+                            sentinel = true;
+                        }
+                        Some(f) => {
+                            pixels = f.pixels;
+                            audio = f.audio;
+                        }
                         None => continue, // no frame available yet, skip this tick
                     }
                 } else {
-                    // Fall back to test pattern
-                    match ctx.pattern.load(Ordering::Relaxed) {
+                    // Fall back to test pattern (no audio)
+                    let p = match ctx.pattern.load(Ordering::Relaxed) {
                         PATTERN_BARS => test_pattern::generate_color_bars(VIDEO_WIDTH, VIDEO_HEIGHT, frame_num),
                         _ => test_pattern::generate_bouncing_square(VIDEO_WIDTH, VIDEO_HEIGHT, frame_num),
-                    }
+                    };
+                    pixels = p;
+                    audio = Vec::new();
+                }
+
+                if sentinel {
+                    break;
                 };
                 frame_num = frame_num.wrapping_add(1);
 
@@ -796,34 +847,57 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
                             break;
                         }
 
-                        // ---- Encode audio ---- (before stats so we can include audio timing)
-                        let tone = test_tone::generate_tone(frame_num);
+                        // ---- Encode audio via AudioPipeline ----
                         let audio_encode_start = std::time::Instant::now();
                         let mut audio_bytes: usize = 0;
                         let mut audio_encode_us: u64 = 0;
-                        match opus_encoder.encode_vec(&tone, OPUS_MAX_FRAME_BYTES) {
-                            Ok(opus_data) => {
-                                audio_encode_us = audio_encode_start.elapsed().as_micros() as u64;
-                                audio_bytes = opus_data.len();
-                                let audio_sample = Sample {
-                                    data: opus_data.into(),
-                                    duration: frame_interval,
-                                    packet_timestamp: (frame_num as u32).wrapping_mul(AUDIO_RTP_TIMESTAMP_INCREMENT),
-                                    ..Default::default()
-                                };
-                                if let Err(e) = ctx.audio_track.write_sample(&audio_sample).await {
-                                    tracing::error!("[STREAM] Audio write error at frame {}: {}", frame_num, e);
-                                    audio_write_errs = audio_write_errs.wrapping_add(1);
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!("[STREAM] Opus encode error at frame {}: {}", frame_num, e);
-                            }
+                        let mut audio_frames_sent: u64 = 0;
+
+                        if !audio.is_empty() {
+                            let mut pipeline = ctx.audio_pipeline.lock().await;
+                            if let Some(ref mut p) = *pipeline {
+                                        p.push(&audio);
+
+                                        // Drain all ready Opus frames
+                                        loop {
+                                            match p.try_encode() {
+                                                Ok(Some(packet)) => {
+                                                    audio_encode_us = audio_encode_start.elapsed().as_micros() as u64;
+                                                    audio_bytes += packet.data.len();
+                                                    audio_frames_sent += 1;
+
+                                                    // RTP timestamp: 960 samples per Opus frame
+                                                    let ts = (audio_frame_num as u32).wrapping_mul(960);
+                                                    audio_frame_num = audio_frame_num.wrapping_add(1);
+
+                                                    let audio_sample = Sample {
+                                                        data: packet.data.into(),
+                                                        duration: Duration::from_millis(20),
+                                                        packet_timestamp: ts,
+                                                        ..Default::default()
+                                                    };
+                                                    if let Err(e) = ctx.audio_track.write_sample(&audio_sample).await {
+                                                        tracing::error!("[STREAM] Audio write error at frame {}: {}", frame_num, e);
+                                                        audio_write_errs = audio_write_errs.wrapping_add(1);
+                                                    }
+                                                }
+                                                Ok(None) => break, // no more complete frames
+                                                Err(e) => {
+                                                    tracing::error!("[AUDIO] Pipeline encode error: {}", e);
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                        }
+
+                        if frame_num <= 3 && audio_frames_sent == 0 && audio.is_empty() {
+                            tracing::info!("[AUDIO] frame {}: no audio samples from core", frame_num);
                         }
 
                         // ---- Send per-frame stats over DataChannel ----
                         if frame_num.is_multiple_of(STATS_SEND_INTERVAL) {
-                            if let Ok(stats) = serde_json::to_string(&serde_json::json!({
+                            if let Ok(_stats) = serde_json::to_string(&serde_json::json!({
                                 "type": "stats",
                                 "frame": frame_num,
                                 "video": {
@@ -841,11 +915,15 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
                                     "uptime_sec": start_instant.elapsed().as_secs()
                                 }
                             })) {
+                                // FIXME: Stats send may trigger SCTP ErrChunk when mixed with binary input.
+                                // Disabled temporarily to isolate DataChannel input issues.
+                                /*
                                 if let Some(dc) = ctx.dc_stream.lock().await.as_ref() {
                                     if let Err(e) = dc.send_text(stats).await {
                                         tracing::warn!("[STREAM] DC stats send failed: {}", e);
                                     }
                                 }
+                                */
                             }
                         }
                     }
@@ -903,7 +981,7 @@ fn build_index_html() -> String {
 <title>Games Vault — Test Pattern</title>
 <style>
   body {{ background:#111; display:flex; flex-direction:column; align-items:center; height:100vh; margin:0; color:#ccc; font:14px monospace }}
-  video, canvas {{ image-rendering:pixelated; border:1px solid #333; max-width:100vw; max-height:80vh }}
+  video, canvas {{ image-rendering:pixelated; border:1px solid #333; max-width:100vw; max-height:80vh; object-fit:contain }}
   .log {{ margin-top:8px; font-size:12px; opacity:0.7; max-width:640px; width:100%; overflow-y:auto; max-height:30vh }}
   button {{ margin:4px; padding:4px 12px; background:#333; color:#ccc; border:1px solid #555; cursor:pointer }}
   button:hover {{ background:#444 }}
@@ -975,18 +1053,33 @@ async function testWebrtc() {{
   dc.onopen = () => log("DC open — keyboard input active");
   dc.onclose = () => log("DC closed");
 
-  const sendKey = (key, pressed) => {{
+  // RetroArch binary mask (same bit layout as gv-player)
+  const BIT_MAP = {{
+    ArrowUp:4,ArrowDown:5,ArrowLeft:6,ArrowRight:7,
+    w:4,a:6,s:5,d:7, e:2, q:3, z:0, x:8,
+    Enter:3,' ':3
+  }};
+  let inputState = 0;
+  const sendMask = () => {{
     if (dc.readyState === "open") {{
-      dc.send(JSON.stringify({{ cmd: "input", key, pressed, port: 0 }}));
+      dc.send(new Uint8Array([0, inputState & 0xFF, inputState >> 8]).buffer);
     }}
   }};
-
   document.addEventListener("keydown", (e) => {{
     if (e.target.tagName === "BUTTON") return;
-    if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Enter"," "].includes(e.key)) e.preventDefault();
-    sendKey(e.key, true);
+    const bit = BIT_MAP[e.key];
+    if (bit === undefined) return;
+    e.preventDefault();
+    inputState |= (1 << bit);
+    sendMask();
   }});
-  document.addEventListener("keyup", (e) => sendKey(e.key, false));
+  document.addEventListener("keyup", (e) => {{
+    const bit = BIT_MAP[e.key];
+    if (bit === undefined) return;
+    inputState &= ~(1 << bit);
+    sendMask();
+  }});
+  window.addEventListener("blur", () => {{ inputState = 0; sendMask(); }});
   log("Keyboard listeners active — WASD/arrows to play, Z/X for A/B");
 
   pc.oniceconnectionstatechange = () => {{
@@ -995,12 +1088,16 @@ async function testWebrtc() {{
   pc.onconnectionstatechange = () => {{
     log("Connection state: " + pc.connectionState);
   }};
+  let mediaStream = null;
   pc.ontrack = (e) => {{
     log("Got remote track: " + e.track.kind);
-    video.srcObject = new MediaStream([e.track]);
+    if (!mediaStream) {{ mediaStream = new MediaStream(); video.srcObject = mediaStream; }}
+    mediaStream.addTrack(e.track);
   }};
 
   pc.addTransceiver("video", {{ direction: "recvonly" }});
+  pc.addTransceiver("audio", {{ direction: "recvonly" }});
+  log("Transceivers added: video + audio");
 
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
@@ -1079,6 +1176,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/state", get(handle_connection_state))
         .route("/test-frame", get(handle_test_frame))
         .route("/health", get(handle_health))
+        .layer(CorsLayer::permissive())
         .with_state(state);
 
     // Bind to loopback by default — gv-worker is internal-only.
