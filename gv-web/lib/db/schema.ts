@@ -1,4 +1,4 @@
-import { jsonb, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { jsonb, pgTable, text, timestamp, unique, uuid, integer, bigint, index } from "drizzle-orm/pg-core";
 
 // ── Users (created via OAuth) ────────────────────────────────────────
 
@@ -118,5 +118,41 @@ export const serverRomRoots = pgTable(
       table.serverId,
       table.path,
     ),
+  }),
+);
+
+// ── Games (library entries) ─────────────────────────────────────────
+
+export const games = pgTable("games", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  platform: text("platform").notNull(),
+  maxPlayers: integer("max_players").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// ── Game files (ROM paths per server) ────────────────────────────────
+
+export const gameFiles = pgTable(
+  "game_files",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    gameId: uuid("game_id")
+      .references(() => games.id)
+      .notNull(),
+    serverId: uuid("server_id")
+      .references(() => servers.id)
+      .notNull(),
+    romPath: text("rom_path").notNull(),
+    fileName: text("file_name").notNull(),
+    fileSize: bigint("file_size", { mode: "number" }),
+    fileHash: text("file_hash"),
+    discoveredAt: timestamp("discovered_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    unq: unique("game_files_server_path").on(table.serverId, table.romPath),
+    idxGame: index("idx_game_files_game").on(table.gameId),
+    idxServer: index("idx_game_files_server").on(table.serverId),
   }),
 );
