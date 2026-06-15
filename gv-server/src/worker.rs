@@ -34,6 +34,7 @@ fn core_for_platform(platform: &str) -> Option<String> {
 
     // Known platform → core mapping
     match platform {
+        // Full RetroArch DAT names
         "Nintendo - Game Boy" => Some("gambatte_libretro.so".into()),
         "Nintendo - Game Boy Color" => Some("gambatte_libretro.so".into()),
         "Nintendo - Game Boy Advance" => Some("mgba_libretro.so".into()),
@@ -42,6 +43,16 @@ fn core_for_platform(platform: &str) -> Option<String> {
         "Sega - Master System - Mark III" => Some("genesis_plus_gx_libretro.so".into()),
         "Sega - Game Gear" => Some("genesis_plus_gx_libretro.so".into()),
         "Nintendo - Super Nintendo Entertainment System" => Some("snes9x_libretro.so".into()),
+
+        // Short names (from EXTENSION_MAP / directory fallback)
+        "Game Boy" => Some("gambatte_libretro.so".into()),
+        "Game Boy Color" => Some("gambatte_libretro.so".into()),
+        "Game Boy Advance" => Some("mgba_libretro.so".into()),
+        "NES" => Some("nestopia_libretro.so".into()),
+        "SNES" => Some("snes9x_libretro.so".into()),
+        "Genesis" => Some("genesis_plus_gx_libretro.so".into()),
+        "Nintendo 64" => Some("mupen64plus_next_libretro.so".into()),
+
         _ => {
             tracing::debug!("[CORE] no mapping for platform: {platform}");
             None

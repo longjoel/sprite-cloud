@@ -56,12 +56,17 @@ const GAME_START_TIMEOUT_MS = 60_000;
  *
  * @param {string} serverId
  * @param {string} gameId
- * @param {string} corePath — path to libretro core
+ * @param {string} [corePath] — unused (core resolved server-side), kept for compat
  * @param {object} [callbacks] — { onProgress(msg) }
  * @returns {Promise<{workerToken: string, workerUrl: string}>}
  */
 async function startGame(serverId, gameId, corePath, hostToken, callbacks) {
   callbacks?.onProgress?.("Starting game…");
+
+  const payload = {
+    game_id: gameId,
+    host_token: hostToken,
+  };
 
   const cmdResp = await fetch("/api/server/command", {
     method: "POST",
@@ -69,11 +74,7 @@ async function startGame(serverId, gameId, corePath, hostToken, callbacks) {
     body: JSON.stringify({
       server_id: serverId,
       type: "start_game",
-      payload: {
-        game_id: gameId,
-        core_path: corePath,
-        host_token: hostToken,
-      },
+      payload,
     }),
   });
 

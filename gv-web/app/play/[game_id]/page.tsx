@@ -22,7 +22,7 @@ interface GvPlay {
     video: HTMLVideoElement,
     serverId: string,
     gameId: string,
-    corePath: string,
+    corePath: string | null,
     callbacks: PlayerCallbacks,
   ) => any;
   saveState: (player: any, slot: number) => boolean;
@@ -54,7 +54,6 @@ export default function PlayPage() {
 
   const gameId = routeParams.game_id;
   const serverId = searchParams.get("server_id") ?? "";
-  const corePath = searchParams.get("core_path") ?? `test-data/cores/${gameId}_libretro.so`;
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<any>(null);
@@ -112,7 +111,7 @@ export default function PlayPage() {
       videoRef.current,
       serverId,
       gameId,
-      corePath,
+      null,
       {
         onStateChange(state: string, detail?: string) {
           setStatus(state);
@@ -170,7 +169,7 @@ export default function PlayPage() {
     return () => {
       if (rttTimer) clearInterval(rttTimer);
     };
-  }, [scriptReady, serverId, gameId, corePath, showToast]);
+  }, [scriptReady, serverId, gameId, showToast]);
 
   // ── Cleanup on unmount ────────────────────────────────────────────
 
