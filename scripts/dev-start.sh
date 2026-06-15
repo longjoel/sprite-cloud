@@ -12,10 +12,13 @@ PG_USER="${GV_PG_USER:-games-vault}"
 WEB_PORT="${GV_WEB_PORT:-3000}"
 LOG_DIR="${GV_LOG_DIR:-/dev/shm/gv-logs}"
 ROM_ROOTS="${GV_ROM_ROOTS:-/srv/storage/games/roms}"
-WORKER_BIN="${GV_WORKER_BIN:-$PROJECT_DIR/target/release/gv-worker}"
+WORKER_BIN="${GV_WORKER_BIN:-/usr/local/bin/gv-worker}"
+SERVER_BIN="${GV_SERVER_BIN:-/usr/local/bin/gv-server}"
 CORES_DIR="${GV_CORES_DIR:-/srv/storage/games/cores}"
 SAVE_DIR="${GV_SAVE_DIR:-/srv/storage/games/saves}"
 SYSTEM_DIR="${GV_SYSTEM_DIR:-/srv/storage/games/system}"
+CFG_DIR="${GV_CFG_DIR:-/etc/games-vault}"
+GV_USER="${GV_USER:-games-vault}"
 
 mkdir -p "$LOG_DIR"
 
@@ -38,6 +41,16 @@ health_check() {
     return 1
 }
 
+# ── Kill all game processes (by user) ───────────────────────────────────
+# Because gv-server spawns gv-worker children, all run as GV_USER.
+# pkill -u kills zombies, orphans, and defunct processes in one shot.
+cmd_killall() {
+    log "Killing all game processes (user: $GV_USER)..."
+    pkill -9 -u "$GV_USER" 2>/dev/null && log "  Killed all $GV_USER processes" || true
+    rm -f /tmp/gv-worker-pids/*.pid 2>/dev/null || true
+    log "Done"
+}
+
 # ── Status ──────────────────────────────────────────────────────────────
 cmd_status() {
     echo ""
@@ -52,31 +65,32 @@ cmd_status() {
     else
         echo -e "  gv-web    ${RED}DOWN${NC}"
     fi
-    if pgrep -f 'gv-server start' >/dev/null 2>&1; then
-        local sid=$(grep server_id "$HOME/.config/games-vault/config.toml" 2>/dev/null | cut -d'"' -f2)
-        echo -e "  gv-server ${GREEN}ok${NC}  server_id=${sid:-?}"
+    if pgrep -u "$GV_USER" -f 'gv-server start' >/dev/null 2>&1; then
+        local sid=$(grep server_id "$CFG_DIR/config.toml" 2>/dev/null | cut -d'"' -f2)
+        echo -e "  gv-server ${GREEN}ok${NC}  server_id=${sid:-?}  (user: $GV_USER)"
     else
         echo -e "  gv-server ${RED}DOWN${NC}"
     fi
-    if pgrep -f 'gv-worker [0-9]' >/dev/null 2>&1; then
-        echo -e "  gv-worker ${GREEN}ok${NC}  (standalone)"
+    local workers
+    workers=$(pgrep -u "$GV_USER" 'gv-worker' 2>/dev/null | wc -l)
+    if [ "$workers" -gt 0 ]; then
+        echo -e "  gv-worker ${GREEN}ok${NC}  ($workers running, user: $GV_USER)"
     else
-        echo -e "  gv-worker ${YELLOW}idle${NC}  (on demand)"
+        echo -e "  gv-worker ${YELLOW}idle${NC}  (on demand, user: $GV_USER)"
     fi
     echo ""
     echo "Library: http://localhost:$WEB_PORT"
     echo "Dev:     http://localhost:$WEB_PORT/dev"
     echo "Logs:    $LOG_DIR"
+    echo "User:    $GV_USER (pkill -u $GV_USER to clean all)"
     echo ""
 }
 
 # ── Stop ────────────────────────────────────────────────────────────────
 cmd_stop() {
     log "Stopping..."
-    pkill -f 'gv-server start' 2>/dev/null && log "  gv-server stopped" || true
-    pkill -f 'gv-worker [0-9]' 2>/dev/null && log "  gv-worker stopped" || true
+    cmd_killall
     pkill -f 'next-server' 2>/dev/null && log "  gv-web stopped" || true
-    rm -f /tmp/gv-worker-pids/*.pid 2>/dev/null || true
     log "Done"
 }
 
@@ -94,20 +108,20 @@ cmd_start() {
 
     if [ ! -f "$WORKER_BIN" ]; then
         err "gv-worker binary not found: $WORKER_BIN"
-        err "Build: cargo build --release -p gv-worker"
+        err "Build: cargo build --release -p gv-worker && cp target/release/gv-worker $WORKER_BIN && chown $GV_USER:$GV_USER $WORKER_BIN"
         exit 1
     fi
 
-    local SERVER_BIN="$PROJECT_DIR/target/release/gv-server"
     if [ ! -f "$SERVER_BIN" ]; then
         err "gv-server binary not found: $SERVER_BIN"
-        err "Build: cargo build --release -p gv-server"
+        err "Build: cargo build --release -p gv-server && cp target/release/gv-server $SERVER_BIN && chown $GV_USER:$GV_USER $SERVER_BIN"
         exit 1
     fi
 
     if [ "$reset" = "--reset" ]; then
         log "Resetting dev environment..."
-        cmd_stop
+        cmd_killall
+        pkill -f 'next-server' 2>/dev/null || true
         rm -rf "$PROJECT_DIR/gv-web/.next"
         log "Cleaned .next build cache"
     fi
@@ -125,29 +139,39 @@ cmd_start() {
     fi
 
     # ── gv-server config ────────────────────────────────────────────
-    local CFG="$HOME/.config/games-vault/config.toml"
-    if [ ! -f "$CFG" ]; then
-        err "gv-server config not found: $CFG"
-        err ""
-        err "One-time setup:"
-        err "  1. Sign in at http://localhost:$WEB_PORT"
-        err "  2. Run: $0 --pair"
-        exit 1
+    if [ ! -f "$CFG_DIR/config.toml" ]; then
+        # Try to copy from root's config (one-time migration)
+        if [ -f "$HOME/.config/games-vault/config.toml" ]; then
+            log "Migrating config to $CFG_DIR/config.toml..."
+            mkdir -p "$CFG_DIR"
+            cp "$HOME/.config/games-vault/config.toml" "$CFG_DIR/config.toml"
+            chown -R "$GV_USER:$GV_USER" "$CFG_DIR"
+            chmod 750 "$CFG_DIR"
+        else
+            err "gv-server config not found: $CFG_DIR/config.toml"
+            err ""
+            err "One-time setup:"
+            err "  1. Sign in at http://localhost:$WEB_PORT"
+            err "  2. Run: $0 --pair"
+            exit 1
+        fi
     fi
-    log "Config: $CFG"
+    log "Config: $CFG_DIR/config.toml"
 
-    # ── gv-server ───────────────────────────────────────────────────
-    if ! pgrep -f 'gv-server start' >/dev/null 2>&1; then
-        log "Starting gv-server..."
-        GV_WORKER_BIN="$WORKER_BIN" \
-        GV_CORES_DIR="$CORES_DIR" \
-        GV_ROM_ROOTS="$ROM_ROOTS" \
-        GV_SAVE_DIR="$SAVE_DIR" \
-        GV_SYSTEM_DIR="$SYSTEM_DIR" \
+    # ── gv-server (runs as GV_USER so children inherit the UID) ─────
+    if ! pgrep -u "$GV_USER" -f 'gv-server start' >/dev/null 2>&1; then
+        log "Starting gv-server (user: $GV_USER)..."
+        runuser -u "$GV_USER" -- env \
+            XDG_CONFIG_HOME="$CFG_DIR/.." \
+            GV_WORKER_BIN="$WORKER_BIN" \
+            GV_CORES_DIR="$CORES_DIR" \
+            GV_ROM_ROOTS="$ROM_ROOTS" \
+            GV_SAVE_DIR="$SAVE_DIR" \
+            GV_SYSTEM_DIR="$SYSTEM_DIR" \
             "$SERVER_BIN" start --gv-web-url "http://localhost:$WEB_PORT" \
             > "$LOG_DIR/gv-server.log" 2>&1 &
         sleep 2
-        if pgrep -f 'gv-server start' >/dev/null 2>&1; then
+        if pgrep -u "$GV_USER" -f 'gv-server start' >/dev/null 2>&1; then
             log "gv-server started"
         else
             err "gv-server failed to start — check $LOG_DIR/gv-server.log"
@@ -160,10 +184,21 @@ cmd_start() {
     cmd_status
 }
 
+# ── Build + install ─────────────────────────────────────────────────────
+cmd_build() {
+    log "Building release binaries..."
+    cd "$PROJECT_DIR"
+    cargo build --release -p gv-server -p gv-worker
+    cp target/release/gv-server "$SERVER_BIN"
+    cp target/release/gv-worker "$WORKER_BIN"
+    chown "$GV_USER:$GV_USER" "$SERVER_BIN" "$WORKER_BIN"
+    chmod 755 "$SERVER_BIN" "$WORKER_BIN"
+    log "Installed to $SERVER_BIN and $WORKER_BIN"
+}
+
 # ── Pair (one-time setup) ───────────────────────────────────────────────
 cmd_pair() {
-    local CFG="$HOME/.config/games-vault/config.toml"
-    mkdir -p "$(dirname "$CFG")"
+    mkdir -p "$CFG_DIR"
 
     if ! curl -sf "http://localhost:$WEB_PORT/api/health" >/dev/null 2>&1; then
         err "gv-web not running — start it first: $0 start"
@@ -196,7 +231,7 @@ cmd_pair() {
     local SID=$(echo "$CLAIM" | python3 -c "import sys,json; print(json.load(sys.stdin)['server_id'])")
     local KEY=$(echo "$CLAIM" | python3 -c "import sys,json; print(json.load(sys.stdin)['api_key'])")
 
-    cat > "$CFG" << EOF
+    cat > "$CFG_DIR/config.toml" << EOF
 [gv_web]
 url = "http://localhost:$WEB_PORT"
 
@@ -207,25 +242,30 @@ server_id = "$SID"
 [rom]
 roots = ["$ROM_ROOTS"]
 EOF
+    chown "$GV_USER:$GV_USER" "$CFG_DIR/config.toml"
+    chmod 640 "$CFG_DIR/config.toml"
     log "Server paired: $SID"
-    log "Config saved: $CFG"
+    log "Config saved: $CFG_DIR/config.toml"
 }
 
 # ── Dispatch ────────────────────────────────────────────────────────────
 case "${1:-start}" in
-    start)             cmd_start "" ;;
-    --reset)           cmd_start "--reset" ;;
-    --pair)            cmd_pair ;;
-    status|--status)   cmd_status ;;
-    stop|--stop)       cmd_stop ;;
+    start|--reset)  cmd_start "$1" ;;
+    --pair)         cmd_pair ;;
+    status|--status) cmd_status ;;
+    stop|--stop)    cmd_stop ;;
+    killall)        cmd_killall ;;
+    build|--build)  cmd_build ;;
     *)
-        echo "Usage: $0 [start|--reset|--pair|status|stop]"
+        echo "Usage: $0 [start|--reset|--pair|status|stop|killall|build]"
         echo ""
         echo "  start        Start all services (default)"
-        echo "  --reset      Clean .next cache, restart"
+        echo "  --reset      Kill all, clean .next, restart"
         echo "  --pair       One-time pairing with gv-web (needs auth)"
         echo "  status       Show what's running"
         echo "  stop         Kill all services"
+        echo "  killall      Kill all game processes (user: $GV_USER)"
+        echo "  build        Build release + install to /usr/local/bin/"
         exit 1
         ;;
 esac
