@@ -59,7 +59,7 @@ if (lanCredentialsEnabled()) {
           // Return a synthetic user — no real account, no DB row.
           // The `sub` is stable so the JWT session persists.
           return {
-            id: "lan-user",
+            id: "a0000000-0000-0000-0000-000000000000",
             name: credentials.username as string,
             email: "",
           } as any; // cast: NextAuth v5 beta credentials typing is loose

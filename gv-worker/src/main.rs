@@ -576,31 +576,26 @@ async fn do_webrtc_handshake(
     if let Some(core_response_rx) = core_response_rx {
         let dc_for_responses = dc_stream_for_loop.clone();
         tokio::spawn(async move {
-            loop {
-                match core_response_rx.recv() {
-                    Ok(resp) => {
-                        let json = match resp {
-                            core_bridge::CoreResponse::SaveStateResult { slot, ok, data } => {
-                                serde_json::json!({
-                                    "type": "save_state_result",
-                                    "slot": slot,
-                                    "ok": ok,
-                                    "bytes": data.len()
-                                })
-                            }
-                            core_bridge::CoreResponse::LoadStateResult { slot, ok } => {
-                                serde_json::json!({
-                                    "type": "load_state_result",
-                                    "slot": slot,
-                                    "ok": ok
-                                })
-                            }
-                        };
-                        if let Some(dc) = dc_for_responses.lock().await.as_ref() {
-                            let _ = dc.send_text(&json.to_string()).await;
-                        }
+            while let Ok(resp) = core_response_rx.recv() {
+                let json = match resp {
+                    core_bridge::CoreResponse::SaveStateResult { slot, ok, data } => {
+                        serde_json::json!({
+                            "type": "save_state_result",
+                            "slot": slot,
+                            "ok": ok,
+                            "bytes": data.len()
+                        })
                     }
-                    Err(_) => break, // channel closed
+                    core_bridge::CoreResponse::LoadStateResult { slot, ok } => {
+                        serde_json::json!({
+                            "type": "load_state_result",
+                            "slot": slot,
+                            "ok": ok
+                        })
+                    }
+                };
+                if let Some(dc) = dc_for_responses.lock().await.as_ref() {
+                    let _ = dc.send_text(&json.to_string()).await;
                 }
             }
         });
@@ -645,7 +640,19 @@ async fn do_webrtc_handshake(
     ));
 
     let handle = tokio::spawn(async move {
-        stream_vp8_frames(stream_track, audio_track_clone, stream_dc, stream_cancel, peer_connection_clone, state_clone, stream_encoder, stream_force_kf, stream_pattern, stream_core_rx, stream_core_cmd).await;
+        stream_vp8_frames(StreamCtx {
+            track: stream_track,
+            audio_track: audio_track_clone,
+            dc_stream: stream_dc,
+            cancel: stream_cancel,
+            peer_connection: peer_connection_clone,
+            app_state: state_clone,
+            encoder_mutex: stream_encoder,
+            force_keyframe: stream_force_kf,
+            pattern: stream_pattern,
+            core_frame_rx: stream_core_rx,
+            core_cmd_tx: stream_core_cmd,
+        }).await;
     });
 
     {
@@ -669,7 +676,7 @@ async fn do_webrtc_handshake(
 ///
 /// When the loop exits (for any reason), the peer connection is closed
 /// and cleared from AppState so no zombie PC lingers.
-async fn stream_vp8_frames(
+struct StreamCtx {
     track: Arc<TrackLocalStaticSample>,
     audio_track: Arc<TrackLocalStaticSample>,
     dc_stream: Arc<tokio::sync::Mutex<Option<Arc<webrtc::data_channel::RTCDataChannel>>>>,
@@ -680,8 +687,11 @@ async fn stream_vp8_frames(
     force_keyframe: Arc<AtomicBool>,
     pattern: Arc<AtomicU8>,
     core_frame_rx: Option<std::sync::mpsc::Receiver<core_bridge::CoreFrame>>,
-    _core_cmd_tx: Option<std::sync::mpsc::SyncSender<core_bridge::CoreCommand>>,
-) {
+    #[allow(dead_code)]
+    core_cmd_tx: Option<std::sync::mpsc::SyncSender<core_bridge::CoreCommand>>,
+}
+
+async fn stream_vp8_frames(ctx: StreamCtx) {
     use std::time::Duration;
     use webrtc::media::Sample;
 
@@ -721,22 +731,22 @@ async fn stream_vp8_frames(
 
     loop {
         tokio::select! {
-            _ = cancel.cancelled() => {
+            _ = ctx.cancel.cancelled() => {
                 tracing::info!("[STREAM] Cancelled");
                 break;
             }
             _ = tick.tick() => {
                 // ---- Check force_keyframe flag ----
-                if force_keyframe.load(Ordering::Relaxed) {
-                    if let Ok(mut enc) = encoder_mutex.lock() {
+                if ctx.force_keyframe.load(Ordering::Relaxed) {
+                    if let Ok(mut enc) = ctx.encoder_mutex.lock() {
                         enc.force_keyframe();
-                        force_keyframe.store(false, Ordering::Relaxed);
+                        ctx.force_keyframe.store(false, Ordering::Relaxed);
                     }
                     // If lock failed: leave flag set, retry next frame
                 }
 
                 // ---- Generate frame (core or test pattern) ----
-                let pixels = if let Some(ref rx) = core_frame_rx {
+                let pixels = if let Some(ref rx) = ctx.core_frame_rx {
                     // Drain any backlog — only keep the latest frame
                     let mut latest = None;
                     while let Ok(f) = rx.try_recv() {
@@ -748,7 +758,7 @@ async fn stream_vp8_frames(
                     }
                 } else {
                     // Fall back to test pattern
-                    match pattern.load(Ordering::Relaxed) {
+                    match ctx.pattern.load(Ordering::Relaxed) {
                         PATTERN_BARS => test_pattern::generate_color_bars(VIDEO_WIDTH, VIDEO_HEIGHT, frame_num),
                         _ => test_pattern::generate_bouncing_square(VIDEO_WIDTH, VIDEO_HEIGHT, frame_num),
                     }
@@ -756,7 +766,7 @@ async fn stream_vp8_frames(
                 frame_num = frame_num.wrapping_add(1);
 
                 let encode_start = std::time::Instant::now();
-                let encode_result = match encoder_mutex.lock() {
+                let encode_result = match ctx.encoder_mutex.lock() {
                     Ok(mut enc) => enc.encode(&pixels),
                     Err(e) => {
                         tracing::error!("[STREAM] encoder mutex poisoned: {}", e);
@@ -781,7 +791,7 @@ async fn stream_vp8_frames(
                             packet_timestamp: (frame_num as u32).wrapping_mul(RTP_TIMESTAMP_INCREMENT),
                             ..Default::default()
                         };
-                        if let Err(e) = track.write_sample(&sample).await {
+                        if let Err(e) = ctx.track.write_sample(&sample).await {
                             tracing::error!("[STREAM] Write sample error at frame {}: {}", frame_num, e);
                             break;
                         }
@@ -801,7 +811,7 @@ async fn stream_vp8_frames(
                                     packet_timestamp: (frame_num as u32).wrapping_mul(AUDIO_RTP_TIMESTAMP_INCREMENT),
                                     ..Default::default()
                                 };
-                                if let Err(e) = audio_track.write_sample(&audio_sample).await {
+                                if let Err(e) = ctx.audio_track.write_sample(&audio_sample).await {
                                     tracing::error!("[STREAM] Audio write error at frame {}: {}", frame_num, e);
                                     audio_write_errs = audio_write_errs.wrapping_add(1);
                                 }
@@ -812,7 +822,7 @@ async fn stream_vp8_frames(
                         }
 
                         // ---- Send per-frame stats over DataChannel ----
-                        if frame_num % STATS_SEND_INTERVAL == 0 {
+                        if frame_num.is_multiple_of(STATS_SEND_INTERVAL) {
                             if let Ok(stats) = serde_json::to_string(&serde_json::json!({
                                 "type": "stats",
                                 "frame": frame_num,
@@ -831,7 +841,7 @@ async fn stream_vp8_frames(
                                     "uptime_sec": start_instant.elapsed().as_secs()
                                 }
                             })) {
-                                if let Some(dc) = dc_stream.lock().await.as_ref() {
+                                if let Some(dc) = ctx.dc_stream.lock().await.as_ref() {
                                     if let Err(e) = dc.send_text(stats).await {
                                         tracing::warn!("[STREAM] DC stats send failed: {}", e);
                                     }
@@ -850,8 +860,8 @@ async fn stream_vp8_frames(
     tracing::info!("[STREAM] Loop exited");
 
     // Close the peer connection so it doesn't linger as a zombie
-    let _ = peer_connection.close().await;
-    let mut pc_lock = app_state.peer_connection.lock().await;
+    let _ = ctx.peer_connection.close().await;
+    let mut pc_lock = ctx.app_state.peer_connection.lock().await;
     *pc_lock = None;
     tracing::info!("[STREAM] Peer connection closed and removed from state");
 }

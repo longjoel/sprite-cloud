@@ -21,8 +21,8 @@ interface GvPlay {
   startPlayer: (
     video: HTMLVideoElement,
     serverId: string,
-    workerToken: string,
     gameId: string,
+    corePath: string,
     callbacks: PlayerCallbacks,
   ) => any;
   saveState: (player: any, slot: number) => boolean;
@@ -34,6 +34,7 @@ interface PlayerCallbacks {
   onStats: (stats: object) => void;
   onSaveResult: (slot: number, ok: boolean) => void;
   onError: (msg: string) => void;
+  onProgress: (msg: string) => void;
   onReconnecting: (attempt: number) => void;
   onReconnected: () => void;
   onReconnectFailed: () => void;
@@ -53,7 +54,7 @@ export default function PlayPage() {
 
   const gameId = routeParams.game_id;
   const serverId = searchParams.get("server_id") ?? "";
-  const workerToken = searchParams.get("worker_token") ?? "";
+  const corePath = searchParams.get("core_path") ?? `test-data/cores/${gameId}_libretro.so`;
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<any>(null);
@@ -97,7 +98,7 @@ export default function PlayPage() {
   // ── Player init (after script loads) ──────────────────────────────
 
   useEffect(() => {
-    if (!scriptReady || !videoRef.current || !serverId || !workerToken) return;
+    if (!scriptReady || !videoRef.current || !serverId) return;
     if (startedRef.current) return;
 
     const gvPlay = window.gvPlay;
@@ -110,8 +111,8 @@ export default function PlayPage() {
     const player = gvPlay.startPlayer(
       videoRef.current,
       serverId,
-      workerToken,
       gameId,
+      corePath,
       {
         onStateChange(state: string, detail?: string) {
           setStatus(state);
@@ -137,6 +138,9 @@ export default function PlayPage() {
         },
         onError(msg: string) {
           setError(msg);
+        },
+        onProgress(msg: string) {
+          setStatus(msg);
         },
         onReconnecting(attempt: number) {
           setShowDisconnect(true);
@@ -166,7 +170,7 @@ export default function PlayPage() {
     return () => {
       if (rttTimer) clearInterval(rttTimer);
     };
-  }, [scriptReady, serverId, workerToken, gameId, showToast]);
+  }, [scriptReady, serverId, gameId, corePath, showToast]);
 
   // ── Cleanup on unmount ────────────────────────────────────────────
 
@@ -190,13 +194,13 @@ export default function PlayPage() {
 
   // ── Missing params guard ──────────────────────────────────────────
 
-  if (!serverId || !workerToken) {
+  if (!serverId) {
     return (
       <main style={styles.shell}>
         <div style={styles.centerMessage}>
           <p>Missing connection parameters.</p>
           <p style={styles.hint}>
-            Expected: /play/:game_id?server_id=&amp;worker_token=
+            Expected: /play/:game_id?server_id=
           </p>
         </div>
       </main>
