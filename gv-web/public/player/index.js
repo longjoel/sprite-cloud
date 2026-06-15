@@ -182,6 +182,9 @@ export class GvPlayer {
 
     this._setState(State.CONNECTING);
 
+    // Store host token for DataChannel auth message
+    this._hostToken = hostToken || null;
+
     this._createPeerConnection();
 
     // ── SDP exchange (via relay) ──────────────────────────────────
@@ -331,8 +334,14 @@ export class GvPlayer {
       }
     };
 
-    // Flush any accumulated input state when the DataChannel opens
+    // Flush any accumulated input state and send auth when the DataChannel opens
     this._dc.onopen = () => {
+      // Send auth message first — must be the first message on the channel
+      if (this._hostToken) {
+        try {
+          this._dc.send(JSON.stringify({ cmd: "auth", host_token: this._hostToken }));
+        } catch { /* channel closing */ }
+      }
       if (this._sendMask) this._sendMask();
     };
 
