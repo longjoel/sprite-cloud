@@ -167,13 +167,20 @@ pub fn resolve_worker_bin(override_: Option<&str>) -> String {
 /// 1. This argument (from `config.toml` `gv_web.worker_bin`)
 /// 2. `GV_WORKER_BIN` env var
 /// 3. Auto-detect (`./target/release/gv-worker` → `./target/debug/gv-worker`)
-pub async fn spawn_worker(game_id: &str, worker_bin_override: Option<&str>) -> Result<SpawnedWorker> {
+pub async fn spawn_worker(game_id: &str, worker_bin_override: Option<&str>, host_token: Option<&str>) -> Result<SpawnedWorker> {
     let bin = resolve_worker_bin(worker_bin_override);
 
     // Pass port 0 — gv-worker binds a random available port and prints it
     let mut child = Command::new(&bin)
         .arg("0")
-        .stderr(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    // Forward host token to the worker so it knows who's in charge
+    if let Some(token) = host_token {
+        child.env("GV_HOST_TOKEN", token);
+    }
+
+    let mut child = child
         .spawn()
         .with_context(|| format!("spawn gv-worker at {bin}"))?;
 
