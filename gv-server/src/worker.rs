@@ -68,7 +68,7 @@ pub fn reap_stale_workers() {
 
     for entry in dir.flatten() {
         let path = entry.path();
-        if path.extension().map_or(true, |e| e != "pid") {
+        if path.extension().is_none_or(|e| e != "pid") {
             continue;
         }
 
@@ -167,7 +167,7 @@ pub fn resolve_worker_bin(override_: Option<&str>) -> String {
 /// 1. This argument (from `config.toml` `gv_web.worker_bin`)
 /// 2. `GV_WORKER_BIN` env var
 /// 3. Auto-detect (`./target/release/gv-worker` → `./target/debug/gv-worker`)
-pub async fn spawn_worker(game_id: &str, worker_bin_override: Option<&str>, host_token: Option<&str>) -> Result<SpawnedWorker> {
+pub async fn spawn_worker(game_id: &str, worker_bin_override: Option<&str>, host_token: Option<&str>, content_path: Option<&str>) -> Result<SpawnedWorker> {
     let bin = resolve_worker_bin(worker_bin_override);
 
     // Pass port 0 — gv-worker binds a random available port and prints it
@@ -177,6 +177,11 @@ pub async fn spawn_worker(game_id: &str, worker_bin_override: Option<&str>, host
     // Forward host token to the worker so it knows who's in charge
     if let Some(token) = host_token {
         cmd.env("GV_HOST_TOKEN", token);
+    }
+
+    // Forward ROM path so the worker loads the right game
+    if let Some(path) = content_path {
+        cmd.env("GV_CONTENT_PATH", path);
     }
 
     let mut child = cmd.spawn()

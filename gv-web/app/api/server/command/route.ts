@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { commands, serverMembers, servers } from "@/lib/db/schema";
+import { commands, gameFiles, games, serverMembers, servers } from "@/lib/db/schema";
 import { CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, CMD_BROWSE_FILES, CMD_SCAN_PATHS } from "@/lib/constants";
 import { and, eq } from "drizzle-orm";
 import crypto from "crypto";
@@ -78,13 +78,52 @@ export async function POST(request: NextRequest) {
   // this command when polling for the worker URL.
   const workerToken = crypto.randomBytes(16).toString("hex");
 
+  // ── Enrich start_game payload with resolved ROM path ────────────────
+
+  let enrichedPayload: unknown = body.payload ?? {};
+
+  if (body.type === CMD_START_GAME) {
+    const sp = body.payload as Record<string, unknown> | undefined;
+    if (sp && typeof sp.game_id === "string") {
+      // Look up the game and its file on this server
+      const [gameFile] = await db
+        .select({
+          romPath: gameFiles.romPath,
+          platform: games.platform,
+          gameName: games.name,
+        })
+        .from(gameFiles)
+        .innerJoin(games, eq(gameFiles.gameId, games.id))
+        .where(
+          and(
+            eq(gameFiles.gameId, sp.game_id as string),
+            eq(gameFiles.serverId, body.server_id),
+          ),
+        )
+        .limit(1);
+
+      if (gameFile) {
+        enrichedPayload = {
+          ...sp,
+          rom_path: gameFile.romPath,
+          platform: gameFile.platform,
+        };
+      } else {
+        return NextResponse.json(
+          { error: `game ${sp.game_id} not found on this server` },
+          { status: 404 },
+        );
+      }
+    }
+  }
+
   // Insert command
   const [cmd] = await db
     .insert(commands)
     .values({
       serverId: body.server_id,
       type: body.type,
-      payload: body.payload ?? {},
+      payload: enrichedPayload,
       workerToken,
     })
     .returning({ id: commands.id });
