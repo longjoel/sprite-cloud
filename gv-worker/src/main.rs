@@ -46,6 +46,8 @@ use webrtc::track::track_local::TrackLocal;
 #[derive(Debug, Deserialize)]
 struct SdpOffer {
     sdp: String,
+    #[serde(default)]
+    host_token: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -68,6 +70,10 @@ struct AppState {
     stream_handle: Mutex<Option<JoinHandle<()>>>,
     /// The active peer connection (for status queries).
     peer_connection: Mutex<Option<Arc<RTCPeerConnection>>>,
+    /// Host token for the session — set from the first SDP offer that
+    /// carries it, or from the GV_HOST_TOKEN env var.  Only the peer
+    /// that presents this token gets full permissions (save, load, etc.).
+    host_token: Mutex<Option<String>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +93,15 @@ async fn handle_offer(
 ) -> Result<Json<SdpAnswer>, (StatusCode, String)> {
     if offer.sdp.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "empty SDP offer".into()));
+    }
+
+    // Store the host token if this offer carries one
+    if let Some(ref token) = offer.host_token {
+        let mut host = state.host_token.lock().await;
+        if host.is_none() {
+            tracing::info!("[SDP] host token set (first offer with token)");
+        }
+        *host = Some(token.clone());
     }
 
     do_webrtc_handshake(state, &offer.sdp)
@@ -370,6 +385,18 @@ async fn do_webrtc_handshake(
                     let dc = dc_cmd.clone();
                     let core_tx = dc_core.clone();
                     Box::pin(async move {
+                        // ── Binary input (RetroArch format) ──────────
+                        // Browser sends [u8 port][u16 LE state] = 3 bytes.
+                        // This is the primary input path — keyboard + gamepad.
+                        if msg.data.len() == 3 {
+                            let port = msg.data[0] as u32;
+                            let state = u16::from_le_bytes([msg.data[1], msg.data[2]]);
+                            let _ = core_tx.as_ref().map(|tx| {
+                                tx.try_send(CoreCommand::SetInput { port, state })
+                            });
+                            return;
+                        }
+
                         let text = String::from_utf8_lossy(&msg.data);
                         let text = text.trim();
 
@@ -962,10 +989,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|p| p.parse().ok())
         .unwrap_or(0);
 
+    let host_token = std::env::var("GV_HOST_TOKEN").ok();
+
+    if host_token.is_some() {
+        tracing::info!("[STARTUP] host token set from GV_HOST_TOKEN env var");
+    }
+
     let state = Arc::new(AppState {
         cancel: Mutex::new(CancellationToken::new()),
         stream_handle: Mutex::new(None),
         peer_connection: Mutex::new(None),
+        host_token: Mutex::new(host_token),
     });
 
     let app = Router::new()
