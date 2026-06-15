@@ -9,6 +9,8 @@ use std::time::Duration;
 pub struct Config {
     pub gv_web: GvWeb,
     pub auth: Auth,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rom: Option<Rom>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -32,6 +34,14 @@ pub struct Auth {
     pub api_key: String,
     /// Server ID assigned by gv-web during pairing
     pub server_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Rom {
+    /// One or more root directories to scan for ROM files.
+    /// gv-web discovers games by walking these paths.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roots: Vec<String>,
 }
 
 // ── Paths ─────────────────────────────────────────────────────────────
