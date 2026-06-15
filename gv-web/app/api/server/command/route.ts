@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { commands, serverMembers, servers } from "@/lib/db/schema";
-import { CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME } from "@/lib/constants";
+import { CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, CMD_BROWSE_FILES, CMD_SCAN_PATHS } from "@/lib/constants";
 import { and, eq } from "drizzle-orm";
 import crypto from "crypto";
 
 // ── Validation ─────────────────────────────────────────────────────────
 
-const VALID_TYPES = new Set<string>([CMD_START_GAME, CMD_STOP_GAME, CMD_SDP_OFFER]);
+const VALID_TYPES = new Set<string>([CMD_START_GAME, CMD_STOP_GAME, CMD_SDP_OFFER, CMD_BROWSE_FILES, CMD_SCAN_PATHS]);
 
 interface CommandBody {
   server_id: string;

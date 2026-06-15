@@ -13,11 +13,15 @@ export const POLL_FAST_DURATION_MS = 5000;
 export const CMD_START_GAME = "start_game" as const;
 export const CMD_STOP_GAME = "stop_game" as const;
 export const CMD_SDP_OFFER = "sdp_offer" as const;
+export const CMD_BROWSE_FILES = "browse_files" as const;
+export const CMD_SCAN_PATHS = "scan_paths" as const;
 
 export type CommandType =
   | typeof CMD_START_GAME
   | typeof CMD_STOP_GAME
-  | typeof CMD_SDP_OFFER;
+  | typeof CMD_SDP_OFFER
+  | typeof CMD_BROWSE_FILES
+  | typeof CMD_SCAN_PATHS;
 
 /** Command statuses in the queue. */
 export const STATUS_PENDING = "pending" as const;

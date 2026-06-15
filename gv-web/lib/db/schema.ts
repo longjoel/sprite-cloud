@@ -77,6 +77,7 @@ export const commands = pgTable("commands", {
   status: text("status").notNull().default("pending"),
   // pending → delivered
   workerToken: text("worker_token"),
+  result: jsonb("result"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
