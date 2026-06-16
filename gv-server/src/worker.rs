@@ -785,4 +785,88 @@ mod tests {
             "expected release or debug path, got: {path}"
         );
     }
+
+    // ── Core mapping table coverage ───────────────────────────────
+
+    /// Every platform in EXTENSION_MAP must have a core mapping.
+    /// Catches gaps where a scanner-detected platform silently
+    /// falls back to test pattern.
+    #[test]
+    fn every_scan_platform_has_core_mapping() {
+        use crate::scan::EXTENSION_MAP;
+
+        let platforms: std::collections::HashSet<&str> =
+            EXTENSION_MAP.iter().map(|(_, p)| *p).collect();
+
+        let missing: Vec<_> = platforms
+            .iter()
+            .filter(|p| core_for_platform(p).is_none())
+            .collect();
+
+        assert!(
+            missing.is_empty(),
+            "EXTENSION_MAP platforms without core mappings: {missing:?}"
+        );
+    }
+
+    /// Full RetroArch DAT platform names covered.
+    #[test]
+    fn retroarch_dat_platforms_have_core_mapping() {
+        let dat_platforms = &[
+            "Nintendo - Game Boy",
+            "Nintendo - Game Boy Color",
+            "Nintendo - Game Boy Advance",
+            "Nintendo - Nintendo Entertainment System",
+            "Nintendo - Family Computer Disk System",
+            "Nintendo - Super Nintendo Entertainment System",
+            "Nintendo - Nintendo 64",
+            "Nintendo - Nintendo DS",
+            "Nintendo - Virtual Boy",
+            "Nintendo - Pokemon Mini",
+            "Sega - Mega Drive - Genesis",
+            "Sega - Master System - Mark III",
+            "Sega - Game Gear",
+            "Sega - Sega CD - Mega CD",
+            "Sega - Sega 32X",
+            "Sega - Saturn",
+            "Sega - Dreamcast",
+            "Sony - PlayStation",
+            "Sony - PlayStation Portable",
+            "Atari - 2600",
+            "Atari - 5200",
+            "Atari - 7800",
+            "Atari - Lynx",
+            "NEC - PC Engine - TurboGrafx-16",
+            "NEC - PC Engine CD - TurboGrafx-CD",
+            "SNK - Neo Geo Pocket",
+            "SNK - Neo Geo Pocket Color",
+            "SNK - Neo Geo CD",
+            "Bandai - WonderSwan",
+            "Bandai - WonderSwan Color",
+            "Arcade",
+        ];
+
+        let missing: Vec<_> = dat_platforms
+            .iter()
+            .filter(|p| core_for_platform(p).is_none())
+            .collect();
+
+        assert!(
+            missing.is_empty(),
+            "DAT platforms without core mappings: {missing:?}"
+        );
+    }
+
+    /// First-match-wins: "Game Boy Advance" must not match "Game Boy".
+    #[test]
+    fn specific_platform_matches_before_broad() {
+        assert_eq!(
+            core_for_platform("Game Boy Advance").as_deref(),
+            Some("mgba_libretro.so")
+        );
+        assert_eq!(
+            core_for_platform("Game Boy").as_deref(),
+            Some("gambatte_libretro.so")
+        );
+    }
 }

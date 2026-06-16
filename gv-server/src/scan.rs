@@ -12,25 +12,61 @@ use std::path::{Path, PathBuf};
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-/// Known ROM file extensions mapped to platform display names.
+/// Known ROM file extensions mapped to short platform display names.
+///
+/// Extension order within a platform isn't significant, but platforms
+/// are grouped by system for readability.
 pub const EXTENSION_MAP: &[(&str, &str)] = &[
-    ("sfc", "SNES"),
-    ("smc", "SNES"),
+    // Nintendo — NES
     ("nes", "NES"),
     ("fds", "Family Computer Disk System"),
+    // Nintendo — SNES
+    ("sfc", "SNES"),
+    ("smc", "SNES"),
+    // Nintendo — Game Boy family
     ("gb", "Game Boy"),
     ("gbc", "Game Boy Color"),
     ("gba", "Game Boy Advance"),
-    ("gen", "Genesis"),
-    ("md", "Genesis"),
-    ("smd", "Genesis"),
+    // Nintendo — N64
     ("n64", "Nintendo 64"),
     ("z64", "Nintendo 64"),
     ("v64", "Nintendo 64"),
-    ("a26", "Atari 2600"),
+    // Nintendo — DS
+    ("nds", "Nintendo DS"),
+    // Nintendo — misc
+    ("vb", "Virtual Boy"),
+    ("min", "Pokemon Mini"),
+    // Sega — Genesis / Master System / Game Gear
+    ("gen", "Genesis"),
+    ("md", "Genesis"),
+    ("smd", "Genesis"),
+    ("sms", "Master System"),
+    ("gg", "Game Gear"),
+    // Sega — 32X
+    ("32x", "Sega 32X"),
+    // Sega — Saturn
+    ("mdf", "Saturn"),
+    // Sega — Dreamcast
+    ("cdi", "Dreamcast"),
+    ("gdi", "Dreamcast"),
+    // Sony — PlayStation / PSP
     ("iso", "PlayStation"),
     ("cue", "PlayStation"),
-    ("nds", "Nintendo DS"),
+    ("cso", "PSP"),
+    // Atari
+    ("a26", "Atari 2600"),
+    ("a52", "Atari 5200"),
+    ("a78", "Atari 7800"),
+    ("lnx", "Atari Lynx"),
+    // NEC — PC Engine
+    ("pce", "PC Engine"),
+    // SNK
+    ("ngp", "Neo Geo Pocket"),
+    ("ngc", "Neo Geo Pocket Color"),
+    // Bandai
+    ("ws", "WonderSwan"),
+    ("wsc", "WonderSwan Color"),
+    // Arcade
     ("zip", "Arcade"),
 ];
 
