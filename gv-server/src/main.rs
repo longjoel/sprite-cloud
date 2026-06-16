@@ -68,7 +68,12 @@ async fn cmd_pair(code: &str, gv_web_url: &str) -> Result<()> {
     // GV_ROM_ROOTS is a comma-separated list of directories.
     let rom_roots: Vec<String> = std::env::var("GV_ROM_ROOTS")
         .ok()
-        .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
+        .map(|s| {
+            s.split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect()
+        })
         .unwrap_or_default();
 
     if !rom_roots.is_empty() {
@@ -125,7 +130,8 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
     let verify = client.verify().await?;
     tracing::info!(
         "Connected to gv-web as server {} (user: {})",
-        verify.server_id, verify.user_id
+        verify.server_id,
+        verify.user_id
     );
 
     tracing::info!("gv-server running — polling for commands...");
@@ -322,6 +328,7 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         match client
                                             .http_client()
                                             .post(format!("{internal_url}/sdp"))
+                                            .bearer_auth(worker.control_token())
                                             .json(&serde_json::json!({ "sdp": sdp }))
                                             .send()
                                             .await
@@ -579,7 +586,7 @@ fn internal_worker_url(public_url: &str) -> String {
 /// Returns when the process receives SIGINT (Ctrl+C) or SIGTERM.
 #[cfg(unix)]
 async fn shutdown_signal() {
-    use tokio::signal::unix::{signal, SignalKind};
+    use tokio::signal::unix::{SignalKind, signal};
 
     let mut sigint = signal(SignalKind::interrupt()).expect("register SIGINT handler");
     let mut sigterm = signal(SignalKind::terminate()).expect("register SIGTERM handler");
@@ -592,5 +599,7 @@ async fn shutdown_signal() {
 
 #[cfg(not(unix))]
 async fn shutdown_signal() {
-    tokio::signal::ctrl_c().await.expect("register Ctrl+C handler");
+    tokio::signal::ctrl_c()
+        .await
+        .expect("register Ctrl+C handler");
 }
