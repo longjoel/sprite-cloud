@@ -14,50 +14,124 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
+use libc;
 
 // ── Core mapping ──────────────────────────────────────────────────────
 
-/// Map a DAT platform string to a libretro core filename.
+/// Platform → core filename mapping.
 ///
-/// These are the canonical RetroArch DAT platform names.  Unknown
-/// platforms return `None` — the worker falls back to test pattern.
+/// First match wins — put specific names ("Game Boy Advance") before
+/// broad ones ("Game Boy").
 ///
-/// Override via `GV_CORE_OVERRIDE_<platform>` env var, e.g.:
-///   GV_CORE_OVERRIDE_Nintendo_-_Game_Boy=my_gambatte.so
-fn core_for_platform(platform: &str) -> Option<String> {
-    // Check for a platform-specific override env var
+/// Override any entry via `GV_CORE_OVERRIDE_<sanitized_platform>` env var,
+/// e.g. `GV_CORE_OVERRIDE_PlayStation=swanstation_libretro.so`.
+const CORE_MAP: &[(&str, &str)] = &[
+    // ── Nintendo — Game Boy family ─────────────────────────────────
+    ("Nintendo - Game Boy Advance", "mgba_libretro.so"),
+    ("Nintendo - Game Boy Color", "gambatte_libretro.so"),
+    ("Nintendo - Game Boy", "gambatte_libretro.so"),
+    ("Game Boy Advance", "mgba_libretro.so"),
+    ("Game Boy Color", "gambatte_libretro.so"),
+    ("Game Boy", "gambatte_libretro.so"),
+    // ── Nintendo — NES ────────────────────────────────────────────
+    ("Nintendo - Nintendo Entertainment System", "nestopia_libretro.so"),
+    ("Nintendo - Family Computer Disk System", "nestopia_libretro.so"),
+    ("NES", "nestopia_libretro.so"),
+    ("Family Computer Disk System", "nestopia_libretro.so"),
+    // ── Nintendo — SNES ───────────────────────────────────────────
+    ("Nintendo - Super Nintendo Entertainment System", "snes9x_libretro.so"),
+    ("SNES", "snes9x_libretro.so"),
+    // ── Nintendo — N64 ────────────────────────────────────────────
+    ("Nintendo - Nintendo 64", "mupen64plus_next_libretro.so"),
+    ("Nintendo 64", "mupen64plus_next_libretro.so"),
+    // ── Nintendo — Nintendo DS ────────────────────────────────────
+    ("Nintendo - Nintendo DS", "desmume_libretro.so"),
+    ("Nintendo DS", "desmume_libretro.so"),
+    // ── Nintendo — Virtual Boy ────────────────────────────────────
+    ("Nintendo - Virtual Boy", "mednafen_vb_libretro.so"),
+    ("Virtual Boy", "mednafen_vb_libretro.so"),
+    // ── Nintendo — Pokemon Mini ───────────────────────────────────
+    ("Nintendo - Pokemon Mini", "pokemini_libretro.so"),
+    ("Pokemon Mini", "pokemini_libretro.so"),
+    // ── Sega — Master System / Genesis / Game Gear / CD ────────────
+    ("Sega - Mega Drive - Genesis", "genesis_plus_gx_libretro.so"),
+    ("Sega - Master System - Mark III", "genesis_plus_gx_libretro.so"),
+    ("Sega - Game Gear", "genesis_plus_gx_libretro.so"),
+    ("Sega - Sega CD - Mega CD", "genesis_plus_gx_libretro.so"),
+    ("Genesis", "genesis_plus_gx_libretro.so"),
+    ("Master System", "genesis_plus_gx_libretro.so"),
+    ("Game Gear", "genesis_plus_gx_libretro.so"),
+    ("Sega CD", "genesis_plus_gx_libretro.so"),
+    // ── Sega — 32X ────────────────────────────────────────────────
+    ("Sega - Sega 32X", "picodrive_libretro.so"),
+    ("Sega 32X", "picodrive_libretro.so"),
+    // ── Sega — Saturn ─────────────────────────────────────────────
+    ("Sega - Saturn", "yabause_libretro.so"),
+    ("Saturn", "yabause_libretro.so"),
+    // ── Sega — Dreamcast ──────────────────────────────────────────
+    ("Sega - Dreamcast", "flycast_libretro.so"),
+    ("Dreamcast", "flycast_libretro.so"),
+    // ── Sony — PlayStation ────────────────────────────────────────
+    ("Sony - PlayStation", "pcsx_rearmed_libretro.so"),
+    ("PlayStation", "pcsx_rearmed_libretro.so"),
+    // ── Sony — PlayStation Portable ───────────────────────────────
+    ("Sony - PlayStation Portable", "ppsspp_libretro.so"),
+    ("PlayStation Portable", "ppsspp_libretro.so"),
+    ("PSP", "ppsspp_libretro.so"),
+    // ── Atari — 2600 / 5200 / 7800 / Lynx ─────────────────────────
+    ("Atari - 2600", "stella_libretro.so"),
+    ("Atari 2600", "stella_libretro.so"),
+    ("Atari - 5200", "a5200_libretro.so"),
+    ("Atari 5200", "a5200_libretro.so"),
+    ("Atari - 7800", "prosystem_libretro.so"),
+    ("Atari 7800", "prosystem_libretro.so"),
+    ("Atari - Lynx", "handy_libretro.so"),
+    ("Atari Lynx", "handy_libretro.so"),
+    // ── NEC — PC Engine / TurboGrafx ──────────────────────────────
+    ("NEC - PC Engine - TurboGrafx-16", "mednafen_pce_fast_libretro.so"),
+    ("NEC - PC Engine CD - TurboGrafx-CD", "mednafen_pce_fast_libretro.so"),
+    ("PC Engine", "mednafen_pce_fast_libretro.so"),
+    ("TurboGrafx-16", "mednafen_pce_fast_libretro.so"),
+    ("TurboGrafx-CD", "mednafen_pce_fast_libretro.so"),
+    // ── SNK — Neo Geo Pocket / CD ─────────────────────────────────
+    ("SNK - Neo Geo Pocket", "mednafen_ngp_libretro.so"),
+    ("SNK - Neo Geo Pocket Color", "mednafen_ngp_libretro.so"),
+    ("SNK - Neo Geo CD", "neocd_libretro.so"),
+    ("Neo Geo Pocket", "mednafen_ngp_libretro.so"),
+    ("Neo Geo Pocket Color", "mednafen_ngp_libretro.so"),
+    ("Neo Geo CD", "neocd_libretro.so"),
+    // ── Bandai — WonderSwan ───────────────────────────────────────
+    ("Bandai - WonderSwan", "mednafen_wswan_libretro.so"),
+    ("Bandai - WonderSwan Color", "mednafen_wswan_libretro.so"),
+    ("WonderSwan", "mednafen_wswan_libretro.so"),
+    ("WonderSwan Color", "mednafen_wswan_libretro.so"),
+    // ── Arcade ────────────────────────────────────────────────────
+    ("Arcade", "fbneo_libretro.so"),
+];
+
+/// Map a platform name to a libretro core filename.
+///
+/// Scans [`CORE_MAP`] and returns the first matching core filename.
+/// Falls back to `GV_CORE_OVERRIDE_<sanitized>` env var before
+/// consulting the table.  Unknown platforms return `None` — the
+/// worker falls back to test pattern.
+pub fn core_for_platform(platform: &str) -> Option<String> {
+    // Env var override takes priority over the table
     let override_key = platform.replace(' ', "_").replace('-', "_");
     let env_key = format!("GV_CORE_OVERRIDE_{override_key}");
     if let Ok(custom) = std::env::var(&env_key) {
         return Some(custom);
     }
 
-    // Known platform → core mapping
-    match platform {
-        // Full RetroArch DAT names
-        "Nintendo - Game Boy" => Some("gambatte_libretro.so".into()),
-        "Nintendo - Game Boy Color" => Some("gambatte_libretro.so".into()),
-        "Nintendo - Game Boy Advance" => Some("mgba_libretro.so".into()),
-        "Nintendo - Nintendo Entertainment System" => Some("nestopia_libretro.so".into()),
-        "Sega - Mega Drive - Genesis" => Some("genesis_plus_gx_libretro.so".into()),
-        "Sega - Master System - Mark III" => Some("genesis_plus_gx_libretro.so".into()),
-        "Sega - Game Gear" => Some("genesis_plus_gx_libretro.so".into()),
-        "Nintendo - Super Nintendo Entertainment System" => Some("snes9x_libretro.so".into()),
-
-        // Short names (from EXTENSION_MAP / directory fallback)
-        "Game Boy" => Some("gambatte_libretro.so".into()),
-        "Game Boy Color" => Some("gambatte_libretro.so".into()),
-        "Game Boy Advance" => Some("mgba_libretro.so".into()),
-        "NES" => Some("nestopia_libretro.so".into()),
-        "SNES" => Some("snes9x_libretro.so".into()),
-        "Genesis" => Some("genesis_plus_gx_libretro.so".into()),
-        "Nintendo 64" => Some("mupen64plus_next_libretro.so".into()),
-
-        _ => {
-            tracing::debug!("[CORE] no mapping for platform: {platform}");
-            None
+    // Linear scan — first match wins
+    for &(name, core) in CORE_MAP {
+        if name == platform {
+            return Some(core.to_string());
         }
     }
+
+    tracing::debug!("[CORE] no mapping for platform: {platform}");
+    None
 }
 
 /// Resolve the full path to a core file.
@@ -348,11 +422,49 @@ pub struct SpawnedWorker {
 }
 
 impl SpawnedWorker {
-    /// Kill the worker process, wait for it to exit, and remove the PID file.
+    /// Kill the worker process gracefully, then forcefully.
+    ///
+    /// 1. POST /shutdown — triggers exit_signal, worker saves SRAM and exits
+    /// 2. Wait up to 5s for the process to exit
+    /// 3. If still running, SIGKILL
     pub async fn kill(mut self) {
+        // Try graceful shutdown first
+        if let Some(ref child) = self.child {
+            let pid = child.id().unwrap_or(0);
+            if pid > 0 {
+                let shutdown_url = format!("{}/shutdown", self.url);
+                if let Ok(client) = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(3))
+                    .build()
+                {
+                    let _ = client.post(&shutdown_url).send().await;
+                }
+                // Give the worker a moment to flush SRAM and exit
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                // Check if it exited gracefully
+                if unsafe { libc::kill(pid as i32, 0) } != 0 {
+                    // Process already gone — clean exit
+                    let _ = std::fs::remove_file(pid_path(&self.game_id));
+                    return;
+                }
+            }
+        }
+        // Force kill if still alive
         if let Some(mut child) = self.child.take() {
             let _ = child.kill().await;
             let _ = child.wait().await;
+        }
+        let _ = std::fs::remove_file(pid_path(&self.game_id));
+    }
+}
+
+impl Drop for SpawnedWorker {
+    fn drop(&mut self) {
+        if let Some(ref child) = self.child {
+            let pid = child.id().unwrap_or(0);
+            if pid > 0 {
+                unsafe { libc::kill(pid as i32, libc::SIGKILL); }
+            }
         }
         let _ = std::fs::remove_file(pid_path(&self.game_id));
     }
