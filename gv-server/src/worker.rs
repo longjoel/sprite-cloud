@@ -11,10 +11,11 @@
 //! kills orphaned processes.
 
 use anyhow::{Context, Result};
+use libc;
+use rand::{Rng, distributions::Alphanumeric};
 use std::path::PathBuf;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
-use libc;
 
 // ── Core mapping ──────────────────────────────────────────────────────
 
@@ -34,12 +35,21 @@ const CORE_MAP: &[(&str, &str)] = &[
     ("Game Boy Color", "mgba_libretro.so"),
     ("Game Boy", "mgba_libretro.so"),
     // ── Nintendo — NES ────────────────────────────────────────────
-    ("Nintendo - Nintendo Entertainment System", "nestopia_libretro.so"),
-    ("Nintendo - Family Computer Disk System", "nestopia_libretro.so"),
+    (
+        "Nintendo - Nintendo Entertainment System",
+        "nestopia_libretro.so",
+    ),
+    (
+        "Nintendo - Family Computer Disk System",
+        "nestopia_libretro.so",
+    ),
     ("NES", "nestopia_libretro.so"),
     ("Family Computer Disk System", "nestopia_libretro.so"),
     // ── Nintendo — SNES ───────────────────────────────────────────
-    ("Nintendo - Super Nintendo Entertainment System", "snes9x_libretro.so"),
+    (
+        "Nintendo - Super Nintendo Entertainment System",
+        "snes9x_libretro.so",
+    ),
     ("SNES", "snes9x_libretro.so"),
     // ── Nintendo — N64 ────────────────────────────────────────────
     ("Nintendo - Nintendo 64", "mupen64plus_next_libretro.so"),
@@ -55,7 +65,10 @@ const CORE_MAP: &[(&str, &str)] = &[
     ("Pokemon Mini", "pokemini_libretro.so"),
     // ── Sega — Master System / Genesis / Game Gear / CD ────────────
     ("Sega - Mega Drive - Genesis", "genesis_plus_gx_libretro.so"),
-    ("Sega - Master System - Mark III", "genesis_plus_gx_libretro.so"),
+    (
+        "Sega - Master System - Mark III",
+        "genesis_plus_gx_libretro.so",
+    ),
     ("Sega - Game Gear", "genesis_plus_gx_libretro.so"),
     ("Sega - Sega CD - Mega CD", "genesis_plus_gx_libretro.so"),
     ("Genesis", "genesis_plus_gx_libretro.so"),
@@ -88,8 +101,14 @@ const CORE_MAP: &[(&str, &str)] = &[
     ("Atari - Lynx", "handy_libretro.so"),
     ("Atari Lynx", "handy_libretro.so"),
     // ── NEC — PC Engine / TurboGrafx ──────────────────────────────
-    ("NEC - PC Engine - TurboGrafx-16", "mednafen_pce_fast_libretro.so"),
-    ("NEC - PC Engine CD - TurboGrafx-CD", "mednafen_pce_fast_libretro.so"),
+    (
+        "NEC - PC Engine - TurboGrafx-16",
+        "mednafen_pce_fast_libretro.so",
+    ),
+    (
+        "NEC - PC Engine CD - TurboGrafx-CD",
+        "mednafen_pce_fast_libretro.so",
+    ),
     ("PC Engine", "mednafen_pce_fast_libretro.so"),
     ("TurboGrafx-16", "mednafen_pce_fast_libretro.so"),
     ("TurboGrafx-CD", "mednafen_pce_fast_libretro.so"),
@@ -177,10 +196,7 @@ static DOWNLOADING: std::sync::LazyLock<std::sync::Mutex<std::collections::HashS
 /// Otherwise downloads it from the buildbot, extracts it, and
 /// returns the path.  Concurrent calls for the same core wait
 /// for the first download to finish.
-async fn ensure_core(
-    core_filename: &str,
-    client: &reqwest::Client,
-) -> Result<PathBuf, String> {
+async fn ensure_core(core_filename: &str, client: &reqwest::Client) -> Result<PathBuf, String> {
     let core_path = resolve_core_path(core_filename);
 
     // Fast path: already cached
@@ -190,7 +206,9 @@ async fn ensure_core(
 
     // Serialize downloads of the same core
     {
-        let mut inflight = DOWNLOADING.lock().map_err(|e| format!("lock poisoned: {e}"))?;
+        let mut inflight = DOWNLOADING
+            .lock()
+            .map_err(|e| format!("lock poisoned: {e}"))?;
         if inflight.contains(core_filename) {
             drop(inflight);
             // Another task is downloading — poll until the file appears
@@ -238,15 +256,11 @@ async fn download_and_extract(
         return Err(format!("download {url}: HTTP {}", resp.status()));
     }
 
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| format!("read body: {e}"))?;
+    let bytes = resp.bytes().await.map_err(|e| format!("read body: {e}"))?;
 
     // Extract the single .so file
     let cursor = std::io::Cursor::new(bytes.as_ref());
-    let mut archive = zip::ZipArchive::new(cursor)
-        .map_err(|e| format!("open zip: {e}"))?;
+    let mut archive = zip::ZipArchive::new(cursor).map_err(|e| format!("open zip: {e}"))?;
 
     if archive.len() != 1 {
         return Err(format!(
@@ -255,7 +269,9 @@ async fn download_and_extract(
         ));
     }
 
-    let mut entry = archive.by_index(0).map_err(|e| format!("read zip entry: {e}"))?;
+    let mut entry = archive
+        .by_index(0)
+        .map_err(|e| format!("read zip entry: {e}"))?;
     let name = entry.name().to_string();
 
     if !name.ends_with(".so") || name.contains('/') {
@@ -266,16 +282,14 @@ async fn download_and_extract(
 
     // Ensure parent directory exists
     if let Some(parent) = core_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("create cores dir: {e}"))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("create cores dir: {e}"))?;
     }
 
     // Write to a temp file first, then rename atomically
     let tmp_path = core_path.with_extension("tmp");
-    let mut out = std::fs::File::create(&tmp_path)
-        .map_err(|e| format!("create {tmp_path:?}: {e}"))?;
-    std::io::copy(&mut entry, &mut out)
-        .map_err(|e| format!("extract {name}: {e}"))?;
+    let mut out =
+        std::fs::File::create(&tmp_path).map_err(|e| format!("create {tmp_path:?}: {e}"))?;
+    std::io::copy(&mut entry, &mut out).map_err(|e| format!("extract {name}: {e}"))?;
     drop(out);
 
     // Make executable
@@ -289,14 +303,8 @@ async fn download_and_extract(
     std::fs::rename(&tmp_path, core_path)
         .map_err(|e| format!("rename {tmp_path:?} → {core_path:?}: {e}"))?;
 
-    let size = std::fs::metadata(core_path)
-        .map(|m| m.len())
-        .unwrap_or(0);
-    tracing::info!(
-        "[CORE] installed {} ({} bytes)",
-        core_path.display(),
-        size
-    );
+    let size = std::fs::metadata(core_path).map(|m| m.len()).unwrap_or(0);
+    tracing::info!("[CORE] installed {} ({} bytes)", core_path.display(), size);
 
     Ok(())
 }
@@ -431,6 +439,14 @@ pub fn reap_stale_workers() {
 
 // ── SpawnedWorker ──────────────────────────────────────────────────────
 
+fn generate_worker_control_token() -> String {
+    rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(32)
+        .map(char::from)
+        .collect()
+}
+
 /// A running gv-worker process with its connect URL and PID file.
 ///
 /// # Cleanup
@@ -440,11 +456,16 @@ pub fn reap_stale_workers() {
 /// PID file behind (recovered by `reap_stale_workers()` on next startup).
 pub struct SpawnedWorker {
     pub url: String,
+    control_token: String,
     game_id: String,
     child: Option<Child>,
 }
 
 impl SpawnedWorker {
+    pub fn control_token(&self) -> &str {
+        &self.control_token
+    }
+
     /// Kill the worker process gracefully, then forcefully.
     ///
     /// 1. POST /shutdown — triggers exit_signal, worker saves SRAM and exits
@@ -460,7 +481,11 @@ impl SpawnedWorker {
                     .timeout(std::time::Duration::from_secs(3))
                     .build()
                 {
-                    let _ = client.post(&shutdown_url).send().await;
+                    let _ = client
+                        .post(&shutdown_url)
+                        .bearer_auth(&self.control_token)
+                        .send()
+                        .await;
                 }
                 // Give the worker a moment to flush SRAM and exit
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -550,10 +575,14 @@ pub async fn spawn_worker(
     // from other machines on the LAN (default is 127.0.0.1).
     cmd.env("GV_BIND_ADDR", "0.0.0.0");
 
-    // Forward host token to the worker so it knows who's in charge
+    // Forward host token to the worker so it knows who's in charge.
     if let Some(token) = host_token {
         cmd.env("GV_HOST_TOKEN", token);
     }
+
+    // Per-worker bearer token for HTTP control/debug endpoints.
+    let control_token = generate_worker_control_token();
+    cmd.env("GV_WORKER_CONTROL_TOKEN", &control_token);
 
     // Forward ROM path so the worker loads the right game
     if let Some(path) = content_path {
@@ -587,7 +616,8 @@ pub async fn spawn_worker(
         }
     }
 
-    let mut child = cmd.spawn()
+    let mut child = cmd
+        .spawn()
         .with_context(|| format!("spawn gv-worker at {bin}"))?;
 
     // Write PID file immediately so it exists even if we crash during port read
@@ -654,7 +684,9 @@ pub async fn spawn_worker(
         // Without this, a failed spawn leaks a zombie gv-worker.
         let _ = child.kill().await;
         let _ = child.wait().await;
-        anyhow::bail!("gv-worker didn't print WORKER_READY port=<N> within {PORT_READ_TIMEOUT_SECS}s");
+        anyhow::bail!(
+            "gv-worker didn't print WORKER_READY port=<N> within {PORT_READ_TIMEOUT_SECS}s"
+        );
     }
 
     // Spawn a background task to keep reading stderr (so child doesn't block)
@@ -667,6 +699,7 @@ pub async fn spawn_worker(
     let url = format!("http://{}:{}", worker_host(), port);
     Ok(SpawnedWorker {
         url,
+        control_token,
         game_id: game_id.to_string(),
         child: Some(child),
     })
@@ -695,6 +728,7 @@ mod tests {
 
         let worker = SpawnedWorker {
             url: "http://localhost:9999".into(),
+            control_token: "test-control-token".into(),
             game_id: game_id.into(),
             child: Some(child),
         };
@@ -711,28 +745,34 @@ mod tests {
         );
     }
 
-    /// `reap_stale_workers()` must kill processes with PID files still present.
+    /// `reap_stale_workers()` must kill gv-worker processes with PID files still present.
     #[tokio::test]
     async fn reap_kills_stale_worker() {
         let game_id = "test-reap-1";
-        let child = Command::new("sleep")
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let fake_worker = tmp.path().join("gv-worker");
+        std::os::unix::fs::symlink("/bin/sleep", &fake_worker).expect("symlink fake gv-worker");
+        let child = Command::new(&fake_worker)
             .arg("60")
             .spawn()
-            .expect("spawn sleep");
+            .expect("spawn fake gv-worker");
 
         let pid = child.id().expect("child has pid");
 
         std::fs::create_dir_all(WORKER_PID_DIR).unwrap();
         std::fs::write(pid_path(game_id), pid.to_string()).unwrap();
 
-        // Drop the child handle — we're simulating a crash where the handle is lost
+        // Drop the child handle — we're simulating a crash where the handle is lost.
         drop(child);
 
         reap_stale_workers();
 
         tokio::time::sleep(std::time::Duration::from_millis(600)).await;
 
-        assert!(!is_process_alive(pid), "stale worker should be killed by reaper");
+        assert!(
+            !is_process_alive(pid),
+            "stale gv-worker should be killed by reaper"
+        );
         assert!(
             !pid_path(game_id).exists(),
             "PID file should be removed by reaper"
@@ -756,9 +796,10 @@ mod tests {
         );
     }
 
-    /// Dropping a SpawnedWorker without kill() leaves the PID file behind.
+    /// Dropping a SpawnedWorker is a last-ditch cleanup path: it force-kills
+    /// the child and removes the PID file if callers forgot `kill()`.
     #[tokio::test]
-    async fn drop_without_kill_leaves_pid_file() {
+    async fn drop_kills_child_and_removes_pid_file() {
         let game_id = "test-drop-orphan";
         let child = Command::new("sleep")
             .arg("60")
@@ -772,19 +813,19 @@ mod tests {
 
         let worker = SpawnedWorker {
             url: "http://localhost:9999".into(),
+            control_token: "test-control-token".into(),
             game_id: game_id.into(),
             child: Some(child),
         };
 
         drop(worker);
 
-        // PID file should still exist (proves reaper would find it)
-        assert!(pid_path(game_id).exists(), "PID file should survive drop");
-        assert!(is_process_alive(pid), "process should survive drop");
-
-        // Clean up
-        let _ = Command::new("kill").arg(pid.to_string()).output().await;
-        let _ = std::fs::remove_file(pid_path(game_id));
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(
+            !pid_path(game_id).exists(),
+            "PID file should be removed on drop"
+        );
+        assert!(!is_process_alive(pid), "process should be killed on drop");
     }
 
     /// Check whether a process with `pid` is still running.

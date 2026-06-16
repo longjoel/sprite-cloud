@@ -17,16 +17,23 @@ Browser     Vanilla JS client (gv-player) — connects via WebRTC to gv-worker
 ```
 Browser ── OAuth session ──→ gv-web       (full user auth)
 gv-server ── API key ──────→ gv-web       (bearer token from pairing)
-gv-server ── spawn/kill ──→ gv-worker     (process parent, no API auth)
+gv-server ── control token → gv-worker    (per-worker bearer token)
 Browser ── worker_token ──→ gv-web        (lightweight proof of command ownership)
-Browser ── WebRTC ────────→ gv-worker     (P2P, no auth beyond SDP handshake)
+Browser ── WebRTC media ──→ gv-worker     (media/DataChannel after server-relayed SDP)
 ```
 
 - **gv-web** trusts **gv-server** implicitly after pairing (API key = shared secret)
 - **gv-web** trusts **Browser** via OAuth session
-- **gv-worker** trusts no one — only its parent process (gv-server) can spawn it
-- **worker_token** bridges the gap: generated at command time, passed through browser,
-  validated by gv-web — proves the browser owns the command it's polling for
+- **gv-worker** trusts no unauthenticated HTTP caller. gv-server generates a per-worker
+  control token at spawn time and sends it in the HTTP authorization header when
+  relaying SDP or requesting shutdown/debug control.
+- **worker_token** bridges the browser/gv-web gap: generated at command time, passed
+  through browser, validated by gv-web — proves the browser owns the command it is
+  polling for.
+- **host_token** is session authority for privileged DataChannel commands. gv-worker
+  seeds it from `GV_HOST_TOKEN`; SDP offers cannot overwrite an already-set token.
+- Binary controller input is not exempt from auth: a peer must authenticate as Host
+  before input packets are forwarded to the core.
 
 ---
 
@@ -104,13 +111,19 @@ Browser                    gv-web                        gv-server              
   │                          │    game_id } ────────────────│                        │
   │                          │ creates/updates session      │                        │
   │                          │                              │                        │
-  │ GET /api/server/notify   │                              │                        │
-  │  ?server_id=X            │                              │                        │
-  │  &worker_token=abc123 ──►│                              │                        │
-  │← { worker_url } ─────────│                              │                        │
-  │                          │                              │                        │
-  │──── WebRTC SDP ───────────────────────────────────────────────────────────────►│
-  │←─── VP8 video stream ──────────────────────────────────────────────────────────│
+  │ POST /api/server/command │                              │                        │
+  │ { type: "sdp_offer",     │                              │                        │
+  │   payload: {sdp} } ─────►│                              │                        │
+  │                          │     GET /api/server/poll     │                        │
+  │                          │←─────────────────────────────│                        │
+  │                          │── { type: "sdp_offer" } ───►│                        │
+  │                          │                              │ POST /sdp              │
+  │                          │                              │ auth: worker control  │
+  │                          │                              │ token ───────────────►│
+  │                          │                              │← { sdp: answer } ─────│
+  │                          │← POST /api/server/notify ───│                        │
+  │← { sdp_answer } ─────────│                              │                        │
+  │←════════════════════════ WebRTC media/DataChannel ════════════════════════════►│
 ```
 
 #### Command submission
@@ -183,6 +196,28 @@ human-readable line to stdout (JSON) for log aggregation:
 The `WORKER_READY` line on stderr is the **structured contract** — gv-server
 parses it programmatically. The JSON line is for humans.
 
+
+#### Worker control token
+
+gv-server generates a random per-worker control token for every spawned worker and
+passes it via `GV_WORKER_CONTROL_TOKEN`. When that variable is set, gv-worker
+requires:
+
+```http
+Use the HTTP authorization header for the worker control token.
+```
+
+on all worker HTTP control/debug endpoints except `GET /health`:
+
+- `POST /sdp`
+- `POST /shutdown`
+- `GET /state`
+- `GET /test-frame`
+- `GET /`
+
+The browser must not receive this token. Browser SDP goes through gv-web/gv-server;
+gv-server is the trusted caller that adds the worker control bearer token.
+
 #### Health check
 
 After reading the port, gv-server probes `GET http://worker:port/health`
@@ -243,8 +278,9 @@ Browser                    gv-web                        gv-server              
   │                          │── { commands: [{             │                        │
   │                          │      id, type: "stop_game",  │                        │
   │                          │      payload: {game_id} }] } │                        │
-  │                          │                              │ kill()                │
-  │                          │                              │──────────────────────►│
+  │                          │                              │ POST /shutdown        │
+  │                          │                              │ auth: worker control  │
+  │                          │                              │ token ───────────────►│
   │                          │                              │                     dies
   │                          │                              │ PID file removed      │
   │                          │                              │                        │

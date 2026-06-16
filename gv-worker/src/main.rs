@@ -1,26 +1,23 @@
+mod audio_pipeline;
 mod config;
 mod core_bridge;
 mod saves;
 mod test_pattern;
 mod vp8_encoder;
-mod audio_pipeline;
 
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
+    http::{header, HeaderMap, StatusCode},
     routing::{get, post},
     Json, Router,
 };
-use core_bridge::CoreCommand;
 use config::{
-    AUDIO_CHANNELS, AUDIO_SAMPLE_RATE, AUDIO_TRACK_ID,
-    dc_auth_timeout_secs, DC_RECEIVE_TIMEOUT_SECS,
-    ICE_GATHERING_TIMEOUT_SECS, OPUS_SDP_FMTP,
-    PATTERN_BARS, PATTERN_SQUARE,
-    STATS_SEND_INTERVAL, STREAM_ID, TRACK_ID,
-    VIDEO_HEIGHT, VIDEO_WIDTH, VP8_CLOCK_RATE,
-    min_output_height, stun_server,
+    dc_auth_timeout_secs, min_output_height, stun_server, AUDIO_CHANNELS, AUDIO_SAMPLE_RATE,
+    AUDIO_TRACK_ID, DC_RECEIVE_TIMEOUT_SECS, ICE_GATHERING_TIMEOUT_SECS, OPUS_SDP_FMTP,
+    PATTERN_BARS, PATTERN_SQUARE, STATS_SEND_INTERVAL, STREAM_ID, TRACK_ID, VIDEO_HEIGHT,
+    VIDEO_WIDTH, VP8_CLOCK_RATE,
 };
+use core_bridge::CoreCommand;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -29,6 +26,7 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 // CORS layer for browser access (dev: permissive, prod: configure ALLOWED_ORIGIN)
+use crate::audio_pipeline::AudioPipeline;
 use tower_http::cors::CorsLayer;
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_VP8};
@@ -41,7 +39,6 @@ use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
 use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSample;
 use webrtc::track::track_local::TrackLocal;
-use crate::audio_pipeline::AudioPipeline;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -81,10 +78,13 @@ struct AppState {
     stream_handle: Mutex<Option<JoinHandle<()>>>,
     /// The active peer connection (for status queries).
     peer_connection: Mutex<Option<Arc<RTCPeerConnection>>>,
-    /// Host token for the session — set from the first SDP offer that
-    /// carries it, or from the GV_HOST_TOKEN env var.  Only the peer
-    /// that presents this token gets full permissions (save, load, etc.).
+    /// Host token for the session — seeded from GV_HOST_TOKEN or, for
+    /// legacy dev flows only, from the first SDP offer that carries it.
+    /// Once set, SDP offers may not overwrite it.
     host_token: Mutex<Option<String>>,
+    /// Worker HTTP control token. When set, every control/debug endpoint
+    /// except /health requires Authorization: Bearer <token>.
+    control_token: Option<String>,
     /// Signalled when the worker should exit entirely (peer connection
     /// failed/closed with no reconnect). Triggers axum graceful shutdown.
     exit_signal: CancellationToken,
@@ -97,6 +97,46 @@ struct AppState {
 // HTTP handlers
 // ---------------------------------------------------------------------------
 
+fn require_control_token(state: &AppState, headers: &HeaderMap) -> Result<(), StatusCode> {
+    let Some(expected) = state.control_token.as_deref() else {
+        return Ok(());
+    };
+    let Some(value) = headers.get(header::AUTHORIZATION) else {
+        tracing::warn!("[AUTH] missing worker control token");
+        return Err(StatusCode::UNAUTHORIZED);
+    };
+    let Ok(value) = value.to_str() else {
+        tracing::warn!("[AUTH] invalid Authorization header");
+        return Err(StatusCode::UNAUTHORIZED);
+    };
+    let Some(token) = value.strip_prefix("Bearer ") else {
+        tracing::warn!("[AUTH] unsupported Authorization scheme");
+        return Err(StatusCode::UNAUTHORIZED);
+    };
+    if token == expected {
+        Ok(())
+    } else {
+        tracing::warn!("[AUTH] bad worker control token");
+        Err(StatusCode::UNAUTHORIZED)
+    }
+}
+
+fn apply_sdp_host_token(host_token: &mut Option<String>, offered: Option<&str>) {
+    let Some(token) = offered else {
+        return;
+    };
+    if host_token.is_none() {
+        tracing::info!("[SDP] host token set from first offer (legacy flow)");
+        *host_token = Some(token.to_string());
+    } else {
+        tracing::warn!("[SDP] ignoring SDP host token because session host token is already set");
+    }
+}
+
+fn binary_input_allowed(role: Option<PeerRole>, _port: u32) -> bool {
+    role == Some(PeerRole::Host)
+}
+
 /// POST /sdp — WebRTC SDP offer/answer exchange.
 ///
 /// Cancels any previous streaming session, negotiates a new peer
@@ -105,20 +145,19 @@ struct AppState {
 /// Returns HTTP 200 with SDP answer on success, 400 on bad request,
 /// or 500 on internal errors.
 async fn handle_offer(
+    headers: HeaderMap,
     State(state): State<Arc<AppState>>,
     Json(offer): Json<SdpOffer>,
 ) -> Result<Json<SdpAnswer>, (StatusCode, String)> {
+    require_control_token(&state, &headers).map_err(|status| (status, "unauthorized".into()))?;
+
     if offer.sdp.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "empty SDP offer".into()));
     }
 
-    // Store the host token if this offer carries one
     if let Some(ref token) = offer.host_token {
         let mut host = state.host_token.lock().await;
-        if host.is_none() {
-            tracing::info!("[SDP] host token set (first offer with token)");
-        }
-        *host = Some(token.clone());
+        apply_sdp_host_token(&mut host, Some(token));
     }
 
     do_webrtc_handshake(state, &offer.sdp)
@@ -132,23 +171,28 @@ async fn handle_offer(
 
 /// GET /state — current peer connection state (for debugging).
 async fn handle_connection_state(
+    headers: HeaderMap,
     State(state): State<Arc<AppState>>,
-) -> Json<serde_json::Value> {
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    require_control_token(&state, &headers)?;
     let pc_lock = state.peer_connection.lock().await;
     let state_str = pc_lock
         .as_ref()
         .map(|pc| format!("{:?}", pc.connection_state()))
         .unwrap_or_else(|| "no connection".to_string());
-    Json(serde_json::json!({"state": state_str}))
+    Ok(Json(serde_json::json!({"state": state_str})))
 }
 
 /// GET /test-frame?frame=N — raw RGB24 frame for HTTP polling.
-async fn handle_test_frame(Query(q): Query<FrameQuery>) -> axum::body::Bytes {
+async fn handle_test_frame(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+    Query(q): Query<FrameQuery>,
+) -> Result<axum::body::Bytes, StatusCode> {
+    require_control_token(&state, &headers)?;
     let frame = q.frame.unwrap_or(0);
-    axum::body::Bytes::from(test_pattern::generate_bouncing_square(
-        VIDEO_WIDTH,
-        VIDEO_HEIGHT,
-        frame,
+    Ok(axum::body::Bytes::from(
+        test_pattern::generate_bouncing_square(VIDEO_WIDTH, VIDEO_HEIGHT, frame),
     ))
 }
 
@@ -167,18 +211,26 @@ async fn handle_health() -> StatusCode {
 /// exit_signal so the worker cleanly saves SRAM, closes the core, and
 /// exits the HTTP server.  Returns 200 OK immediately; the actual
 /// shutdown happens asynchronously.
-async fn handle_shutdown(State(state): State<Arc<AppState>>) -> StatusCode {
+async fn handle_shutdown(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> Result<StatusCode, StatusCode> {
+    require_control_token(&state, &headers)?;
     tracing::info!("[SHUTDOWN] graceful shutdown requested — exiting");
     state.exit_signal.cancel();
-    StatusCode::OK
+    Ok(StatusCode::OK)
 }
 
 /// GET / — embedded test page.
 ///
 /// Deprecated: use gv-web production player at /play/:game_id instead.
 /// Kept for local dev smoke testing only.
-async fn handle_index() -> axum::response::Html<String> {
-    axum::response::Html(build_index_html())
+async fn handle_index(
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> Result<axum::response::Html<String>, StatusCode> {
+    require_control_token(&state, &headers)?;
+    Ok(axum::response::Html(build_index_html()))
 }
 
 // ---------------------------------------------------------------------------
@@ -186,10 +238,7 @@ async fn handle_index() -> axum::response::Html<String> {
 // ---------------------------------------------------------------------------
 
 /// ICE_GATHERING_TIMEOUT_SECS is defined in crate::config.
-async fn do_webrtc_handshake(
-    state: Arc<AppState>,
-    offer_sdp: &str,
-) -> Result<SdpAnswer, String> {
+async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<SdpAnswer, String> {
     // ---- Cancel any previous streaming session ----
     let cancel = {
         let old_cancel = state.cancel.lock().await;
@@ -237,40 +286,65 @@ async fn do_webrtc_handshake(
     );
 
     // ---- Load libretro core (or fall back to test pattern) ----//
-    let (core_width, core_height, enc_fps, core_frame_rx, core_cmd_tx, core_response_rx, core_sample_rate) =
-        match core_bridge::spawn_core_thread() {
-            Some(handle) => {
-                let target_h = min_output_height();
-                let (enc_w, enc_h) = vp8_encoder::compute_scaled_dims(handle.width, handle.height, target_h);
-                if enc_w != handle.width || enc_h != handle.height {
-                    tracing::info!(
-                        "[STREAM] Using libretro core at {}×{} → upscaled to {}×{} @ {:.1}fps {:.0}Hz",
-                        handle.width, handle.height, enc_w, enc_h, handle.fps, handle.sample_rate
-                    );
-                } else {
-                    tracing::info!(
-                        "[STREAM] Using libretro core at {}×{} @ {:.1}fps {:.0}Hz",
-                        handle.width, handle.height, handle.fps, handle.sample_rate
-                    );
-                }
-                (
+    let (
+        core_width,
+        core_height,
+        enc_fps,
+        core_frame_rx,
+        core_cmd_tx,
+        core_response_rx,
+        core_sample_rate,
+    ) = match core_bridge::spawn_core_thread() {
+        Some(handle) => {
+            let target_h = min_output_height();
+            let (enc_w, enc_h) =
+                vp8_encoder::compute_scaled_dims(handle.width, handle.height, target_h);
+            if enc_w != handle.width || enc_h != handle.height {
+                tracing::info!(
+                    "[STREAM] Using libretro core at {}×{} → upscaled to {}×{} @ {:.1}fps {:.0}Hz",
+                    handle.width,
+                    handle.height,
                     enc_w,
                     enc_h,
                     handle.fps,
-                    Some(handle.frame_rx),
-                    Some(handle.cmd_tx),
-                    Some(handle.response_rx),
-                    Some(handle.sample_rate),
-                )
-            }
-            None => {
-                tracing::info!(
-                    "[STREAM] Core not available — using test pattern at {}×{}",
-                    VIDEO_WIDTH, VIDEO_HEIGHT
+                    handle.sample_rate
                 );
-                (VIDEO_WIDTH, VIDEO_HEIGHT, crate::config::VIDEO_FPS as f64, None, None, None, None)
+            } else {
+                tracing::info!(
+                    "[STREAM] Using libretro core at {}×{} @ {:.1}fps {:.0}Hz",
+                    handle.width,
+                    handle.height,
+                    handle.fps,
+                    handle.sample_rate
+                );
             }
-        };
+            (
+                enc_w,
+                enc_h,
+                handle.fps,
+                Some(handle.frame_rx),
+                Some(handle.cmd_tx),
+                Some(handle.response_rx),
+                Some(handle.sample_rate),
+            )
+        }
+        None => {
+            tracing::info!(
+                "[STREAM] Core not available — using test pattern at {}×{}",
+                VIDEO_WIDTH,
+                VIDEO_HEIGHT
+            );
+            (
+                VIDEO_WIDTH,
+                VIDEO_HEIGHT,
+                crate::config::VIDEO_FPS as f64,
+                None,
+                None,
+                None,
+                None,
+            )
+        }
+    };
 
     // ---- Create encoder + shared state ----
     let encoder_mutex: Arc<std::sync::Mutex<vp8_encoder::Vp8Encoder>> =
@@ -290,18 +364,25 @@ async fn do_webrtc_handshake(
                 match AudioPipeline::new(rate, audio_channels) {
                     Ok(p) => Some(p),
                     Err(e) => {
-                        tracing::error!("[AUDIO] Failed to create pipeline: {} — audio disabled", e);
+                        tracing::error!(
+                            "[AUDIO] Failed to create pipeline: {} — audio disabled",
+                            e
+                        );
                         None
                     }
                 }
-            },
+            }
             None => None,
         }));
 
     let force_keyframe = Arc::new(AtomicBool::new(false));
     // Default to error pattern when core is missing — shows helpful message
     // instead of a confusing cyan square or color bars.
-    let pattern = Arc::new(AtomicU8::new(if core_frame_rx.is_some() { PATTERN_SQUARE } else { crate::config::PATTERN_ERROR }));
+    let pattern = Arc::new(AtomicU8::new(if core_frame_rx.is_some() {
+        PATTERN_SQUARE
+    } else {
+        crate::config::PATTERN_ERROR
+    }));
 
     // ---- ICE gathering: register callback BEFORE set_local_description ----
     // Must register before calling set_local_description so we don't miss
@@ -359,16 +440,19 @@ async fn do_webrtc_handshake(
     // ---- Receive DataChannel from browser (offerer creates it) ----
     // The browser creates the "diagnostics" DataChannel in its offer.
     // We receive it here and set up the message handler.
-    let (dc_tx, mut dc_rx) = tokio::sync::mpsc::channel::<Arc<webrtc::data_channel::RTCDataChannel>>(1);
+    let (dc_tx, mut dc_rx) =
+        tokio::sync::mpsc::channel::<Arc<webrtc::data_channel::RTCDataChannel>>(1);
 
-    peer_connection.on_data_channel(Box::new(move |d: Arc<webrtc::data_channel::RTCDataChannel>| {
-        let tx = dc_tx.clone();
-        Box::pin(async move {
-            if let Err(e) = tx.send(d).await {
-                tracing::warn!("[DC] Failed to send DataChannel to receiver: {}", e);
-            }
-        })
-    }));
+    peer_connection.on_data_channel(Box::new(
+        move |d: Arc<webrtc::data_channel::RTCDataChannel>| {
+            let tx = dc_tx.clone();
+            Box::pin(async move {
+                if let Err(e) = tx.send(d).await {
+                    tracing::warn!("[DC] Failed to send DataChannel to receiver: {}", e);
+                }
+            })
+        },
+    ));
 
     // ---- SDP exchange ----
     let offer_desc = RTCSessionDescription::offer(offer_sdp.to_string())
@@ -411,8 +495,9 @@ async fn do_webrtc_handshake(
     // We receive it asynchronously — the SDP response must not wait for it.
     // The streaming loop holds a clone of dc_stream; if no DC arrives,
     // stats and control silently fail (video + audio still work).
-    let dc_stream_for_loop: Arc<tokio::sync::Mutex<Option<Arc<webrtc::data_channel::RTCDataChannel>>>> =
-        Arc::new(tokio::sync::Mutex::new(None));
+    let dc_stream_for_loop: Arc<
+        tokio::sync::Mutex<Option<Arc<webrtc::data_channel::RTCDataChannel>>>,
+    > = Arc::new(tokio::sync::Mutex::new(None));
 
     // Clone host token for DataChannel auth
     let dc_host_token = {
@@ -451,7 +536,8 @@ async fn do_webrtc_handshake(
                 let dc_timeout = dc.clone();
                 let role_timeout = role.clone();
                 tokio::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_secs(dc_auth_timeout_secs())).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(dc_auth_timeout_secs()))
+                        .await;
                     if role_timeout.lock().await.is_none() {
                         tracing::warn!("[DC] auth timeout — closing channel");
                         dc_timeout.close().await.ok();
@@ -471,9 +557,16 @@ async fn do_webrtc_handshake(
                     let session_token = dc_host_token.clone();
                     Box::pin(async move {
                         // ── Binary input (RetroArch format) ──────────
-                        // Always allowed — port byte identifies the seat.
                         if msg.data.len() == 3 {
                             let port = msg.data[0] as u32;
+                            let current_role = *role.lock().await;
+                            if !binary_input_allowed(current_role, port) {
+                                tracing::warn!(
+                                    "[DC] unauthenticated/non-host binary input for port={} — dropping",
+                                    port
+                                );
+                                return;
+                            }
                             let state = u16::from_le_bytes([msg.data[1], msg.data[2]]);
                             tracing::info!(
                                 "[DC] binary input: port={} state=0x{:04X} ({})",
@@ -706,24 +799,21 @@ async fn do_webrtc_handshake(
     // Only cancel on terminal states (Failed, Closed). "Disconnected" is
     // transient — ICE will attempt to reconnect and the DataChannel may
     // still deliver messages (e.g. keyboard input).
-    peer_connection.on_peer_connection_state_change(Box::new(
-        move |s: RTCPeerConnectionState| {
-            let cancel = disconnect_cancel.clone();
-            Box::pin(async move {
-                match s {
-                    RTCPeerConnectionState::Failed
-                    | RTCPeerConnectionState::Closed => {
-                        tracing::info!("[STREAM] Peer {} — cancelling stream", s);
-                        cancel.cancel();
-                    }
-                    RTCPeerConnectionState::Disconnected => {
-                        tracing::info!("[STREAM] Peer Disconnected — waiting for reconnect or timeout");
-                    }
-                    _ => {}
+    peer_connection.on_peer_connection_state_change(Box::new(move |s: RTCPeerConnectionState| {
+        let cancel = disconnect_cancel.clone();
+        Box::pin(async move {
+            match s {
+                RTCPeerConnectionState::Failed | RTCPeerConnectionState::Closed => {
+                    tracing::info!("[STREAM] Peer {} — cancelling stream", s);
+                    cancel.cancel();
                 }
-            })
-        },
-    ));
+                RTCPeerConnectionState::Disconnected => {
+                    tracing::info!("[STREAM] Peer Disconnected — waiting for reconnect or timeout");
+                }
+                _ => {}
+            }
+        })
+    }));
 
     let handle = tokio::spawn(async move {
         stream_vp8_frames(StreamCtx {
@@ -740,7 +830,8 @@ async fn do_webrtc_handshake(
             fps: enc_fps,
             core_frame_rx: stream_core_rx,
             core_cmd_tx: stream_core_cmd,
-        }).await;
+        })
+        .await;
     });
 
     {
@@ -809,7 +900,8 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
     };
     tracing::info!(
         "[STREAM] Starting VP8 frame loop ({}×{} @ {:.1}fps, {}kbps)",
-        log_w, log_h,
+        log_w,
+        log_h,
         ctx.fps,
         crate::config::target_bitrate_kbps()
     );
@@ -1268,6 +1360,36 @@ function stopAll() {{
     HTML.clone()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sdp_host_token_does_not_override_existing_session_token() {
+        let mut host_token = Some("original-host".to_string());
+
+        apply_sdp_host_token(&mut host_token, Some("attacker-token"));
+
+        assert_eq!(host_token.as_deref(), Some("original-host"));
+    }
+
+    #[test]
+    fn sdp_host_token_can_seed_empty_session_token_for_legacy_flow() {
+        let mut host_token = None;
+
+        apply_sdp_host_token(&mut host_token, Some("first-host"));
+
+        assert_eq!(host_token.as_deref(), Some("first-host"));
+    }
+
+    #[test]
+    fn binary_input_requires_authenticated_host_role() {
+        assert!(!binary_input_allowed(None, 0));
+        assert!(!binary_input_allowed(Some(PeerRole::Viewer), 0));
+        assert!(binary_input_allowed(Some(PeerRole::Host), 0));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -1289,9 +1411,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(0);
 
     let host_token = std::env::var("GV_HOST_TOKEN").ok();
+    let control_token = std::env::var("GV_WORKER_CONTROL_TOKEN").ok();
 
     if host_token.is_some() {
         tracing::info!("[STARTUP] host token set from GV_HOST_TOKEN env var");
+    }
+    if control_token.is_some() {
+        tracing::info!("[STARTUP] worker control token required for HTTP control endpoints");
+    } else {
+        tracing::warn!("[STARTUP] GV_WORKER_CONTROL_TOKEN not set — worker HTTP control endpoints are unauthenticated");
     }
 
     let state = Arc::new(AppState {
@@ -1299,6 +1427,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         stream_handle: Mutex::new(None),
         peer_connection: Mutex::new(None),
         host_token: Mutex::new(host_token),
+        control_token,
         exit_signal: CancellationToken::new(),
         destruct_timer: Mutex::new(None),
     });
@@ -1347,7 +1476,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         state.destruct_timer.lock().await.replace(handle);
     }
 
-    let graceful = async move { exit.cancelled().await; };
+    let graceful = async move {
+        exit.cancelled().await;
+    };
     axum::serve(listener, app)
         .with_graceful_shutdown(graceful)
         .await?;
