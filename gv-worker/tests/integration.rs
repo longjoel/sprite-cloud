@@ -12,11 +12,17 @@ use std::time::Duration;
 /// Spawn gv-worker on a random port (pass 0 to the binary) and wait for it
 /// to print the actual port it bound to. Returns (child, port).
 fn spawn_worker() -> (Child, u16) {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_gv-worker"))
-        .arg("0") // random port
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("failed to spawn gv-worker");
+    spawn_worker_with_env(&[])
+}
+
+fn spawn_worker_with_env(envs: &[(&str, &str)]) -> (Child, u16) {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_gv-worker"));
+    cmd.arg("0") // random port
+        .stderr(std::process::Stdio::piped());
+    for (key, value) in envs {
+        cmd.env(key, value);
+    }
+    let mut child = cmd.spawn().expect("failed to spawn gv-worker");
 
     // Read the port from stderr: "WORKER_READY port=<N>"
     let stderr = child.stderr.take().expect("no stderr");
@@ -69,6 +75,71 @@ fn test_page_loads() {
     assert!(body.contains("gv-worker"));
     assert!(body.contains("WebRTC test"));
     child.kill().ok();
+}
+
+#[test]
+fn sdp_requires_worker_control_token_when_configured() {
+    let (mut child, port) = spawn_worker_with_env(&[("GV_WORKER_CONTROL_TOKEN", "control-secret")]);
+
+    let result = ureq::post(&url(port, "/sdp"))
+        .set("Content-Type", "application/json")
+        .send_json(ureq::json!({"sdp": "v=0\r\n"}));
+
+    match result {
+        Err(ureq::Error::Status(code, _)) => assert_eq!(code, 401),
+        other => panic!(
+            "expected unauthenticated /sdp to return 401, got {:?}",
+            other
+        ),
+    }
+
+    child.kill().ok();
+}
+
+#[test]
+fn shutdown_requires_worker_control_token_when_configured() {
+    let (mut child, port) = spawn_worker_with_env(&[("GV_WORKER_CONTROL_TOKEN", "control-secret")]);
+
+    let result = ureq::post(&url(port, "/shutdown")).call();
+    match result {
+        Err(ureq::Error::Status(code, _)) => assert_eq!(code, 401),
+        other => panic!(
+            "expected unauthenticated /shutdown to return 401, got {:?}",
+            other
+        ),
+    }
+
+    // The unauthorized shutdown must not terminate the worker.
+    std::thread::sleep(Duration::from_millis(100));
+    let resp = ureq::get(&url(port, "/health"))
+        .call()
+        .expect("worker should still be alive");
+    assert_eq!(resp.status(), 200);
+
+    child.kill().ok();
+}
+
+#[test]
+fn shutdown_accepts_worker_control_token_when_configured() {
+    let (mut child, port) = spawn_worker_with_env(&[("GV_WORKER_CONTROL_TOKEN", "control-secret")]);
+
+    let resp = ureq::post(&url(port, "/shutdown"))
+        .set("Authorization", "Bearer control-secret")
+        .call()
+        .expect("authorized shutdown should return 200");
+    assert_eq!(resp.status(), 200);
+
+    std::thread::sleep(Duration::from_millis(200));
+    match child.try_wait() {
+        Ok(Some(_)) => {}
+        other => {
+            child.kill().ok();
+            panic!(
+                "worker should exit after authorized shutdown, got {:?}",
+                other
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -167,7 +238,9 @@ fn repeated_sdp_does_not_crash() {
     }
 
     // After all 5, the server should still be alive
-    let resp = ureq::get(&url(port, "/")).call().expect("server should still be up");
+    let resp = ureq::get(&url(port, "/"))
+        .call()
+        .expect("server should still be up");
     assert_eq!(resp.status(), 200);
 
     child.kill().ok();
@@ -195,9 +268,7 @@ fn test_frame_returns_correct_size() {
     assert_eq!(body.len(), 230_400, "wrong frame size");
 
     // Two consecutive frames must differ (bouncing square moves)
-    let resp2 = ureq::get(&url(port, "/test-frame?frame=1"))
-        .call()
-        .unwrap();
+    let resp2 = ureq::get(&url(port, "/test-frame?frame=1")).call().unwrap();
     let mut body2 = Vec::new();
     resp2.into_reader().read_to_end(&mut body2).unwrap();
     assert_ne!(body, body2, "consecutive frames must differ");

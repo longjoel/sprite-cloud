@@ -18,9 +18,12 @@
 | PID recycling → wrong process killed | Verify /proc/pid/comm before SIGKILL | 1 |
 | Cross-origin WebRTC hijack | Restrict CORS to gv-web origin only | 2 |
 | ROM path traversal | Use resolve_within_roots() in start_game handler | 2 |
-| Token leakage via URLs | Worker tokens in POST body, not query params | 2 |
-| Shared LAN user identity | Per-user UUID for LAN credentials | 2 |
+| Token leakage via URLs | Worker/room tokens in POST body, not query params | 2 |
+| Shared LAN user identity | Deterministic per-user UUID for LAN credentials | 2 |
 | CSRF on game commands | CSRF token validation on POST /api/server/command | 2 |
+| Unauthorized guest access | Room token as capability — join endpoint validates | 2 |
+| Guest privilege escalation | Per-peer role gating on DataChannel (Host vs Viewer) | 2 |
+| Worker peer hijack (new connection kills host) | Multi-peer map — new peers don't displace existing ones | 2 |
 | DataChannel silent failure | DC close/error → State.ERROR → reconnect | 3 |
 | Reconnect spawns zombies | Stop old worker before starting new one | 3 |
 | XSS via error messages | Sanitize server errors before displaying | 4 |
@@ -49,43 +52,147 @@
 
 ---
 
-## Phase 2 — Lock the Doors (security)
+## Phase 2 — Lock the Doors + Room Sharing (security + guest flow)
+
+**Design:** Room tokens enable host → guest sharing. Host creates a session, gets a `room_token` to share. Guests join via room token, connect directly to the worker's WebRTC endpoint (each gets their own peer connection). Worker refactored to support multiple concurrent peers with shared video broadcast. Input always flows (binary messages, seat-indexed). Host commands (save/load/bitrate) are gated to the Host peer only.
+
+**Room token flow:**
+```
+Host: POST /api/server/command (start_game) → worker_token + room_token
+Host: POST /api/server/notify (worker_token) → poll for worker_url
+Host: POST /api/server/command (sdp_offer) → relay SDP → WebRTC connect → DC auth (host_token)
+Host: shares /play/:game_id?room=ABC&seat=0
+
+Guest: loads /play/:game_id?room=ABC&seat=1
+Guest: POST /api/server/room/join { room_token, seat } → { worker_url, game_id }
+Guest: POST worker_url/sdp → WebRTC connect → DC auth (room_token, seat)
+Guest: sends input (binary, port=seat) → worker receives, injects into core
+```
 
 ### Task 2.1: Restrict CORS on gv-worker
 **Files:** `gv-worker/src/main.rs`
-**Problem:** `CorsLayer::permissive()` allows any origin to make SDP offers and hijack WebRTC sessions.
-**Fix:** Only allow the gv-web origin (read from ALLOWED_ORIGIN env var). Default to localhost:3001 in dev. Log a warning on startup if permissive CORS is active.
-**Test:** `curl -H "Origin: https://evil.com" -X OPTIONS http://localhost:<port>` → 403.
+**Problem:** `CorsLayer::permissive()` allows any origin to make SDP offers and hijack WebRTC sessions. Guest flow requires cross-origin access from gv-web → gv-worker.
+**Fix:** Use the existing `allowed_origins()` function (currently `#[allow(dead_code)]`). Require `ALLOWED_ORIGIN` env var. Default to `http://localhost:3001` in dev, panic on startup if unset in release mode. Log the allowed origin at INFO.
+**Test:** `curl -H "Origin: https://evil.com" -X OPTIONS http://localhost:<port>/sdp` → 403. `curl -H "Origin: http://localhost:3001" -X OPTIONS http://localhost:<port>/sdp` → 200.
 
 ### Task 2.2: Use resolve_within_roots() in start_game handler
-**Files:** `gv-server/src/main.rs:189-203`
-**Problem:** The start_game command handler joins the relative ROM path with each ROM root and checks `full.exists()`. This path traversal guard exists but the stronger `resolve_within_roots()` (which canonicalizes and verifies containment) is only used in the scanner, not here.
-**Fix:** Replace the manual join+exists loop with `resolve_within_roots(Path::new(root).join(rel), &rom_roots)`. This gives canonicalization + containment check.
-**Test:** `cargo test -p gv-server scan` — all pass. Manual: attempt path traversal via crafted rom_path in command.
+**Files:** `gv-server/src/main.rs:150-170` (start_game command handler)
+**Problem:** The start_game command handler resolves `rom_path` by joining ROM roots + `exists()` check. No canonicalization or containment verification. The stronger `resolve_within_roots()` exists in `scan.rs` but isn't used here.
+**Fix:** Replace the manual join+exists loop with `scan::resolve_within_roots(Path::new(rel), &rom_roots)`. This gives canonicalization + symlink resolution + prefix containment check. If resolution fails, log WARN and return null rom_path (worker falls back to test pattern).
+**Test:** `cargo test -p gv-server scan` — all pass. Add test: `scan::resolve_within_roots("../../../etc/passwd", &roots)` returns `Err`.
 
 ### Task 2.3: Add CSRF protection to POST /api/server/command
-**Files:** `gv-web/app/api/server/command/route.ts`
+**Files:** `gv-web/app/api/server/command/route.ts`, `gv-web/lib/csrf.ts` (new)
 **Problem:** The command endpoint authenticates via NextAuth session cookie but has no CSRF token check. A malicious site could trigger game commands if the user is authenticated.
-**Fix:** Require a `csrf_token` in the request body or `X-CSRF-Token` header. Use NextAuth's built-in CSRF token from the session cookie. Validate server-side.
-**Test:** POST without token → 403. POST with valid token → 200.
+**Fix:** Read NextAuth's CSRF token from `req.cookies.get("next-auth.csrf-token")`. Require `X-CSRF-Token` header matching the cookie value. Extract CSRF validation to `lib/csrf.ts` for reuse. Validate before the server membership check.
+**Test:** POST without X-CSRF-Token header → 403 `{ error: "csrf token required" }`. POST with mismatched token → 403. POST with valid token → 201.
 
 ### Task 2.4: Fix shared LAN user ID
-**Files:** `gv-web/lib/auth.ts:70`
-**Problem:** All LAN users share `id: "a0000000-0000-0000-0000-000000000000"`. They see each other's servers and sessions.
-**Fix:** Generate a UUID per LAN user derived from their username (deterministic: `crypto.createHash('sha256').update(username).digest('hex').substring(0, 36)` as UUID format). Store in DB if needed for FK integrity.
-**Test:** Two LAN users with different usernames get different IDs. Two logins with same username get same ID. Server membership queries return only own servers.
+**Files:** `gv-web/lib/auth.ts:66-70`
+**Problem:** All LAN users share `id: "a0000000-0000-0000-0000-000000000000"`. They see each other's servers, sessions, and can issue commands on each other's servers (if they know the server_id).
+**Fix:** Derive a deterministic UUID from the username: `crypto.createHash('sha256').update(process.env.LAN_USER + ':' + username).digest('hex')`. Format as UUID (first 8-4-4-4-12 hex chars). This keeps the user "stateless" (no DB row needed) but gives each LAN user a stable, unique identity. Update the `id` field in the returned user object.
+**Test:** Two different LAN usernames → different UUIDs. Same username → same UUID. A server created by user A is not visible to user B (server_members join filters by userId).
 
-### Task 2.5: Worker tokens in POST body, not query params
-**Files:** `gv-web/app/api/server/notify/route.ts`, `gv-web/public/player/index.js:468`
-**Problem:** `GET /api/server/notify?server_id=X&token=Y` leaks tokens to browser history, server logs, and referrer headers.
-**Fix:** Change to POST with JSON body: `{ server_id, token }`. Update the player poll loop accordingly.
-**Test:** GET without token → 400. POST with body → 200.
+### Task 2.5: Schema migration — add room_token to sessions
+**Files:** `gv-web/lib/db/schema.ts`, new migration file
+**Problem:** No way to share a session with guests. The `worker_token` is private to the command creator.
+**Fix:** Add `roomToken: text("room_token").unique()` to the `sessions` table. Nullable — only sessions that are shared get a room_token. Add a `maxSeats: integer("max_seats").default(1)` column to track how many players can join. Run drizzle-kit generate + migrate.
+**Test:** `drizzle-kit generate` produces migration. `drizzle-kit migrate` applies without error. `\d sessions` in psql shows new columns.
 
-### Task 2.6: Add auth to GET /api/server/notify
-**Files:** `gv-web/app/api/server/notify/route.ts`
-**Problem:** The notify endpoint only checks a query-param token. No session auth.
-**Fix:** Require either valid NextAuth session OR valid worker_token in body. Log auth failures at WARN level.
-**Test:** Unauthenticated GET → 401. GET with valid session → 200. POST with valid token → 200.
+### Task 2.6: Generate room_token on session creation + share API
+**Files:** `gv-web/app/api/server/notify/route.ts` (POST handler)
+**Problem:** Session is created without a room_token. Host has no way to share.
+**Fix:** In the notify POST handler (when gv-server reports worker ready), generate a `room_token` using `crypto.randomBytes(16).toString("hex")` (32 hex chars). Store on the session record. Return it in the response: `{ ok: true, room_token: "abc123..." }`. gv-server forwards this to the browser via the notify response.
+**Also:** Add `POST /api/server/room/share` — takes `{ session_id, max_seats }`, generates/rotates the room_token, returns it. Used when host wants to share after session creation.
+**Test:** Start a game via command → notify POST → session gets room_token. `POST /api/server/room/share` → returns new room_token. Verify session.roomToken is set in DB.
+
+### Task 2.7: Guest room join endpoint
+**Files:** `gv-web/app/api/server/room/join/route.ts` (new)
+**Problem:** Guest has a room_token but no way to discover the worker URL and game info.
+**Fix:** `POST /api/server/room/join` — body: `{ room_token: string }`. Look up session by room_token. Return `{ server_id, worker_url, game_id, max_seats }`. No auth required (the room_token IS the auth). Rate-limit: 10 req/min per IP (will be added in Phase 4, note here).
+**Test:** POST with valid room_token → 200 with worker_url. POST with invalid token → 404. POST with token for ended session → 410 Gone.
+
+### Task 2.8: Move tokens to POST body (notify endpoint)
+**Files:** `gv-web/app/api/server/notify/route.ts` (GET handler), `gv-web/public/player/play.js:97-110`
+**Problem:** `GET /api/server/notify?worker_token=X` leaks tokens to browser history, server logs, referrer headers.
+**Fix:** 
+- Change GET to POST with JSON body: `{ server_id, worker_token }`
+- The POST handler for notify (gv-server → gv-web) stays unchanged (already uses POST with bearer auth)
+- Update `play.js` `startGame()` to POST instead of GET
+- Add optional `room_token` field for guest polling: `{ server_id, room_token }` → returns session info for guests too
+**Test:** POST with valid worker_token → 200 with worker_url. POST with valid room_token → 200 with worker_url (guest path). POST with invalid token → 404.
+
+### Task 2.9: Multi-peer worker — replace single PeerConnection with peer map
+**Files:** `gv-worker/src/main.rs`
+**Problem:** `peer_connection: Mutex<Option<Arc<RTCPeerConnection>>>` supports only one peer. Second SDP offer closes the first connection. Cannot support host + guests simultaneously.
+**Fix:** 
+1. Replace single `peer_connection` with `peers: Mutex<HashMap<String, PeerState>>` where:
+```rust
+struct PeerState {
+    peer_connection: Arc<RTCPeerConnection>,
+    data_channel: Arc<RTCDataChannel>,
+    role: PeerRole,         // Host | Viewer
+    seat: u8,               // assigned seat index
+    connected_at: Instant,
+}
+```
+2. `handle_offer`: create new peer connection, assign peer_id (UUID), add to map. Return `{ sdp: "...", peer_id: "..." }` so client knows its identity.
+3. `handle_connection_state`: return state for ALL peers as JSON map.
+4. On peer disconnect/close: remove from map, log INFO.
+5. Health endpoint returns peer count.
+6. Video frame broadcast: iterate all peers, send encoded frame to each data channel. If a send fails (DC closed), remove that peer.
+
+**Important:** `create_peer_connection()` currently spawns a stream task that holds `Arc<AppState>`. The stream loop sends frames to the single DC. Refactor so the stream task broadcasts to all peers — use a `tokio::sync::broadcast` channel (or just iterate the peers map each frame).
+
+**Test:** Start worker, connect two peers via separate SDP offers. GET /state shows 2 peers. Close one peer → /state shows 1 peer. Both peers receive video frames.
+
+### Task 2.10: Per-peer DataChannel auth + role gating
+**Files:** `gv-worker/src/main.rs` (DataChannel message handler, ~lines 460-580)
+**Problem:** Auth sets a single global `role: Mutex<Option<PeerRole>>`. With multi-peer, each peer needs its own role.
+**Fix:** 
+1. On DC open: send peer_id to the client: `{ type: "welcome", peer_id: "..." }`
+2. DC auth: when client sends `{ cmd: "auth", host_token: "..." }`, compare against the worker's `GV_HOST_TOKEN` env var. If match → Host role. If no match → stay Viewer.
+3. Guest auth: when client sends `{ cmd: "auth", room_token: "..." }` (no host_token match), set role to Viewer.
+4. Role gating: Host commands (save_state, load_state, set_bitrate, force_keyframe) check `peer.role == PeerRole::Host`. Guests get "unauthorized" response.
+5. Input (binary): always allowed for all peers. Port byte = seat index.
+6. Ping/pong: always allowed.
+
+**Test:** Connect host peer with valid host_token → Host role. Connect guest peer with room_token → Viewer role. Guest sends save_state → "unauthorized". Guest sends input → accepted.
+
+### Task 2.11: Guest player flow — connect with room token
+**Files:** `gv-web/public/player/play.js` (new `joinRoom` function), `gv-web/app/play/[game_id]/page.tsx`, `gv-web/components/GamePlayer.tsx`
+**Problem:** No guest code path. Player always starts a game (creates command + polls notify). Guest needs a different flow — they join an existing room.
+**Fix:**
+1. Add `joinRoom(roomToken, seat)` function to `play.js`:
+   - POST `/api/server/room/join` with room_token → get { worker_url, game_id, server_id }
+   - Create GvPlayer with seat option: `new GvPlayer(video, { seat })`
+   - Skip `connectViaRelay` — instead call a new `player.connectDirect(workerUrl, roomToken, seat)`
+2. Add `connectDirect()` method to `GvPlayer` (in `index.js`):
+   - Create RTCPeerConnection
+   - POST SDP offer directly to `workerUrl/sdp` (no relay through gv-server)
+   - Set remote description from SDP answer
+   - On DC open: send `{ cmd: "auth", room_token }`
+   - Start sending input (binary, port=seat)
+3. Update `GamePlayer` to accept optional `roomToken` + `seat` props. If roomToken is present, call `joinRoom` instead of `startPlayer`.
+4. Update `PlayPage` to read `room` and `seat` query params, pass to `GamePlayer`.
+
+**Test:** Manual: host starts game, copies room_token. Guest opens /play/:game_id?room=ABC&seat=1. Guest sees video, can send input. Host still connected (2 peers on worker). Guest cannot save/load.
+
+### Task 2.12: Smoke test — host shares, guest joins, both play
+**Files:** `scripts/smoke-test-room-sharing.sh` (new)
+**Problem:** No integration test for the room sharing flow.
+**Fix:** Bash script using curl + grep:
+1. Start a game via API (host) — capture worker_token + room_token
+2. Poll notify until worker_url is ready
+3. Connect host WebRTC (webrtc-rs or node script) — verify DC auth succeeds
+4. Guest calls POST /api/server/room/join with room_token → gets worker_url
+5. Connect guest WebRTC → verify 2 peers on worker (GET /state)
+6. Guest sends input (binary on port=1) — host still connected
+7. Guest sends save_state → "unauthorized"
+8. Host sends save_state → success
+9. Host disconnects → 1 peer on worker
+10. Guest disconnects → 0 peers, worker cleans up
+**Test:** `bash scripts/smoke-test-room-sharing.sh` → exit 0 only if all 10 steps pass.
 
 ---
 
