@@ -72,7 +72,8 @@ cmd_status() {
         echo -e "  gv-server ${RED}DOWN${NC}"
     fi
     local workers
-    workers=$(pgrep -u "$GV_USER" 'gv-worker' 2>/dev/null | wc -l)
+    # pgrep exits 1 when no workers are running; status should still report idle.
+    workers=$(pgrep -u "$GV_USER" 'gv-worker' 2>/dev/null | wc -l || true)
     if [ "$workers" -gt 0 ]; then
         echo -e "  gv-worker ${GREEN}ok${NC}  ($workers running, user: $GV_USER)"
     else
@@ -127,13 +128,45 @@ cmd_start() {
     fi
 
     # ── gv-web ──────────────────────────────────────────────────────
-    if ! curl -sf "http://localhost:$WEB_PORT/api/health" >/dev/null 2>&1; then
+    # Always kill stale next processes — next dev can accumulate stale
+    # route registries over long uptime (days), causing 404s on valid API routes.
+    local restart_web=false
+    if pgrep -f 'next-server' >/dev/null 2>&1; then
+        local uptime_secs
+        uptime_secs=$(ps -o etimes= -p "$(pgrep -f 'next-server' | head -1)" 2>/dev/null | tr -d ' ' || echo 0)
+        if [ "$uptime_secs" -gt 7200 ] 2>/dev/null; then
+            log "gv-web uptime ${uptime_secs}s > 2h — forcing restart to clear stale routes"
+            restart_web=true
+        fi
+    fi
+
+    if $restart_web || ! curl -sf "http://localhost:$WEB_PORT/api/health" >/dev/null 2>&1; then
         log "Starting gv-web..."
+        pkill -f 'next-server' 2>/dev/null || true
+        pkill -f 'next dev' 2>/dev/null || true
+        sleep 1
         cd "$PROJECT_DIR/gv-web"
         rm -rf .next
-        pnpm dev > "$LOG_DIR/gv-web.log" 2>&1 &
+        if [ "${GV_PROD:-0}" = "1" ]; then
+            log "Building production gv-web..."
+            npx next build > "$LOG_DIR/gv-web-build.log" 2>&1
+            npx next start -p "$WEB_PORT" > "$LOG_DIR/gv-web.log" 2>&1 &
+        else
+            pnpm dev > "$LOG_DIR/gv-web.log" 2>&1 &
+        fi
         cd "$PROJECT_DIR"
         health_check "http://localhost:$WEB_PORT/api/health" "gv-web"
+        # Verify critical API routes are registered (not just health)
+        local route_test
+        route_test=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+            -H "Content-Type: application/json" \
+            -d '{}' "http://localhost:$WEB_PORT/api/server/command" 2>/dev/null || echo "000")
+        if [ "$route_test" = "404" ]; then
+            err "API route /api/server/command returned 404 — routes may be stale"
+            err "Try: $0 --reset or GV_PROD=1 $0 start"
+            exit 1
+        fi
+        log "API routes verified (POST /api/server/command → $route_test)"
     else
         log "gv-web already running"
     fi
@@ -266,6 +299,12 @@ case "${1:-start}" in
         echo "  stop         Kill all services"
         echo "  killall      Kill all game processes (user: $GV_USER)"
         echo "  build        Build release + install to /usr/local/bin/"
+        echo ""
+        echo "  GV_PROD=1 $0 start   Use production build (next build + start)"
+        echo "                       More durable — no file watchers, predictable routes"
+        echo ""
+        echo "  Auto-restart: dev server restarts automatically if uptime > 2h"
+        echo "  Route check:  /api/server/command probed after startup"
         exit 1
         ;;
 esac

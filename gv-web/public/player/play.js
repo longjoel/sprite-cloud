@@ -124,7 +124,9 @@ async function startGame(serverId, gameId, corePath, hostToken, callbacks) {
  * @returns {GvPlayer}
  */
 function startPlayer(video, serverId, gameId, corePath, callbacks) {
+  console.log("[gv] startPlayer called", { serverId, gameId, videoTag: video?.tagName });
   let player = new GvPlayer(video);
+  console.log("[gv] GvPlayer created, calling doConnect");
   let reconnectAttempts = 0;
   let reconnectTimer = null;
 
@@ -137,7 +139,9 @@ function startPlayer(video, serverId, gameId, corePath, callbacks) {
 
     try {
       // Auto-start the game first
+      console.log("[gv] calling startGame...");
       await startGame(serverId, gameId, corePath, hostToken, callbacks);
+      console.log("[gv] startGame complete");
     } catch (err) {
       callbacks.onError?.(err.message || String(err));
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
@@ -148,7 +152,9 @@ function startPlayer(video, serverId, gameId, corePath, callbacks) {
 
     // Now connect via relay
     try {
+      console.log("[gv] calling connectViaRelay...");
       await player.connectViaRelay(serverId, gameId, hostToken);
+      console.log("[gv] connectViaRelay returned");
     } catch (err) {
       callbacks.onError?.(err.message || String(err));
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {

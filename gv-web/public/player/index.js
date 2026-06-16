@@ -194,6 +194,7 @@ export class GvPlayer {
    * @param {string} gameId     — game identifier
    */
   async connectViaRelay(serverId, gameId, hostToken) {
+    console.log("[gv] connectViaRelay starting", { serverId, gameId });
     if (this._state !== State.IDLE) {
       this.disconnect();
     }
@@ -235,11 +236,14 @@ export class GvPlayer {
     }
 
     // Poll for the worker's SDP answer
+    console.log("[gv] polling for SDP answer...");
     const answerSdp = await this._pollForAnswer(serverId, workerToken);
+    console.log("[gv] SDP answer received, setting remote description");
 
     await this._pc.setRemoteDescription(
       new RTCSessionDescription({ type: "answer", sdp: answerSdp }),
     );
+    console.log("[gv] remote description set, waiting for ICE...");
 
     // ── ICE timeout watchdog ───────────────────────────────────
 
@@ -296,6 +300,7 @@ export class GvPlayer {
 
     this._pc.onconnectionstatechange = () => {
       const s = this._pc.connectionState;
+      console.log("[gv] connectionState →", s);
       if (s === "connected") {
         this._setState(State.CONNECTED);
         this._clearIceTimer();
@@ -320,11 +325,14 @@ export class GvPlayer {
     };
 
     this._pc.ontrack = (event) => {
+      console.log("[gv] ontrack fired", { kind: event.track?.kind, id: event.track?.id, readyState: event.track?.readyState });
       if (!this._mediaStream) {
         this._mediaStream = new MediaStream();
         this._video.srcObject = this._mediaStream;
+        console.log("[gv] MediaStream attached to video");
       }
       this._mediaStream.addTrack(event.track);
+      console.log("[gv] track added, stream tracks:", this._mediaStream.getTracks().length);
 
       // Defer play until a user gesture (required by Safari iOS).
       // On desktop, play() succeeds immediately; on iOS it fails

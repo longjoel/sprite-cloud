@@ -82,6 +82,10 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
             .unwrap_or_else(|_| "/tmp".into())
             .into(),
         save_dir,
+        audio_channels: std::env::var("GV_AUDIO_CHANNELS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2),
     };
 
     // SAFETY: the core is loaded in a dedicated thread. The core path
