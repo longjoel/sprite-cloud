@@ -290,6 +290,11 @@ impl Vp8Encoder {
         self.height
     }
 
+    /// Return the configured frame rate.
+    pub fn fps(&self) -> f64 {
+        self.fps
+    }
+
     /// Update the encoder's target bitrate at runtime, preserving all other
     /// encoder settings from construction (dimensions, timebase, keyframe
     /// interval, error resilience).
@@ -341,6 +346,67 @@ impl Drop for Vp8Encoder {
             vpx_codec_destroy(&mut self.ctx as *mut _);
         }
     }
+}
+
+/// Compute target (upscaled) dimensions using integer scaling.
+///
+/// Finds the smallest integer scale factor that makes the height at least
+/// `min_output_height`, then applies it to both dimensions. Both output
+/// dimensions are rounded up to even for I420 chroma subsampling.
+///
+/// Integer scaling preserves pixel-perfect sharpness — essential for retro
+/// game pixel art where non-integer scaling produces uneven pixel widths
+/// that look like stride/offset errors.
+///
+/// Returns (target_width, target_height). If src_h >= min_output_height,
+/// returns the original dimensions unchanged.
+pub fn compute_scaled_dims(src_w: u32, src_h: u32, min_output_height: u32) -> (u32, u32) {
+    if src_h >= min_output_height {
+        return (src_w, src_h);
+    }
+    // Smallest integer scale that reaches the target height
+    let scale = (min_output_height as f64 / src_h as f64).ceil() as u32;
+    let dst_w = ((src_w * scale + 1) / 2) * 2; // round up to even
+    let dst_h = ((src_h * scale + 1) / 2) * 2;
+    (dst_w.max(2), dst_h.max(2))
+}
+
+/// Nearest-neighbor upscale of an RGB24 frame.
+///
+/// Preserves sharp pixel edges — ideal for retro game pixel art where
+/// bilinear/bicubic would introduce blur. VP8 macroblocking is reduced
+/// because the encoder has more pixels to distribute its bit budget across.
+pub fn scale_rgb24_nearest(
+    src: &[u8],
+    src_w: u32,
+    src_h: u32,
+    dst_w: u32,
+    dst_h: u32,
+) -> Vec<u8> {
+    let src_w = src_w as usize;
+    let src_h = src_h as usize;
+    let dst_w = dst_w as usize;
+    let dst_h = dst_h as usize;
+
+    let mut dst = vec![0u8; dst_w * dst_h * 3];
+
+    // Nearest-neighbor: each destination pixel maps to the closest source pixel.
+    // Integer arithmetic avoids floating-point per-pixel overhead on 60fps streams.
+    for dy in 0..dst_h {
+        let sy = (dy * src_h) / dst_h;
+        let src_row_offset = sy * src_w * 3;
+        let dst_row_offset = dy * dst_w * 3;
+        for dx in 0..dst_w {
+            let sx = (dx * src_w) / dst_w;
+            let src_idx = src_row_offset + sx * 3;
+            let dst_idx = dst_row_offset + dx * 3;
+            dst[dst_idx] = src[src_idx];
+            dst[dst_idx + 1] = src[src_idx + 1];
+            dst[dst_idx + 2] = src[src_idx + 2];
+        }
+    }
+
+    dst
 }
 
 // ---------------------------------------------------------------------------

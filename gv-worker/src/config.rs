@@ -18,12 +18,29 @@ pub const VIDEO_WIDTH: u32 = 320;
 /// Video frame height in pixels (test-pattern fallback).
 pub const VIDEO_HEIGHT: u32 = 240;
 
+/// Minimum output height for core frames before VP8 encoding.
+/// Core output smaller than this is nearest-neighbor upscaled to reduce
+/// macroblocking artifacts from encoding very low-resolution frames.
+/// Set via GV_MIN_OUTPUT_HEIGHT env var, defaults to 480.
+pub fn min_output_height() -> u32 {
+    use std::sync::LazyLock;
+    static MIN_H: LazyLock<u32> = LazyLock::new(|| {
+        std::env::var("GV_MIN_OUTPUT_HEIGHT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|&v| v > 0)
+            .unwrap_or(480)
+    });
+    *MIN_H
+}
+
 /// Target frames per second. Must match the core's native rate.
 pub const VIDEO_FPS: u32 = 60;
 
 /// Duration of one frame.
 /// Float math avoids integer-truncation (1000/60 = 16 ms → 62.5 fps
 /// instead of the intended 60 fps).  Returns exactly 16.667 ms @ 60 fps.
+#[allow(dead_code)]
 pub fn frame_interval() -> std::time::Duration {
     std::time::Duration::from_secs_f64(1.0 / VIDEO_FPS as f64)
 }
@@ -145,6 +162,7 @@ pub const ICE_GATHERING_TIMEOUT_SECS: u64 = 10;
 /// Test pattern constants.
 pub const PATTERN_SQUARE: u8 = 0;
 pub const PATTERN_BARS: u8 = 1;
+pub const PATTERN_ERROR: u8 = 2;
 
 /// How long to wait for the browser's DataChannel after SDP exchange.
 pub const DC_RECEIVE_TIMEOUT_SECS: u64 = 5;
@@ -166,3 +184,12 @@ pub fn dc_auth_timeout_secs() -> u64 {
 /// How often to send per-frame stats over DataChannel (in frames).
 /// Every 5th frame (~6 Hz) for smooth HUD updates.
 pub const STATS_SEND_INTERVAL: u64 = 5;
+
+/// Max seconds a worker stays alive without a peer connection.
+/// If no SDP offer arrives within this time after startup, or the
+/// last peer disconnects and no new offer arrives, the worker exits.
+pub const WORKER_IDLE_TIMEOUT_SECS: u64 = 30;
+
+/// Max seconds to wait for the very first SDP offer after startup.
+/// Longer than idle timeout so the browser has time to load + connect.
+pub const WORKER_STARTUP_TIMEOUT_SECS: u64 = 60;

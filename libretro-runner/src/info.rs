@@ -147,13 +147,15 @@ pub fn discover_cores(core_dir: &Path) -> Result<Vec<(CoreInfo, PathBuf)>, Error
     let mut catalog = Vec::new();
 
     let entries = std::fs::read_dir(core_dir).map_err(|e| {
-        Error::Other(format!("failed to read core directory {}: {e}", core_dir.display()))
+        Error::Other(format!(
+            "failed to read core directory {}: {e}",
+            core_dir.display()
+        ))
     })?;
 
     for entry in entries {
-        let entry = entry.map_err(|e| {
-            Error::Other(format!("failed to read directory entry: {e}"))
-        })?;
+        let entry =
+            entry.map_err(|e| Error::Other(format!("failed to read directory entry: {e}")))?;
         let path = entry.path();
 
         // Only look at .info files
@@ -162,13 +164,11 @@ pub fn discover_cores(core_dir: &Path) -> Result<Vec<(CoreInfo, PathBuf)>, Error
         }
 
         // Read and parse
-        let content = std::fs::read_to_string(&path).map_err(|e| {
-            Error::Other(format!("failed to read {}: {e}", path.display()))
-        })?;
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| Error::Other(format!("failed to read {}: {e}", path.display())))?;
 
-        let info = parse_info(&content).map_err(|e| {
-            Error::Other(format!("failed to parse {}: {e}", path.display()))
-        })?;
+        let info = parse_info(&content)
+            .map_err(|e| Error::Other(format!("failed to parse {}: {e}", path.display())))?;
 
         // Find matching .so — strip _libretro.info and look for _libretro.so
         let file_stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");

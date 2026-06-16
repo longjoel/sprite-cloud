@@ -44,8 +44,16 @@ thread_local! {
     /// Input state bitmask per port.
     static INPUT_STATE: RefCell<[u16; 4]> = const { RefCell::new([0; 4]) };
 
-    /// Pixel format negotiated with the core.
-    static PIXEL_FORMAT: Cell<u32> = const { Cell::new(RETRO_PIXEL_FORMAT_XRGB8888) };
+    /// Pixel format currently used for frame conversion.
+    ///
+    /// Libretro's ABI default is 0RGB1555. Cores only change this by
+    /// calling RETRO_ENVIRONMENT_SET_PIXEL_FORMAT during/after init.
+    static PIXEL_FORMAT: Cell<u32> = const { Cell::new(RETRO_PIXEL_FORMAT_0RGB1555) };
+    /// Whether the core explicitly called SET_PIXEL_FORMAT this load.
+    static PIXEL_FORMAT_NEGOTIATED: Cell<bool> = const { Cell::new(false) };
+    /// Number of audio channels the core outputs (1 = mono, 2 = stereo).
+    static AUDIO_CHANNELS: Cell<u16> = const { Cell::new(2) };
+
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +122,11 @@ pub struct Core {
 
     /// Dimensions of the current frame (width, height).
     current_frame_dims: (u32, u32),
+
+    /// Pixel format carried with the Core across threads.
+    pixel_format: u32,
+    /// Whether the core explicitly negotiated the pixel format.
+    pixel_format_negotiated: bool,
 }
 
 impl Core {
@@ -132,9 +145,7 @@ impl Core {
     pub unsafe fn load(config: CoreConfig) -> Result<Self, Error> {
         // ---- Step 1: dlopen ----
         // SAFETY: caller guarantees the path points to a valid shared library.
-        let library = unsafe {
-            Library::new(&config.core_path).map_err(Error::Load)?
-        };
+        let library = unsafe { Library::new(&config.core_path).map_err(Error::Load)? };
 
         // ---- Step 2: symbol lookup ----
         // SAFETY: each call looks up a named symbol from the loaded library.
@@ -146,8 +157,9 @@ impl Core {
             unsafe { load_symbol::<RetroSetEnvironment>(&library, c"retro_set_environment") }?;
         let retro_set_video_refresh =
             unsafe { load_symbol::<RetroSetVideoRefresh>(&library, c"retro_set_video_refresh") }?;
-        let retro_set_audio_sample_batch =
-            unsafe { load_symbol::<RetroSetAudioSampleBatch>(&library, c"retro_set_audio_sample_batch") }?;
+        let retro_set_audio_sample_batch = unsafe {
+            load_symbol::<RetroSetAudioSampleBatch>(&library, c"retro_set_audio_sample_batch")
+        }?;
         let retro_set_input_poll =
             unsafe { load_symbol::<RetroSetInputPoll>(&library, c"retro_set_input_poll") }?;
         let retro_set_input_state =
@@ -161,36 +173,56 @@ impl Core {
             unsafe { load_symbol::<RetroUnloadGame>(&library, c"retro_unload_game") }?;
 
         // Optional symbols
-        let retro_get_system_info =
-            unsafe { load_optional_symbol::<RetroGetSystemInfo>(&library, c"retro_get_system_info") };
-        let retro_get_system_av_info =
-            unsafe { load_optional_symbol::<RetroGetSystemAvInfo>(&library, c"retro_get_system_av_info") };
-        let retro_get_memory_data =
-            unsafe { load_optional_symbol::<RetroGetMemoryData>(&library, c"retro_get_memory_data") };
-        let retro_get_memory_size =
-            unsafe { load_optional_symbol::<RetroGetMemorySize>(&library, c"retro_get_memory_size") };
-        let retro_serialize_size =
-            unsafe { load_optional_symbol::<RetroSerializeSize>(&library, c"retro_serialize_size") };
+        let retro_get_system_info = unsafe {
+            load_optional_symbol::<RetroGetSystemInfo>(&library, c"retro_get_system_info")
+        };
+        let retro_get_system_av_info = unsafe {
+            load_optional_symbol::<RetroGetSystemAvInfo>(&library, c"retro_get_system_av_info")
+        };
+        let retro_get_memory_data = unsafe {
+            load_optional_symbol::<RetroGetMemoryData>(&library, c"retro_get_memory_data")
+        };
+        let retro_get_memory_size = unsafe {
+            load_optional_symbol::<RetroGetMemorySize>(&library, c"retro_get_memory_size")
+        };
+        let retro_serialize_size = unsafe {
+            load_optional_symbol::<RetroSerializeSize>(&library, c"retro_serialize_size")
+        };
         let retro_serialize =
             unsafe { load_optional_symbol::<RetroSerialize>(&library, c"retro_serialize") };
         let retro_unserialize =
             unsafe { load_optional_symbol::<RetroUnserialize>(&library, c"retro_unserialize") };
-        let retro_set_controller_port_device =
-            unsafe { load_optional_symbol::<RetroSetControllerPortDevice>(&library, c"retro_set_controller_port_device") };
-        let retro_set_audio_sample =
-            unsafe { load_optional_symbol::<RetroSetAudioSample>(&library, c"retro_set_audio_sample") };
+        let retro_set_controller_port_device = unsafe {
+            load_optional_symbol::<RetroSetControllerPortDevice>(
+                &library,
+                c"retro_set_controller_port_device",
+            )
+        };
+        let retro_set_audio_sample = unsafe {
+            load_optional_symbol::<RetroSetAudioSample>(&library, c"retro_set_audio_sample")
+        };
 
-        // ---- Step 3: stash config for callbacks ----
+        // ---- Step 3: reset thread-local core state and stash config for callbacks ----
+        // These are process/thread globals used by the C callbacks. A worker may
+        // load NES, SNES, and Genesis cores sequentially on the same thread; do
+        // not let the previous core's negotiated pixel format or frame buffer
+        // bleed into the next core. Per libretro.h, if a core does not call
+        // SET_PIXEL_FORMAT, the frame data is 0RGB1555.
+        PIXEL_FORMAT.with(|f| f.set(RETRO_PIXEL_FORMAT_0RGB1555));
+        PIXEL_FORMAT_NEGOTIATED.with(|f| f.set(false));
+        SUPPORTS_NO_GAME.set(false);
+        RAW_FRAME.with(|buf| buf.borrow_mut().clear());
+        RAW_FRAME_DIMS.with(|dims| *dims.borrow_mut() = (0, 0, 0));
+        AUDIO_BUFFER.with(|buf| buf.borrow_mut().clear());
+        INPUT_STATE.with(|state| *state.borrow_mut() = [0; 4]);
+
         SYSTEM_DIR.with(|cell| {
-            *cell.borrow_mut() = CString::new(
-                config.system_dir.to_string_lossy().as_bytes(),
-            ).ok();
+            *cell.borrow_mut() = CString::new(config.system_dir.to_string_lossy().as_bytes()).ok();
         });
         SAVE_DIR.with(|cell| {
-            *cell.borrow_mut() = CString::new(
-                config.save_dir.to_string_lossy().as_bytes(),
-            ).ok();
+            *cell.borrow_mut() = CString::new(config.save_dir.to_string_lossy().as_bytes()).ok();
         });
+        AUDIO_CHANNELS.with(|c| c.set(config.audio_channels));
 
         // ---- Step 4: register callbacks ----
         // SAFETY: registering function pointers that match the ABI.
@@ -292,6 +324,9 @@ impl Core {
             }
         };
 
+        let pixel_format = PIXEL_FORMAT.with(|f| f.get());
+        let pixel_format_negotiated = PIXEL_FORMAT_NEGOTIATED.with(|f| f.get());
+
         Ok(Core {
             _library: library,
             retro_deinit,
@@ -307,6 +342,8 @@ impl Core {
             game_loaded: true,
             current_frame: Vec::new(),
             current_frame_dims: (0, 0),
+            pixel_format,
+            pixel_format_negotiated,
         })
     }
 
@@ -327,6 +364,16 @@ impl Core {
         // and callbacks are registered. The core will call our video/audio/input
         // callbacks synchronously.
         unsafe { (self.retro_run)() };
+
+        // If a core negotiates or changes pixel format during retro_run(), that
+        // callback runs on this same core thread. Initial negotiation often
+        // happens during Core::load() on the caller thread, so do not overwrite
+        // the carried format with this thread's default unless a negotiation
+        // actually happened here.
+        if PIXEL_FORMAT_NEGOTIATED.with(|f| f.get()) {
+            self.pixel_format = PIXEL_FORMAT.with(|f| f.get());
+            self.pixel_format_negotiated = true;
+        }
 
         // Convert captured raw frame to RGB24
         self.convert_and_store_frame();
@@ -438,11 +485,7 @@ impl Core {
         let mut buf = vec![0u8; size];
         // SAFETY: the buffer is large enough. The core writes `size` bytes.
         let ok = unsafe { serialize(buf.as_mut_ptr() as *mut std::ffi::c_void, size) };
-        if ok {
-            Some(buf)
-        } else {
-            None
-        }
+        if ok { Some(buf) } else { None }
     }
 
     /// Deserialize a previously-saved emulator state.
@@ -535,12 +578,13 @@ impl Core {
 
     /// Convert the raw frame in thread-local storage to RGB24 and store on self.
     fn convert_and_store_frame(&mut self) {
-        let (fmt, (w, h, pitch), raw) = PIXEL_FORMAT.with(|f| {
-            let fmt = f.get();
-            let dims = RAW_FRAME_DIMS.with(|d| *d.borrow());
+        let fmt = self.pixel_format;
+        let fmt_negotiated = self.pixel_format_negotiated;
+        let ((w, h, pitch), raw) = RAW_FRAME_DIMS.with(|d| {
+            let dims = *d.borrow();
             // Copy raw frame out of thread-local to avoid borrow conflicts
             let raw = RAW_FRAME.with(|buf| buf.borrow().clone());
-            (fmt, dims, raw)
+            (dims, raw)
         });
 
         if w == 0 || h == 0 || raw.is_empty() {
@@ -548,8 +592,42 @@ impl Core {
             return;
         }
 
-        let bpp = match fmt {
-            RETRO_PIXEL_FORMAT_XRGB8888 => 4,
+        // ── Infer missing pixel-format negotiation from pitch ──
+        // Libretro's ABI default is 0RGB1555, but several software cores that
+        // do not call SET_PIXEL_FORMAT still pass 32-bit XRGB8888 frames.
+        // Stride/pitch is the reliable boundary evidence: if the core did not
+        // negotiate a format and each row is exactly width*4 bytes, decode as
+        // XRGB8888; if each row is width*2 bytes, keep the ABI default 0RGB1555.
+        // Explicit SET_PIXEL_FORMAT always wins.
+        let effective_fmt = {
+            let row_pixels = w as usize;
+            if !fmt_negotiated && fmt == RETRO_PIXEL_FORMAT_0RGB1555 {
+                if pitch == row_pixels * 4 {
+                    tracing::info!(
+                        "[CORE] Inferred XRGB8888 from pitch ({} bytes/row for {}×{}, no SET_PIXEL_FORMAT)",
+                        pitch,
+                        w,
+                        h
+                    );
+                    RETRO_PIXEL_FORMAT_XRGB8888
+                } else if pitch == row_pixels * 2 {
+                    RETRO_PIXEL_FORMAT_0RGB1555
+                } else {
+                    tracing::warn!(
+                        "[CORE] Ambiguous no-negotiation frame pitch: {} bytes/row for {}×{}; using libretro default 0RGB1555",
+                        pitch,
+                        w,
+                        h
+                    );
+                    RETRO_PIXEL_FORMAT_0RGB1555
+                }
+            } else {
+                fmt
+            }
+        };
+
+        let bpp = match effective_fmt {
+            RETRO_PIXEL_FORMAT_XRGB8888 => 4usize,
             RETRO_PIXEL_FORMAT_RGB565 => 2,
             RETRO_PIXEL_FORMAT_0RGB1555 => 2,
             _ => 0,
@@ -558,43 +636,52 @@ impl Core {
         let has_padding = pitch != expected_row_bytes;
 
         // Log first frame and any dimension/format/pitch change
-        if self.current_frame.is_empty()
-            || self.current_frame_dims != (w, h)
-            || has_padding
-        {
+        if self.current_frame.is_empty() || self.current_frame_dims != (w, h) || has_padding {
             tracing::info!(
                 "[CORE] Frame: {}×{} pitch={} fmt={} (expected row bytes={}, padding={})",
-                w, h, pitch, fmt, expected_row_bytes, has_padding
+                w,
+                h,
+                pitch,
+                effective_fmt,
+                expected_row_bytes,
+                has_padding
             );
         }
 
         self.current_frame_dims = (w, h);
 
-        match fmt {
+        match effective_fmt {
             RETRO_PIXEL_FORMAT_XRGB8888 => {
                 if has_padding {
-                    self.current_frame = xrgb8888_to_rgb24_strided(&raw, w as usize, h as usize, pitch);
+                    self.current_frame =
+                        xrgb8888_to_rgb24_strided(&raw, w as usize, h as usize, pitch);
                 } else {
                     self.current_frame = xrgb8888_to_rgb24(&raw, w as usize, h as usize);
                 }
             }
             RETRO_PIXEL_FORMAT_RGB565 => {
                 if has_padding {
-                    self.current_frame = rgb565_to_rgb24_strided(&raw, w as usize, h as usize, pitch);
+                    self.current_frame =
+                        rgb565_to_rgb24_strided(&raw, w as usize, h as usize, pitch);
                 } else {
                     self.current_frame = rgb565_to_rgb24(&raw, w as usize, h as usize);
                 }
             }
             RETRO_PIXEL_FORMAT_0RGB1555 => {
                 if has_padding {
-                    self.current_frame = xrgb1555_to_rgb24_strided(&raw, w as usize, h as usize, pitch);
+                    self.current_frame =
+                        xrgb1555_to_rgb24_strided(&raw, w as usize, h as usize, pitch);
                 } else {
                     self.current_frame = xrgb1555_to_rgb24(&raw, w as usize, h as usize);
                 }
             }
             _ => {
                 // Unknown format — store raw as-is (caller beware)
-                tracing::warn!("[CORE] Unknown pixel format {} — storing raw frame ({})", fmt, raw.len());
+                tracing::warn!(
+                    "[CORE] Unknown pixel format {} — storing raw frame ({})",
+                    effective_fmt,
+                    raw.len()
+                );
                 self.current_frame = raw;
             }
         }
@@ -638,6 +725,7 @@ unsafe extern "C" fn environment_callback(cmd: u32, data: *mut std::ffi::c_void)
                 {
                     tracing::info!("[CORE] SET_PIXEL_FORMAT: {} ({}) — accepted", name, fmt);
                     PIXEL_FORMAT.set(fmt);
+                    PIXEL_FORMAT_NEGOTIATED.with(|negotiated| negotiated.set(true));
                     return true;
                 }
                 tracing::warn!("[CORE] SET_PIXEL_FORMAT: {} ({}) — REJECTED", name, fmt);
@@ -646,34 +734,26 @@ unsafe extern "C" fn environment_callback(cmd: u32, data: *mut std::ffi::c_void)
         }
 
         // Provide system directory path
-        RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY
-            if !data.is_null() =>
-        {
-            SYSTEM_DIR.with(|cell| {
-                if let Some(ref dir) = *cell.borrow() {
-                    unsafe {
-                        *(data as *mut *const std::ffi::c_char) = dir.as_ptr();
-                    }
-                    return true;
+        RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY if !data.is_null() => SYSTEM_DIR.with(|cell| {
+            if let Some(ref dir) = *cell.borrow() {
+                unsafe {
+                    *(data as *mut *const std::ffi::c_char) = dir.as_ptr();
                 }
-                false
-            })
-        }
+                return true;
+            }
+            false
+        }),
 
         // Provide save directory path
-        RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY
-            if !data.is_null() =>
-        {
-            SAVE_DIR.with(|cell| {
-                if let Some(ref dir) = *cell.borrow() {
-                    unsafe {
-                        *(data as *mut *const std::ffi::c_char) = dir.as_ptr();
-                    }
-                    return true;
+        RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY if !data.is_null() => SAVE_DIR.with(|cell| {
+            if let Some(ref dir) = *cell.borrow() {
+                unsafe {
+                    *(data as *mut *const std::ffi::c_char) = dir.as_ptr();
                 }
-                false
-            })
-        }
+                return true;
+            }
+            false
+        }),
 
         // Track that the core supports no-game mode
         RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME => {
@@ -746,8 +826,8 @@ fn xrgb8888_to_rgb24(data: &[u8], width: usize, height: usize) -> Vec<u8> {
     for &p in pixels {
         // XRGB8888 layout: 0xXXRRGGBB (little-endian: B, G, R, X in memory)
         rgb.push((p >> 16) as u8); // R
-        rgb.push((p >> 8) as u8);  // G
-        rgb.push(p as u8);          // B
+        rgb.push((p >> 8) as u8); // G
+        rgb.push(p as u8); // B
     }
 
     rgb
@@ -798,8 +878,8 @@ fn xrgb8888_to_rgb24_strided(data: &[u8], width: usize, height: usize, pitch: us
         let pixels: &[u32] = bytemuck::cast_slice(row_data);
         for &p in pixels {
             rgb.push((p >> 16) as u8); // R
-            rgb.push((p >> 8) as u8);  // G
-            rgb.push(p as u8);          // B
+            rgb.push((p >> 8) as u8); // G
+            rgb.push(p as u8); // B
         }
     }
     rgb
@@ -895,12 +975,19 @@ fn load_game_content(
     content_path: &Path,
     retro_load_game: RetroLoadGame,
 ) -> bool {
-    let cpath = CString::new(
-        content_path.to_string_lossy().as_bytes(),
-    );
+    let cpath = CString::new(content_path.to_string_lossy().as_bytes());
     let Ok(cpath) = cpath else {
+        tracing::warn!(
+            "[CORE] failed to create CString for path: {}",
+            content_path.display()
+        );
         return false;
     };
+
+    tracing::info!(
+        "[CORE] load_game_content: path={} need_fullpath={need_fullpath}",
+        content_path.display()
+    );
 
     if need_fullpath {
         // Core needs the real file path — pass path only
@@ -917,6 +1004,7 @@ fn load_game_content(
             meta: ptr::null(),
         };
         let result = unsafe { retro_load_game(&game_info) };
+        tracing::info!("[CORE] retro_load_game (fullpath) returned {result}");
         if result {
             return true;
         }
@@ -926,8 +1014,12 @@ fn load_game_content(
 
     // Try preloading ROM into memory
     let data = match std::fs::read(content_path) {
-        Ok(d) => d,
-        Err(_) => {
+        Ok(d) => {
+            tracing::info!("[CORE] read ROM: {} bytes", d.len());
+            d
+        }
+        Err(e) => {
+            tracing::warn!("[CORE] failed to read ROM: {e} — trying path-only fallback");
             // Can't read the file — try path-only as fallback
             CONTENT_PATH_CSTR.with(|cell| *cell.borrow_mut() = Some(cpath));
             let game_info = RetroGameInfo {
@@ -953,17 +1045,23 @@ fn load_game_content(
                 .map(|d| d.as_ptr() as *const std::ffi::c_void)
                 .unwrap_or(ptr::null())
         }),
-        size: CONTENT_DATA.with(|cell| {
-            cell.borrow().as_ref().map(|d| d.len()).unwrap_or(0)
-        }),
+        size: CONTENT_DATA.with(|cell| cell.borrow().as_ref().map(|d| d.len()).unwrap_or(0)),
         path: ptr::null(),
         meta: ptr::null(),
     };
+
+    tracing::info!(
+        "[CORE] calling retro_load_game: data={:p} size={}",
+        game_info.data,
+        game_info.size
+    );
 
     // SAFETY: game_info fields all point to valid data that outlives the call.
     if unsafe { retro_load_game(&game_info) } {
         return true;
     }
+
+    tracing::warn!("[CORE] retro_load_game (in-memory) returned false, trying path-only fallback");
 
     // In-memory load failed — retry with path-only
     CONTENT_PATH_CSTR.with(|cell| *cell.borrow_mut() = Some(cpath));
@@ -1006,7 +1104,8 @@ unsafe extern "C" fn audio_batch_callback(data: *const i16, frames: usize) -> us
     if data.is_null() || frames == 0 {
         return 0;
     }
-    let sample_count = frames * 2; // stereo interleaved
+    let channels = AUDIO_CHANNELS.with(|c| c.get()) as usize;
+    let sample_count = frames * channels;
     AUDIO_BUFFER.with(|buf| {
         let mut buf = buf.borrow_mut();
         let offset = buf.len();
@@ -1014,11 +1113,7 @@ unsafe extern "C" fn audio_batch_callback(data: *const i16, frames: usize) -> us
         // SAFETY: data is a valid pointer from the core. The core guarantees
         // it points to at least `sample_count` i16 values.
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                data,
-                buf.as_mut_ptr().add(offset),
-                sample_count,
-            );
+            std::ptr::copy_nonoverlapping(data, buf.as_mut_ptr().add(offset), sample_count);
         }
     });
     frames
@@ -1032,12 +1127,7 @@ unsafe extern "C" fn audio_batch_callback(data: *const i16, frames: usize) -> us
 ///
 /// Returns 0x7FFF for pressed (joypad), -32767..32767 for analog,
 /// or 0 for unpressed.
-unsafe extern "C" fn input_state_callback(
-    port: u32,
-    device: u32,
-    _index: u32,
-    id: u32,
-) -> i16 {
+unsafe extern "C" fn input_state_callback(port: u32, device: u32, _index: u32, id: u32) -> i16 {
     if device == RETRO_DEVICE_JOYPAD {
         INPUT_STATE.with(|state| {
             let state = state.borrow();
@@ -1050,11 +1140,7 @@ unsafe extern "C" fn input_state_callback(
                 state[idx] as i16
             } else {
                 let mask = 1u16 << id;
-                if state[idx] & mask != 0 {
-                    0x7FFF
-                } else {
-                    0
-                }
+                if state[idx] & mask != 0 { 0x7FFF } else { 0 }
             }
         })
     } else {

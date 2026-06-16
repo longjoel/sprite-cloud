@@ -14,12 +14,12 @@ use axum::{
 use core_bridge::CoreCommand;
 use config::{
     AUDIO_CHANNELS, AUDIO_SAMPLE_RATE, AUDIO_TRACK_ID,
-    dc_auth_timeout_secs, DC_RECEIVE_TIMEOUT_SECS, DIAG_LOG_INTERVAL,
+    dc_auth_timeout_secs, DC_RECEIVE_TIMEOUT_SECS,
     ICE_GATHERING_TIMEOUT_SECS, OPUS_SDP_FMTP,
     PATTERN_BARS, PATTERN_SQUARE,
     STATS_SEND_INTERVAL, STREAM_ID, TRACK_ID,
     VIDEO_HEIGHT, VIDEO_WIDTH, VP8_CLOCK_RATE,
-    frame_interval, stun_server,
+    min_output_height, stun_server,
 };
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
@@ -41,7 +41,7 @@ use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
 use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSample;
 use webrtc::track::track_local::TrackLocal;
-use crate::audio_pipeline::{AudioPipeline, OUTPUT_CHUNK_SAMPLES};
+use crate::audio_pipeline::AudioPipeline;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,6 +88,9 @@ struct AppState {
     /// Signalled when the worker should exit entirely (peer connection
     /// failed/closed with no reconnect). Triggers axum graceful shutdown.
     exit_signal: CancellationToken,
+    /// Handle to the self-destruct timer — aborted when a peer connects,
+    /// restarted on disconnect to kill the worker after an idle timeout.
+    destruct_timer: Mutex<Option<JoinHandle<()>>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +161,18 @@ async fn handle_health() -> StatusCode {
     StatusCode::OK
 }
 
+/// POST /shutdown — graceful shutdown.
+///
+/// Called by gv-server before force-killing the worker.  Triggers the
+/// exit_signal so the worker cleanly saves SRAM, closes the core, and
+/// exits the HTTP server.  Returns 200 OK immediately; the actual
+/// shutdown happens asynchronously.
+async fn handle_shutdown(State(state): State<Arc<AppState>>) -> StatusCode {
+    tracing::info!("[SHUTDOWN] graceful shutdown requested — exiting");
+    state.exit_signal.cancel();
+    StatusCode::OK
+}
+
 /// GET / — embedded test page.
 ///
 /// Deprecated: use gv-web production player at /play/:game_id instead.
@@ -222,16 +237,25 @@ async fn do_webrtc_handshake(
     );
 
     // ---- Load libretro core (or fall back to test pattern) ----//
-    let (enc_width, enc_height, enc_fps, core_frame_rx, core_cmd_tx, core_response_rx, core_sample_rate) =
+    let (core_width, core_height, enc_fps, core_frame_rx, core_cmd_tx, core_response_rx, core_sample_rate) =
         match core_bridge::spawn_core_thread() {
             Some(handle) => {
-                tracing::info!(
-                    "[STREAM] Using libretro core at {}×{} @ {:.1}fps {:.0}Hz",
-                    handle.width, handle.height, handle.fps, handle.sample_rate
-                );
+                let target_h = min_output_height();
+                let (enc_w, enc_h) = vp8_encoder::compute_scaled_dims(handle.width, handle.height, target_h);
+                if enc_w != handle.width || enc_h != handle.height {
+                    tracing::info!(
+                        "[STREAM] Using libretro core at {}×{} → upscaled to {}×{} @ {:.1}fps {:.0}Hz",
+                        handle.width, handle.height, enc_w, enc_h, handle.fps, handle.sample_rate
+                    );
+                } else {
+                    tracing::info!(
+                        "[STREAM] Using libretro core at {}×{} @ {:.1}fps {:.0}Hz",
+                        handle.width, handle.height, handle.fps, handle.sample_rate
+                    );
+                }
                 (
-                    handle.width,
-                    handle.height,
+                    enc_w,
+                    enc_h,
                     handle.fps,
                     Some(handle.frame_rx),
                     Some(handle.cmd_tx),
@@ -251,25 +275,33 @@ async fn do_webrtc_handshake(
     // ---- Create encoder + shared state ----
     let encoder_mutex: Arc<std::sync::Mutex<vp8_encoder::Vp8Encoder>> =
         Arc::new(std::sync::Mutex::new(
-            vp8_encoder::Vp8Encoder::new(enc_width, enc_height, enc_fps)
+            vp8_encoder::Vp8Encoder::new(core_width, core_height, enc_fps)
                 .map_err(|e| format!("create VP8 encoder: {}", e))?,
         ));
 
     // Create audio pipeline if we have a core sample rate
     let audio_pipeline: Arc<tokio::sync::Mutex<Option<AudioPipeline>>> =
         Arc::new(tokio::sync::Mutex::new(match core_sample_rate {
-            Some(rate) => match AudioPipeline::new(rate) {
-                Ok(p) => Some(p),
-                Err(e) => {
-                    tracing::error!("[AUDIO] Failed to create pipeline: {} — audio disabled", e);
-                    None
+            Some(rate) => {
+                let audio_channels = std::env::var("GV_AUDIO_CHANNELS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(2);
+                match AudioPipeline::new(rate, audio_channels) {
+                    Ok(p) => Some(p),
+                    Err(e) => {
+                        tracing::error!("[AUDIO] Failed to create pipeline: {} — audio disabled", e);
+                        None
+                    }
                 }
             },
             None => None,
         }));
 
     let force_keyframe = Arc::new(AtomicBool::new(false));
-    let pattern = Arc::new(AtomicU8::new(PATTERN_SQUARE));
+    // Default to error pattern when core is missing — shows helpful message
+    // instead of a confusing cyan square or color bars.
+    let pattern = Arc::new(AtomicU8::new(if core_frame_rx.is_some() { PATTERN_SQUARE } else { crate::config::PATTERN_ERROR }));
 
     // ---- ICE gathering: register callback BEFORE set_local_description ----
     // Must register before calling set_local_description so we don't miss
@@ -646,6 +678,15 @@ async fn do_webrtc_handshake(
         *pc_lock = Some(Arc::clone(&peer_connection));
     }
 
+    // ---- Cancel self-destruct timer — a peer is connecting ----
+    {
+        let mut timer = state.destruct_timer.lock().await;
+        if let Some(handle) = timer.take() {
+            handle.abort();
+            tracing::info!("[SELF-DESTRUCT] timer cancelled — peer connected");
+        }
+    }
+
     // ---- Spawn streaming task ----
     let stream_track = Arc::clone(&video_track);
     let stream_cancel = cancel.clone();
@@ -696,6 +737,7 @@ async fn do_webrtc_handshake(
             audio_pipeline: stream_audio,
             force_keyframe: stream_force_kf,
             pattern: stream_pattern,
+            fps: enc_fps,
             core_frame_rx: stream_core_rx,
             core_cmd_tx: stream_core_cmd,
         }).await;
@@ -734,6 +776,8 @@ struct StreamCtx {
     audio_pipeline: Arc<tokio::sync::Mutex<Option<AudioPipeline>>>,
     force_keyframe: Arc<AtomicBool>,
     pattern: Arc<AtomicU8>,
+    /// Core's actual frame rate (e.g. 59.94 for NES) — used for the stream ticker.
+    fps: f64,
     core_frame_rx: Option<std::sync::mpsc::Receiver<core_bridge::CoreFrame>>,
     #[allow(dead_code)]
     core_cmd_tx: Option<std::sync::mpsc::SyncSender<core_bridge::CoreCommand>>,
@@ -744,15 +788,16 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
     use webrtc::media::Sample;
 
     let mut frame_num: u64 = 0;
-    let mut audio_frame_num: u64 = 0;
-    let frame_interval = frame_interval();
+    let frame_interval = Duration::from_secs_f64(1.0 / ctx.fps);
 
     // Cumulative counters for pipeline health
     let mut video_drops: u64 = 0;
     let mut audio_write_errs: u64 = 0;
     let start_instant = std::time::Instant::now();
+    // Audio wall-clock timestamp base — first Opus frame anchors this.
+    let mut audio_start: Option<std::time::Instant> = None;
 
-    // Use an interval timer for steady frame rate.
+    // Use an interval timer for steady frame rate matching the core's actual FPS.
     // Skip missed ticks — if encoding takes too long, we drop frames
     // rather than queuing them up (realtime streaming priority).
     let mut tick = tokio::time::interval(frame_interval);
@@ -763,15 +808,17 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
         Err(_) => (0, 0),
     };
     tracing::info!(
-        "[STREAM] Starting VP8 frame loop ({}×{} @ {}fps, {}kbps)",
+        "[STREAM] Starting VP8 frame loop ({}×{} @ {:.1}fps, {}kbps)",
         log_w, log_h,
-        crate::config::VIDEO_FPS,
+        ctx.fps,
         crate::config::target_bitrate_kbps()
     );
 
-    // Track frame dimensions for mid-stream resolution-change detection.
-    let mut last_enc_width: u32 = 0;
-    let mut last_enc_height: u32 = 0;
+    // Track core frame dimensions for mid-stream resolution-change detection.
+    // The encoder runs at upscaled dimensions, but we detect changes on the
+    // core's native output (before upscaling).
+    let mut last_core_width: u32 = 0;
+    let mut last_core_height: u32 = 0;
 
     loop {
         tokio::select! {
@@ -811,18 +858,44 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
                             // (e.g. menu→gameplay in some NES/arcade cores).
                             // Without this, the browser decoder tries to apply a delta
                             // frame at the new resolution against the old reference → garbage.
-                            if f.width != last_enc_width || f.height != last_enc_height {
-                                if last_enc_width != 0 {
+                            if f.width != last_core_width || f.height != last_core_height {
+                                if last_core_width != 0 {
+                                    let target_h = min_output_height();
+                                    let (target_w, target_h) = vp8_encoder::compute_scaled_dims(f.width, f.height, target_h);
                                     tracing::info!(
-                                        "[STREAM] Resolution change {}×{} → {}×{} — forcing keyframe",
-                                        last_enc_width, last_enc_height, f.width, f.height
+                                        "[STREAM] Resolution change {}×{} → {}×{} (target {}×{}) — recreating encoder",
+                                        last_core_width, last_core_height, f.width, f.height, target_w, target_h
                                     );
-                                    ctx.force_keyframe.store(true, Ordering::Relaxed);
+                                    // Recreate the encoder at the new target resolution.
+                                    let enc_fps = ctx.encoder_mutex.lock()
+                                        .ok()
+                                        .map(|e| e.fps())
+                                        .unwrap_or(60.0);
+                                    match vp8_encoder::Vp8Encoder::new(target_w, target_h, enc_fps) {
+                                        Ok(new_enc) => {
+                                            if let Ok(mut enc) = ctx.encoder_mutex.lock() {
+                                                *enc = new_enc;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::error!("[STREAM] Failed to recreate encoder at {}×{}: {}", target_w, target_h, e);
+                                        }
+                                    }
                                 }
-                                last_enc_width = f.width;
-                                last_enc_height = f.height;
+                                last_core_width = f.width;
+                                last_core_height = f.height;
                             }
-                            pixels = f.pixels;
+
+                            // Upscale core frames to at least min_output_height to reduce
+                            // VP8 macroblocking from encoding very low-resolution frames
+                            // (e.g. Genesis 256×224 → 640×480).
+                            let target_h = min_output_height();
+                            let (target_w, target_h) = vp8_encoder::compute_scaled_dims(f.width, f.height, target_h);
+                            if (target_w, target_h) != (f.width, f.height) {
+                                pixels = vp8_encoder::scale_rgb24_nearest(&f.pixels, f.width, f.height, target_w, target_h);
+                            } else {
+                                pixels = f.pixels;
+                            }
                             audio = f.audio;
                         }
                         None => continue, // no frame available yet, skip this tick
@@ -831,6 +904,12 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
                     // Fall back to test pattern (no audio)
                     let p = match ctx.pattern.load(Ordering::Relaxed) {
                         PATTERN_BARS => test_pattern::generate_color_bars(VIDEO_WIDTH, VIDEO_HEIGHT, frame_num),
+                        crate::config::PATTERN_ERROR => test_pattern::generate_error_screen(
+                            VIDEO_WIDTH,
+                            VIDEO_HEIGHT,
+                            "Core unavailable",
+                            "Check server logs for details",
+                        ),
                         _ => test_pattern::generate_bouncing_square(VIDEO_WIDTH, VIDEO_HEIGHT, frame_num),
                     };
                     pixels = p;
@@ -854,8 +933,8 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
                     Ok((encoded, is_keyframe)) => {
                         let encode_us = encode_start.elapsed().as_micros();
                         let byte_count = encoded.len();
-                        if frame_num <= 3 || frame_num.is_multiple_of(DIAG_LOG_INTERVAL) {
-                            tracing::debug!("[STREAM] frame {}: encoded {} bytes in {}μs", frame_num, byte_count, encode_us);
+                        if frame_num <= 10 || frame_num.is_multiple_of(30) {
+                            tracing::info!("[STREAM] frame {} ({}p): encoded {} bytes in {}μs{}", frame_num, if is_keyframe { "KEY" } else { "P" }, byte_count, encode_us, if frame_num <= 10 { " [startup]" } else { "" });
                         }
                         if encoded.is_empty() {
                             tracing::warn!("[STREAM] frame {}: EMPTY encoded data, skipping", frame_num);
@@ -895,9 +974,12 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
                                                     audio_bytes += packet.data.len();
                                                     audio_frames_sent += 1;
 
-                                                    // RTP timestamp: OUTPUT_CHUNK_SAMPLES samples per Opus frame
-                                                    let ts = (audio_frame_num as u32).wrapping_mul(OUTPUT_CHUNK_SAMPLES as u32);
-                                                    audio_frame_num = audio_frame_num.wrapping_add(1);
+                                                    // RTP timestamp: wall-clock time, same base as video.
+                                                    // First Opus frame anchors `audio_start`; subsequent
+                                                    // frames use elapsed time from that anchor.
+                                                    let audio_now = audio_start.get_or_insert_with(std::time::Instant::now);
+                                                    let ts = (audio_now.elapsed().as_secs_f64()
+                                                        * crate::config::AUDIO_SAMPLE_RATE as f64) as u32;
 
                                                     let audio_sample = Sample {
                                                         data: packet.data.into(),
@@ -972,9 +1054,25 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
     *pc_lock = None;
     tracing::info!("[STREAM] Peer connection closed and removed from state");
 
-    // Signal the worker process to exit — the peer is gone.
-    // A new SDP offer creates a fresh worker.
-    ctx.app_state.exit_signal.cancel();
+    // ── Self-destruct: idle timeout ───────────────────────────────
+    // Peer is gone — if no new connection arrives within 30s, exit.
+    {
+        let exit = ctx.app_state.exit_signal.clone();
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(
+                config::WORKER_IDLE_TIMEOUT_SECS,
+            ))
+            .await;
+            tracing::warn!(
+                "[SELF-DESTRUCT] no reconnect within {}s — shutting down",
+                config::WORKER_IDLE_TIMEOUT_SECS
+            );
+            exit.cancel();
+        });
+        let mut timer = ctx.app_state.destruct_timer.lock().await;
+        *timer = Some(handle);
+    }
+    // (don't cancel exit_signal — a new SDP offer resets the timer)
 }
 
 // ---------------------------------------------------------------------------
@@ -1202,6 +1300,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         peer_connection: Mutex::new(None),
         host_token: Mutex::new(host_token),
         exit_signal: CancellationToken::new(),
+        destruct_timer: Mutex::new(None),
     });
 
     let app = Router::new()
@@ -1210,6 +1309,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/state", get(handle_connection_state))
         .route("/test-frame", get(handle_test_frame))
         .route("/health", get(handle_health))
+        .route("/shutdown", post(handle_shutdown))
         .layer(CorsLayer::permissive())
         .with_state(Arc::clone(&state));
 
@@ -1227,7 +1327,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("gv-worker listening on port {}", actual_port);
     eprintln!("WORKER_READY port={}", actual_port);
     tracing::info!("open http://localhost:{}", actual_port);
+
+    // ── Self-destruct: startup timeout ──────────────────────────────
+    // If no peer connects within 60s, the worker exits on its own.
     let exit = state.exit_signal.clone();
+    {
+        let exit_clone = exit.clone();
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(
+                config::WORKER_STARTUP_TIMEOUT_SECS,
+            ))
+            .await;
+            tracing::warn!(
+                "[SELF-DESTRUCT] no peer connected within {}s — shutting down",
+                config::WORKER_STARTUP_TIMEOUT_SECS
+            );
+            exit_clone.cancel();
+        });
+        state.destruct_timer.lock().await.replace(handle);
+    }
+
     let graceful = async move { exit.cancelled().await; };
     axum::serve(listener, app)
         .with_graceful_shutdown(graceful)
