@@ -42,8 +42,7 @@ pub type RetroAudioSampleFn = unsafe extern "C" fn(left: i16, right: i16);
 
 /// Audio sample batch callback — core calls this with a buffer of interleaved samples.
 /// Returns the number of frames consumed.
-pub type RetroAudioSampleBatchFn =
-    unsafe extern "C" fn(data: *const i16, frames: usize) -> usize;
+pub type RetroAudioSampleBatchFn = unsafe extern "C" fn(data: *const i16, frames: usize) -> usize;
 
 // ---------------------------------------------------------------------------
 // Input

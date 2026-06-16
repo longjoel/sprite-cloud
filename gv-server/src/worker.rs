@@ -28,11 +28,11 @@ use libc;
 const CORE_MAP: &[(&str, &str)] = &[
     // ── Nintendo — Game Boy family ─────────────────────────────────
     ("Nintendo - Game Boy Advance", "mgba_libretro.so"),
-    ("Nintendo - Game Boy Color", "gambatte_libretro.so"),
-    ("Nintendo - Game Boy", "gambatte_libretro.so"),
+    ("Nintendo - Game Boy Color", "mgba_libretro.so"),
+    ("Nintendo - Game Boy", "mgba_libretro.so"),
     ("Game Boy Advance", "mgba_libretro.so"),
-    ("Game Boy Color", "gambatte_libretro.so"),
-    ("Game Boy", "gambatte_libretro.so"),
+    ("Game Boy Color", "mgba_libretro.so"),
+    ("Game Boy", "mgba_libretro.so"),
     // ── Nintendo — NES ────────────────────────────────────────────
     ("Nintendo - Nintendo Entertainment System", "nestopia_libretro.so"),
     ("Nintendo - Family Computer Disk System", "nestopia_libretro.so"),
@@ -528,6 +528,7 @@ pub async fn spawn_worker(
 
     // Forward ROM path so the worker loads the right game
     if let Some(path) = content_path {
+        tracing::info!("[WORKER] content_path={path}");
         cmd.env("GV_CONTENT_PATH", path);
     }
 
@@ -866,7 +867,7 @@ mod tests {
         );
         assert_eq!(
             core_for_platform("Game Boy").as_deref(),
-            Some("gambatte_libretro.so")
+            Some("mgba_libretro.so")
         );
     }
 }
