@@ -210,20 +210,14 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         cmd.id, game_id
                                     );
 
-                                    // Kill any previous workers — when the user starts a new
-                                    // game, all old workers must die.  They belong to different
-                                    // worker processes and can't cancel each other.
-                                    if !workers.is_empty() {
+                                    // Kill previous worker for THIS game_id — a user
+                                    // restarting their game should kill the old worker, but
+                                    // other users' workers must keep running.
+                                    if let Some(old) = workers.remove(game_id) {
                                         tracing::info!(
-                                            "[WORKER] killing {} previous worker(s)",
-                                            workers.len()
+                                            "[WORKER] killing previous worker for game {game_id}"
                                         );
-                                        for (old_id, old) in workers.drain() {
-                                            tracing::info!(
-                                                "[WORKER]   killing worker for game {old_id}"
-                                            );
-                                            old.kill().await;
-                                        }
+                                        old.kill().await;
                                     }
 
                                     match worker::spawn_worker(game_id, worker_bin.as_deref(), host_token, rom_path.as_deref(), platform).await {

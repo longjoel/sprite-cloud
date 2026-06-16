@@ -383,12 +383,35 @@ pub fn reap_stale_workers() {
             }
         };
 
-        // Kill the process. Ignore errors — it may already be dead.
+        // Verify the PID still belongs to a gv-worker process.
+        // Between reading the PID file and sending a signal, the PID
+        // could have been recycled by the OS and reassigned to an
+        // unrelated process (e.g. a system daemon).
+        let comm_path = format!("/proc/{pid}/comm");
+        if let Ok(comm) = std::fs::read_to_string(&comm_path) {
+            if comm.trim() != "gv-worker" {
+                tracing::warn!(
+                    "[REAPER] pid {pid} is not gv-worker (comm={}) — skipping",
+                    comm.trim()
+                );
+                let _ = std::fs::remove_file(&path);
+                continue;
+            }
+        }
+        // If /proc/<pid>/comm doesn't exist, the process is already dead.
+        // Clean up the PID file and move on.
+
+        // SAFETY: libc::kill is async-signal-safe. SIGTERM requests graceful
+        // termination. We verified /proc/<pid>/comm matches gv-worker above.
         unsafe { libc::kill(pid as i32, libc::SIGTERM) };
 
         // Give it a moment, then SIGKILL if still alive
         std::thread::sleep(std::time::Duration::from_millis(500));
+        // SAFETY: kill(pid, 0) is the POSIX way to check if a process exists.
+        // We verified the comm matches gv-worker before sending signals.
         if unsafe { libc::kill(pid as i32, 0) } == 0 {
+            // SAFETY: SIGKILL is async-signal-safe. Process identity was
+            // verified before the first signal was sent.
             unsafe { libc::kill(pid as i32, libc::SIGKILL) };
             tracing::warn!(
                 "[REAPER] force-killed stale worker pid {} ({})",
@@ -460,11 +483,17 @@ impl SpawnedWorker {
 
 impl Drop for SpawnedWorker {
     fn drop(&mut self) {
-        if let Some(ref child) = self.child {
+        if let Some(mut child) = self.child.take() {
             let pid = child.id().unwrap_or(0);
             if pid > 0 {
-                unsafe { libc::kill(pid as i32, libc::SIGKILL); }
+                // SAFETY: SIGKILL is async-signal-safe. The child is
+                // a gv-worker process we spawned.
+                unsafe { libc::kill(pid as i32, libc::SIGKILL) };
             }
+            // Blocking wait is acceptable in Drop — the process was
+            // just SIGKILL'd and should exit immediately. Without
+            // this, the child becomes a zombie.
+            let _ = child.wait();
         }
         let _ = std::fs::remove_file(pid_path(&self.game_id));
     }
@@ -620,6 +649,11 @@ pub async fn spawn_worker(
     };
 
     if port == 0 {
+        // Kill the child process before bailing — dropping a Child
+        // does NOT kill the process, it only closes stdio handles.
+        // Without this, a failed spawn leaks a zombie gv-worker.
+        let _ = child.kill().await;
+        let _ = child.wait().await;
         anyhow::bail!("gv-worker didn't print WORKER_READY port=<N> within {PORT_READ_TIMEOUT_SECS}s");
     }
 

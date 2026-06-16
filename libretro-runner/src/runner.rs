@@ -762,7 +762,10 @@ unsafe extern "C" fn environment_callback(cmd: u32, data: *mut std::ffi::c_void)
         }
 
         // For all other commands, return false (core will try fallbacks)
-        _ => false,
+        _ => {
+            tracing::debug!("[CORE] unhandled env cmd: {} (0x{:x})", cmd, cmd);
+            false
+        }
     }
 }
 
