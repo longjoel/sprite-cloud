@@ -53,7 +53,7 @@ function setupDOM() {
 // Must be called before importing GvPlayer
 setupDOM();
 
-const { GvPlayer, State } = await import("../index.js");
+const { GvPlayer, State, classifyRoute } = await import("../index.js");
 
 // ---------------------------------------------------------------------------
 // Unit: construction
@@ -140,6 +140,65 @@ describe("GvPlayer callback safety", () => {
     assert.equal(callCount, 1);
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// Unit: route classification
+// ---------------------------------------------------------------------------
+
+describe("classifyRoute", () => {
+  it("classifies host/host as local", () => {
+    const result = classifyRoute(
+      { localCandidateType: "host", remoteCandidateType: "host" },
+      "connected"
+    );
+    assert.equal(result.route, "local");
+    assert.equal(result.detail, "LAN host");
+  });
+
+  it("classifies srflx/host as direct", () => {
+    const result = classifyRoute(
+      { localCandidateType: "srflx", remoteCandidateType: "host" },
+      "connected"
+    );
+    assert.equal(result.route, "direct");
+    assert.equal(result.detail, "STUN direct");
+  });
+
+  it("classifies relay on either side as relay", () => {
+    const result = classifyRoute(
+      { localCandidateType: "host", remoteCandidateType: "relay" },
+      "connected"
+    );
+    assert.equal(result.route, "relay");
+    assert.equal(result.detail, "TURN relay");
+  });
+
+  it("classifies ICE failed state as failed", () => {
+    const result = classifyRoute(
+      { localCandidateType: "host", remoteCandidateType: "host" },
+      "failed"
+    );
+    assert.equal(result.route, "failed");
+    assert.equal(result.detail, "ICE failed");
+  });
+
+  it("classifies missing stats as unknown", () => {
+    const result = classifyRoute(null, "connected");
+    assert.equal(result.route, "unknown");
+    assert.equal(result.detail, "no candidate stats");
+  });
+
+  it("classifies empty candidate types as unknown", () => {
+    const result = classifyRoute(
+      { localCandidateType: "", remoteCandidateType: "" },
+      "connected"
+    );
+    assert.equal(result.route, "unknown");
+    assert.equal(result.detail, "no candidate stats");
+  });
+});
+
 
 // ---------------------------------------------------------------------------
 // Integration: requires GV_WORKER_URL env var

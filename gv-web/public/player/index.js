@@ -7,6 +7,99 @@
 
 // ── Constants (no magic values) ───────────────────────────────────────
 
+
+// ── Route classification ────────────────────────────────────────────────
+
+/**
+ * Classify a WebRTC route from getStats() selected candidate pair.
+ *
+ * @param {{ localCandidateType?: string, remoteCandidateType?: string }} pair
+ * @param {string} connectionState — RTCPeerConnection.connectionState
+ * @returns {{ route: string, detail: string }}
+ *
+ * route values:
+ *   "local"   — both candidates are host/private IPs
+ *   "direct"  — server-reflexive on either side, no relay
+ *   "relay"   — relay candidate on either side
+ *   "failed"  — ICE failed
+ *   "unknown" — connected but stats unavailable
+ */
+export function classifyRoute(pair, connectionState) {
+  if (connectionState === "failed") {
+    return { route: "failed", detail: "ICE failed" };
+  }
+
+  const local = (pair && pair.localCandidateType) || "";
+  const remote = (pair && pair.remoteCandidateType) || "";
+
+  if (!local && !remote) {
+    return { route: "unknown", detail: "no candidate stats" };
+  }
+
+  if (local === "relay" || remote === "relay") {
+    return { route: "relay", detail: "TURN relay" };
+  }
+
+  if (local === "srflx" || remote === "srflx") {
+    return { route: "direct", detail: "STUN direct" };
+  }
+
+  // Both host candidates
+  return { route: "local", detail: "LAN host" };
+}
+
+/**
+ * Inspect a connected RTCPeerConnection and classify the route.
+ * Returns null if getStats() fails (non-critical).
+ *
+ * @param {RTCPeerConnection} pc
+ * @returns {Promise<{route: string, detail: string} | null>}
+ */
+export async function inspectRoute(pc) {
+  if (!pc || pc.connectionState !== "connected") return null;
+
+  try {
+    const stats = await pc.getStats();
+    let selectedPair = null;
+
+    for (const r of stats.values()) {
+      if (r.type === "candidate-pair" && r.state === "succeeded" && r.nominated) {
+        selectedPair = r;
+        break;
+      }
+    }
+
+    // Fallback: any succeeded pair
+    if (!selectedPair) {
+      for (const r of stats.values()) {
+        if (r.type === "candidate-pair" && r.state === "succeeded") {
+          selectedPair = r;
+          break;
+        }
+      }
+    }
+
+    // Resolve local/remote candidate types from stats
+    let localCandidateType = "";
+    let remoteCandidateType = "";
+
+    if (selectedPair) {
+      const localCand = stats.get(selectedPair.localCandidateId);
+      const remoteCand = stats.get(selectedPair.remoteCandidateId);
+      localCandidateType = (localCand && localCand.candidateType) || "";
+      remoteCandidateType = (remoteCand && remoteCand.candidateType) || "";
+    }
+
+    return classifyRoute(
+      { localCandidateType, remoteCandidateType },
+      pc.connectionState || "connected"
+    );
+  } catch (e) {
+    console.warn("[gv] getStats() failed for route inspection:", e?.message || e);
+    return { route: "unknown", detail: "stats unavailable" };
+  }
+}
+
 const STUN_SERVER = "stun:stun.l.google.com:19302";
 
 function gvCsrfHeaders() {
@@ -118,6 +211,12 @@ export class GvPlayer {
 
     /** @private @type {Map<number, number>} seq → performance.now() */
     this._pendingPings = new Map();
+
+    /** @private @type {{route: string, detail: string} | null} */
+    this._route = null;
+
+    /** @type {(route: string, detail: string) => void} */
+    this._onRoute = null;
 
     // ── Gamepad state ──────────────────────────────────────────────
     /** @private @type {boolean} */
@@ -322,6 +421,14 @@ export class GvPlayer {
       if (s === "connected") {
         this._setState(State.CONNECTED);
         this._clearIceTimer();
+        // Inspect the WebRTC route asynchronously (non-blocking)
+        inspectRoute(this._pc).then((info) => {
+          if (info) {
+            this._route = info;
+            console.log("[gv] route:", info.route, info.detail);
+            if (this._onRoute) this._onRoute(info.route, info.detail);
+          }
+        });
       } else if (s === "failed") {
         this._setState(State.ERROR, "connection failed");
         this._cleanup();
