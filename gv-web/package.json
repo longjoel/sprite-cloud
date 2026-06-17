@@ -25,5 +25,11 @@
     "drizzle-kit": "^0.31.10",
     "typescript": "^5.7.0",
     "vitest": "^4.1.8"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp"
+    ]
   }
 }

@@ -1,0 +1,28 @@
+# Rust build artifacts (huge)
+target/
+
+# Next.js build cache
+gv-web/.next/
+
+# Dependencies
+gv-web/node_modules/
+
+# Git
+.git/
+.gitignore
+
+# Environment secrets
+.env
+.env.local
+*.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Hermes
+.hermes/
+
+# Docs (not needed at build time)
+docs/
