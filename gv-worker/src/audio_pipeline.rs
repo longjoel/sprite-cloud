@@ -102,7 +102,9 @@ impl AudioPipeline {
         )
         .map_err(|e| format!("opus init failed: {e}"))?;
 
-        // Input cap: ~500ms of core audio (rate-dependent, set at construction)
+        // Input cap: ~500ms of core audio (rate-dependent).
+        // Updated dynamically in try_encode() so it never goes stale
+        // relative to the resampler's current input_frames_next().
         let max_input_samples = (core_sample_rate * 0.5).ceil() as usize * resample_channels;
 
         // Pre-allocate the resample output buffer
@@ -221,6 +223,16 @@ impl AudioPipeline {
                 self.output_buf.push(s);
             }
         }
+
+        // Update input cap from the resampler's current state so it never
+        // goes stale.  The resampler's input_frames_next() changes over time
+        // as it accumulates fractional internal state; honoring it here
+        // guarantees the push() cap always has enough headroom for the
+        // resampler's actual needs (~500ms = 25 output chunks worth).
+        let current_needed = self.resampler.input_frames_next();
+        self.max_input_samples = self
+            .max_input_samples
+            .max(current_needed * 2 * 25); // stereo, 25 chunks ≈ 500ms
 
         // Cap output buffer: drop oldest if over the limit
         let max_output_samples = (AUDIO_SAMPLE_RATE as usize) * 200 / 1000 * 2; // stereo
