@@ -1060,6 +1060,16 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
                 }
 
                 if sentinel {
+                    // Notify the browser that the core thread died before
+                    // closing — otherwise the browser sees a frozen frame
+                    // with no indication of what went wrong.
+                    if let Some(dc) = ctx.dc_stream.lock().await.as_ref() {
+                        let msg = serde_json::json!({
+                            "type": "core_died",
+                            "reason": "Core thread died unexpectedly (possible crash/segfault)"
+                        });
+                        let _ = dc.send_text(&msg.to_string()).await;
+                    }
                     break;
                 };
                 frame_num = frame_num.wrapping_add(1);
@@ -1069,6 +1079,15 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
                     Ok(mut enc) => enc.encode(&pixels),
                     Err(e) => {
                         tracing::error!("[STREAM] encoder mutex poisoned: {}", e);
+                        // Notify browser before breaking so it doesn't just see frozen video
+                        if let Some(dc) = ctx.dc_stream.lock().await.as_ref() {
+                            let err_json = serde_json::json!({
+                                "type": "error",
+                                "fatal": true,
+                                "message": format!("VP8 encoder mutex poisoned: {}", e)
+                            });
+                            let _ = dc.send_text(&err_json.to_string()).await;
+                        }
                         break;
                     }
                 };
@@ -1184,6 +1203,15 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
                     }
                     Err(e) => {
                         tracing::error!("[STREAM] VP8 encode error at frame {}: {}", frame_num, e);
+                        // Notify browser so it doesn't just see frozen video
+                        if let Some(dc) = ctx.dc_stream.lock().await.as_ref() {
+                            let err_json = serde_json::json!({
+                                "type": "error",
+                                "fatal": true,
+                                "message": format!("VP8 encode failed at frame {}: {}", frame_num, e)
+                            });
+                            let _ = dc.send_text(&err_json.to_string()).await;
+                        }
                         break;
                     }
                 }
