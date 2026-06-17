@@ -1075,20 +1075,21 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
                 frame_num = frame_num.wrapping_add(1);
 
                 let encode_start = std::time::Instant::now();
-                let encode_result = match ctx.encoder_mutex.lock() {
-                    Ok(mut enc) => enc.encode(&pixels),
-                    Err(e) => {
-                        tracing::error!("[STREAM] encoder mutex poisoned: {}", e);
-                        // Notify browser before breaking so it doesn't just see frozen video
-                        if let Some(dc) = ctx.dc_stream.lock().await.as_ref() {
-                            let err_json = serde_json::json!({
-                                "type": "error",
-                                "fatal": true,
-                                "message": format!("VP8 encoder mutex poisoned: {}", e)
-                            });
-                            let _ = dc.send_text(&err_json.to_string()).await;
-                        }
-                        break;
+                // Offload the synchronous libvpx FFI encode to a blocking
+                // thread pool so the tokio async runtime stays responsive.
+                let enc = ctx.encoder_mutex.clone();
+                let pixels_for_encode = pixels.clone();
+                let encode_result = match tokio::task::spawn_blocking(move || {
+                    enc.lock()
+                        .map_err(|e| format!("encoder mutex poisoned: {}", e))
+                        .and_then(|mut encoder| {
+                            encoder.encode(&pixels_for_encode).map_err(|e| e.to_string())
+                        })
+                }).await {
+                    Ok(result) => result,
+                    Err(join_err) => {
+                        tracing::error!("[STREAM] spawn_blocking join error: {}", join_err);
+                        Err("spawn_blocking join error".to_string())
                     }
                 };
                 match encode_result {
