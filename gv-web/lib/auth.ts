@@ -1,6 +1,7 @@
 import NextAuth from "next-auth";
 import GitHub from "next-auth/providers/github";
 import Credentials from "next-auth/providers/credentials";
+import crypto from "crypto";
 
 // ── LAN IP gate ───────────────────────────────────────────────────────
 
@@ -64,13 +65,23 @@ if (lanCredentialsEnabled()) {
           credentials?.username === process.env.LAN_USER &&
           credentials?.password === process.env.LAN_PASS
         ) {
-          // Return a synthetic user — no real account, no DB row.
-          // The `sub` is stable so the JWT session persists.
+          // Deterministic per-user UUID — derived from LAN_USER + username
+          // so each LAN user gets a stable, unique identity without a DB row.
+          const hash = crypto.createHash("sha256")
+            .update(process.env.LAN_USER + ":" + credentials.username)
+            .digest("hex");
+          const id = [
+            hash.slice(0, 8),
+            hash.slice(8, 12),
+            "5" + hash.slice(13, 16), // version 5 (name-based)
+            ((parseInt(hash.slice(16, 18), 16) & 0x3f) | 0x80).toString(16) + hash.slice(18, 20),
+            hash.slice(20, 32),
+          ].join("-");
           return {
-            id: "a0000000-0000-0000-0000-000000000000",
+            id,
             name: credentials.username as string,
             email: "",
-          } as any; // cast: NextAuth v5 beta credentials typing is loose
+          } as any;
         }
 
         return null;
