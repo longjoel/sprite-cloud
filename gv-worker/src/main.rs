@@ -20,7 +20,7 @@ use config::{
 use core_bridge::CoreCommand;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -84,7 +84,7 @@ struct AppState {
     /// Once set, SDP offers may not overwrite it.
     host_token: Mutex<Option<String>>,
     /// Worker HTTP control token. When set, every control/debug endpoint
-    /// except /health requires Authorization: Bearer <token>.
+    /// except /health and /healthz requires Authorization: Bearer ***
     control_token: Option<String>,
     /// Signalled when the worker should exit entirely (peer connection
     /// failed/closed with no reconnect). Triggers axum graceful shutdown.
@@ -92,6 +92,15 @@ struct AppState {
     /// Handle to the self-destruct timer — aborted when a peer connects,
     /// restarted on disconnect to kill the worker after an idle timeout.
     destruct_timer: Mutex<Option<JoinHandle<()>>>,
+    /// Current core output dimensions (width, height), if a core is loaded.
+    /// Used by /test-frame to match the core's actual resolution.
+    core_dims: Mutex<Option<(u32, u32)>>,
+    /// Whether the libretro core was successfully loaded (not test-pattern
+    /// fallback).  Reported by the /health endpoint.
+    core_loaded: AtomicBool,
+    /// Total video frames encoded and sent.  Reported by the /health
+    /// endpoint for pipeline observability.
+    frames_encoded: AtomicU64,
 }
 
 // ---------------------------------------------------------------------------
@@ -192,17 +201,42 @@ async fn handle_test_frame(
 ) -> Result<axum::body::Bytes, StatusCode> {
     require_control_token(&state, &headers)?;
     let frame = q.frame.unwrap_or(0);
+    let (w, h) = state
+        .core_dims
+        .lock()
+        .await
+        .unwrap_or((VIDEO_WIDTH, VIDEO_HEIGHT));
     Ok(axum::body::Bytes::from(
-        test_pattern::generate_bouncing_square(VIDEO_WIDTH, VIDEO_HEIGHT, frame),
+        test_pattern::generate_bouncing_square(w, h, frame),
     ))
 }
 
-/// GET /health — liveness check.
+/// GET /health — liveness + observability check.
 ///
-/// Returns 200 OK when the HTTP server is ready.  gv-server probes this
-/// after reading WORKER_READY before notifying gv-web that the worker is
-/// available.
-async fn handle_health() -> StatusCode {
+/// Returns 200 OK with a JSON body containing pipeline status when the
+/// HTTP server is ready.  gv-server probes this after reading
+/// WORKER_READY before notifying gv-web that the worker is available.
+///
+/// Response: `{ "status": "ok", "core": bool, "frames": u64 }`
+///
+/// The `core` field is `true` when the libretro core loaded successfully
+/// (not falling back to test pattern).  `frames` is the total number of
+/// video frames encoded and sent since the worker started.
+async fn handle_health(
+    State(state): State<Arc<AppState>>,
+) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "status": "ok",
+        "core": state.core_loaded.load(Ordering::Relaxed),
+        "frames": state.frames_encoded.load(Ordering::Relaxed),
+    }))
+}
+
+/// GET /healthz — Docker HEALTHCHECK endpoint.
+///
+/// Returns 200 OK with no body.  Minimal, fast, and suitable for
+/// container health checks that only care about TCP responsiveness.
+async fn handle_healthz() -> StatusCode {
     StatusCode::OK
 }
 
@@ -328,6 +362,7 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
                     handle.sample_rate
                 );
             }
+            state.core_loaded.store(true, Ordering::Relaxed);
             (
                 enc_w,
                 enc_h,
@@ -355,6 +390,12 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
             )
         }
     };
+
+    // Store core dimensions in AppState so /test-frame can use them.
+    {
+        let mut dims = state.core_dims.lock().await;
+        *dims = Some((core_width, core_height));
+    }
 
     // ---- Create encoder + shared state ----
     let encoder_mutex: Arc<std::sync::Mutex<vp8_encoder::Vp8Encoder>> =
@@ -1056,6 +1097,7 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
                             tracing::error!("[STREAM] Write sample error at frame {}: {}", frame_num, e);
                             break;
                         }
+                        ctx.app_state.frames_encoded.fetch_add(1, Ordering::Relaxed);
 
                         // ---- Encode audio via AudioPipeline ----
                         let audio_encode_start = std::time::Instant::now();
@@ -1155,6 +1197,12 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
     let mut pc_lock = ctx.app_state.peer_connection.lock().await;
     *pc_lock = None;
     tracing::info!("[STREAM] Peer connection closed and removed from state");
+
+    // Clear core dimensions so /test-frame falls back to defaults
+    {
+        let mut dims = ctx.app_state.core_dims.lock().await;
+        *dims = None;
+    }
 
     // ── Self-destruct: idle timeout ───────────────────────────────
     // Peer is gone — if no new connection arrives within 30s, exit.
@@ -1440,6 +1488,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         control_token,
         exit_signal: CancellationToken::new(),
         destruct_timer: Mutex::new(None),
+        core_dims: Mutex::new(None),
+        core_loaded: AtomicBool::new(false),
+        frames_encoded: AtomicU64::new(0),
     });
 
     let app = Router::new()
@@ -1448,6 +1499,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/state", get(handle_connection_state))
         .route("/test-frame", get(handle_test_frame))
         .route("/health", get(handle_health))
+        .route("/healthz", get(handle_healthz))
         .route("/shutdown", post(handle_shutdown))
         .layer(CorsLayer::permissive())
         .with_state(Arc::clone(&state));
