@@ -38,7 +38,7 @@ cargo build -p gv-worker
 
 ## Environment variables
 
-See `.env.example` (Rust binaries) and `gv-web/.env.example` (Next.js).
+See `.env.example` — single source of truth for all components.
 
 ## Deployment
 
