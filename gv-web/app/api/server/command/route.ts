@@ -4,7 +4,10 @@ import { db } from "@/lib/db";
 import { commands, gameFiles, games, serverMembers, servers } from "@/lib/db/schema";
 import { CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, CMD_BROWSE_FILES, CMD_SCAN_PATHS } from "@/lib/constants";
 import { and, eq } from "drizzle-orm";
+import { applyRateLimit } from "@/lib/rate-limit";
 import crypto from "crypto";
+
+const COMMAND_RATE_LIMIT = 30; // requests per minute per IP
 
 // ── Validation ─────────────────────────────────────────────────────────
 
@@ -91,6 +94,10 @@ function validatePayload(type: string, payload: unknown): { ok: true; payload: R
  * resulting worker URL (see /api/server/notify).
  */
 export async function POST(request: NextRequest) {
+  // Rate limiting — 30 req/min per IP
+  const rateLimited = applyRateLimit(request, COMMAND_RATE_LIMIT);
+  if (rateLimited) return rateLimited;
+
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "sign in first" }, { status: 401 });
