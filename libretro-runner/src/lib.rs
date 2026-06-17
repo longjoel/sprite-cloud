@@ -88,6 +88,11 @@ pub struct AvInfo {
 /// Use `set_input(port, mask)` to set the full 16-bit state in one call
 /// (RetroArch network input protocol). For single-button convenience,
 /// compose masks with `JoypadButton::Up as u16`, etc.
+///
+/// **Keep in sync with:**
+///   - gv-player/index.js: GAMEPAD_MASK, BIT_MAP, _setupGamepadInput
+///   - gv-worker/src/main.rs: test page BIT_MAP, map_key_to_joypad
+/// If you add/remove/reorder variants here, update all three locations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum JoypadButton {
