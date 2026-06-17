@@ -258,6 +258,24 @@ via `GET /api/ice-config`. Credentials are never logged. When TURN URLs are set
 without matching username/credential, a warning is emitted and the TURN server
 is used without authentication.
 
+
+#### Route diagnostics
+
+After a WebRTC connection is established, the player inspects the selected
+candidate pair via `RTCPeerConnection.getStats()` and classifies the route:
+
+| Route | Meaning |
+|---|---|
+| `local` | Host candidates on both sides (LAN) |
+| `direct` | Server-reflexive STUN on either side |
+| `relay` | TURN relay on either side |
+| `failed` | ICE connection failed |
+| `unknown` | Connected but stats unavailable |
+
+The player fires an internal `_onRoute(route, detail)` callback. The host UI
+shows a small route badge (e.g. "local", "direct", "relay") in the player
+overlay. Raw candidate IPs are never displayed in production UI.
+
 The browser player fetches `/api/ice-config` before creating its
 `RTCPeerConnection`. When the endpoint is unreachable, the player falls back to
 Google's public STUN.
