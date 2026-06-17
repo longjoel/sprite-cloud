@@ -1,8 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 // ── Types ──────────────────────────────────────────────────────────────
+
+interface ServerMetadata {
+  version: string;
+  lan_addresses: string[];
+  rom_roots: string[];
+  ice: {
+    stun_urls: string[];
+    turn_urls: string[];
+    turn_configured: boolean;
+    transport_policy: string;
+  };
+}
 
 interface TreeNode {
   name: string;
@@ -49,6 +61,15 @@ export default function ServerManager({
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [added, setAdded] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [metadata, setMetadata] = useState<ServerMetadata | null>(null);
+
+  // Fetch server metadata on mount
+  useEffect(() => {
+    fetch(`/api/servers/${serverId}/metadata`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.metadata) setMetadata(d.metadata); })
+      .catch(() => {});
+  }, [serverId]);
 
   async function browse(path: string) {
     setBrowsing(true);
@@ -175,6 +196,38 @@ export default function ServerManager({
         )}
       </section>
 
+      {/* Server metadata */}
+      {metadata && (
+        <section style={S.section}>
+          <h2 style={S.h2}>Connectivity</h2>
+          <table style={S.metaTable}>
+            <tbody>
+              <MetadataRow label="Version" value={metadata.version} />
+              <MetadataRow
+                label="LAN"
+                value={metadata.lan_addresses?.join(", ") || "—"}
+              />
+              <MetadataRow
+                label="STUN"
+                value={metadata.ice?.stun_urls?.join(", ") || "—"}
+              />
+              <MetadataRow
+                label="TURN"
+                value={
+                  metadata.ice?.turn_configured
+                    ? (metadata.ice?.turn_urls?.join(", ") || "—")
+                    : "not configured"
+                }
+              />
+              <MetadataRow
+                label="ICE policy"
+                value={metadata.ice?.transport_policy || "—"}
+              />
+            </tbody>
+          </table>
+        </section>
+      )}
+
       {/* File tree */}
       {tree && !results && (
         <section style={S.section}>
@@ -266,6 +319,17 @@ export default function ServerManager({
         </a>
       </p>
     </main>
+  );
+}
+
+// ── Metadata row ───────────────────────────────────────────────────────
+
+function MetadataRow({ label, value }: { label: string; value: string }) {
+  return (
+    <tr>
+      <td style={S.metaLabel}>{label}</td>
+      <td style={S.metaValue}>{value}</td>
+    </tr>
   );
 }
 
@@ -460,4 +524,12 @@ const S: Record<string, React.CSSProperties> = {
   noMatch: { fontSize: 11, color: "#888", fontStyle: "italic" },
   note: { fontSize: 13, color: "#2a2", marginTop: 8 },
   link: { color: "#6af", textDecoration: "none", fontSize: 13 },
+  metaTable: { borderCollapse: "collapse" as const, fontSize: 13 },
+  metaLabel: {
+    padding: "2px 16px 2px 0",
+    color: "#888",
+    textAlign: "right" as const,
+    whiteSpace: "nowrap" as const,
+  },
+  metaValue: { padding: "2px 0", color: "#ccc", wordBreak: "break-all" as const },
 };

@@ -126,8 +126,9 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
     // Extract optional worker_bin override before cfg is consumed
     let worker_bin = cfg.gv_web.worker_bin.clone();
 
-    // Verify the API key is still valid
-    let verify = client.verify().await?;
+    // Verify the API key is still valid — also report server metadata
+    let metadata = collect_metadata(&cfg);
+    let verify = client.verify_with_metadata(&metadata).await?;
     tracing::info!(
         "Connected to gv-web as server {} (user: {})",
         verify.server_id,
@@ -580,6 +581,59 @@ fn internal_worker_url(public_url: &str) -> String {
     }
     // Fallback — shouldn't happen with well-formed worker URLs
     public_url.to_string()
+}
+
+// ── Server metadata collection ────────────────────────────────────────
+
+/// Collect non-secret server metadata for connectivity diagnostics.
+/// LAN addresses, ROM roots, ICE config summary — no credentials.
+fn collect_metadata(cfg: &config::Config) -> gv_web::ServerMetadata {
+    let version = env!("CARGO_PKG_VERSION").to_string();
+
+    // Collect local IP addresses for LAN connectivity diagnostics
+    let lan_addresses: Vec<String> = std::iter::once(local_ip_address::local_ip())
+        .flatten()
+        .map(|ip| ip.to_string())
+        .collect();
+
+    let rom_roots: Vec<String> = cfg
+        .rom
+        .as_ref()
+        .map(|r| r.roots.clone())
+        .unwrap_or_default();
+
+    // ICE metadata — summary only, no credentials
+    let stun_urls: Vec<String> = std::env::var("GV_ICE_STUN_URLS")
+        .ok()
+        .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
+        .unwrap_or_default();
+
+    let turn_urls: Vec<String> = std::env::var("GV_ICE_TURN_URLS")
+        .ok()
+        .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
+        .unwrap_or_default();
+
+    let turn_username = std::env::var("GV_ICE_TURN_USERNAME").ok().unwrap_or_default();
+    let turn_credential = std::env::var("GV_ICE_TURN_CREDENTIAL").ok().unwrap_or_default();
+    let turn_configured = !turn_urls.is_empty() && !turn_username.is_empty() && !turn_credential.is_empty();
+
+    let transport_policy = std::env::var("GV_ICE_TRANSPORT_POLICY")
+        .ok()
+        .unwrap_or_else(|| "all".to_string());
+
+    let ice = gv_web::IceMetadata {
+        stun_urls,
+        turn_urls,
+        turn_configured,
+        transport_policy,
+    };
+
+    gv_web::ServerMetadata {
+        version,
+        lan_addresses,
+        rom_roots,
+        ice,
+    }
 }
 
 // ── Shutdown signal ───────────────────────────────────────────────────

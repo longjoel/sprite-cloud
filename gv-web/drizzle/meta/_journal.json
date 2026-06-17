@@ -57,6 +57,13 @@
       "when": 1781655138228,
       "tag": "0007_late_nextwave",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1781658840695,
+      "tag": "0008_bright_hannibal_king",
+      "breakpoints": true
     }
   ]
 }
