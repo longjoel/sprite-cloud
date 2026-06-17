@@ -59,6 +59,9 @@ impl std::error::Error for VpxError {}
 /// (guaranteed by `&mut self` on `encode`).
 pub struct Vp8Encoder {
     ctx: vpx_codec_ctx_t,
+    /// Pre-allocated I420 image, reused across encode() calls.
+    /// Owned — freed in Drop via vpx_img_free().
+    img: *mut vpx_image_t,
     width: u32,
     height: u32,
     /// Core frame rate — used to reconstruct full config on set_bitrate().
@@ -154,6 +157,13 @@ impl Vp8Encoder {
 
             Ok(Vp8Encoder {
                 ctx,
+                img: vpx_img_alloc(
+                    std::ptr::null_mut(),
+                    vpx_img_fmt_t::VPX_IMG_FMT_I420,
+                    width,
+                    height,
+                    1,
+                ),
                 width,
                 height,
                 fps,
@@ -182,47 +192,25 @@ impl Vp8Encoder {
         }
 
         unsafe {
-            let mut img = MaybeUninit::<vpx_image_t>::uninit();
+            let img = &mut *self.img;
 
-            let (y_plane, u_plane, v_plane) =
-                rgb_to_i420(rgb, self.width as usize, self.height as usize);
-
-            // vpx_img_wrap returns null on failure (e.g. allocation error).
-            // We must check it before assuming img is valid.
-            let img_ptr = vpx_img_wrap(
-                img.as_mut_ptr(),
-                vpx_img_fmt_t::VPX_IMG_FMT_I420,
-                self.width,
-                self.height,
-                1,
-                std::ptr::null_mut(),
+            // Write I420 data directly into the pre-allocated image planes.
+            // This avoids per-frame allocation and the memory corruption from
+            // overwriting vpx_img_wrap's plane pointers (the root cause of
+            // the "double free or corruption" glibc abort on shutdown).
+            rgb_to_i420_into(
+                rgb,
+                self.width as usize,
+                self.height as usize,
+                img.planes[0] as *mut u8,
+                img.stride[0] as usize,
+                img.planes[1] as *mut u8,
+                img.stride[1] as usize,
+                img.planes[2] as *mut u8,
+                img.stride[2] as usize,
             );
-            if img_ptr.is_null() {
-                return Err(VpxError::Encode(
-                    "vpx_img_wrap failed (allocation error)".into(),
-                ));
-            }
-            let mut img = img.assume_init();
-
-            // Overwrite plane pointers with our I420 data.
-            // vpx_img_wrap allocates its own planes when data is null;
-            // we replace them with our manually-converted buffers.
-            let y_ptr = y_plane.as_ptr() as *mut u8;
-            let u_ptr = u_plane.as_ptr() as *mut u8;
-            let v_ptr = v_plane.as_ptr() as *mut u8;
-
-            img.planes[0] = y_ptr as *mut _;
-            img.planes[1] = u_ptr as *mut _;
-            img.planes[2] = v_ptr as *mut _;
-            // I420 chroma planes are half-width and half-height (4:2:0 subsampling)
-            img.stride[0] = self.width as i32;
-            img.stride[1] = (self.width / 2) as i32;
-            img.stride[2] = (self.width / 2) as i32;
 
             // Encode: only force a keyframe on the very first frame.
-            // After that, let the encoder decide — it will insert periodic
-            // keyframes (default every 9999 frames) and intra-refresh blocks
-            // (because g_error_resilient is set).
             let flags = if self.need_keyframe {
                 self.need_keyframe = false;
                 VPX_EFLAG_FORCE_KF as i64
@@ -236,19 +224,12 @@ impl Vp8Encoder {
 
             let err = vpx_codec_encode(
                 &mut self.ctx as *mut _,
-                &img as *const _,
+                img as *const _,
                 pts,           // pts: monotonically increasing frame number
                 1,             // duration: one timebase unit per frame
                 flags,
                 DL_REALTIME,  // realtime deadline — no frame reordering
             );
-
-            // vpx_codec_encode copies the frame data before returning
-            // (realtime deadline guarantees synchronous behaviour), so
-            // it's safe to drop the I420 planes here.
-            drop(y_plane);
-            drop(u_plane);
-            drop(v_plane);
 
             if err != VPX_CODEC_OK {
                 return Err(VpxError::Encode(format!("{:?}", err)));
@@ -343,6 +324,9 @@ impl Vp8Encoder {
 impl Drop for Vp8Encoder {
     fn drop(&mut self) {
         unsafe {
+            if !self.img.is_null() {
+                vpx_img_free(self.img);
+            }
             vpx_codec_destroy(&mut self.ctx as *mut _);
         }
     }
@@ -418,13 +402,17 @@ pub fn scale_rgb24_nearest(
 /// Uses BT.601 coefficients for RGB→YUV conversion (the standard for SD
 /// digital video). Chroma planes are subsampled 2:1 both horizontally
 /// and vertically.
-fn rgb_to_i420(rgb: &[u8], width: usize, height: usize) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
-    let frame_size = width * height;
-    let uv_size = (width / 2) * (height / 2);
-    let mut y = vec![0u8; frame_size];
-    let mut u = vec![0u8; uv_size];
-    let mut v = vec![0u8; uv_size];
-
+fn rgb_to_i420_into(
+    rgb: &[u8],
+    width: usize,
+    height: usize,
+    y_out: *mut u8,
+    y_stride: usize,
+    u_out: *mut u8,
+    u_stride: usize,
+    v_out: *mut u8,
+    _v_stride: usize,
+) {
     for row in 0..height {
         for col in 0..width {
             let rgb_idx = (row * width + col) * 3;
@@ -434,21 +422,21 @@ fn rgb_to_i420(rgb: &[u8], width: usize, height: usize) -> (Vec<u8>, Vec<u8>, Ve
 
             // BT.601 full-swing luminance
             let y_val = (0.299 * r + 0.587 * g + 0.114 * b).clamp(0.0, 255.0) as u8;
-            y[row * width + col] = y_val;
+            unsafe { *y_out.add(row * y_stride + col) = y_val; }
 
             // Chroma subsampling: one U/V sample per 2×2 block
             if row % 2 == 0 && col % 2 == 0 {
-                let uv_idx = (row / 2) * (width / 2) + (col / 2);
+                let uv_idx = (row / 2) * u_stride + (col / 2);
                 // BT.601 chroma (centered at 128)
                 let u_val = (-0.169 * r - 0.331 * g + 0.5 * b + 128.0).clamp(0.0, 255.0) as u8;
                 let v_val = (0.5 * r - 0.419 * g - 0.081 * b + 128.0).clamp(0.0, 255.0) as u8;
-                u[uv_idx] = u_val;
-                v[uv_idx] = v_val;
+                unsafe {
+                    *u_out.add(uv_idx) = u_val;
+                    *v_out.add(uv_idx) = v_val;
+                }
             }
         }
     }
-
-    (y, u, v)
 }
 
 #[cfg(test)]
@@ -458,7 +446,20 @@ mod tests {
     #[test]
     fn test_rgb_to_i420_sizes() {
         let rgb = vec![0u8; 320 * 240 * 3];
-        let (y, u, v) = rgb_to_i420(&rgb, 320, 240);
+        let mut y = vec![0u8; 320 * 240];
+        let mut u = vec![0u8; 160 * 120];
+        let mut v = vec![0u8; 160 * 120];
+        rgb_to_i420_into(
+            &rgb,
+            320,
+            240,
+            y.as_mut_ptr(),
+            320,
+            u.as_mut_ptr(),
+            160,
+            v.as_mut_ptr(),
+            160,
+        );
         assert_eq!(y.len(), 320 * 240);
         assert_eq!(u.len(), 160 * 120);
         assert_eq!(v.len(), 160 * 120);
