@@ -21,9 +21,9 @@ One-command launcher for the full development stack.
 
 2. Make sure Postgres is running on port 5433.
 
-3. Set up gv-web `.env.local` (copy from `.env.example`):
+3. Set up gv-web `.env.local` (copy from root `.env.example`):
    ```bash
-   cp gv-web/.env.example gv-web/.env.local
+   cp .env.example gv-web/.env.local
    # Edit AUTH_SECRET, DATABASE_URL, LAN_USER, LAN_PASS
    ```
 
