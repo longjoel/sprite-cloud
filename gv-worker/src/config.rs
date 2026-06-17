@@ -1,3 +1,213 @@
+
+/// Structured ICE server configuration.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IceServer {
+    pub urls: Vec<String>,
+    pub username: Option<String>,
+    pub credential: Option<String>,
+}
+
+/// ICE transport policy.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum IceTransportPolicy {
+    All,
+    Relay,
+}
+
+impl IceTransportPolicy {
+    #[allow(dead_code)]
+    pub fn as_js(&self) -> &'static str {
+        match self {
+            IceTransportPolicy::All => "all",
+            IceTransportPolicy::Relay => "relay",
+        }
+    }
+}
+
+/// Parsed ICE configuration for the WebRTC peer connection.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IceConfig {
+    pub servers: Vec<IceServer>,
+    pub transport_policy: IceTransportPolicy,
+}
+
+/// Default STUN server used when nothing is configured.
+const DEFAULT_STUN_URL: &str = "stun:stun.l.google.com:19302";
+
+/// Parse ICE configuration from environment variables.
+///
+/// Reads:
+/// - GV_ICE_STUN_URLS — comma-separated STUN URLs
+/// - GV_ICE_TURN_URLS — comma-separated TURN URLs
+/// - GV_ICE_TURN_USERNAME — TURN username
+/// - GV_ICE_TURN_CREDENTIAL — TURN credential
+/// - GV_ICE_TRANSPORT_POLICY — "all" or "relay"
+///
+/// When no STUN or TURN URLs are configured, returns the Google STUN default.
+pub fn ice_config() -> IceConfig {
+    let stun_urls = parse_url_list("GV_ICE_STUN_URLS");
+    let turn_urls = parse_url_list("GV_ICE_TURN_URLS");
+    let turn_username = std::env::var("GV_ICE_TURN_USERNAME").ok();
+    let turn_credential = std::env::var("GV_ICE_TURN_CREDENTIAL").ok();
+    let policy = parse_transport_policy();
+
+    let mut servers: Vec<IceServer> = Vec::new();
+
+    if !stun_urls.is_empty() {
+        servers.push(IceServer {
+            urls: stun_urls,
+            username: None,
+            credential: None,
+        });
+    }
+
+    if !turn_urls.is_empty() {
+        let user = turn_username.filter(|s| !s.is_empty());
+        let cred = turn_credential.filter(|s| !s.is_empty());
+        if user.is_some() != cred.is_some() {
+            tracing::warn!(
+                "[ICE] GV_ICE_TURN_USERNAME and GV_ICE_TURN_CREDENTIAL must both be set or both empty"
+            );
+        }
+        servers.push(IceServer {
+            urls: turn_urls,
+            username: user,
+            credential: cred,
+        });
+    }
+
+    if servers.is_empty() {
+        servers.push(IceServer {
+            urls: vec![DEFAULT_STUN_URL.to_string()],
+            username: None,
+            credential: None,
+        });
+    }
+
+    IceConfig {
+        servers,
+        transport_policy: policy,
+    }
+}
+
+fn parse_url_list(var: &str) -> Vec<String> {
+    std::env::var(var)
+        .ok()
+        .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
+        .unwrap_or_default()
+}
+
+fn parse_transport_policy() -> IceTransportPolicy {
+    match std::env::var("GV_ICE_TRANSPORT_POLICY")
+        .ok()
+        .as_deref()
+        .unwrap_or("all")
+    {
+        "relay" => IceTransportPolicy::Relay,
+        "all" | "" => IceTransportPolicy::All,
+        other => {
+            tracing::warn!(
+                "[ICE] invalid GV_ICE_TRANSPORT_POLICY={}, defaulting to all",
+                other
+            );
+            IceTransportPolicy::All
+        }
+    }
+}
+
+#[cfg(test)]
+#[allow(non_snake_case)]
+mod ice_tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    static ICE_ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+    fn clear_ice_env() {
+        std::env::remove_var("GV_ICE_STUN_URLS");
+        std::env::remove_var("GV_ICE_TURN_URLS");
+        std::env::remove_var("GV_ICE_TURN_USERNAME");
+        std::env::remove_var("GV_ICE_TURN_CREDENTIAL");
+        std::env::remove_var("GV_ICE_TRANSPORT_POLICY");
+    }
+
+    #[test]
+    fn no_env_returns_google_stun_default() {
+        let _guard = ICE_ENV_MUTEX.lock().unwrap();
+        clear_ice_env();
+        let cfg = ice_config();
+        assert_eq!(cfg.servers.len(), 1);
+        assert_eq!(cfg.servers[0].urls, vec![DEFAULT_STUN_URL]);
+        assert!(cfg.servers[0].username.is_none());
+        assert_eq!(cfg.transport_policy, IceTransportPolicy::All);
+    }
+
+    #[test]
+    fn comma_separated_stun_urls() {
+        let _guard = ICE_ENV_MUTEX.lock().unwrap();
+        clear_ice_env();
+        std::env::set_var("GV_ICE_STUN_URLS", "stun:stun1.example.com:3478, stun:stun2.example.com:3478");
+        let cfg = ice_config();
+        assert_eq!(cfg.servers.len(), 1);
+        assert_eq!(
+            cfg.servers[0].urls,
+            vec!["stun:stun1.example.com:3478", "stun:stun2.example.com:3478"]
+        );
+    }
+
+    #[test]
+    fn turn_url_with_credentials() {
+        let _guard = ICE_ENV_MUTEX.lock().unwrap();
+        clear_ice_env();
+        std::env::set_var("GV_ICE_TURN_URLS", "turn:turn.example.com:3478");
+        std::env::set_var("GV_ICE_TURN_USERNAME", "user");
+        std::env::set_var("GV_ICE_TURN_CREDENTIAL", "pass");
+        let cfg = ice_config();
+        assert_eq!(cfg.servers.len(), 1); // TURN-only, falls to default? No — TURN is set
+        let turn = &cfg.servers[0];
+        assert_eq!(turn.urls, vec!["turn:turn.example.com:3478"]);
+        assert_eq!(turn.username.as_deref(), Some("user"));
+        assert_eq!(turn.credential.as_deref(), Some("pass"));
+    }
+
+    #[test]
+    fn stun_and_turn_together() {
+        let _guard = ICE_ENV_MUTEX.lock().unwrap();
+        clear_ice_env();
+        std::env::set_var("GV_ICE_STUN_URLS", "stun:stun.example.com:3478");
+        std::env::set_var("GV_ICE_TURN_URLS", "turn:turn.example.com:3478");
+        std::env::set_var("GV_ICE_TURN_USERNAME", "user");
+        std::env::set_var("GV_ICE_TURN_CREDENTIAL", "pass");
+        let cfg = ice_config();
+        assert_eq!(cfg.servers.len(), 2);
+        assert_eq!(cfg.servers[0].urls, vec!["stun:stun.example.com:3478"]);
+        assert!(cfg.servers[0].username.is_none());
+        assert_eq!(cfg.servers[1].urls, vec!["turn:turn.example.com:3478"]);
+        assert_eq!(cfg.servers[1].username.as_deref(), Some("user"));
+        assert_eq!(cfg.servers[1].credential.as_deref(), Some("pass"));
+    }
+
+    #[test]
+    fn relay_only_policy() {
+        let _guard = ICE_ENV_MUTEX.lock().unwrap();
+        clear_ice_env();
+        std::env::set_var("GV_ICE_TRANSPORT_POLICY", "relay");
+        let cfg = ice_config();
+        assert_eq!(cfg.transport_policy, IceTransportPolicy::Relay);
+        // Still falls back to default STUN if no URLs configured
+        assert_eq!(cfg.servers[0].urls, vec![DEFAULT_STUN_URL]);
+    }
+
+    #[test]
+    fn invalid_policy_defaults_to_all() {
+        let _guard = ICE_ENV_MUTEX.lock().unwrap();
+        clear_ice_env();
+        std::env::set_var("GV_ICE_TRANSPORT_POLICY", "garbage");
+        let cfg = ice_config();
+        assert_eq!(cfg.transport_policy, IceTransportPolicy::All);
+    }
+}
+
 /// Video pipeline configuration.
 ///
 /// Resolution: 320×240 QVGA
@@ -71,19 +281,11 @@ pub fn target_bitrate_kbps() -> u32 {
     *BITRATE
 }
 
-/// STUN/TURN server for NAT traversal (fallback default).
-const DEFAULT_STUN_SERVER: &str = "stun:stun.l.google.com:19302";
-
-/// STUN/TURN server for NAT traversal.
-/// Read from `STUN_SERVER` env var at runtime, defaulting to Google's public STUN.
-/// Production MUST set this to a dedicated TURN server.
-/// Format: "stun:host:port" or "turn:host:port?transport=tcp"
-pub fn stun_server() -> &'static str {
-    use std::sync::LazyLock;
-    static STUN: LazyLock<String> = LazyLock::new(|| {
-        std::env::var("STUN_SERVER").unwrap_or_else(|_| DEFAULT_STUN_SERVER.to_string())
-    });
-    STUN.as_str()
+// STUN_SERVER env var is deprecated; use GV_ICE_STUN_URLS instead.
+// Kept for backward compatibility with existing configs.
+pub fn stun_server() -> String {
+    let ice = ice_config();
+    ice.servers.first().map(|s| s.urls[0].clone()).unwrap_or_else(|| "stun:stun.l.google.com:19302".to_string())
 }
 
 /// WebRTC track ID sent in SDP.
