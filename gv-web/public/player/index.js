@@ -131,7 +131,14 @@ const RELAY_TIMEOUT_MS = 30_000;
 /** Bits in the RetroArch mask that the gamepad can set.
  *  Keyboard and gamepad share the same mask; gamepad-owned bits
  *  are cleared each frame so keyboard presses persist across
- *  gamepad poll frames. */
+ *  gamepad poll frames.
+ *
+ *  Bit layout: B=0, Y=1, Select=2, Start=3, Up=4, Down=5,
+ *  Left=6, Right=7, A=8, X=9, L=10, R=11, L2=12, R2=13,
+ *  L3=14, R3=15 (RetroArch RETRO_DEVICE_ID_JOYPAD_*).
+ *
+ *  KEEP IN SYNC with the canonical source:
+ *  libretro-runner/src/lib.rs — JoypadButton enum. */
 const GAMEPAD_MASK = (1 << 0) | (1 << 2) | (1 << 3) | (1 << 4)
                    | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8);
 
@@ -739,7 +746,8 @@ export class GvPlayer {
   /** Accumulates key state into a 16-bit RetroArch joypad mask
    *  and sends binary [u8 seat][u16 LE state] on every change.
    *  Bit layout: Up=4, Down=5, Left=6, Right=7, Start=3,
-   *  Select=2, B=0, A=8. See ADR 008. */
+   *  Select=2, B=0, A=8.
+   *  KEEP IN SYNC: libretro-runner/src/lib.rs — JoypadButton enum. */
   _setupKeyboardInput() {
     const BIT_MAP = {
       ArrowUp: 4, ArrowDown: 5, ArrowLeft: 6, ArrowRight: 7,
@@ -812,6 +820,10 @@ export class GvPlayer {
    * Poll navigator.getGamepads() on every rAF frame and merge
    * gamepad state into the shared RetroArch joypad mask.
    * Keyboard bits are preserved — gamepad only touches GAMEPAD_MASK bits.
+   *
+   * Button → bit mapping (KEEP IN SYNC with
+   * libretro-runner/src/lib.rs — JoypadButton enum):
+   *   Up=4, Down=5, Left=6, Right=7, Start=3, Select=2, A=8, B=0
    * @private
    */
   _setupGamepadInput() {
