@@ -670,3 +670,75 @@ describe("/api/servers/members", () => {
     expect(resp.status).toBe(403);
   });
 });
+
+// ── /api/servers/[server_id]/metadata ─────────────────────────────────
+
+describe("GET /api/servers/[server_id]/metadata", () => {
+  const serverId = "server-1";
+
+  it("returns 401 when not signed in", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    const { GET } = await import(
+      "@/app/api/servers/[server_id]/metadata/route"
+    );
+    const req = mkReq(`http://localhost/api/servers/${serverId}/metadata`);
+    const resp = await GET(req, { params: Promise.resolve({ server_id: serverId }) });
+    expect(resp.status).toBe(401);
+  });
+
+  it("returns 403 when caller is not a member of the server", async () => {
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([]));
+    const { GET } = await import(
+      "@/app/api/servers/[server_id]/metadata/route"
+    );
+    const req = mkReq(`http://localhost/api/servers/${serverId}/metadata`);
+    const resp = await GET(req, { params: Promise.resolve({ server_id: serverId }) });
+    expect(resp.status).toBe(403);
+  });
+
+  it("returns server metadata when caller is a member", async () => {
+    const mockMembership = [{ id: "mem-1", serverId, userId: "user-1", role: "member" }];
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder(mockMembership));
+
+    const mockServer = [{
+      name: "gv-server",
+      lastSeenAt: new Date().toISOString(),
+      metadata: {
+        version: "0.1.0",
+        lan_addresses: ["192.168.1.100"],
+        ice: {
+          stun_urls: ["stun:stun.l.google.com:19302"],
+          turn_urls: [],
+          turn_configured: false,
+          transport_policy: "all",
+        },
+      },
+    }];
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder(mockServer));
+
+    const { GET } = await import(
+      "@/app/api/servers/[server_id]/metadata/route"
+    );
+    const req = mkReq(`http://localhost/api/servers/${serverId}/metadata`);
+    const resp = await GET(req, { params: Promise.resolve({ server_id: serverId }) });
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.name).toBe("gv-server");
+    expect(body.metadata.version).toBe("0.1.0");
+    expect(body.metadata.ice.turn_configured).toBe(false);
+    expect(body.metadata.turn_password).toBeUndefined();
+    expect(body.metadata.api_key).toBeUndefined();
+  });
+
+  it("returns 404 when server does not exist", async () => {
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{ id: "mem-1" }]));
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([]));
+
+    const { GET } = await import(
+      "@/app/api/servers/[server_id]/metadata/route"
+    );
+    const req = mkReq(`http://localhost/api/servers/nonexistent/metadata`);
+    const resp = await GET(req, { params: Promise.resolve({ server_id: "nonexistent" }) });
+    expect(resp.status).toBe(404);
+  });
+});

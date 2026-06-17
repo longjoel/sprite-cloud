@@ -1,4 +1,4 @@
-import { jsonb, pgTable, text, timestamp, unique, uuid, integer, bigint, index } from "drizzle-orm/pg-core";
+import { jsonb, pgTable, text, timestamp, unique, uuid, integer, bigint, index, boolean } from "drizzle-orm/pg-core";
 
 // ── Users (created via OAuth) ────────────────────────────────────────
 
@@ -19,6 +19,7 @@ export const servers = pgTable("servers", {
   name: text("name").notNull().default(""),
   apiKeyHash: text("api_key_hash").notNull().unique(),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow(),
+  metadata: jsonb("metadata").notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

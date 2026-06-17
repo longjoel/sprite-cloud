@@ -27,6 +27,30 @@ pub struct VerifyResponse {
     pub name: String,
 }
 
+/// Non-secret metadata reported by gv-server during verify.
+/// Excludes credentials, tokens, and other secrets.
+#[derive(Debug, Serialize)]
+pub struct ServerMetadata {
+    pub version: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub lan_addresses: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub rom_roots: Vec<String>,
+    pub ice: IceMetadata,
+}
+
+/// ICE configuration summary for route/connectivity diagnostics.
+/// No credentials — URLs-only, safe to store server-side.
+#[derive(Debug, Serialize)]
+pub struct IceMetadata {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub stun_urls: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub turn_urls: Vec<String>,
+    pub turn_configured: bool,
+    pub transport_policy: String,
+}
+
 /// A single command from the queue.
 #[derive(Debug, Deserialize)]
 pub struct Command {
@@ -119,16 +143,41 @@ impl GvWebClient {
     }
 
     /// GET /api/auth/verify — verify API key is still valid
+    #[allow(dead_code)]
     pub async fn verify(&self) -> Result<VerifyResponse> {
+        self.verify_inner(None).await
+    }
+
+    /// POST /api/auth/verify — verify API key and report server metadata.
+    ///
+    /// Metadata includes version, LAN addresses, ROM roots, and ICE config
+    /// summary (no credentials).  Stored by gv-web for connectivity diagnostics.
+    pub async fn verify_with_metadata(&self, metadata: &ServerMetadata) -> Result<VerifyResponse> {
+        self.verify_inner(Some(metadata)).await
+    }
+
+    async fn verify_inner(&self, metadata: Option<&ServerMetadata>) -> Result<VerifyResponse> {
         let url = format!("{}/api/auth/verify", self.base_url);
 
-        let resp = self
+        let mut req = self
             .client
             .get(&url)
-            .bearer_auth(&self.auth.api_key)
-            .send()
-            .await
-            .context("GET /api/auth/verify — network error")?;
+            .bearer_auth(&self.auth.api_key);
+
+        let resp = if let Some(meta) = metadata {
+            // Use POST when sending metadata
+            self.client
+                .post(&url)
+                .bearer_auth(&self.auth.api_key)
+                .json(&serde_json::json!({ "metadata": meta }))
+                .send()
+                .await
+                .context("POST /api/auth/verify — network error")?
+        } else {
+            req.send()
+                .await
+                .context("GET /api/auth/verify — network error")?
+        };
 
         let status = resp.status();
         if !status.is_success() {
