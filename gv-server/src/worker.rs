@@ -19,139 +19,8 @@ use tokio::process::{Child, Command};
 
 // ── Core mapping ──────────────────────────────────────────────────────
 
-/// Platform → core filename mapping.
-///
-/// First match wins — put specific names ("Game Boy Advance") before
-/// broad ones ("Game Boy").
-///
-/// Override any entry via `GV_CORE_OVERRIDE_<sanitized_platform>` env var,
-/// e.g. `GV_CORE_OVERRIDE_PlayStation=swanstation_libretro.so`.
-const CORE_MAP: &[(&str, &str)] = &[
-    // ── Nintendo — Game Boy family ─────────────────────────────────
-    ("Nintendo - Game Boy Advance", "mgba_libretro.so"),
-    ("Nintendo - Game Boy Color", "mgba_libretro.so"),
-    ("Nintendo - Game Boy", "mgba_libretro.so"),
-    ("Game Boy Advance", "mgba_libretro.so"),
-    ("Game Boy Color", "mgba_libretro.so"),
-    ("Game Boy", "mgba_libretro.so"),
-    // ── Nintendo — NES ────────────────────────────────────────────
-    (
-        "Nintendo - Nintendo Entertainment System",
-        "nestopia_libretro.so",
-    ),
-    (
-        "Nintendo - Family Computer Disk System",
-        "nestopia_libretro.so",
-    ),
-    ("NES", "nestopia_libretro.so"),
-    ("Family Computer Disk System", "nestopia_libretro.so"),
-    // ── Nintendo — SNES ───────────────────────────────────────────
-    (
-        "Nintendo - Super Nintendo Entertainment System",
-        "snes9x_libretro.so",
-    ),
-    ("SNES", "snes9x_libretro.so"),
-    // ── Nintendo — N64 ────────────────────────────────────────────
-    ("Nintendo - Nintendo 64", "mupen64plus_next_libretro.so"),
-    ("Nintendo 64", "mupen64plus_next_libretro.so"),
-    // ── Nintendo — Nintendo DS ────────────────────────────────────
-    ("Nintendo - Nintendo DS", "desmume_libretro.so"),
-    ("Nintendo DS", "desmume_libretro.so"),
-    // ── Nintendo — Virtual Boy ────────────────────────────────────
-    ("Nintendo - Virtual Boy", "mednafen_vb_libretro.so"),
-    ("Virtual Boy", "mednafen_vb_libretro.so"),
-    // ── Nintendo — Pokemon Mini ───────────────────────────────────
-    ("Nintendo - Pokemon Mini", "pokemini_libretro.so"),
-    ("Pokemon Mini", "pokemini_libretro.so"),
-    // ── Sega — Master System / Genesis / Game Gear / CD ────────────
-    ("Sega - Mega Drive - Genesis", "genesis_plus_gx_libretro.so"),
-    (
-        "Sega - Master System - Mark III",
-        "genesis_plus_gx_libretro.so",
-    ),
-    ("Sega - Game Gear", "genesis_plus_gx_libretro.so"),
-    ("Sega - Sega CD - Mega CD", "genesis_plus_gx_libretro.so"),
-    ("Genesis", "genesis_plus_gx_libretro.so"),
-    ("Master System", "genesis_plus_gx_libretro.so"),
-    ("Game Gear", "genesis_plus_gx_libretro.so"),
-    ("Sega CD", "genesis_plus_gx_libretro.so"),
-    // ── Sega — 32X ────────────────────────────────────────────────
-    ("Sega - Sega 32X", "picodrive_libretro.so"),
-    ("Sega 32X", "picodrive_libretro.so"),
-    // ── Sega — Saturn ─────────────────────────────────────────────
-    ("Sega - Saturn", "yabause_libretro.so"),
-    ("Saturn", "yabause_libretro.so"),
-    // ── Sega — Dreamcast ──────────────────────────────────────────
-    ("Sega - Dreamcast", "flycast_libretro.so"),
-    ("Dreamcast", "flycast_libretro.so"),
-    // ── Sony — PlayStation ────────────────────────────────────────
-    ("Sony - PlayStation", "pcsx_rearmed_libretro.so"),
-    ("PlayStation", "pcsx_rearmed_libretro.so"),
-    // ── Sony — PlayStation Portable ───────────────────────────────
-    ("Sony - PlayStation Portable", "ppsspp_libretro.so"),
-    ("PlayStation Portable", "ppsspp_libretro.so"),
-    ("PSP", "ppsspp_libretro.so"),
-    // ── Atari — 2600 / 5200 / 7800 / Lynx ─────────────────────────
-    ("Atari - 2600", "stella_libretro.so"),
-    ("Atari 2600", "stella_libretro.so"),
-    ("Atari - 5200", "a5200_libretro.so"),
-    ("Atari 5200", "a5200_libretro.so"),
-    ("Atari - 7800", "prosystem_libretro.so"),
-    ("Atari 7800", "prosystem_libretro.so"),
-    ("Atari - Lynx", "handy_libretro.so"),
-    ("Atari Lynx", "handy_libretro.so"),
-    // ── NEC — PC Engine / TurboGrafx ──────────────────────────────
-    (
-        "NEC - PC Engine - TurboGrafx-16",
-        "mednafen_pce_fast_libretro.so",
-    ),
-    (
-        "NEC - PC Engine CD - TurboGrafx-CD",
-        "mednafen_pce_fast_libretro.so",
-    ),
-    ("PC Engine", "mednafen_pce_fast_libretro.so"),
-    ("TurboGrafx-16", "mednafen_pce_fast_libretro.so"),
-    ("TurboGrafx-CD", "mednafen_pce_fast_libretro.so"),
-    // ── SNK — Neo Geo Pocket / CD ─────────────────────────────────
-    ("SNK - Neo Geo Pocket", "mednafen_ngp_libretro.so"),
-    ("SNK - Neo Geo Pocket Color", "mednafen_ngp_libretro.so"),
-    ("SNK - Neo Geo CD", "neocd_libretro.so"),
-    ("Neo Geo Pocket", "mednafen_ngp_libretro.so"),
-    ("Neo Geo Pocket Color", "mednafen_ngp_libretro.so"),
-    ("Neo Geo CD", "neocd_libretro.so"),
-    // ── Bandai — WonderSwan ───────────────────────────────────────
-    ("Bandai - WonderSwan", "mednafen_wswan_libretro.so"),
-    ("Bandai - WonderSwan Color", "mednafen_wswan_libretro.so"),
-    ("WonderSwan", "mednafen_wswan_libretro.so"),
-    ("WonderSwan Color", "mednafen_wswan_libretro.so"),
-    // ── Arcade ────────────────────────────────────────────────────
-    ("Arcade", "fbneo_libretro.so"),
-];
-
-/// Map a platform name to a libretro core filename.
-///
-/// Scans [`CORE_MAP`] and returns the first matching core filename.
-/// Falls back to `GV_CORE_OVERRIDE_<sanitized>` env var before
-/// consulting the table.  Unknown platforms return `None` — the
-/// worker falls back to test pattern.
-pub fn core_for_platform(platform: &str) -> Option<String> {
-    // Env var override takes priority over the table
-    let override_key = platform.replace(' ', "_").replace('-', "_");
-    let env_key = format!("GV_CORE_OVERRIDE_{override_key}");
-    if let Ok(custom) = std::env::var(&env_key) {
-        return Some(custom);
-    }
-
-    // Linear scan — first match wins
-    for &(name, core) in CORE_MAP {
-        if name == platform {
-            return Some(core.to_string());
-        }
-    }
-
-    tracing::debug!("[CORE] no mapping for platform: {platform}");
-    None
-}
+// Core mapping is now in `platform.rs` — aliased here for convenience.
+pub use crate::platform::core_for_platform;
 
 /// Resolve the full path to a core file.
 ///
@@ -599,7 +468,7 @@ pub async fn spawn_worker(
                 .build()
                 .unwrap_or_default();
 
-            match ensure_core(&core_file, &dl_client).await {
+            match ensure_core(core_file, &dl_client).await {
                 Ok(core_path) => {
                     tracing::info!(
                         "[WORKER] platform={plat} → core={core_file} ({})",
@@ -864,15 +733,14 @@ mod tests {
 
     // ── Core mapping table coverage ───────────────────────────────
 
-    /// Every platform in EXTENSION_MAP must have a core mapping.
-    /// Catches gaps where a scanner-detected platform silently
-    /// falls back to test pattern.
+    /// Every platform in the manifest that has extensions must have a
+    /// core mapping (validates no accidental empty cores).
     #[test]
     fn every_scan_platform_has_core_mapping() {
-        use crate::scan::EXTENSION_MAP;
+        use crate::platform::PLATFORMS;
 
         let platforms: std::collections::HashSet<&str> =
-            EXTENSION_MAP.iter().map(|(_, p)| *p).collect();
+            PLATFORMS.iter().map(|p| p.short_name).collect();
 
         let missing: Vec<_> = platforms
             .iter()
@@ -881,7 +749,7 @@ mod tests {
 
         assert!(
             missing.is_empty(),
-            "EXTENSION_MAP platforms without core mappings: {missing:?}"
+            "PLATFORMS short_names without core mappings: {missing:?}"
         );
     }
 
@@ -937,12 +805,9 @@ mod tests {
     #[test]
     fn specific_platform_matches_before_broad() {
         assert_eq!(
-            core_for_platform("Game Boy Advance").as_deref(),
+            core_for_platform("Game Boy Advance"),
             Some("mgba_libretro.so")
         );
-        assert_eq!(
-            core_for_platform("Game Boy").as_deref(),
-            Some("mgba_libretro.so")
-        );
+        assert_eq!(core_for_platform("Game Boy"), Some("mgba_libretro.so"));
     }
 }
