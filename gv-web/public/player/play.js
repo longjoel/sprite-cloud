@@ -38,6 +38,22 @@ function randomUUID() {
   });
 }
 
+
+function csrfHeaders() {
+  let token = document.cookie
+    .split(";")
+    .map((p) => p.trim())
+    .find((p) => p.startsWith("gv_csrf_token="))
+    ?.split("=")
+    .slice(1)
+    .join("=");
+  if (!token) {
+    token = randomUUID();
+    document.cookie = `gv_csrf_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax`;
+  }
+  return { "Content-Type": "application/json", "x-csrf-token": decodeURIComponent(token) };
+}
+
 // ── Constants ───────────────────────────────────────────────────────
 
 const RECONNECT_DELAY_MS = 3_000;
@@ -70,7 +86,7 @@ async function startGame(serverId, gameId, corePath, hostToken, callbacks) {
 
   const cmdResp = await fetch("/api/server/command", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: csrfHeaders(),
     body: JSON.stringify({
       server_id: serverId,
       type: "start_game",
