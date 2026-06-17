@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { pollUntil, useInterval } from "@/lib/poll";
 
 // ── Constants (no magic values) ───────────────────────────────────────
 
@@ -92,9 +93,9 @@ export default function DevDashboard() {
 
   useEffect(() => {
     refresh();
-    const id = setInterval(refresh, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
   }, [refresh]);
+
+  useInterval(refresh, POLL_INTERVAL_MS);
 
   // ── Generate pairing code ────────────────────────────────────────
 
@@ -183,34 +184,25 @@ export default function DevDashboard() {
     // 2. Poll for worker URL (must include worker_token)
     const POLL_MS = 500;
     const TIMEOUT_MS = 30_000;
-    const start = Date.now();
 
     setPlayStatus("Waiting for worker…");
 
-    const poll = async () => {
-      try {
-        const r = await fetch(
-          `/api/server/notify?server_id=${encodeURIComponent(playServerId)}&worker_token=${encodeURIComponent(workerToken)}`,
-        );
-        const data = await r.json();
-        if (data.worker_url) {
-          setWorkerUrl(data.worker_url);
-          setPlayStatus("Ready!");
-          return;
-        }
-      } catch {
-        // retry
-      }
-
-      if (Date.now() - start > TIMEOUT_MS) {
-        setPlayStatus("Timed out waiting for worker");
-        return;
-      }
-
-      setTimeout(poll, POLL_MS);
-    };
-
-    poll();
+    try {
+      const url = await pollUntil<string>(
+        async () => {
+          const r = await fetch(
+            `/api/server/notify?server_id=${encodeURIComponent(playServerId)}&worker_token=${encodeURIComponent(workerToken)}`,
+          );
+          const data = await r.json();
+          return data.worker_url ?? null;
+        },
+        { intervalMs: POLL_MS, timeoutMs: TIMEOUT_MS },
+      );
+      setWorkerUrl(url);
+      setPlayStatus("Ready!");
+    } catch {
+      setPlayStatus("Timed out waiting for worker");
+    }
   };
 
   // ── Render ───────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { pollUntil } from "@/lib/poll";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -422,23 +423,21 @@ async function pollResult(
   commandId: string,
   maxTries = 30,
 ): Promise<any> {
-  for (let i = 0; i < maxTries; i++) {
-    await new Promise((r) => setTimeout(r, 1000));
+  return pollUntil(
+    async () => {
+      const resp = await fetch(`/api/commands/${commandId}/result`);
+      if (resp.status === 404) return null; // not ready yet
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${resp.status}`);
+      }
 
-    const resp = await fetch(`/api/commands/${commandId}/result`);
-    if (resp.status === 404) continue;
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      throw new Error(err.error || `HTTP ${resp.status}`);
-    }
-
-    const data = await resp.json();
-    if (data.result !== null && data.result !== undefined) {
+      const data = await resp.json();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return data.result as any;
-    }
-  }
-  throw new Error("Timed out waiting for server response.");
+      return (data.result !== null && data.result !== undefined) ? (data.result as any) : null;
+    },
+    { intervalMs: 1000, maxAttempts: maxTries },
+  );
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────
