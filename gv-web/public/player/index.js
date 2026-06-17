@@ -135,6 +135,36 @@ const RELAY_TIMEOUT_MS = 30_000;
 const GAMEPAD_MASK = (1 << 0) | (1 << 2) | (1 << 3) | (1 << 4)
                    | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8);
 
+/**
+ * Default gamepad button mapping for the standard layout
+ * (https://w3c.github.io/gamepad/#remapping).
+ *
+ * Each property maps a logical action to the button index in the
+ * Gamepad.buttons array for standard-mapped controllers.
+ *
+ * Override by passing `gamepadMapping` in GvPlayer constructor
+ * options to support non-standard controllers (8BitDo in
+ * DirectInput mode, fight sticks, etc.).
+ *
+ * @typedef {{ dpadUp: number, dpadDown: number, dpadLeft: number,
+ *             dpadRight: number, start: number, select: number,
+ *             a: number, b: number, leftStickX: number,
+ *             leftStickY: number, axisThreshold: number }} GamepadMapping
+ */
+const DEFAULT_GAMEPAD_MAPPING = Object.freeze({
+  dpadUp: 12,
+  dpadDown: 13,
+  dpadLeft: 14,
+  dpadRight: 15,
+  start: 9,
+  select: 8,
+  a: 0,           // cross / bottom face button
+  b: 1,           // circle / right face button
+  leftStickX: 0,  // axis index for horizontal
+  leftStickY: 1,  // axis index for vertical
+  axisThreshold: 0.5,
+});
+
 // ── State machine ─────────────────────────────────────────────────────
 
 export const State = Object.freeze({
@@ -148,7 +178,7 @@ export const State = Object.freeze({
 
 export class GvPlayer {
   /** @param {HTMLVideoElement} video — must be a <video> element
-   *  @param {{ iceServers?: Array<{urls: string|string[], username?: string, credential?: string}>, seat?: number, iceTimeout?: number, disconnectedGrace?: number }} [options] */
+   *  @param {{ iceServers?: Array<{urls: string|string[], username?: string, credential?: string}>, seat?: number, iceTimeout?: number, disconnectedGrace?: number, gamepadMapping?: import('./index.js').GamepadMapping }} [options] */
   constructor(video, options) {
     if (!video || !video.tagName || video.tagName !== "VIDEO") {
       throw new TypeError("GvPlayer requires a <video> element");
@@ -169,6 +199,10 @@ export class GvPlayer {
 
     /** @type {number} Grace period in ms before declaring connection lost after ICE disconnect. */
     this._disconnectedGrace = (options && typeof options.disconnectedGrace === "number") ? options.disconnectedGrace : DISCONNECTED_GRACE_MS;
+
+    /** @type {import('./index.js').GamepadMapping} Button indices for gamepad mapping.
+     *  Override via options.gamepadMapping for non-standard controllers. */
+    this._gamepadMapping = (options && options.gamepadMapping) || DEFAULT_GAMEPAD_MAPPING;
 
     /** @type {RTCPeerConnection | null} */
     this._pc = null;
@@ -376,12 +410,28 @@ export class GvPlayer {
     this._clearIceTimer();
     this._clearDisconnectedTimer();
     this._stopPingInterval();
+    this._removeKeyboardInput();
     this._removeGamepadInput();
+    // Remove Safari iOS deferred-play gesture listener
+    if (this._gestureHandler) {
+      document.removeEventListener("pointerdown", this._gestureHandler, true);
+      document.removeEventListener("touchstart", this._gestureHandler, true);
+      document.removeEventListener("keydown", this._gestureHandler, true);
+      this._gestureHandler = null;
+    }
+    this._playbackDeferred = false;
+    // Detach event handlers before closing to prevent stale callbacks
+    // from firing on a null this._pc / this._dc after reconnect.
     if (this._dc) {
+      this._dc.onmessage = null;
+      this._dc.onopen = null;
       this._dc.close();
       this._dc = null;
     }
     if (this._pc) {
+      this._pc.onconnectionstatechange = null;
+      this._pc.oniceconnectionstatechange = null;
+      this._pc.ontrack = null;
       this._pc.close();
       this._pc = null;
     }
@@ -560,10 +610,15 @@ export class GvPlayer {
     }
     this._playbackDeferred = false;
     if (this._dc) {
+      this._dc.onmessage = null;
+      this._dc.onopen = null;
       this._dc.close();
       this._dc = null;
     }
     if (this._pc) {
+      this._pc.onconnectionstatechange = null;
+      this._pc.oniceconnectionstatechange = null;
+      this._pc.ontrack = null;
       this._pc.close();
       this._pc = null;
     }
@@ -775,18 +830,18 @@ export class GvPlayer {
       }
 
       let state = 0;
-      // D-pad (buttons 12-15 are the dedicated D-pad on standard mapping)
-      // Fall back to left stick axes for controllers without D-pad buttons
-      if (gp.buttons[12]?.pressed || gp.axes[1] < -0.5) state |= (1 << 4); // Up
-      if (gp.buttons[13]?.pressed || gp.axes[1] >  0.5) state |= (1 << 5); // Down
-      if (gp.buttons[14]?.pressed || gp.axes[0] < -0.5) state |= (1 << 6); // Left
-      if (gp.buttons[15]?.pressed || gp.axes[0] >  0.5) state |= (1 << 7); // Right
+      const m = this._gamepadMapping;
+      // D-pad: use configured button indices; fall back to left stick axes
+      if (gp.buttons[m.dpadUp]?.pressed    || gp.axes[m.leftStickY] < -m.axisThreshold) state |= (1 << 4); // Up
+      if (gp.buttons[m.dpadDown]?.pressed  || gp.axes[m.leftStickY] >  m.axisThreshold) state |= (1 << 5); // Down
+      if (gp.buttons[m.dpadLeft]?.pressed  || gp.axes[m.leftStickX] < -m.axisThreshold) state |= (1 << 6); // Left
+      if (gp.buttons[m.dpadRight]?.pressed || gp.axes[m.leftStickX] >  m.axisThreshold) state |= (1 << 7); // Right
 
-      // Standard mapping face/shoulder buttons
-      if (gp.buttons[9]?.pressed)  state |= (1 << 3); // Start
-      if (gp.buttons[8]?.pressed)  state |= (1 << 2); // Select
-      if (gp.buttons[0]?.pressed)  state |= (1 << 8); // A (cross / bottom)
-      if (gp.buttons[1]?.pressed)  state |= (1 << 0); // B (circle / right)
+      // Face / shoulder / start / select — use configured button indices
+      if (gp.buttons[m.start]?.pressed)  state |= (1 << 3); // Start
+      if (gp.buttons[m.select]?.pressed) state |= (1 << 2); // Select
+      if (gp.buttons[m.a]?.pressed)      state |= (1 << 8); // A (cross / bottom)
+      if (gp.buttons[m.b]?.pressed)      state |= (1 << 0); // B (circle / right)
 
       if (state !== this._gamepadState) {
         this._gamepadState = state;
