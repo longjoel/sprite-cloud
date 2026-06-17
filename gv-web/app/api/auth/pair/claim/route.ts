@@ -3,10 +3,17 @@ import { db } from "@/lib/db";
 import { pairingCodes, serverMembers, serverRomRoots, servers } from "@/lib/db/schema";
 import { generateApiKey, hashApiKey } from "@/lib/server-auth";
 import { eq, and } from "drizzle-orm";
+import { applyRateLimit } from "@/lib/rate-limit";
+
+const PAIR_RATE_LIMIT = 10; // requests per minute per IP
 
 // POST /api/auth/pair/claim — gv-server claims a pairing code, gets an API key.
 // Optionally reports its ROM root directories for game discovery.
 export async function POST(request: NextRequest) {
+  // Rate limiting — 10 req/min per IP
+  const rateLimited = applyRateLimit(request, PAIR_RATE_LIMIT);
+  if (rateLimited) return rateLimited;
+
   let body: { code: string; rom_roots?: string[] };
   try {
     body = await request.json();

@@ -4,6 +4,9 @@ import { commands, sessions, servers } from "@/lib/db/schema";
 import { verifyBearerToken, unauthorizedResponse } from "@/lib/server-auth";
 import { and, eq } from "drizzle-orm";
 import { STATUS_COMPLETED, STATUS_LEASED } from "@/lib/constants";
+import { applyRateLimit } from "@/lib/rate-limit";
+
+const NOTIFY_RATE_LIMIT = 60; // requests per minute per IP (server-to-server)
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -22,6 +25,10 @@ interface NotifyBody {
 // ── POST — gv-server reports worker URL after spawn ────────────────────
 
 export async function POST(request: NextRequest) {
+  // Rate limiting — 60 req/min per IP (server-to-server)
+  const rateLimited = applyRateLimit(request, NOTIFY_RATE_LIMIT);
+  if (rateLimited) return rateLimited;
+
   const server = await verifyBearerToken(request.headers.get("authorization"));
   if (!server) return unauthorizedResponse();
 
