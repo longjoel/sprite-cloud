@@ -37,6 +37,11 @@ enum Command {
         #[arg(long)]
         gv_web_url: Option<String>,
     },
+    /// Run as a gv-worker (internal — spawned by `gv-server start`)
+    Worker {
+        /// Port to bind (0 = random)
+        port: u16,
+    },
 }
 
 // ── Entry point ───────────────────────────────────────────────────────
@@ -57,6 +62,9 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Pair { code, gv_web_url } => cmd_pair(&code, &gv_web_url).await,
         Command::Start { gv_web_url } => cmd_start(gv_web_url).await,
+        Command::Worker { port } => {
+            gv_worker::run_worker(port).await.map_err(|e| anyhow::anyhow!("{e}"))
+        }
     }
 }
 
