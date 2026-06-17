@@ -22,7 +22,7 @@ export async function GET(
 
   // Verify the caller is a member of the command's server
   const [cmd] = await db
-    .select({ result: commands.result })
+    .select({ result: commands.result, status: commands.status, lastError: commands.lastError })
     .from(commands)
     .innerJoin(
       serverMembers,
@@ -38,5 +38,9 @@ export async function GET(
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ result: cmd.result });
+  return NextResponse.json({
+    status: cmd.status,
+    result: cmd.result,
+    error: cmd.lastError ?? null,
+  });
 }
