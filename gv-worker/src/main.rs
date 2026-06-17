@@ -12,7 +12,7 @@ use axum::{
     Json, Router,
 };
 use config::{
-    dc_auth_timeout_secs, min_output_height, stun_server, AUDIO_CHANNELS, AUDIO_SAMPLE_RATE,
+    dc_auth_timeout_secs, ice_config, min_output_height, stun_server, AUDIO_CHANNELS, AUDIO_SAMPLE_RATE,
     AUDIO_TRACK_ID, DC_RECEIVE_TIMEOUT_SECS, ICE_GATHERING_TIMEOUT_SECS, OPUS_SDP_FMTP,
     PATTERN_BARS, PATTERN_SQUARE, STATS_SEND_INTERVAL, STREAM_ID, TRACK_ID, VIDEO_HEIGHT,
     VIDEO_WIDTH, VP8_CLOCK_RATE,
@@ -32,6 +32,7 @@ use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_VP8};
 use webrtc::api::APIBuilder;
 use webrtc::ice_transport::ice_server::RTCIceServer;
+use webrtc::peer_connection::policy::ice_transport_policy::RTCIceTransportPolicy;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
@@ -271,11 +272,20 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
         .with_interceptor_registry(registry)
         .build();
 
+    let ice_cfg = ice_config();
+    let ice_servers: Vec<RTCIceServer> = ice_cfg.servers.iter().map(|s| RTCIceServer {
+        urls: s.urls.clone(),
+        username: s.username.clone().unwrap_or_default(),
+        credential: s.credential.clone().unwrap_or_default(),
+        ..Default::default()
+    }).collect();
+    let ice_transport_policy = match ice_cfg.transport_policy {
+        config::IceTransportPolicy::All => RTCIceTransportPolicy::All,
+        config::IceTransportPolicy::Relay => RTCIceTransportPolicy::Relay,
+    };
     let config = RTCConfiguration {
-        ice_servers: vec![RTCIceServer {
-            urls: vec![stun_server().to_string()],
-            ..Default::default()
-        }],
+        ice_servers,
+        ice_transport_policy,
         ..Default::default()
     };
 
@@ -1353,7 +1363,7 @@ function stopAll() {{
 </html>"##,
             w = VIDEO_WIDTH,
             h = VIDEO_HEIGHT,
-            stun = stun_server(),
+            stun = stun_server().as_str(),
         )
     });
 

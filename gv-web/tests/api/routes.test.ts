@@ -576,6 +576,37 @@ describe("GET /api/commands/[id]/result", () => {
   });
 });
 
+
+// ── /api/ice-config ────────────────────────────────────────────────────
+
+describe("GET /api/ice-config", () => {
+  it("returns Google STUN by default when no env vars are set", async () => {
+    const { GET } = await import("@/app/api/ice-config/route");
+    const resp = await GET();
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.iceServers).toHaveLength(1);
+    expect(body.iceServers[0].urls).toBe("stun:stun.l.google.com:19302");
+    expect(body.iceTransportPolicy).toBe("all");
+  });
+
+  it("returns relay policy from GV_ICE_TRANSPORT_POLICY", async () => {
+    const prev = process.env.GV_ICE_TRANSPORT_POLICY;
+    process.env.GV_ICE_TRANSPORT_POLICY = "relay";
+    try {
+      const { GET } = await import("@/app/api/ice-config/route");
+      const resp = await GET();
+      expect(resp.status).toBe(200);
+      const body = await resp.json();
+      expect(body.iceTransportPolicy).toBe("relay");
+    } finally {
+      if (prev !== undefined) process.env.GV_ICE_TRANSPORT_POLICY = prev;
+      else delete process.env.GV_ICE_TRANSPORT_POLICY;
+    }
+  });
+});
+
+
 // ── /api/health ────────────────────────────────────────────────────────
 
 describe("GET /api/health", () => {
