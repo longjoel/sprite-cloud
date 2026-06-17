@@ -376,12 +376,28 @@ export class GvPlayer {
     this._clearIceTimer();
     this._clearDisconnectedTimer();
     this._stopPingInterval();
+    this._removeKeyboardInput();
     this._removeGamepadInput();
+    // Remove Safari iOS deferred-play gesture listener
+    if (this._gestureHandler) {
+      document.removeEventListener("pointerdown", this._gestureHandler, true);
+      document.removeEventListener("touchstart", this._gestureHandler, true);
+      document.removeEventListener("keydown", this._gestureHandler, true);
+      this._gestureHandler = null;
+    }
+    this._playbackDeferred = false;
+    // Detach event handlers before closing to prevent stale callbacks
+    // from firing on a null this._pc / this._dc after reconnect.
     if (this._dc) {
+      this._dc.onmessage = null;
+      this._dc.onopen = null;
       this._dc.close();
       this._dc = null;
     }
     if (this._pc) {
+      this._pc.onconnectionstatechange = null;
+      this._pc.oniceconnectionstatechange = null;
+      this._pc.ontrack = null;
       this._pc.close();
       this._pc = null;
     }
@@ -560,10 +576,15 @@ export class GvPlayer {
     }
     this._playbackDeferred = false;
     if (this._dc) {
+      this._dc.onmessage = null;
+      this._dc.onopen = null;
       this._dc.close();
       this._dc = null;
     }
     if (this._pc) {
+      this._pc.onconnectionstatechange = null;
+      this._pc.oniceconnectionstatechange = null;
+      this._pc.ontrack = null;
       this._pc.close();
       this._pc = null;
     }
