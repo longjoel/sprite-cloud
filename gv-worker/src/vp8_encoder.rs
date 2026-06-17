@@ -127,8 +127,9 @@ impl Vp8Encoder {
             cfg.g_timebase.num = 1;
             cfg.g_timebase.den = fps.round() as i32;
             cfg.rc_target_bitrate = crate::config::target_bitrate_kbps();
-            // Periodic keyframe: ~every 2.5s.  kf_max_dist is in timebase units.
-            cfg.kf_max_dist = (fps * 2.5).round() as u32;
+            // Periodic keyframe: interval read from VP8_KEYFRAME_INTERVAL_SECS
+            // env var (default 2.5s).  kf_max_dist is in timebase units.
+            cfg.kf_max_dist = (fps * crate::config::vp8_keyframe_interval_secs()).round() as u32;
             // Error-resilient: enables intra-refresh and partition boundaries
             // so the browser can recover from packet loss mid-stream
             cfg.g_error_resilient = 1;
@@ -300,7 +301,7 @@ impl Vp8Encoder {
             cfg.g_h = self.height;
             cfg.g_timebase.num = 1;
             cfg.g_timebase.den = self.fps.round() as i32;
-            cfg.kf_max_dist = (self.fps * 2.5).round() as u32;
+            cfg.kf_max_dist = (self.fps * crate::config::vp8_keyframe_interval_secs()).round() as u32;
             cfg.g_error_resilient = 1;
             cfg.rc_target_bitrate = kbps;
 
