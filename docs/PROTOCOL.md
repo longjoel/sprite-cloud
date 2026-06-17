@@ -334,6 +334,53 @@ propagates the `worker_token` from the command record.
 Returns `"worker_url": null` if no session is ready yet. The browser polls
 this endpoint until a URL appears, then connects via WebRTC.
 
+#### Server metadata
+
+After pairing, gv-server reports non-secret connectivity metadata via
+`POST /api/auth/verify`. gv-web stores it on the server record for
+route diagnostics and server selection (see #279).
+
+**Request** `POST /api/auth/verify` (gv-server → gv-web, bearer auth)
+
+```json
+{
+  "metadata": {
+    "version": "0.1.0",
+    "lan_addresses": ["192.168.1.100"],
+    "rom_roots": ["/srv/storage/games/roms"],
+    "ice": {
+      "stun_urls": ["stun:stun.l.google.com:19302"],
+      "turn_urls": ["turn:lngnckr.tech:3478"],
+      "turn_configured": true,
+      "transport_policy": "all"
+    }
+  }
+}
+```
+
+**Fields**
+
+| Field | Description |
+|---|---|
+| `version` | gv-server app version |
+| `lan_addresses` | Local IPs the server binds on |
+| `rom_roots` | ROM root directories (from config/env) |
+| `ice.stun_urls` | STUN server URLs (no credentials) |
+| `ice.turn_urls` | TURN server URLs (no credentials) |
+| `ice.turn_configured` | `true` when TURN URLs + username + credential are all set |
+| `ice.transport_policy` | `"all"` or `"relay"` |
+
+No credentials are included — TURN username/password are never sent to gv-web.
+gv-web also strips known secret field names (`turn_password`, `api_key`, etc.)
+on receipt as defense in depth.
+
+**Visibility:** `GET /api/servers/[server_id]/metadata` returns stored metadata
+for authorized server members only (NextAuth session required; member or admin
+role on the server). Unauthorized requests return 401/403.
+
+GET `/api/auth/verify` (no body) still works as a simple key validation heartbeat
+and updates `last_seen_at` without touching metadata.
+
 ### 2.2 Stop Game
 
 ```

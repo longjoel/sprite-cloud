@@ -201,6 +201,7 @@ cmd_start() {
             GV_ROM_ROOTS="$ROM_ROOTS" \
             GV_SAVE_DIR="$SAVE_DIR" \
             GV_SYSTEM_DIR="$SYSTEM_DIR" \
+            ALLOWED_ORIGIN="http://localhost:$WEB_PORT" \
             "$SERVER_BIN" start --gv-web-url "http://localhost:$WEB_PORT" \
             > "$LOG_DIR/gv-server.log" 2>&1 &
         sleep 2
