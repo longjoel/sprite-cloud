@@ -383,6 +383,23 @@ pub fn dc_auth_timeout_secs() -> u64 {
     *TIMEOUT
 }
 
+/// VP8 keyframe interval in seconds.
+/// Read from `VP8_KEYFRAME_INTERVAL_SECS` env var at runtime, defaulting to 2.5.
+/// Controls how often the encoder forces a keyframe, measured in seconds
+/// (converted to timebase units internally).  Lower values improve seeking
+/// at the cost of bandwidth; higher values improve compression.
+pub fn vp8_keyframe_interval_secs() -> f64 {
+    use std::sync::LazyLock;
+    static INTERVAL: LazyLock<f64> = LazyLock::new(|| {
+        std::env::var("VP8_KEYFRAME_INTERVAL_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|&v| v > 0.0)
+            .unwrap_or(2.5)
+    });
+    *INTERVAL
+}
+
 /// How often to send per-frame stats over DataChannel (in frames).
 /// Every 5th frame (~6 Hz) for smooth HUD updates.
 pub const STATS_SEND_INTERVAL: u64 = 5;
