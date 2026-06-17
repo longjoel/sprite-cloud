@@ -189,21 +189,6 @@ pub async fn ensure_core_for_test(
 
 // ── Constants (no magic values) ───────────────────────────────────────
 
-/// Auto-detect the gv-worker binary.
-///
-/// Tries `./target/release/gv-worker` first, falls back to
-/// `./target/debug/gv-worker`.  Set `GV_WORKER_BIN` env var or
-/// `config.toml` `gv_web.worker_bin` to override.
-fn default_worker_bin() -> String {
-    let release = "./target/release/gv-worker";
-    let debug = "./target/debug/gv-worker";
-    if std::path::Path::new(release).exists() {
-        release.to_string()
-    } else {
-        debug.to_string()
-    }
-}
-
 /// How long to wait for gv-worker to print its port before giving up.
 const PORT_READ_TIMEOUT_SECS: u64 = 5;
 
@@ -395,16 +380,35 @@ impl Drop for SpawnedWorker {
 
 // ── Resolution ────────────────────────────────────────────────────────
 
+/// Auto-detect the gv-worker binary (dev fallback).
+fn default_worker_bin() -> String {
+    let release = "./target/release/gv-worker";
+    let debug = "./target/debug/gv-worker";
+    if std::path::Path::new(release).exists() {
+        release.to_string()
+    } else {
+        debug.to_string()
+    }
+}
+
 /// Resolve the worker binary path.  Public for testing.
 ///
 /// 1. `override` (from config.toml `gv_web.worker_bin`)
 /// 2. `GV_WORKER_BIN` env var
-/// 3. Auto-detect (`./target/release/gv-worker` → `./target/debug/gv-worker`)
+/// 3. `current_exe` (single-binary deploy — dispatches as subcommand)
+/// 4. Auto-detect (`./target/release/gv-worker` → `./target/debug/gv-worker`)
 pub fn resolve_worker_bin(override_: Option<&str>) -> String {
-    match override_ {
-        Some(path) => path.to_string(),
-        None => std::env::var("GV_WORKER_BIN").unwrap_or_else(|_| default_worker_bin()),
+    if let Some(path) = override_ {
+        return path.to_string();
     }
+    if let Ok(path) = std::env::var("GV_WORKER_BIN") {
+        return path;
+    }
+    // Single-binary: we ARE the worker
+    if let Ok(exe) = std::env::current_exe() {
+        return exe.to_string_lossy().to_string();
+    }
+    default_worker_bin()
 }
 
 // ── Spawn ──────────────────────────────────────────────────────────────
@@ -438,7 +442,14 @@ pub async fn spawn_worker(
 
     // Pass port 0 — gv-worker binds a random available port and prints it
     let mut cmd = Command::new(&bin);
-    cmd.arg("0").stderr(std::process::Stdio::piped());
+    // Single-binary: gv-server dispatches itself as a worker via subcommand.
+    // Standalone: gv-worker binary takes port as positional arg.
+    if bin == std::env::current_exe().map(|e| e.to_string_lossy().to_string()).unwrap_or_default() {
+        cmd.arg("worker").arg("0");
+    } else {
+        cmd.arg("0");
+    }
+    cmd.stderr(std::process::Stdio::piped());
 
     // Bind to all interfaces so the health check and WebRTC media work
     // from other machines on the LAN (default is 127.0.0.1).
@@ -720,14 +731,19 @@ mod tests {
         unsafe { std::env::remove_var("GV_WORKER_BIN") };
     }
 
-    /// Auto-detect returns one of the two expected paths.
+    /// Auto-detect returns a valid path (dev build or current_exe for single-binary).
     #[test]
     fn auto_detect_returns_valid_path() {
         unsafe { std::env::remove_var("GV_WORKER_BIN") };
         let path = resolve_worker_bin(None);
+        let exe = std::env::current_exe()
+            .map(|e| e.to_string_lossy().to_string())
+            .unwrap_or_default();
         assert!(
-            path == "./target/release/gv-worker" || path == "./target/debug/gv-worker",
-            "expected release or debug path, got: {path}"
+            path == "./target/release/gv-worker"
+                || path == "./target/debug/gv-worker"
+                || path == exe,
+            "expected release/debug/current_exe path, got: {path}"
         );
     }
 

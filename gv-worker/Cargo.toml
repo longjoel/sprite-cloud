@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "Games Vault worker — per-game process launched by gv-server"
 
+[lib]
+name = "gv_worker"
+path = "src/lib.rs"
+
 [[bin]]
 name = "gv-worker"
 path = "src/main.rs"
