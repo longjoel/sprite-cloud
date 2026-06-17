@@ -8,6 +8,22 @@
 // ── Constants (no magic values) ───────────────────────────────────────
 
 const STUN_SERVER = "stun:stun.l.google.com:19302";
+
+function gvCsrfHeaders() {
+  let token = document.cookie
+    .split(";")
+    .map((p) => p.trim())
+    .find((p) => p.startsWith("gv_csrf_token="))
+    ?.split("=")
+    .slice(1)
+    .join("=");
+  if (!token) {
+    token = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+    document.cookie = `gv_csrf_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax`;
+  }
+  return { "Content-Type": "application/json", "x-csrf-token": decodeURIComponent(token) };
+}
+
 const SDP_ENDPOINT = "/sdp";
 const ICE_TIMEOUT_MS = 15_000;
 const DISCONNECTED_GRACE_MS = 5_000;
@@ -155,7 +171,7 @@ export class GvPlayer {
     const sdpUrl = `${url}${SDP_ENDPOINT}`;
     const resp = await fetch(sdpUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: gvCsrfHeaders(),
       body: JSON.stringify({ sdp: offer.sdp }),
     });
 

@@ -118,7 +118,7 @@ export default function ServerManager({
       }));
       const resp = await fetch("/api/library/import", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: csrfHeaders(),
         body: JSON.stringify({ server_id: serverId, files }),
       });
       if (!resp.ok) {
@@ -319,6 +319,23 @@ function TreeView({
 }
 
 // ── API helpers ────────────────────────────────────────────────────────
+
+
+function csrfHeaders(): Record<string, string> {
+  let token = document.cookie
+    .split(";")
+    .map((p) => p.trim())
+    .find((p) => p.startsWith("gv_csrf_token="))
+    ?.split("=")
+    .slice(1)
+    .join("=");
+  if (!token) {
+    token = crypto.randomUUID();
+    document.cookie = `gv_csrf_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax`;
+  }
+  return { "Content-Type": "application/json", "x-csrf-token": decodeURIComponent(token) };
+}
+
 
 async function enqueueCommand(
   serverId: string,

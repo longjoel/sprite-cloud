@@ -42,12 +42,12 @@ export async function POST(request: NextRequest) {
 
   // Verify this server owns the command, and read its worker_token
   const [cmd] = await db
-    .select({ id: commands.id, workerToken: commands.workerToken })
+    .select({ id: commands.id, serverId: commands.serverId, workerToken: commands.workerToken })
     .from(commands)
-    .where(eq(commands.id, body.command_id))
+    .where(and(eq(commands.id, body.command_id), eq(commands.serverId, server.id)))
     .limit(1);
 
-  if (!cmd) {
+  if (!cmd || cmd.serverId !== server.id) {
     return NextResponse.json({ error: "command not found" }, { status: 404 });
   }
 
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
   const [existing] = await db
     .select({ id: sessions.id })
     .from(sessions)
-    .where(eq(sessions.commandId, body.command_id))
+    .where(and(eq(sessions.commandId, body.command_id), eq(sessions.serverId, server.id)))
     .limit(1);
 
   // If action is \"stop\", mark the session as ended.
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     await db
       .update(sessions)
       .set(update)
-      .where(eq(sessions.id, existing.id));
+      .where(and(eq(sessions.id, existing.id), eq(sessions.serverId, server.id)));
   } else if (!isStop) {
     // Only create a session on first notify if this isn't a stop.
     await db.insert(sessions).values({

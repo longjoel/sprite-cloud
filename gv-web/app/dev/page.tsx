@@ -7,6 +7,21 @@ import { useCallback, useEffect, useState } from "react";
 const POLL_INTERVAL_MS = 5_000;
 const NUMERIC_UUID_RE = /^[0-9a-f-]{36}$/;
 
+function csrfHeaders(): Record<string, string> {
+  let token = document.cookie
+    .split(";")
+    .map((p) => p.trim())
+    .find((p) => p.startsWith("gv_csrf_token="))
+    ?.split("=")
+    .slice(1)
+    .join("=");
+  if (!token) {
+    token = crypto.randomUUID();
+    document.cookie = `gv_csrf_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax`;
+  }
+  return { "Content-Type": "application/json", "x-csrf-token": decodeURIComponent(token) };
+}
+
 // ── Types ─────────────────────────────────────────────────────────────
 
 interface StatusCard {
@@ -114,7 +129,7 @@ export default function DevDashboard() {
     try {
       const r = await fetch("/api/server/command", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: csrfHeaders(),
         body: JSON.stringify({
           server_id: cmdServerId,
           type: cmdType,
@@ -146,7 +161,7 @@ export default function DevDashboard() {
     try {
       const r = await fetch("/api/server/command", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: csrfHeaders(),
         body: JSON.stringify({
           server_id: playServerId,
           type: "start_game",

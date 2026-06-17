@@ -8,7 +8,7 @@
  * Run: npx vitest run tests/api/
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 
 // ── Mocks (must come before imports) ──────────────────────────────────
 
@@ -23,7 +23,7 @@ const mockDb = {
 
 // Chainable query builder mocks
 function mockQueryBuilder(returnValue: unknown) {
-  const builder: Record<string, vi.Mock> = {
+  const builder: Record<string, Mock> = {
     from: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
     innerJoin: vi.fn().mockReturnThis(),
@@ -92,6 +92,18 @@ function jsonBody(body: unknown) {
   return {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  };
+}
+
+function jsonBodyWithCsrf(body: unknown, csrf = "csrf-test-token") {
+  return {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-csrf-token": csrf,
+      cookie: `gv_csrf_token=${csrf}`,
+    },
     body: JSON.stringify(body),
   };
 }
@@ -229,7 +241,7 @@ describe("POST /api/server/command", () => {
     mockAuth.mockResolvedValueOnce(null);
     const { POST } = await import("@/app/api/server/command/route");
     const req = mkReq("http://localhost/api/server/command", {
-      ...jsonBody({ server_id: "server-1", type: "start_game", payload: { game_id: "smw" } }),
+      ...jsonBodyWithCsrf({ server_id: "server-1", type: "start_game", payload: { game_id: "smw" } }),
     });
     const resp = await POST(req as any);
     expect(resp.status).toBe(401);
@@ -238,10 +250,48 @@ describe("POST /api/server/command", () => {
   it("returns 400 for invalid type", async () => {
     const { POST } = await import("@/app/api/server/command/route");
     const req = mkReq("http://localhost/api/server/command", {
-      ...jsonBody({ server_id: "server-1", type: "invalid_type" }),
+      ...jsonBodyWithCsrf({ server_id: "server-1", type: "invalid_type" }),
     });
     const resp = await POST(req as any);
     expect(resp.status).toBe(400);
+  });
+
+
+  it("rejects signed-in browser commands without csrf token", async () => {
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      ...jsonBody({ server_id: "server-1", type: "stop_game", payload: { game_id: "smw" } }),
+    });
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(403);
+    const body = await resp.json();
+    expect(body.error).toContain("csrf");
+  });
+
+  it("rejects extra fields in sdp_offer payload", async () => {
+    mockDb.select.mockReturnValue(
+      Object.assign(Promise.resolve([{ role: "admin" }]), {
+        from: vi.fn().mockReturnThis(),
+        innerJoin: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => Promise.resolve([{ role: "admin" }])),
+          })),
+        })),
+      }),
+    );
+
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      ...jsonBodyWithCsrf({
+        server_id: "server-1",
+        type: "sdp_offer",
+        payload: { game_id: "smw", sdp: "v=0\r\n", unexpected: true },
+      }),
+    });
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(400);
+    const body = await resp.json();
+    expect(body.error).toContain("payload");
   });
 
   it("queues a start_game command and returns worker_token", async () => {
@@ -267,7 +317,7 @@ describe("POST /api/server/command", () => {
 
     const { POST } = await import("@/app/api/server/command/route");
     const req = mkReq("http://localhost/api/server/command", {
-      ...jsonBody({ server_id: "server-1", type: "start_game", payload: { game_id: "smw" } }),
+      ...jsonBodyWithCsrf({ server_id: "server-1", type: "start_game", payload: { game_id: "smw" } }),
     });
     const resp = await POST(req as any);
     expect(resp.status).toBe(201);
@@ -352,14 +402,29 @@ describe("POST /api/server/notify", () => {
     expect(resp.status).toBe(400);
   });
 
+
+  it("rejects notify for a command owned by another server", async () => {
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{ id: "cmd-1", serverId: "server-2", workerToken: "abc123" }]),
+    );
+
+    const { POST } = await import("@/app/api/server/notify/route");
+    const req = mkReq("http://localhost/api/server/notify", {
+      ...jsonBody({ command_id: "cmd-1", worker_url: "http://localhost:9999", game_id: "smw" }),
+      headers: authHeader(),
+    });
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(404);
+  });
+
   it("accepts stop action without worker_url", async () => {
     // Mock command lookup
     mockDb.select.mockReturnValue(
-      mockQueryBuilder([{ id: "cmd-1", workerToken: "abc123" }]),
+      mockQueryBuilder([{ id: "cmd-1", serverId: "server-1", workerToken: "abc123" }]),
     );
     // Mock existing session lookup
     mockDb.select
-      .mockReturnValueOnce(mockQueryBuilder([{ id: "cmd-1", workerToken: "abc123" }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ id: "cmd-1", serverId: "server-1", workerToken: "abc123" }]))
       .mockReturnValueOnce(mockQueryBuilder([])); // no existing session
 
     const { POST } = await import("@/app/api/server/notify/route");
@@ -374,7 +439,7 @@ describe("POST /api/server/notify", () => {
 
   it("creates a session on first start_game notify", async () => {
     mockDb.select
-      .mockReturnValueOnce(mockQueryBuilder([{ id: "cmd-1", workerToken: "abc123" }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ id: "cmd-1", serverId: "server-1", workerToken: "abc123" }]))
       .mockReturnValueOnce(mockQueryBuilder([])); // no existing session
 
     const { POST } = await import("@/app/api/server/notify/route");
