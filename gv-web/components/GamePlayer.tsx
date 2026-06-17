@@ -86,6 +86,27 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
     setTimeout(() => setToast(null), TOAST_DURATION_MS);
   }, []);
 
+  // ── Route badge style ───────────────────────────────────────────────
+
+  const routeBadgeStyle = (routeLabel: string): React.CSSProperties => {
+    const colors: Record<string, { bg: string; fg: string }> = {
+      local:  { bg: "rgba(0,255,0,0.12)", fg: "#2a2" },
+      direct: { bg: "rgba(100,160,255,0.12)", fg: "#6af" },
+      relay:  { bg: "rgba(255,165,0,0.12)", fg: "#fa0" },
+      failed: { bg: "rgba(255,0,0,0.12)", fg: "#a22" },
+      unknown:{ bg: "rgba(128,128,128,0.10)", fg: "#888" },
+    };
+    const c = colors[routeLabel] || colors.unknown;
+    return {
+      fontSize: 10,
+      padding: "1px 6px",
+      borderRadius: 3,
+      background: c.bg,
+      color: c.fg,
+      textTransform: "uppercase",
+    };
+  };
+
   // ── Controls auto-hide ────────────────────────────────────────────
 
   const wakeControls = useCallback(() => {
@@ -297,6 +318,11 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
         <span style={styles.hint}>
           Arrows = Move &nbsp;|&nbsp; Z = A &nbsp;|&nbsp; X = B &nbsp;|&nbsp; Enter = Start
         </span>
+        {route && (
+          <span style={routeBadgeStyle(route)} title={routeDetail || route}>
+            {route}
+          </span>
+        )}
         <div style={styles.bottomRight}>
           <button style={styles.btn} onClick={() => setShowSlots(!showSlots)}>
             💾 Slots
