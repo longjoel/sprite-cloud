@@ -1,6 +1,7 @@
 mod config;
 mod dat;
 mod gv_web;
+mod platform;
 mod retry;
 mod scan;
 mod worker;

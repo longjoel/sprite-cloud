@@ -12,64 +12,6 @@ use std::path::{Path, PathBuf};
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-/// Known ROM file extensions mapped to short platform display names.
-///
-/// Extension order within a platform isn't significant, but platforms
-/// are grouped by system for readability.
-pub const EXTENSION_MAP: &[(&str, &str)] = &[
-    // Nintendo — NES
-    ("nes", "NES"),
-    ("fds", "Family Computer Disk System"),
-    // Nintendo — SNES
-    ("sfc", "SNES"),
-    ("smc", "SNES"),
-    // Nintendo — Game Boy family
-    ("gb", "Game Boy"),
-    ("gbc", "Game Boy Color"),
-    ("gba", "Game Boy Advance"),
-    // Nintendo — N64
-    ("n64", "Nintendo 64"),
-    ("z64", "Nintendo 64"),
-    ("v64", "Nintendo 64"),
-    // Nintendo — DS
-    ("nds", "Nintendo DS"),
-    // Nintendo — misc
-    ("vb", "Virtual Boy"),
-    ("min", "Pokemon Mini"),
-    // Sega — Genesis / Master System / Game Gear
-    ("gen", "Genesis"),
-    ("md", "Genesis"),
-    ("smd", "Genesis"),
-    ("sms", "Master System"),
-    ("gg", "Game Gear"),
-    // Sega — 32X
-    ("32x", "Sega 32X"),
-    // Sega — Saturn
-    ("mdf", "Saturn"),
-    // Sega — Dreamcast
-    ("cdi", "Dreamcast"),
-    ("gdi", "Dreamcast"),
-    // Sony — PlayStation / PSP
-    ("iso", "PlayStation"),
-    ("cue", "PlayStation"),
-    ("cso", "PSP"),
-    // Atari
-    ("a26", "Atari 2600"),
-    ("a52", "Atari 5200"),
-    ("a78", "Atari 7800"),
-    ("lnx", "Atari Lynx"),
-    // NEC — PC Engine
-    ("pce", "PC Engine"),
-    // SNK
-    ("ngp", "Neo Geo Pocket"),
-    ("ngc", "Neo Geo Pocket Color"),
-    // Bandai
-    ("ws", "WonderSwan"),
-    ("wsc", "WonderSwan Color"),
-    // Arcade
-    ("zip", "Arcade"),
-];
-
 /// Maximum nesting depth for file tree browsing.
 const BROWSE_MAX_DEPTH: u32 = 4;
 
@@ -151,7 +93,7 @@ pub fn discover_roms(root: &Path) -> Result<Vec<DiscoveredFile>> {
         };
 
         // Only include known ROM extensions
-        if !EXTENSION_MAP.iter().any(|(known, _)| *known == ext) {
+        if !crate::platform::by_extension(&ext).is_some() {
             continue;
         }
 
@@ -160,7 +102,7 @@ pub fn discover_roms(root: &Path) -> Result<Vec<DiscoveredFile>> {
             .unwrap_or(path)
             .to_string_lossy()
             .to_string();
-        let platform = detect_platform(path);
+        let platform = crate::platform::detect_platform_name(path);
         let file_size = entry.metadata().map(|m| m.len()).unwrap_or(0);
 
         files.push(DiscoveredFile {
@@ -190,27 +132,6 @@ pub fn hash_files(files: &mut [DiscoveredFile], root: &Path) {
             f.crc = Some(crc);
         }
     }
-}
-
-/// Detect a platform name from a file path.
-///
-/// Tries the extension first, falls back to the parent directory name
-/// (RetroArch-style: "Nintendo - Game Boy" → "Game Boy").
-fn detect_platform(path: &Path) -> Option<String> {
-    let ext = path.extension()?.to_str()?.to_lowercase();
-    for &(e, platform) in EXTENSION_MAP {
-        if e == ext {
-            return Some(platform.to_string());
-        }
-    }
-
-    // Fallback: parent directory name
-    let parent = path.parent()?.file_name()?.to_str()?;
-    if let Some(system) = parent.split(" - ").nth(1) {
-        return Some(system.to_string());
-    }
-
-    None
 }
 
 // ── File tree browsing ─────────────────────────────────────────────────
@@ -273,11 +194,7 @@ fn build_tree(_base: &Path, current: &Path, depth: u32) -> TreeNode {
     }
 
     // Directories first, then alphabetical
-    children.sort_by(|a, b| {
-        a.node_type
-            .cmp(&b.node_type)
-            .then(a.name.cmp(&b.name))
-    });
+    children.sort_by(|a, b| a.node_type.cmp(&b.node_type).then(a.name.cmp(&b.name)));
 
     TreeNode {
         name,
@@ -327,11 +244,11 @@ mod tests {
     #[test]
     fn detect_platform_from_extension() {
         assert_eq!(
-            detect_platform(Path::new("/roms/game.sfc")),
+            crate::platform::detect_platform_name(Path::new("/roms/game.sfc")),
             Some("SNES".into())
         );
         assert_eq!(
-            detect_platform(Path::new("/roms/game.nes")),
+            crate::platform::detect_platform_name(Path::new("/roms/game.nes")),
             Some("NES".into())
         );
     }
@@ -339,14 +256,17 @@ mod tests {
     #[test]
     fn detect_platform_falls_back_to_dir_name() {
         assert_eq!(
-            detect_platform(Path::new("/roms/Nintendo - Game Boy/game.gb")),
+            crate::platform::detect_platform_name(Path::new("/roms/Nintendo - Game Boy/game.gb")),
             Some("Game Boy".into())
         );
     }
 
     #[test]
     fn detect_platform_unknown_extension() {
-        assert_eq!(detect_platform(Path::new("/roms/game.xyz")), None);
+        assert_eq!(
+            crate::platform::detect_platform_name(Path::new("/roms/game.xyz")),
+            None
+        );
     }
 
     #[test]
@@ -378,7 +298,11 @@ mod tests {
         assert_eq!(dir_child.name, "subdir");
         assert!(!dir_child.children.is_empty());
 
-        let file_child = tree.children.iter().find(|c| c.node_type == "file").unwrap();
+        let file_child = tree
+            .children
+            .iter()
+            .find(|c| c.node_type == "file")
+            .unwrap();
         assert_eq!(file_child.name, "rom.nes");
     }
 }
