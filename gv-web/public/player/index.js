@@ -66,6 +66,7 @@ export class GvPlayer {
 
     /** @type {Array<{urls: string|string[], username?: string, credential?: string}>} */
     this._iceServers = (options && options.iceServers) || [{ urls: STUN_SERVER }];
+    this._iceTransportPolicy = (options && options.iceTransportPolicy) || "all";
 
     /** @type {number} Player seat index (0 = default, 1–N for multi-seat). */
     this._seat = (options && typeof options.seat === "number") ? options.seat : 0;
@@ -308,6 +309,7 @@ export class GvPlayer {
   _createPeerConnection() {
     this._pc = new RTCPeerConnection({
       iceServers: this._iceServers,
+      iceTransportPolicy: this._iceTransportPolicy,
     });
 
     this._pc.oniceconnectionstatechange = () => {

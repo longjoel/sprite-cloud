@@ -139,9 +139,24 @@ async function startGame(serverId, gameId, corePath, hostToken, callbacks) {
  * @param {object} callbacks
  * @returns {GvPlayer}
  */
+async function fetchIceConfig() {
+  try {
+    const r = await fetch("/api/ice-config");
+    if (r.ok) return await r.json();
+  } catch (e) {
+    console.warn("[gv] failed to fetch ICE config, using defaults:", e?.message || e);
+  }
+  // Fallback: Google STUN
+  return { iceServers: [{ urls: "stun:stun.l.google.com:19302" }], iceTransportPolicy: "all" };
+}
+
 function startPlayer(video, serverId, gameId, corePath, callbacks) {
   console.log("[gv] startPlayer called", { serverId, gameId, videoTag: video?.tagName });
-  let player = new GvPlayer(video);
+
+  // Fetch ICE config first, then create player with it
+  let player = null;
+  let iceConfigPromise = fetchIceConfig();
+  player = new GvPlayer(video);  // temp, gets iceServers patched async
   console.log("[gv] GvPlayer created, calling doConnect");
   let reconnectAttempts = 0;
   let reconnectTimer = null;
@@ -152,6 +167,16 @@ function startPlayer(video, serverId, gameId, corePath, callbacks) {
 
   const doConnect = async () => {
     callbacks.onStateChange?.("connecting");
+
+    // Wait for ICE config, then apply to player
+    const iceConfig = await iceConfigPromise;
+    if (iceConfig && iceConfig.iceServers) {
+      player._iceServers = iceConfig.iceServers;
+      if (iceConfig.iceTransportPolicy) {
+        player._iceTransportPolicy = iceConfig.iceTransportPolicy;
+      }
+      console.log("[gv] ICE config loaded:", iceConfig.iceServers.length, "server(s)");
+    }
 
     try {
       // Auto-start the game first

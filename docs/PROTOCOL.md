@@ -241,6 +241,28 @@ on all worker HTTP control/debug endpoints except `GET /health`:
 The browser must not receive this token. Browser SDP goes through gv-web/gv-server;
 gv-server is the trusted caller that adds the worker control bearer token.
 
+#### ICE policy
+
+Browser and worker share one ICE configuration sourced from environment variables:
+
+| Variable | Description | Default |
+|---|---|---|
+| `GV_ICE_STUN_URLS` | Comma-separated STUN URLs | `stun:stun.l.google.com:19302` |
+| `GV_ICE_TURN_URLS` | Comma-separated TURN URLs | (none) |
+| `GV_ICE_TURN_USERNAME` | TURN username | (none) |
+| `GV_ICE_TURN_CREDENTIAL` | TURN credential | (none) |
+| `GV_ICE_TRANSPORT_POLICY` | `all` or `relay` | `all` |
+
+gv-worker parses these directly at startup. gv-web exposes them to the browser
+via `GET /api/ice-config`. Credentials are never logged. When TURN URLs are set
+without matching username/credential, a warning is emitted and the TURN server
+is used without authentication.
+
+The browser player fetches `/api/ice-config` before creating its
+`RTCPeerConnection`. When the endpoint is unreachable, the player falls back to
+Google's public STUN.
+
+
 #### Health check
 
 After reading the port, gv-server probes `GET http://worker:port/health`
