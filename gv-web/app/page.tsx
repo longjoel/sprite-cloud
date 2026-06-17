@@ -11,22 +11,21 @@ export default async function Home() {
   const session = await auth();
   const games = await listGames();
 
-  // Find the user's server (first server they're a member of)
-  let serverId: string | null = null;
+  // Find all servers the user is a member of
+  let serverIds: string[] = [];
   if (session?.user?.id) {
-    const [membership] = await db
+    const memberships = await db
       .select({ serverId: servers.id })
       .from(serverMembers)
       .innerJoin(servers, eq(serverMembers.serverId, servers.id))
-      .where(eq(serverMembers.userId, session.user.id))
-      .limit(1);
-    serverId = membership?.serverId ?? null;
+      .where(eq(serverMembers.userId, session.user.id));
+    serverIds = memberships.map((m) => m.serverId);
   }
 
   return (
     <LibraryClient
       games={games}
-      serverId={serverId}
+      serverIds={serverIds}
       session={session ? { user: session.user } : null}
     />
   );
