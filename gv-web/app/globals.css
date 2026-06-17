@@ -1,0 +1,56 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Games Humidor — Design Tokens
+   1960s Neo-Futurism — warm wood tones, brass trim, neon accents.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --color-mahogany: #1a1410;
+  --color-teak: #2d2418;
+  --color-walnut: #3d3020;
+  --color-bamboo: #4a3a28;
+  --color-brass: #b8964a;
+  --color-copper: #c4723a;
+  --color-cream: #e8dcc8;
+  --color-muted: #b8a888;
+  --color-cyan: #00e5ff;
+  --color-magenta: #ff3d7f;
+  --color-lime: #a0ff40;
+  --color-success: #4dff88;
+  --color-warning: #ffb830;
+  --color-error: #ff4d4d;
+  --color-info: #00e5ff;
+  --color-successBg: rgba(77, 255, 136, 0.10);
+  --color-warningBg: rgba(255, 184, 48, 0.10);
+  --color-errorBg: rgba(255, 77, 77, 0.08);
+  --color-infoBg: rgba(0, 229, 255, 0.08);
+
+  --space-0: 0;
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --space-7: 24px;
+  --space-8: 32px;
+  --space-9: 48px;
+  --space-10: 64px;
+
+  --radius-none: 0;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-pill: 9999px;
+
+  --font-size-xs: 10px;
+  --font-size-sm: 12px;
+  --font-size-base: 13px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-size-h3: 20px;
+  --font-size-h2: 1rem;
+  --font-size-h1: 1.5rem;
+
+  --font-mono: "Geist Mono", "SF Mono", "Fira Code", monospace;
+  --font-sans: "Geist", "SF Pro", system-ui, sans-serif;
+}

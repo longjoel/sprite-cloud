@@ -1,8 +1,9 @@
 import "@/lib/db/cleanup";
+import "@/app/globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Games Vault",
+  title: "Games Humidor",
   description: "Retro game library and browser-based streaming",
 };
 
