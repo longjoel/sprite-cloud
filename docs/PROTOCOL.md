@@ -253,6 +253,25 @@ Browser and worker share one ICE configuration sourced from environment variable
 | `GV_ICE_TURN_CREDENTIAL` | TURN credential | (none) |
 | `GV_ICE_TRANSPORT_POLICY` | `all` or `relay` | `all` |
 
+### TURN relay
+
+A coturn instance is deployed on the VPS relay host for remote play fallback:
+
+- **Turn URL:** `turn:72.62.243.69:3478?transport=udp`
+- **Turns URL:** `turns:72.62.243.69:5349?transport=tcp` (TLS)
+- **Realm:** `nosebleed`
+- **Credential mechanism:** long-term
+
+Set `GV_ICE_TURN_URLS`, `GV_ICE_TURN_USERNAME`, and `GV_ICE_TURN_CREDENTIAL`
+in the environment of both `gv-worker` and `gv-web` to enable TURN relay.
+
+To verify TURN is working, set `GV_ICE_TRANSPORT_POLICY=relay` temporarily
+and confirm the player route badge shows `relay` after connection.
+
+See `docs/adr/010-turn-server.md` for deployment details, credential
+generation, bandwidth implications, and firewall requirements.
+
+
 gv-worker parses these directly at startup. gv-web exposes them to the browser
 via `GET /api/ice-config`. Credentials are never logged. When TURN URLs are set
 without matching username/credential, a warning is emitted and the TURN server
