@@ -13,7 +13,7 @@
 //! ```
 //!
 //! # Security
-//! - System names come from `EXTENSION_MAP`, never user input.
+//! - System names come from `platform::dat_system_name()`, never user input.
 //! - `parse_dat` validates the `<datafile>` root element —
 //!   corrupt or HTML responses produce an error, not bad matches.
 
@@ -30,20 +30,6 @@ const DAT_CACHE_TTL_SECS: u64 = 86_400; // 24 hours
 /// GitHub repository for RetroArch DAT files.
 const DAT_BASE_URL: &str =
     "https://raw.githubusercontent.com/libretro/libretro-database/master/dat";
-
-/// Extension map keyed by platform slug. Used to map discovered ROM files
-/// to the correct DAT. Keys must match the filename in the repo without
-/// the `.dat` extension (e.g. "Nintendo - Game Boy").
-const DAT_SYSTEM_NAMES: &[(&str, &[&str])] = &[
-    ("Nintendo - Game Boy", &["gb"]),
-    ("Nintendo - Game Boy Color", &["gbc"]),
-    ("Nintendo - Game Boy Advance", &["gba"]),
-    ("Nintendo - Nintendo Entertainment System", &["nes", "fds"]),
-    ("Nintendo - Super Nintendo Entertainment System", &["sfc", "smc"]),
-    ("Nintendo - Nintendo 64", &["n64", "z64", "v64"]),
-    ("Sega - Mega Drive - Genesis", &["gen", "md", "smd"]),
-    ("Atari - 2600", &["a26"]),
-];
 
 // ── Public types ───────────────────────────────────────────────────────
 
@@ -77,10 +63,7 @@ pub struct DatIndex {
 /// all entries. Returns `None` if no DAT file exists for the extension.
 pub async fn load_for_extension(ext: &str, cache_dir: &Path) -> Option<DatIndex> {
     let ext = ext.to_lowercase();
-    let system = DAT_SYSTEM_NAMES
-        .iter()
-        .find(|(_, exts)| exts.contains(&ext.as_str()))?
-        .0;
+    let system = crate::platform::dat_system_name(&ext)?;
 
     let xml = fetch_dat(system, cache_dir).await.ok()?;
     let entries = parse_dat(&xml).ok()?;
@@ -99,8 +82,7 @@ pub fn match_entry<'a>(index: &'a DatIndex, crc: &str, sha1: &str) -> Option<&'a
 
 /// Compute SHA256 and CRC32 hashes for a file on disk.
 pub fn hash_file(path: &Path) -> Result<(String, String)> {
-    let data =
-        std::fs::read(path).with_context(|| format!("read file: {}", path.display()))?;
+    let data = std::fs::read(path).with_context(|| format!("read file: {}", path.display()))?;
 
     let mut sha = Sha256::new();
     sha.update(&data);
@@ -171,8 +153,8 @@ async fn fetch_dat(system: &str, cache_dir: &Path) -> Result<String> {
 /// Validates the `<datafile>` root element. If the response is HTML,
 /// JSON, or empty (e.g. a GitHub error page), parsing fails.
 fn parse_dat(xml: &str) -> Result<Vec<RomEntry>> {
-    use quick_xml::events::Event;
     use quick_xml::Reader;
+    use quick_xml::events::Event;
 
     let mut reader = Reader::from_str(xml);
     let mut buf = Vec::new();
@@ -201,7 +183,7 @@ fn parse_dat(xml: &str) -> Result<Vec<RomEntry>> {
                 // Self-closing <rom .../> — common in DAT files
                 let entry = parse_rom_element(e, current_game.as_deref());
                 current_rom = Some(entry);
-            },
+            }
             Event::End(ref e) if e.name().as_ref() == b"game" => {
                 if let Some(entry) = current_rom.take() {
                     entries.push(entry);
@@ -231,10 +213,7 @@ fn attr(e: &quick_xml::events::BytesStart, name: &str) -> Option<String> {
 }
 
 /// Parse a `<rom>` element (either open or self-closing) into a [`RomEntry`].
-fn parse_rom_element(
-    e: &quick_xml::events::BytesStart,
-    game_name: Option<&str>,
-) -> RomEntry {
+fn parse_rom_element(e: &quick_xml::events::BytesStart, game_name: Option<&str>) -> RomEntry {
     let raw_game = game_name.unwrap_or("");
     RomEntry {
         game_name: raw_game.to_string(),
@@ -297,10 +276,7 @@ mod tests {
         );
         assert_eq!(canonicalize_name("Battlezone (NA)"), "Battlezone");
         assert_eq!(canonicalize_name("Gauntlet II (USA)"), "Gauntlet II");
-        assert_eq!(
-            canonicalize_name("Action 52 (Unl)"),
-            "Action 52"
-        );
+        assert_eq!(canonicalize_name("Action 52 (Unl)"), "Action 52");
     }
 
     #[test]
@@ -331,12 +307,7 @@ mod tests {
         let xml = "<html><body>404 Not Found</body></html>";
         let result = parse_dat(xml);
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("datafile")
-        );
+        assert!(result.unwrap_err().to_string().contains("datafile"));
     }
 
     #[test]
