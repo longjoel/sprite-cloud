@@ -1230,6 +1230,10 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
 // ---------------------------------------------------------------------------
 
 /// Map a browser KeyboardEvent.key string to a libretro JoypadButton.
+///
+/// KEEP IN SYNC with:
+///   - libretro-runner/src/lib.rs — JoypadButton enum (canonical bit layout)
+///   - gv-web/public/player/index.js — BIT_MAP, GAMEPAD_MASK
 fn map_key_to_joypad(key: &str) -> Option<libretro_runner::JoypadButton> {
     use libretro_runner::JoypadButton;
     match key {
@@ -1334,7 +1338,7 @@ async function testWebrtc() {{
   dc.onopen = () => log("DC open — keyboard input active");
   dc.onclose = () => log("DC closed");
 
-  // RetroArch binary mask (same bit layout as gv-player)
+  // RetroArch binary mask (KEEP IN SYNC with libretro-runner/src/lib.rs — JoypadButton enum)
   const BIT_MAP = {{
     ArrowUp:4,ArrowDown:5,ArrowLeft:6,ArrowRight:7,
     w:4,a:6,s:5,d:7, e:2, q:3, z:0, x:8,
