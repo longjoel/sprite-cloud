@@ -354,14 +354,20 @@ describe("GET /api/server/poll", () => {
     expect(body.next_poll_ms).toBeGreaterThan(0);
   });
 
-  it("returns pending commands and marks them delivered", async () => {
-    const commands = [
-      { id: "cmd-1", type: "start_game", payload: { game_id: "smw" } },
+  it("leases pending commands and returns lease metadata", async () => {
+    const rows = [
+      { id: "cmd-1", type: "start_game", payload: { game_id: "smw" }, attempts: 0 },
     ];
+    let updateSet: Record<string, unknown> | undefined;
     mockDb.transaction.mockImplementation(async (fn: any) => {
       const tx = {
-        select: vi.fn(() => mockQueryBuilder(commands)),
-        update: vi.fn(() => mockQueryBuilder(undefined)),
+        select: vi.fn(() => mockQueryBuilder(rows)),
+        update: vi.fn(() => ({
+          set: vi.fn((value: Record<string, unknown>) => {
+            updateSet = value;
+            return { where: vi.fn(() => Promise.resolve(undefined)) };
+          }),
+        })),
       };
       return fn(tx);
     });
@@ -374,8 +380,18 @@ describe("GET /api/server/poll", () => {
     expect(resp.status).toBe(200);
     const body = await resp.json();
     expect(body.commands.length).toBe(1);
-    expect(body.commands[0].type).toBe("start_game");
-    expect(body.next_poll_ms).toBe(250); // fast poll when commands delivered
+    expect(body.commands[0]).toMatchObject({
+      id: "cmd-1",
+      type: "start_game",
+      payload: { game_id: "smw" },
+      attempt: 1,
+    });
+    expect(body.commands[0].lease_token).toBeTruthy();
+    expect(body.commands[0].lease_expires_at).toBeTruthy();
+    expect(updateSet).toMatchObject({ status: "leased" });
+    expect(updateSet?.leaseToken).toBe(body.commands[0].lease_token);
+    expect(updateSet?.leaseExpiresAt).toBeInstanceOf(Date);
+    expect(body.next_poll_ms).toBe(250); // fast poll when commands leased
   });
 });
 
@@ -498,6 +514,65 @@ describe("GET /api/server/notify", () => {
     expect(resp.status).toBe(200);
     const body = await resp.json();
     expect(body.worker_url).toBeNull();
+  });
+});
+
+
+// ── /api/server/result ─────────────────────────────────────────────────
+
+describe("POST /api/server/result", () => {
+  it("requires a lease token", async () => {
+    const { POST } = await import("@/app/api/server/result/route");
+    const req = mkReq("http://localhost/api/server/result", {
+      ...jsonBody({ command_id: "cmd-1", result: { ok: true } }),
+      headers: authHeader(),
+    });
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(400);
+    const body = await resp.json();
+    expect(body.error).toContain("lease_token");
+  });
+
+  it("stores result and marks a matching leased command completed", async () => {
+    let updateSet: Record<string, unknown> | undefined;
+    const updateBuilder = {
+      set: vi.fn((value: Record<string, unknown>) => {
+        updateSet = value;
+        return {
+          where: vi.fn(() => ({
+            returning: vi.fn(() => Promise.resolve([{ id: "cmd-1" }])),
+          })),
+        };
+      }),
+    };
+    mockDb.update.mockReturnValue(updateBuilder);
+
+    const { POST } = await import("@/app/api/server/result/route");
+    const req = mkReq("http://localhost/api/server/result", {
+      ...jsonBody({ command_id: "cmd-1", lease_token: "lease-123", result: { ok: true } }),
+      headers: authHeader(),
+    });
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(200);
+    expect(updateSet).toMatchObject({ result: { ok: true }, status: "completed" });
+    expect(updateSet?.completedAt).toBeInstanceOf(Date);
+  });
+});
+
+// ── /api/commands/[id]/result ──────────────────────────────────────────
+
+describe("GET /api/commands/[id]/result", () => {
+  it("returns command status with command result", async () => {
+    mockDb.select.mockReturnValue(
+      mockQueryBuilder([{ result: { ok: true }, status: "completed", lastError: null }]),
+    );
+
+    const { GET } = await import("@/app/api/commands/[id]/result/route");
+    const req = mkReq("http://localhost/api/commands/cmd-1/result");
+    const resp = await GET(req as any, { params: Promise.resolve({ id: "cmd-1" }) });
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body).toMatchObject({ status: "completed", result: { ok: true }, error: null });
   });
 });
 
