@@ -37,6 +37,7 @@ interface PlayerCallbacks {
   onReconnecting: (attempt: number) => void;
   onReconnected: () => void;
   onReconnectFailed: () => void;
+  onRoute?: (route: string, detail: string) => void;
 }
 
 declare global {
@@ -68,6 +69,8 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const [reconnectMsg, setReconnectMsg] = useState("");
   const [toast, setToast] = useState<Toast | null>(null);
+  const [route, setRoute] = useState<string | null>(null);
+  const [routeDetail, setRouteDetail] = useState<string | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -165,6 +168,10 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
         },
         onReconnectFailed() {
           setReconnectMsg("Reconnection failed — refresh the page");
+        },
+        onRoute(routeLabel: string, detail: string) {
+          setRoute(routeLabel);
+          setRouteDetail(detail);
         },
       },
     );
