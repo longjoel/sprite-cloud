@@ -303,7 +303,7 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
       {/* ── Connecting / loading state ─────────────────────────── */}
       {!connected && !showDisconnect && (
         <div style={styles.centerMessage}>
-          <p style={styles.loadingText}>Starting {gameName || "game"}…</p>
+          <p style={styles.loadingText}>{status || `Starting ${gameName || "game"}…`}</p>
           {error && <p style={styles.errorText}>{error}</p>}
         </div>
       )}

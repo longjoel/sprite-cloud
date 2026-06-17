@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { commands } from "@/lib/db/schema";
 import { verifyBearerToken } from "@/lib/server-auth";
 import { eq, and } from "drizzle-orm";
+import { STATUS_COMPLETED, STATUS_LEASED } from "@/lib/constants";
 
 // ── POST /api/server/result ────────────────────────────────────────────
 //
@@ -16,16 +17,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  let body: { command_id?: string; result?: unknown };
+  let body: { command_id?: string; lease_token?: string; result?: unknown };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
 
-  if (!body.command_id || body.result === undefined) {
+  if (!body.command_id || !body.lease_token || body.result === undefined) {
     return NextResponse.json(
-      { error: "command_id and result required" },
+      { error: "command_id, lease_token, and result required" },
       { status: 400 },
     );
   }
@@ -33,11 +34,13 @@ export async function POST(request: NextRequest) {
   // Only update if the server owns this command
   const [updated] = await db
     .update(commands)
-    .set({ result: body.result })
+    .set({ result: body.result, status: STATUS_COMPLETED, completedAt: new Date(), lastError: null })
     .where(
       and(
         eq(commands.id, body.command_id),
         eq(commands.serverId, server.id),
+        eq(commands.status, STATUS_LEASED),
+        eq(commands.leaseToken, body.lease_token),
       ),
     )
     .returning({ id: commands.id });

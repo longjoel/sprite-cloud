@@ -174,11 +174,7 @@ and passes it back when polling for the worker URL.
 
 #### Server poll
 
-**Request** `POST /api/server/poll` (gv-server → gv-web, bearer auth)
-
-```json
-{ "server_id": "a0000000-..." }
-```
+**Request** `GET /api/server/poll` (gv-server → gv-web, bearer auth)
 
 **Response** `200 OK`
 
@@ -187,15 +183,22 @@ and passes it back when polling for the worker URL.
   "commands": [
     {
       "id": "cmd_abc123",
-      "command_type": "start_game",
-      "payload": { "game_id": "snes_super_mario_world" }
+      "type": "start_game",
+      "payload": { "game_id": "snes_super_mario_world" },
+      "lease_token": "lease_abc123",
+      "lease_expires_at": "2026-06-17T00:00:30.000Z",
+      "attempt": 1
     }
   ],
-  "next_poll_ms": 2000
+  "next_poll_ms": 250
 }
 ```
 
-Commands are delivered once via a cursor — a consumed command is never re-delivered.
+Commands are leased, not consumed. Poll changes eligible rows from `pending` or
+expired `leased` to `leased`, sets `leased_at`, `lease_expires_at`, increments
+`attempts`, and returns the `lease_token`. A command is only finished after
+successful `notify` or `result` completion moves it to `completed`; failed work can
+be retried after lease expiry or marked `failed` by a future failure-reporting path.
 
 #### Worker ready contract
 
@@ -251,6 +254,7 @@ and WebRTC stack are initialized.
 ```json
 {
   "command_id": "cmd_abc123",
+  "lease_token": "lease_abc123",
   "worker_url": "http://192.168.86.126:54321",
   "game_id": "snes_super_mario_world"
 }
@@ -267,8 +271,10 @@ Commands are selected by both command id and authenticated `server.id`; cross-se
 notify attempts return `404`. Session lookup/update is also scoped to the same
 server id before `status`, `worker_url`, or `sdp_answer` are mutated.
 
-When authorized, gv-web creates or updates a `sessions` row with `status: "ready"`
-and propagates the `worker_token` from the command record.
+When a `lease_token` is supplied, gv-web verifies it matches the active `leased`
+command before accepting the notify and marks the command `completed`. When
+authorized, gv-web creates or updates a `sessions` row with `status: "ready"` and
+propagates the `worker_token` from the command record.
 
 #### Browser poll for worker URL
 
@@ -348,6 +354,7 @@ or never started), gv-server logs a warning and ignores the command.
 ```json
 {
   "command_id": "cmd_def456",
+  "lease_token": "lease_def456",
   "worker_url": "",
   "game_id": "snes_super_mario_world",
   "action": "stop"
