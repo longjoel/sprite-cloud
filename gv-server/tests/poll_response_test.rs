@@ -4,8 +4,8 @@ use gv_server::gv_web::PollResponse;
 fn poll_response_with_commands() {
     let json = r#"{
         "commands": [
-            {"id": "abc-123", "type": "start_game", "payload": {"game_id": "smw"}},
-            {"id": "def-456", "type": "sdp_offer", "payload": {"sdp": "v=0\r\n"}}
+            {"id": "abc-123", "type": "start_game", "payload": {"game_id": "smw"}, "lease_token": "lease-abc", "lease_expires_at": "2026-06-17T00:00:30.000Z", "attempt": 1},
+            {"id": "def-456", "type": "sdp_offer", "payload": {"sdp": "v=0\r\n"}, "lease_token": "lease-def", "lease_expires_at": "2026-06-17T00:00:30.000Z", "attempt": 2}
         ],
         "next_poll_ms": 250
     }"#;
@@ -16,6 +16,8 @@ fn poll_response_with_commands() {
 
     assert_eq!(resp.commands[0].id, "abc-123");
     assert_eq!(resp.commands[0].command_type, "start_game");
+    assert_eq!(resp.commands[0].lease_token, "lease-abc");
+    assert_eq!(resp.commands[0].attempt, 1);
     assert_eq!(
         resp.commands[0].payload["game_id"].as_str().unwrap(),
         "smw"
@@ -23,6 +25,8 @@ fn poll_response_with_commands() {
 
     assert_eq!(resp.commands[1].id, "def-456");
     assert_eq!(resp.commands[1].command_type, "sdp_offer");
+    assert_eq!(resp.commands[1].lease_token, "lease-def");
+    assert_eq!(resp.commands[1].attempt, 2);
 }
 
 #[test]

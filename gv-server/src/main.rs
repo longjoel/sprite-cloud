@@ -252,7 +252,7 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
 
                                             // Notify gv-web
                                             if let Err(e) = client
-                                                .notify(&cmd.id, &url, game_id)
+                                                .notify(&cmd.id, &cmd.lease_token, &url, game_id)
                                                 .await
                                             {
                                                 tracing::error!(
@@ -283,7 +283,7 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         );
                                         worker.kill().await;
                                         if let Err(e) = client
-                                            .notify_stop(&cmd.id, game_id)
+                                            .notify_stop(&cmd.id, &cmd.lease_token, game_id)
                                             .await
                                         {
                                             tracing::error!(
@@ -346,6 +346,7 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                                             if let Err(e) = client
                                                                 .notify_sdp(
                                                                     &cmd.id,
+                                                                    &cmd.lease_token,
                                                                     &worker.url,
                                                                     game_id,
                                                                     answer_sdp,
@@ -413,7 +414,7 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
 
                                     let result = serde_json::json!({ "tree": tree });
                                     if let Err(e) = client
-                                        .command_result(&cmd.id, &result)
+                                        .command_result(&cmd.id, &cmd.lease_token, &result)
                                         .await
                                     {
                                         tracing::error!(
@@ -443,7 +444,7 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                             "error": "A scan is already in progress."
                                         });
                                         let _ = client
-                                            .command_result(&cmd.id, &result)
+                                            .command_result(&cmd.id, &cmd.lease_token, &result)
                                             .await;
                                         continue;
                                     }
@@ -534,7 +535,7 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                     let result =
                                         serde_json::json!({ "matches": matches });
                                     if let Err(e) = client
-                                        .command_result(&cmd.id, &result)
+                                        .command_result(&cmd.id, &cmd.lease_token, &result)
                                         .await
                                     {
                                         tracing::error!(

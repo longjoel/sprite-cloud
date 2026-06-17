@@ -230,7 +230,7 @@ export class GvPlayer {
     // POST sdp_offer command — returns a worker_token we use to poll
     const cmdResp = await fetch("/api/server/command", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: gvCsrfHeaders(),
       body: JSON.stringify({
         server_id: serverId,
         type: "sdp_offer",

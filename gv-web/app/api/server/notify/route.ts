@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { commands, sessions, servers } from "@/lib/db/schema";
 import { verifyBearerToken, unauthorizedResponse } from "@/lib/server-auth";
 import { and, eq } from "drizzle-orm";
+import { STATUS_COMPLETED, STATUS_LEASED } from "@/lib/constants";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -14,6 +15,8 @@ interface NotifyBody {
   sdp_answer?: string;
   /** "stop" marks the session as ended (optional). */
   action?: "stop";
+  /** Active command lease from /api/server/poll. */
+  lease_token?: string;
 }
 
 // ── POST — gv-server reports worker URL after spawn ────────────────────
@@ -49,6 +52,25 @@ export async function POST(request: NextRequest) {
 
   if (!cmd || cmd.serverId !== server.id) {
     return NextResponse.json({ error: "command not found" }, { status: 404 });
+  }
+
+  if (body.lease_token) {
+    const [lease] = await db
+      .update(commands)
+      .set({ status: STATUS_COMPLETED, completedAt: new Date(), lastError: null })
+      .where(
+        and(
+          eq(commands.id, body.command_id),
+          eq(commands.serverId, server.id),
+          eq(commands.status, STATUS_LEASED),
+          eq(commands.leaseToken, body.lease_token),
+        ),
+      )
+      .returning({ id: commands.id });
+
+    if (!lease) {
+      return NextResponse.json({ error: "command lease not found" }, { status: 409 });
+    }
   }
 
   // Create a session record (or update existing one for this command).

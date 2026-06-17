@@ -62,8 +62,8 @@ export const pairingCodes = pgTable("pairing_codes", {
 
 // ── Command queue (gv-server polls for pending work) ──────────────────
 //
-// Commands are transient — created by browser users, delivered to gv-server,
-// then marked delivered. Not the same as sessions (which track game lifecycle).
+// Commands are transient — created by browser users, leased by gv-server,
+// then marked completed/failed. Not the same as sessions (which track game lifecycle).
 
 export const commands = pgTable("commands", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -75,8 +75,14 @@ export const commands = pgTable("commands", {
   payload: jsonb("payload").notNull().default({}),
   // shape varies by command type
   status: text("status").notNull().default("pending"),
-  // pending → delivered
+  // pending → leased → completed | failed
   workerToken: text("worker_token"),
+  leaseToken: text("lease_token"),
+  leasedAt: timestamp("leased_at", { withTimezone: true }),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  attempts: integer("attempts").notNull().default(0),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  lastError: text("last_error"),
   result: jsonb("result"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });

@@ -34,6 +34,9 @@ pub struct Command {
     #[serde(rename = "type")]
     pub command_type: String,
     pub payload: serde_json::Value,
+    pub lease_token: String,
+    pub lease_expires_at: String,
+    pub attempt: u32,
 }
 
 /// Response from GET /api/server/poll.
@@ -54,6 +57,8 @@ struct NotifyBody {
     sdp_answer: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     action: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lease_token: Option<String>,
 }
 
 // ── Client ────────────────────────────────────────────────────────────
@@ -170,11 +175,11 @@ impl GvWebClient {
     ///
     /// Retries up to 3 times with exponential backoff for transient
     /// network failures.
-    pub async fn notify(&self, command_id: &str, worker_url: &str, game_id: &str) -> Result<()> {
+    pub async fn notify(&self, command_id: &str, lease_token: &str, worker_url: &str, game_id: &str) -> Result<()> {
         crate::retry::with_retry(
             3,
             std::time::Duration::from_secs(1),
-            || self.notify_once(command_id, worker_url, game_id, None),
+            || self.notify_once(command_id, lease_token, worker_url, game_id, None),
         )
         .await
     }
@@ -186,6 +191,7 @@ impl GvWebClient {
     pub async fn notify_sdp(
         &self,
         command_id: &str,
+        lease_token: &str,
         worker_url: &str,
         game_id: &str,
         sdp_answer: &str,
@@ -196,6 +202,7 @@ impl GvWebClient {
             || {
                 self.notify_once(
                     command_id,
+                    lease_token,
                     worker_url,
                     game_id,
                     Some(sdp_answer.to_string()),
@@ -209,6 +216,7 @@ impl GvWebClient {
     async fn notify_once(
         &self,
         command_id: &str,
+        lease_token: &str,
         worker_url: &str,
         game_id: &str,
         sdp_answer: Option<String>,
@@ -221,6 +229,7 @@ impl GvWebClient {
             game_id: game_id.to_string(),
             sdp_answer,
             action: None,
+            lease_token: Some(lease_token.to_string()),
         };
 
         let resp = self
@@ -245,16 +254,16 @@ impl GvWebClient {
     ///
     /// Tells gv-web to mark the session as ended so the browser stops
     /// polling for a worker URL.
-    pub async fn notify_stop(&self, command_id: &str, game_id: &str) -> Result<()> {
+    pub async fn notify_stop(&self, command_id: &str, lease_token: &str, game_id: &str) -> Result<()> {
         crate::retry::with_retry(
             3,
             std::time::Duration::from_secs(1),
-            || self.notify_stop_once(command_id, game_id),
+            || self.notify_stop_once(command_id, lease_token, game_id),
         )
         .await
     }
 
-    async fn notify_stop_once(&self, command_id: &str, game_id: &str) -> Result<()> {
+    async fn notify_stop_once(&self, command_id: &str, lease_token: &str, game_id: &str) -> Result<()> {
         let url = format!("{}/api/server/notify", self.base_url);
 
         let resp = self
@@ -267,6 +276,7 @@ impl GvWebClient {
                 game_id: game_id.to_string(),
                 sdp_answer: None,
                 action: Some("stop".to_string()),
+                lease_token: Some(lease_token.to_string()),
             })
             .send()
             .await
@@ -285,7 +295,7 @@ impl GvWebClient {
     ///
     /// Used by browse_files and scan_paths to report file trees and
     /// match results back to gv-web for browser polling.
-    pub async fn command_result(&self, command_id: &str, result: &serde_json::Value) -> Result<()> {
+    pub async fn command_result(&self, command_id: &str, lease_token: &str, result: &serde_json::Value) -> Result<()> {
         let url = format!("{}/api/server/result", self.base_url);
 
         let resp = self
@@ -294,6 +304,7 @@ impl GvWebClient {
             .bearer_auth(&self.auth.api_key)
             .json(&serde_json::json!({
                 "command_id": command_id,
+                "lease_token": lease_token,
                 "result": result,
             }))
             .send()

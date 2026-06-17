@@ -25,4 +25,11 @@ export type CommandType =
 
 /** Command statuses in the queue. */
 export const STATUS_PENDING = "pending" as const;
+export const STATUS_LEASED = "leased" as const;
+export const STATUS_COMPLETED = "completed" as const;
+export const STATUS_FAILED = "failed" as const;
+// Kept for older data/tests; new poll flow uses leased → completed/failed.
 export const STATUS_DELIVERED = "delivered" as const;
+
+/** How long gv-server owns a leased command before it can be retried. */
+export const COMMAND_LEASE_MS = 30_000;
