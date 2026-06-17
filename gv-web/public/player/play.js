@@ -232,6 +232,11 @@ function startPlayer(video, serverId, gameId, corePath, callbacks) {
     callbacks.onStats?.(stats);
   };
 
+  player._onRoute = (route, detail) => {
+    console.log("[gv] route detected:", route, detail);
+    callbacks.onRoute?.(route, detail);
+  };
+
   player.onSaveResult = ({ slot, ok }) => {
     callbacks.onSaveResult?.(slot, ok);
   };
