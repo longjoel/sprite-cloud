@@ -742,3 +742,146 @@ describe("GET /api/servers/[server_id]/metadata", () => {
     expect(resp.status).toBe(404);
   });
 });
+
+// ── /api/playable-hosts ──────────────────────────────────────────────
+
+describe("GET /api/playable-hosts", () => {
+  it("returns 401 when not signed in", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    const { GET } = await import("@/app/api/playable-hosts/route");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
+    const resp = await GET(req);
+    expect(resp.status).toBe(401);
+  });
+
+  it("returns 400 when game_id missing", async () => {
+    const { GET } = await import("@/app/api/playable-hosts/route");
+    const req = mkReq("http://localhost/api/playable-hosts");
+    const resp = await GET(req);
+    expect(resp.status).toBe(400);
+  });
+
+  it("returns empty hosts when user has no servers", async () => {
+    mockDb.select.mockReturnValue(mockQueryBuilder([]));
+    const { GET } = await import("@/app/api/playable-hosts/route");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
+    const resp = await GET(req);
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.hosts).toEqual([]);
+  });
+
+  it("returns hosts with game availability and server metadata", async () => {
+    mockDb.select.mockReturnValue(
+      mockQueryBuilder([
+        {
+          serverId: "server-1",
+          serverName: "Home PC",
+          lastSeenAt: new Date(),
+          metadata: { lan_addresses: ["192.168.1.100"], ice: { turn_configured: false } },
+          gameFileId: "gf-1",
+        },
+        {
+          serverId: "server-2",
+          serverName: "Arcade Box",
+          lastSeenAt: new Date(Date.now() - 120_000),
+          metadata: { lan_addresses: [], ice: { turn_configured: true } },
+          gameFileId: null,
+        },
+      ]),
+    );
+
+    const { GET } = await import("@/app/api/playable-hosts/route");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
+    const resp = await GET(req);
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.hosts).toHaveLength(2);
+    expect(body.hosts[0]).toMatchObject({
+      server_id: "server-1",
+      name: "Home PC",
+      has_game: true,
+    });
+    expect(body.hosts[1]).toMatchObject({
+      server_id: "server-2",
+      name: "Arcade Box",
+      has_game: false,
+    });
+  });
+
+  it("only returns servers the user is a member of", async () => {
+    // Query filters by serverMembers.userId — mock empty result
+    mockDb.select.mockReturnValue(mockQueryBuilder([]));
+    const { GET } = await import("@/app/api/playable-hosts/route");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
+    const resp = await GET(req);
+    const body = await resp.json();
+    expect(body.hosts.every((h: any) => h.server_id !== "unauthorized-server")).toBe(true);
+  });
+
+  it("classifies servers as online, stale, or offline", async () => {
+    const now = Date.now();
+    const online = new Date(now - 30_000);
+    const stale = new Date(now - 120_000);
+    const offline = new Date(now - 600_000);
+
+    mockDb.select.mockReturnValue(
+      mockQueryBuilder([
+        { serverId: "s1", serverName: "Online", lastSeenAt: online, metadata: {}, gameFileId: "gf1" },
+        { serverId: "s2", serverName: "Stale", lastSeenAt: stale, metadata: {}, gameFileId: null },
+        { serverId: "s3", serverName: "Offline", lastSeenAt: offline, metadata: {}, gameFileId: "gf3" },
+      ]),
+    );
+
+    const { GET } = await import("@/app/api/playable-hosts/route");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
+    const resp = await GET(req);
+    const body = await resp.json();
+    expect(body.hosts[0].status).toBe("online");
+    expect(body.hosts[1].status).toBe("stale");
+    expect(body.hosts[2].status).toBe("offline");
+  });
+
+  it("classifies route hints from server metadata", async () => {
+    mockDb.select.mockReturnValue(
+      mockQueryBuilder([
+        {
+          serverId: "s1", serverName: "Local", lastSeenAt: new Date(),
+          metadata: { lan_addresses: ["192.168.1.100"], ice: { turn_configured: false } },
+          gameFileId: "gf1",
+        },
+        {
+          serverId: "s2", serverName: "Direct", lastSeenAt: new Date(),
+          metadata: { lan_addresses: [], ice: { turn_configured: false } },
+          gameFileId: "gf2",
+        },
+        {
+          serverId: "s3", serverName: "Relay", lastSeenAt: new Date(),
+          metadata: { lan_addresses: [], ice: { turn_configured: true } },
+          gameFileId: "gf3",
+        },
+      ]),
+    );
+
+    const { GET } = await import("@/app/api/playable-hosts/route");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
+    const resp = await GET(req);
+    const body = await resp.json();
+    expect(body.hosts[0].route_hint).toBe("local");
+    expect(body.hosts[1].route_hint).toBe("direct");
+    expect(body.hosts[2].route_hint).toBe("relay");
+  });
+
+  it("returns route_hint unknown when metadata is missing", async () => {
+    mockDb.select.mockReturnValue(
+      mockQueryBuilder([
+        { serverId: "s1", serverName: "Unknown", lastSeenAt: new Date(), metadata: {}, gameFileId: "gf1" },
+      ]),
+    );
+    const { GET } = await import("@/app/api/playable-hosts/route");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
+    const resp = await GET(req);
+    const body = await resp.json();
+    expect(body.hosts[0].route_hint).toBe("unknown");
+  });
+});
