@@ -1,0 +1,100 @@
+# ── v2 dev stack ─────────────────────────────────────────────────────
+# Host-networked containers sharing the host's Postgres, ROMs, and cores.
+#
+# Start:
+#   ./scripts/dev-start.sh build    # build host binaries + Docker images
+#   ./scripts/dev-start.sh start    # docker compose up -d
+#
+# Stop:
+#   ./scripts/dev-start.sh stop     # docker compose down
+#
+# Status:
+#   ./scripts/dev-start.sh status   # docker compose ps + health
+#   ./scripts/dev-start.sh logs     # docker compose logs -f
+
+services:
+  gv-web:
+    build:
+      context: .
+      dockerfile: docker/gv-web/Dockerfile
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      # Source code (hot-reload in dev) — repo root for workspace
+      - .:/app
+      # Shadow host node_modules with container's pre-installed deps (per workspace member)
+      - gv-web-node-modules:/app/gv-web/node_modules
+      - gv-web-node-modules-pnpm:/app/node_modules
+      - gv-player-node-modules:/app/gv-player/node_modules
+    environment:
+      NODE_ENV: development
+      # gv-web env
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET}
+      AUTH_URL: ${AUTH_URL:-http://vault:3000}
+      AUTH_GITHUB_ID: ${AUTH_GITHUB_ID:-}
+      AUTH_GITHUB_SECRET: ${AUTH_GITHUB_SECRET:-}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://games_vault@127.0.0.1:5433/games_vault}
+      LAN_USER: ${LAN_USER:-}
+      LAN_PASS: ${LAN_PASS:-}
+      GV_ICE_STUN_URLS: ${GV_ICE_STUN_URLS:-stun:stun.l.google.com:19302}
+      GV_ICE_TURN_URLS: ${GV_ICE_TURN_URLS:-}
+      GV_ICE_TURN_USERNAME: ${GV_ICE_TURN_USERNAME:-}
+      GV_ICE_TURN_CREDENTIAL: ${GV_ICE_TURN_CREDENTIAL:-}
+      GV_ICE_TRANSPORT_POLICY: ${GV_ICE_TRANSPORT_POLICY:-all}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  gv-server:
+    build:
+      context: .
+      dockerfile: docker/gv-server/Dockerfile
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      gv-web:
+        condition: service_healthy
+    volumes:
+      # Host-built release binaries (rw for auto-download writes to cores dir)
+      - ./target/release/gv-server:/usr/local/bin/gv-server:ro
+      - ./target/release/gv-worker:/usr/local/bin/gv-worker:ro
+      - ./test-data/cores:/cores:rw
+      # Host config
+      - /etc/games-vault/config.toml:/etc/games-vault/config.toml:ro
+      # ROMs
+      - /srv/storage/games/roms:/srv/storage/games/roms:ro
+      # Saves + system dirs
+      - gv-server-saves:/saves
+      - gv-server-system:/system
+    environment:
+      XDG_CONFIG_HOME: /etc
+      GV_WEB_URL: ${GV_WEB_URL:-http://localhost:3000}
+      GV_API_KEY: ${GV_API_KEY:-}
+      GV_CORES_DIR: /cores
+      GV_ROM_ROOTS: ${GV_ROM_ROOTS:-/srv/storage/games/roms}
+      GV_WORKER_BIN: /usr/local/bin/gv-worker
+      GV_SAVES_DIR: /saves
+      GV_SYSTEM_DIR: /system
+      ALLOWED_ORIGIN: ${AUTH_URL:-http://vault:3000}
+      GV_ICE_STUN_URLS: ${GV_ICE_STUN_URLS:-stun:stun.l.google.com:19302}
+      GV_ICE_TURN_URLS: ${GV_ICE_TURN_URLS:-}
+      GV_ICE_TURN_USERNAME: ${GV_ICE_TURN_USERNAME:-}
+      GV_ICE_TURN_CREDENTIAL: ${GV_ICE_TURN_CREDENTIAL:-}
+      GV_ICE_TRANSPORT_POLICY: ${GV_ICE_TRANSPORT_POLICY:-all}
+      RUST_LOG: ${RUST_LOG:-info}
+    healthcheck:
+      test: ["CMD", "pgrep", "gv-server"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  gv-web-node-modules:
+  gv-web-node-modules-pnpm:
+  gv-player-node-modules:
+  gv-server-saves:
+  gv-server-system:
