@@ -699,6 +699,18 @@ export class GvPlayer {
           } catch { /* safety */ }
         }
         break;
+      case "core_died":
+      case "error":
+        {
+          const reason = msg.reason || msg.message || "Unknown error";
+          console.error("[gv-player] Fatal:", reason);
+          this._transition(State.ERROR);
+          this.disconnect();
+          if (this.onError) {
+            try { this.onError(reason); } catch { /* safety */ }
+          }
+        }
+        break;
     }
   }
 
