@@ -2,6 +2,7 @@
 
 import Script from "next/script";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useInterval } from "@/lib/poll";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -75,6 +76,8 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [connected, setConnected] = useState(false);
   const [scriptReady, setScriptReady] = useState(false);
+  // Whether RTT polling should be active (player running).
+  const [rttActive, setRttActive] = useState(false);
 
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedRef = useRef(false);
@@ -120,6 +123,14 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
     return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
   }, [wakeControls]);
 
+  // ── RTT polling ──────────────────────────────────────────────────
+
+  useInterval(() => {
+    if (playerRef.current?.rttMs != null) {
+      setRttMs(playerRef.current.rttMs);
+    }
+  }, rttActive ? RTT_POLL_MS : null);
+
   // ── Player script — check if already loaded (next/script caches it) ─
 
   useEffect(() => {
@@ -140,8 +151,6 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
     if (!gvPlay) return;
 
     startedRef.current = true;
-
-    let rttTimer: ReturnType<typeof setInterval> | null = null;
 
     const player = gvPlay.startPlayer(
       videoRef.current,
@@ -198,16 +207,10 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
     );
 
     playerRef.current = player;
-
-    // RTT polling
-    rttTimer = setInterval(() => {
-      if (player.rttMs != null) {
-        setRttMs(player.rttMs);
-      }
-    }, RTT_POLL_MS);
+    setRttActive(true);
 
     return () => {
-      if (rttTimer) clearInterval(rttTimer);
+      setRttActive(false);
     };
   }, [scriptReady, serverId, gameId, showToast]);
 
