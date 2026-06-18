@@ -261,8 +261,9 @@ impl GvWebClient {
         .await
     }
 
-    /// Single notify attempt (no retry).
-    async fn notify_once(
+    /// Single notify attempt (no retry). Public so the main command loop
+    /// can notify without an SDP answer for viewer-join placeholder commands.
+    pub async fn notify_once(
         &self,
         command_id: &str,
         lease_token: &str,
@@ -310,6 +311,37 @@ impl GvWebClient {
             || self.notify_stop_once(command_id, lease_token, game_id),
         )
         .await
+    }
+
+    /// Notify gv-web that a worker died unexpectedly (crash, OOM, etc.).
+    /// Sends a stop action with an empty command_id — the notify endpoint
+    /// handles stop actions without command validation.
+    pub async fn notify_worker_dead(&self, game_id: &str) -> Result<()> {
+        let url = format!("{}/api/server/notify", self.base_url);
+
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(&self.auth.api_key)
+            .json(&NotifyBody {
+                command_id: "__worker_dead__".to_string(),
+                worker_url: String::new(),
+                game_id: game_id.to_string(),
+                sdp_answer: None,
+                action: Some("stop".to_string()),
+                lease_token: None,
+            })
+            .send()
+            .await
+            .context("POST /api/server/notify (worker_dead) — network error")?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("notify worker dead failed (HTTP {}): {}", status.as_u16(), body);
+        }
+
+        Ok(())
     }
 
     async fn notify_stop_once(&self, command_id: &str, lease_token: &str, game_id: &str) -> Result<()> {

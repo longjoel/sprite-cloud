@@ -17,6 +17,8 @@ use std::path::PathBuf;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 
+use crate::platform;
+
 // ── Core mapping ──────────────────────────────────────────────────────
 
 // Core mapping is now in `platform.rs` — aliased here for convenience.
@@ -312,12 +314,54 @@ pub struct SpawnedWorker {
     pub url: String,
     control_token: String,
     game_id: String,
+    host_token: Option<String>,
     child: Option<Child>,
 }
 
 impl SpawnedWorker {
     pub fn control_token(&self) -> &str {
         &self.control_token
+    }
+
+    /// The host token that owns this worker (set via GV_HOST_TOKEN).
+    pub fn host_token(&self) -> Option<&str> {
+        self.host_token.as_deref()
+    }
+
+    /// Reap the child if it has exited.
+    ///
+    /// `kill(pid, 0)` reports zombies as alive, so it is not a valid
+    /// lifecycle check for workers.  Use `try_wait()` instead so exited
+    /// children are reaped and removed from the process table.
+    pub fn reap_if_exited(&mut self) -> bool {
+        let Some(child) = self.child.as_mut() else {
+            let _ = std::fs::remove_file(pid_path(&self.game_id));
+            return true;
+        };
+
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                tracing::warn!(
+                    "[WORKER] worker for game {} exited: {}",
+                    self.game_id,
+                    status
+                );
+                self.child = None;
+                let _ = std::fs::remove_file(pid_path(&self.game_id));
+                true
+            }
+            Ok(None) => false,
+            Err(e) => {
+                tracing::warn!(
+                    "[WORKER] failed to poll worker for game {}: {}",
+                    self.game_id,
+                    e
+                );
+                self.child = None;
+                let _ = std::fs::remove_file(pid_path(&self.game_id));
+                true
+            }
+        }
     }
 
     /// Kill the worker process gracefully, then forcefully.
@@ -464,6 +508,13 @@ pub async fn spawn_worker(
     let control_token = generate_worker_control_token();
     cmd.env("GV_WORKER_CONTROL_TOKEN", &control_token);
 
+    // Forward VP8 usage mode to the worker (0=good quality, 1=realtime).
+    // Read from the server's own environment — set GV_VP8_USAGE=1 on
+    // weak hardware (N100, RPi) for realtime encoding.
+    if let Ok(usage) = std::env::var("GV_VP8_USAGE") {
+        cmd.env("GV_VP8_USAGE", usage);
+    }
+
     // Forward ROM path so the worker loads the right game
     if let Some(path) = content_path {
         tracing::info!("[WORKER] content_path={path}");
@@ -486,6 +537,14 @@ pub async fn spawn_worker(
                         core_path.display()
                     );
                     cmd.env("GV_CORE_PATH", core_path);
+                    // Set audio channel count from the platform manifest.
+                    // Mono platforms (GB, GBC, NES, arcade) → 1ch.
+                    // Stereo platforms (SNES, Genesis, N64) → 2ch.
+                    // The worker reads GV_AUDIO_CHANNELS and configures
+                    // Opus encoding accordingly. Falls back to 2 (stereo)
+                    // for unknown platforms — stereo is always safe.
+                    let channels = platform::channels_for_platform(plat);
+                    cmd.env("GV_AUDIO_CHANNELS", channels.to_string());
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -581,6 +640,7 @@ pub async fn spawn_worker(
         url,
         control_token,
         game_id: game_id.to_string(),
+        host_token: host_token.map(|s| s.to_string()),
         child: Some(child),
     })
 }
@@ -610,6 +670,7 @@ mod tests {
             url: "http://localhost:9999".into(),
             control_token: "test-control-token".into(),
             game_id: game_id.into(),
+            host_token: None,
             child: Some(child),
         };
 
@@ -695,6 +756,7 @@ mod tests {
             url: "http://localhost:9999".into(),
             control_token: "test-control-token".into(),
             game_id: game_id.into(),
+            host_token: None,
             child: Some(child),
         };
 
