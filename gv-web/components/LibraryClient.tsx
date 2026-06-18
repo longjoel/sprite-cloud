@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import GamePlayer from "@/components/GamePlayer";
 import { Badge, Button, Card, Modal } from "@/components/ui";
 
@@ -63,6 +63,21 @@ function routeVariant(route: string) {
   return map[route] || "muted";
 }
 
+function csrfHeaders(): Record<string, string> {
+  let token = document.cookie
+    .split(";")
+    .map((p) => p.trim())
+    .find((p) => p.startsWith("gv_csrf_token="))
+    ?.split("=")
+    .slice(1)
+    .join("=");
+  if (!token) {
+    token = crypto.randomUUID();
+    document.cookie = `gv_csrf_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax`;
+  }
+  return { "Content-Type": "application/json", "x-csrf-token": decodeURIComponent(token) };
+}
+
 // ── Component ─────────────────────────────────────────────────────────
 
 export default function LibraryClient({ games, serverIds, session }: LibraryClientProps) {
@@ -73,6 +88,11 @@ export default function LibraryClient({ games, serverIds, session }: LibraryClie
   const [hostPickerGame, setHostPickerGame] = useState<string | null>(null);
   const [playableHosts, setPlayableHosts] = useState<PlayableHost[]>([]);
   const [pickerLoading, setPickerLoading] = useState(false);
+
+  // Edit state
+  const [editingGame, setEditingGame] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   const hasServers = serverIds.length > 0;
 
@@ -135,6 +155,49 @@ export default function LibraryClient({ games, serverIds, session }: LibraryClie
     setActiveGame({ id: gameId, name: serverName });
   };
 
+  const startRename = useCallback((game: Game) => {
+    setEditingGame(game.id);
+    setEditName(game.name);
+  }, []);
+
+  const cancelRename = useCallback(() => {
+    setEditingGame(null);
+    setEditName("");
+  }, []);
+
+  const saveRename = useCallback(async (gameId: string) => {
+    const trimmed = editName.trim();
+    if (!trimmed || trimmed === games.find((g) => g.id === gameId)?.name) {
+      cancelRename();
+      return;
+    }
+    setEditSaving(true);
+    try {
+      const resp = await fetch(`/api/games/${gameId}`, {
+        method: "PUT",
+        headers: csrfHeaders(),
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${resp.status}`);
+      }
+      // Update local state
+      const idx = games.findIndex((g) => g.id === gameId);
+      if (idx !== -1) games[idx].name = trimmed;
+      cancelRename();
+    } catch (e: unknown) {
+      // Keep editing on error — user can retry
+      setEditSaving(false);
+    }
+  }, [editName, games, cancelRename]);
+
+  // Key handler for inline edit
+  const handleEditKey = useCallback((e: React.KeyboardEvent, gameId: string) => {
+    if (e.key === "Enter") saveRename(gameId);
+    if (e.key === "Escape") cancelRename();
+  }, [saveRename, cancelRename]);
+
   return (
     <main style={styles.main}>
       <div style={styles.topBar}>
@@ -173,7 +236,32 @@ export default function LibraryClient({ games, serverIds, session }: LibraryClie
           <div style={styles.grid}>
             {games.map((game) => (
               <Card key={game.id} style={{ display: "flex", flexDirection: "column" }}>
-                <div style={styles.cardTitle}>{game.name}</div>
+                {editingGame === game.id ? (
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onKeyDown={(e) => handleEditKey(e, game.id)}
+                    onBlur={() => saveRename(game.id)}
+                    disabled={editSaving}
+                    autoFocus
+                    style={styles.editInput}
+                    maxLength={200}
+                  />
+                ) : (
+                  <div style={styles.cardTitleRow}>
+                    <div style={styles.cardTitle}>{game.name}</div>
+                    {session && (
+                      <button
+                        onClick={() => startRename(game)}
+                        style={styles.editBtn}
+                        title="Rename"
+                      >
+                        ✎
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div style={styles.cardMeta}>{game.platform} · {game.maxPlayers}p</div>
                 <div style={{ marginTop: "auto" }}>
                   {session && hasServers ? (
@@ -335,7 +423,36 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "var(--font-size-lg)",
     color: "var(--color-cream)",
     fontFamily: "var(--font-mono)",
+    marginBottom: 0,
+  },
+  cardTitleRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: "var(--space-2)",
+  },
+  editBtn: {
+    background: "none",
+    border: "1px solid var(--color-bamboo)",
+    borderRadius: "var(--radius-sm)",
+    color: "var(--color-muted)",
+    cursor: "pointer",
+    fontSize: "var(--font-size-base)",
+    padding: "0 var(--space-2)",
+    lineHeight: "1.4",
+    fontFamily: "var(--font-mono)",
+  },
+  editInput: {
+    fontSize: "var(--font-size-lg)",
+    fontFamily: "var(--font-mono)",
+    background: "var(--color-mahogany)",
+    color: "var(--color-cream)",
+    border: "1px solid var(--color-info)",
+    borderRadius: "var(--radius-sm)",
+    padding: "var(--space-1) var(--space-2)",
+    marginBottom: "var(--space-2)",
+    outline: "none",
+    width: "100%",
   },
   cardMeta: {
     fontSize: "var(--font-size-xs)",

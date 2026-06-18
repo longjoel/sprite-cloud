@@ -156,6 +156,7 @@ export const games = pgTable("games", {
   slug: text("slug").notNull().unique(),
   platform: text("platform").notNull(),
   maxPlayers: integer("max_players").notNull().default(1),
+  nameSource: text("name_source").notNull().default("import"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

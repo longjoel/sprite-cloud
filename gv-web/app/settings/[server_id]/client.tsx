@@ -135,6 +135,7 @@ export default function ServerManager({
     setError(null);
     try {
       const files = matches.map((r) => ({
+        dat_name: r.match?.name ?? undefined,
         name: overrides[r.file.relative_path] ?? r.match?.name ?? r.file.file_name,
         platform: r.file.platform ?? "Unknown",
         rom_path: r.file.relative_path,

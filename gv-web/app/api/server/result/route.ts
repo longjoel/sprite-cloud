@@ -28,28 +28,22 @@ interface ScanResult {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-function slugify(name: string, platform: string): string {
-  const base = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-  const plat = platform
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-  return `${base}-${plat}`;
+/** Stable slug from filename (not display name) — re-scans always match. */
+function fileSlug(fileName: string, platform: string): string {
+  const stem = fileName.replace(/\.[^.]+$/, "").toLowerCase();
+  const clean = stem.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const plat = platform.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return `${clean}-${plat}`;
 }
 
-/** Derive a display name from the scan result. */
+/** Display name: DAT match > filename without extension. */
 function displayName(file: ScanMatch["file"], match?: ScanMatch["match"] | null): string {
   if (match?.name) return match.name;
-  // Strip extension from filename
   const stem = file.name.replace(/\.[^.]+$/, "");
-  // Replace underscores/spaces
   return stem.replace(/[_-]+/g, " ").trim() || file.name;
 }
 
-/** Derive platform from the scan result. */
+/** Detect platform from scan result. */
 function detectPlatform(file: ScanMatch["file"]): string {
   if (file.platform) return file.platform;
   const ext = file.name.split(".").pop()?.toLowerCase() || "";
@@ -64,13 +58,6 @@ function detectPlatform(file: ScanMatch["file"]): string {
 }
 
 // ── POST /api/server/result ────────────────────────────────────────────
-//
-// gv-server reports the result of a completed command (e.g. browse_files
-// file tree, scan_paths matches). Auth: Bearer token (API key).
-// Security: only the server that owns the command can set its result.
-//
-// For scan_paths commands: additionally imports discovered files into
-// the games + game_files library tables so they appear in the web UI.
 
 export async function POST(request: NextRequest) {
   const server = await verifyBearerToken(request.headers.get("authorization"));
@@ -92,7 +79,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Only update if the server owns this command
   const [updated] = await db
     .update(commands)
     .set({ result: body.result, status: STATUS_COMPLETED, completedAt: new Date(), lastError: null })
@@ -113,7 +99,6 @@ export async function POST(request: NextRequest) {
   let imported = 0;
   let skipped = 0;
 
-  // ── Process scan results into library ─────────────────────────────
   if (updated.type === CMD_SCAN_PATHS) {
     const result = body.result as ScanResult;
     if (result?.matches && Array.isArray(result.matches)) {
@@ -123,27 +108,30 @@ export async function POST(request: NextRequest) {
 
         const name = displayName(file, m.match);
         const platform = detectPlatform(file);
-        const slug = slugify(name, platform);
+        const slug = fileSlug(file.name, platform);
 
-        // Upsert game
-        let gameRows = await db
-          .select({ id: games.id })
+        // Look up by filename-based slug (stable across re-scans)
+        const existingRows = await db
+          .select({ id: games.id, name: games.name, nameSource: games.nameSource })
           .from(games)
           .where(eq(games.slug, slug))
           .limit(1);
 
         let gameId: string;
-        if (gameRows.length > 0) {
-          gameId = gameRows[0].id;
+        if (existingRows.length > 0) {
+          gameId = existingRows[0].id;
+          // Update name if source is 'import' and DAT has a better match
+          if (existingRows[0].nameSource === "import" && name !== existingRows[0].name) {
+            await db.update(games).set({ name }).where(eq(games.id, gameId));
+          }
         } else {
           const [created] = await db
             .insert(games)
-            .values({ name, slug, platform })
+            .values({ name, slug, platform, nameSource: "import" })
             .returning({ id: games.id });
           gameId = created.id;
         }
 
-        // Insert game_file (skip on duplicate)
         try {
           await db.insert(gameFiles).values({
             gameId,
