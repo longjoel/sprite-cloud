@@ -259,6 +259,11 @@ export async function POST(request: NextRequest) {
 
   if (body.type === CMD_START_GAME) {
     const hostToken = (payloadResult.payload as any).host_token as string | undefined;
+    const userId = (session?.user?.id as string) || undefined;
+    if (!userId) {
+      return NextResponse.json({ error: "sign in first" }, { status: 401 });
+    }
+    const uid: string = userId;
 
     // End any active sessions owned by the same host_token.
     // This implements "starting a new game kills the old one."
@@ -284,7 +289,7 @@ export async function POST(request: NextRequest) {
     // Create a fresh session in "spawning" state.
     // The server will transition it to "ready" when the worker is up.
     await db.insert(sessions).values({
-      userId: session.user.id,
+      userId: uid,
       serverId,
       gameId: enrichedPayload.game_id as string,
       commandId: cmd.id,
