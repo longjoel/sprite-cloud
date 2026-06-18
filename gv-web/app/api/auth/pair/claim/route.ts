@@ -50,21 +50,47 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "code expired" }, { status: 410 });
   }
 
-  // Generate API key and create server
+  // Generate API key and create or reuse server.
+  // Idempotent pairing: if a server with the same name already exists for
+  // this user, rotate the API key instead of creating a new server.
+  // This prevents data orphans when a user re-pairs after a config reset.
   const apiKey = generateApiKey();
   const apiKeyHash = hashApiKey(apiKey);
+  const serverName = "gv-server";
 
-  const [server] = await db
-    .insert(servers)
-    .values({
-      userId: record.userId,
-      apiKeyHash,
-      name: "gv-server",
-    })
-    .returning({ id: servers.id });
+  // Check for existing server by user + name
+  const [existing] = await db
+    .select({ id: servers.id })
+    .from(servers)
+    .where(
+      and(eq(servers.userId, record.userId), eq(servers.name, serverName))
+    )
+    .limit(1);
 
-  if (!server) {
-    return NextResponse.json({ error: "failed to create server" }, { status: 500 });
+  let serverId: string;
+
+  if (existing) {
+    // Re-pair: rotate the API key on the existing server
+    await db
+      .update(servers)
+      .set({ apiKeyHash, lastSeenAt: new Date() })
+      .where(eq(servers.id, existing.id));
+    serverId = existing.id;
+  } else {
+    // First pair: create a new server
+    const [server] = await db
+      .insert(servers)
+      .values({
+        userId: record.userId,
+        apiKeyHash,
+        name: serverName,
+      })
+      .returning({ id: servers.id });
+
+    if (!server) {
+      return NextResponse.json({ error: "failed to create server" }, { status: 500 });
+    }
+    serverId = server.id;
   }
 
   // Mark code as claimed
@@ -73,12 +99,15 @@ export async function POST(request: NextRequest) {
     .set({ status: "claimed", claimedAt: new Date() })
     .where(eq(pairingCodes.code, code));
 
-  // Auto-add the pairing user as admin member
-  await db.insert(serverMembers).values({
-    serverId: server.id,
-    userId: record.userId,
-    role: "admin",
-  });
+  // Auto-add the pairing user as admin member (first pair only).
+  // On re-pair, the user is already a member.
+  if (!existing) {
+    await db.insert(serverMembers).values({
+      serverId,
+      userId: record.userId,
+      role: "admin",
+    });
+  }
 
   // Upsert ROM roots if the server reported them.
   // Remove old roots not in the new list; insert new ones.
@@ -87,22 +116,20 @@ export async function POST(request: NextRequest) {
     // Delete roots no longer reported
     await db
       .delete(serverRomRoots)
-      .where(eq(serverRomRoots.serverId, server.id));
+      .where(eq(serverRomRoots.serverId, serverId));
 
     // Insert the current set
-    if (romRoots.length > 0) {
-      await db.insert(serverRomRoots).values(
-        romRoots.map((path) => ({
-          serverId: server.id,
-          path,
-        })),
-      );
-    }
+    await db.insert(serverRomRoots).values(
+      romRoots.map((path) => ({
+        serverId,
+        path,
+      })),
+    );
   }
   // If rom_roots is absent or empty, preserve existing roots (backward compat).
 
   return NextResponse.json({
-    server_id: server.id,
+    server_id: serverId,
     api_key: apiKey,
   });
 }
