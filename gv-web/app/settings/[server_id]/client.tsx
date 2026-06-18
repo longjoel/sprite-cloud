@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { pollUntil } from "@/lib/poll";
+import { Badge, Button, Input } from "@/components/ui";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -105,6 +106,8 @@ export default function ServerManager({
       const result = await pollResult(cmd.id);
       if (result?.matches) {
         setResults(result.matches);
+        // Auto-import after scan — no separate "Import to Library" step.
+        await importFiles(result.matches);
       } else if (result?.error) {
         setError(result.error);
       } else {
@@ -126,12 +129,12 @@ export default function ServerManager({
     });
   }
 
-  async function importToLibrary() {
-    if (!results) return;
+  async function importFiles(matches: typeof results) {
+    if (!matches) return;
     setImporting(true);
     setError(null);
     try {
-      const files = results.map((r) => ({
+      const files = matches.map((r) => ({
         name: overrides[r.file.relative_path] ?? r.match?.name ?? r.file.file_name,
         platform: r.file.platform ?? "Unknown",
         rom_path: r.file.relative_path,
@@ -157,11 +160,17 @@ export default function ServerManager({
     }
   }
 
+  async function importToLibrary() {
+    await importFiles(results);
+  }
+
   return (
     <main style={S.main}>
       <h1 style={S.h1}>{serverName || serverId.slice(0, 8)}</h1>
 
-      {error && <div style={S.error}>{error}</div>}
+      {error && (
+        <div style={S.error}>{error}</div>
+      )}
 
       <section style={S.section}>
         <h2 style={S.h2}>ROM roots</h2>
@@ -174,15 +183,17 @@ export default function ServerManager({
             {romRoots.map((root) => (
               <li key={root} style={S.rootItem}>
                 <code style={S.path}>{root}</code>
-                <button
-                  style={S.btn}
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => browse(root)}
                   disabled={browsing}
                 >
                   {browsing ? "Browsing..." : "Browse"}
-                </button>
-                <button
-                  style={{ ...S.btn, ...S.btnScan }}
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={() => {
                     setChecked(new Set([root]));
                     scan();
@@ -190,7 +201,7 @@ export default function ServerManager({
                   disabled={scanning}
                 >
                   {scanning ? "Scanning..." : "Scan all"}
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -235,13 +246,15 @@ export default function ServerManager({
           <h2 style={S.h2}>Files</h2>
           <TreeView node={tree} checked={checked} onToggle={toggle} />
           {checked.size > 0 && (
-            <button
-              style={{ ...S.btn, ...S.btnScan, marginTop: 12 }}
+            <Button
+              variant="primary"
+              size="sm"
               onClick={scan}
               disabled={scanning}
+              style={{ marginTop: "var(--space-5)" }}
             >
               {scanning ? "Scanning..." : `Scan selected (${checked.size})`}
-            </button>
+            </Button>
           )}
         </section>
       )}
@@ -260,7 +273,7 @@ export default function ServerManager({
               </tr>
             </thead>
             <tbody>
-              {results.map((r, i) => {
+              {results.map((r) => {
                 const key = r.file.relative_path;
                 const name = overrides[key] ?? r.match?.name ?? r.file.file_name;
                 return (
@@ -272,8 +285,7 @@ export default function ServerManager({
                       {r.file.platform ?? "—"}
                     </td>
                     <td style={S.td}>
-                      <input
-                        style={S.input}
+                      <Input
                         value={name}
                         onChange={(e) =>
                           setOverrides((prev) => ({
@@ -281,11 +293,12 @@ export default function ServerManager({
                             [key]: e.target.value,
                           }))
                         }
+                        style={{ padding: "2px 6px", fontSize: "var(--font-size-base)" }}
                       />
                     </td>
                     <td style={S.td}>
                       {r.match ? (
-                        <span style={S.matchBadge}>✓ DAT</span>
+                        <Badge variant="success">✓ DAT</Badge>
                       ) : (
                         <span style={S.noMatch}>manual</span>
                       )}
@@ -296,13 +309,15 @@ export default function ServerManager({
             </tbody>
           </table>
 
-          <button
-            style={{ ...S.btn, ...S.btnAdd, marginTop: 12 }}
+          <Button
+            variant="primary"
+            size="md"
             onClick={importToLibrary}
             disabled={added || importing}
+            style={{ marginTop: "var(--space-5)" }}
           >
             {importing ? "Importing..." : added ? "✓ Added" : "Add to library"}
-          </button>
+          </Button>
           {added && (
             <p style={S.note}>
               Games added.{" "}
@@ -364,7 +379,7 @@ function TreeView({
         <span
           style={{
             ...S.treeName,
-            color: node.type === "error" ? "#e55" : undefined,
+            color: node.type === "error" ? "var(--color-error)" : undefined,
           }}
         >
           {node.name}
@@ -385,7 +400,6 @@ function TreeView({
 
 // ── API helpers ────────────────────────────────────────────────────────
 
-
 function csrfHeaders(): Record<string, string> {
   let token = document.cookie
     .split(";")
@@ -400,7 +414,6 @@ function csrfHeaders(): Record<string, string> {
   }
   return { "Content-Type": "application/json", "x-csrf-token": decodeURIComponent(token) };
 }
-
 
 async function enqueueCommand(
   serverId: string,
@@ -431,10 +444,8 @@ async function pollResult(
         const err = await resp.json().catch(() => ({}));
         throw new Error(err.error || `HTTP ${resp.status}`);
       }
-
       const data = await resp.json();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (data.result !== null && data.result !== undefined) ? (data.result as any) : null;
+      return (data.result !== null && data.result !== undefined) ? data.result : null;
     },
     { intervalMs: 1000, maxAttempts: maxTries },
   );
@@ -444,91 +455,104 @@ async function pollResult(
 
 const S: Record<string, React.CSSProperties> = {
   main: {
-    padding: "2rem",
-    fontFamily: "monospace",
-    background: "#111",
-    color: "#ccc",
+    padding: "var(--space-8)",
+    fontFamily: "var(--font-mono)",
+    background: "var(--color-mahogany)",
+    color: "var(--color-cream)",
     minHeight: "100vh",
   },
-  h1: { margin: "0 0 2rem", fontSize: "1.5rem", color: "#fff" },
-  h2: { margin: "0 0 1rem", fontSize: "1rem", color: "#aaa" },
-  section: { marginBottom: "2rem" },
-  empty: { fontSize: 13, color: "#666", fontStyle: "italic" },
+  h1: {
+    margin: "0 0 var(--space-8)",
+    fontSize: "var(--font-size-h1)",
+    color: "var(--color-brass)",
+    fontFamily: "var(--font-mono)",
+  },
+  h2: {
+    margin: "0 0 var(--space-6)",
+    fontSize: "var(--font-size-h2)",
+    color: "var(--color-muted)",
+    fontFamily: "var(--font-mono)",
+  },
+  section: { marginBottom: "var(--space-8)" },
+  empty: {
+    fontSize: "var(--font-size-base)",
+    color: "var(--color-muted)",
+    fontStyle: "italic",
+  },
   error: {
-    padding: "8px 12px",
-    background: "rgba(255,80,80,0.15)",
-    border: "1px solid rgba(255,80,80,0.3)",
-    borderRadius: 4,
-    marginBottom: "1rem",
-    fontSize: 13,
-    color: "#e55",
+    padding: "var(--space-4) var(--space-5)",
+    background: "var(--color-errorBg)",
+    border: "1px solid var(--color-error)",
+    borderRadius: "var(--radius-md)",
+    marginBottom: "var(--space-6)",
+    fontSize: "var(--font-size-base)",
+    color: "var(--color-error)",
   },
   rootList: { listStyle: "none", padding: 0, margin: 0 },
   rootItem: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
-    padding: "8px 0",
-    borderBottom: "1px solid #222",
+    gap: "var(--space-4)",
+    padding: "var(--space-4) 0",
+    borderBottom: "1px solid var(--color-teak)",
   },
-  path: { fontSize: 13, color: "#6af", flex: 1 },
-  btn: {
-    padding: "4px 14px",
-    border: "1px solid #444",
-    background: "#222",
-    color: "#ccc",
-    cursor: "pointer",
-    fontFamily: "monospace",
-    fontSize: 12,
-    borderRadius: 3,
+  path: {
+    fontSize: "var(--font-size-base)",
+    color: "var(--color-info)",
+    flex: 1,
   },
-  btnScan: { borderColor: "#6af", color: "#6af" },
-  btnAdd: { borderColor: "#2a2", color: "#2a2" },
   treeRow: {
     display: "flex",
     alignItems: "center",
-    gap: 6,
+    gap: "var(--space-3)",
     padding: "3px 0",
     cursor: "pointer",
-    fontSize: 13,
+    fontSize: "var(--font-size-base)",
   },
-  treeIcon: { fontSize: 13 },
-  treeName: { fontSize: 13 },
-  checkbox: { width: 16, fontSize: 12, color: "#888" },
+  treeIcon: { fontSize: "var(--font-size-base)" },
+  treeName: { fontSize: "var(--font-size-base)" },
+  checkbox: { width: 16, fontSize: "var(--font-size-sm)", color: "var(--color-muted)" },
   table: { width: "100%", borderCollapse: "collapse" as const },
   th: {
     textAlign: "left" as const,
-    padding: "6px 12px",
-    borderBottom: "1px solid #333",
-    fontSize: 12,
-    color: "#888",
+    padding: "var(--space-3) var(--space-5)",
+    borderBottom: "1px solid var(--color-bamboo)",
+    fontSize: "var(--font-size-sm)",
+    color: "var(--color-muted)",
+    fontFamily: "var(--font-mono)",
   },
   td: {
-    padding: "6px 12px",
-    borderBottom: "1px solid #222",
-    fontSize: 13,
+    padding: "var(--space-3) var(--space-5)",
+    borderBottom: "1px solid var(--color-teak)",
+    fontSize: "var(--font-size-base)",
   },
-  input: {
-    padding: "2px 6px",
-    border: "1px solid #444",
-    background: "#1a1a1a",
-    color: "#ccc",
-    fontFamily: "monospace",
-    fontSize: 13,
-    borderRadius: 3,
-    width: "100%",
+  fileName: { fontSize: "var(--font-size-sm)", color: "var(--color-info)" },
+  noMatch: {
+    fontSize: "var(--font-size-xs)",
+    color: "var(--color-muted)",
+    fontStyle: "italic",
   },
-  fileName: { fontSize: 12, color: "#6af" },
-  matchBadge: { fontSize: 11, color: "#2a2" },
-  noMatch: { fontSize: 11, color: "#888", fontStyle: "italic" },
-  note: { fontSize: 13, color: "#2a2", marginTop: 8 },
-  link: { color: "#6af", textDecoration: "none", fontSize: 13 },
-  metaTable: { borderCollapse: "collapse" as const, fontSize: 13 },
+  note: {
+    fontSize: "var(--font-size-base)",
+    color: "var(--color-success)",
+    marginTop: "var(--space-4)",
+  },
+  link: {
+    color: "var(--color-info)",
+    textDecoration: "none",
+    fontSize: "var(--font-size-base)",
+    fontFamily: "var(--font-mono)",
+  },
+  metaTable: { borderCollapse: "collapse" as const, fontSize: "var(--font-size-base)" },
   metaLabel: {
-    padding: "2px 16px 2px 0",
-    color: "#888",
+    padding: "2px var(--space-6) 2px 0",
+    color: "var(--color-muted)",
     textAlign: "right" as const,
     whiteSpace: "nowrap" as const,
   },
-  metaValue: { padding: "2px 0", color: "#ccc", wordBreak: "break-all" as const },
+  metaValue: {
+    padding: "2px 0",
+    color: "var(--color-cream)",
+    wordBreak: "break-all" as const,
+  },
 };
