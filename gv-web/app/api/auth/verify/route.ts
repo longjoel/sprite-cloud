@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyBearerToken, unauthorizedResponse } from "@/lib/server-auth";
 import { db } from "@/lib/db";
-import { servers } from "@/lib/db/schema";
+import { servers, serverRomRoots } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 
 // GET /api/auth/verify — gv-server verifies its API key is valid
@@ -39,6 +39,28 @@ async function handleVerify(
       .update(servers)
       .set({ lastSeenAt: new Date(), metadata: safe })
       .where(eq(servers.id, server.id));
+
+    // Sync ROM roots to server_rom_roots table if reported.
+    // This keeps roots in sync on every server startup, not just
+    // at claim time — if a user changes GV_ROM_ROOTS and restarts,
+    // the new roots are reflected without re-pairing.
+    const romRoots = extractRomRoots(metadata);
+    if (romRoots !== null) {
+      // Delete roots no longer reported
+      await db
+        .delete(serverRomRoots)
+        .where(eq(serverRomRoots.serverId, server.id));
+
+      // Insert the current set
+      if (romRoots.length > 0) {
+        await db.insert(serverRomRoots).values(
+          romRoots.map((path) => ({
+            serverId: server.id,
+            path,
+          })),
+        );
+      }
+    }
   }
 
   return NextResponse.json({
@@ -46,6 +68,18 @@ async function handleVerify(
     user_id: server.userId,
     name: server.name,
   });
+}
+
+// Extract rom_roots from the nested metadata that gv-server sends:
+// { metadata: { rom_roots: ["/path/one", "/path/two"] } }
+function extractRomRoots(metadata: Record<string, unknown>): string[] | null {
+  // gv-server wraps metadata in a "metadata" key
+  const inner = metadata.metadata as Record<string, unknown> | undefined;
+  const roots = (inner?.rom_roots ?? metadata.rom_roots) as unknown;
+  if (Array.isArray(roots) && roots.every((r) => typeof r === "string")) {
+    return roots as string[];
+  }
+  return null;
 }
 
 // Strips known secret fields from metadata (defense in depth —
