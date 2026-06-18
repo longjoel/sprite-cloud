@@ -1,0 +1,66 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'gv-web/**'
+      - 'gv-player/**'
+      - 'docker/gv-web/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build production image
+        run: |
+          docker build \
+            -f docker/gv-web/Dockerfile.prod \
+            -t gv-web-prod:latest .
+
+      - name: Install SSH key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          known_hosts: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+          name: vps-key
+
+      - name: Transfer image to VPS
+        run: |
+          docker save gv-web-prod:latest | gzip | \
+            ssh -o StrictHostKeyChecking=accept-new \
+              root@lngnckr.tech 'gunzip | docker load'
+
+      - name: Restart gv-web on VPS
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new root@lngnckr.tech '
+            cd /docker/gv-web && \
+            docker compose down gv-web && \
+            docker compose up -d gv-web
+          '
+
+      - name: Health check
+        run: |
+          sleep 10
+          for i in $(seq 1 6); do
+            STATUS=$(ssh -o StrictHostKeyChecking=accept-new root@lngnckr.tech \
+              'curl -sf http://localhost:3000/api/health' && echo "ok" || echo "fail")
+            if [ "$STATUS" = "ok" ]; then
+              echo "✓ Health check passed"
+              exit 0
+            fi
+            echo "Waiting... ($i/6)"
+            sleep 5
+          done
+          echo "✗ Health check failed after 6 attempts"
+          exit 1
