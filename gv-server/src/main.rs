@@ -63,7 +63,7 @@ async fn main() -> Result<()> {
         Command::Pair { code, gv_web_url } => cmd_pair(&code, &gv_web_url).await,
         Command::Start { gv_web_url } => cmd_start(gv_web_url).await,
         Command::Worker { port } => {
-            gv_worker::run_worker(port).await.map_err(|e| anyhow::anyhow!("{e}"))
+            gv_worker_v2::run_worker(port).await.map_err(|e| anyhow::anyhow!("{e}"))
         }
     }
 }

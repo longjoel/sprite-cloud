@@ -12,7 +12,7 @@ PG_USER="${GV_PG_USER:-games-vault}"
 WEB_PORT="${GV_WEB_PORT:-3000}"
 LOG_DIR="${GV_LOG_DIR:-/dev/shm/gv-logs}"
 ROM_ROOTS="${GV_ROM_ROOTS:-/srv/storage/games/roms}"
-WORKER_BIN="${GV_WORKER_BIN:-/usr/local/bin/gv-worker}"
+WORKER_BIN="${GV_WORKER_BIN:-/usr/local/bin/gv-worker-v2}"
 SERVER_BIN="${GV_SERVER_BIN:-/usr/local/bin/gv-server}"
 CORES_DIR="${GV_CORES_DIR:-/srv/storage/games/cores}"
 SAVE_DIR="${GV_SAVE_DIR:-/srv/storage/games/saves}"
@@ -131,8 +131,8 @@ cmd_start() {
     log "Postgres ready"
 
     if [ ! -f "$WORKER_BIN" ]; then
-        err "gv-worker binary not found: $WORKER_BIN"
-        err "Build: cargo build --release -p gv-worker && cp target/release/gv-worker $WORKER_BIN && chown $GV_USER:$GV_USER $WORKER_BIN"
+        err "gv-worker-v2 binary not found: $WORKER_BIN"
+        err "Build: cargo build --release -p gv-worker-v2 && cp target/release/gv-worker-v2 $WORKER_BIN && chown $GV_USER:$GV_USER $WORKER_BIN"
         exit 1
     fi
 
@@ -245,9 +245,9 @@ cmd_start() {
 cmd_build() {
     log "Building release binaries..."
     cd "$PROJECT_DIR"
-    cargo build --release -p gv-server -p gv-worker
+    cargo build --release -p gv-server -p gv-worker-v2
     cp target/release/gv-server "$SERVER_BIN"
-    cp target/release/gv-worker "$WORKER_BIN"
+    cp target/release/gv-worker-v2 "$WORKER_BIN"
     chown "$GV_USER:$GV_USER" "$SERVER_BIN" "$WORKER_BIN"
     chmod 755 "$SERVER_BIN" "$WORKER_BIN"
     log "Installed to $SERVER_BIN and $WORKER_BIN"

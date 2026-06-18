@@ -426,8 +426,8 @@ impl Drop for SpawnedWorker {
 
 /// Auto-detect the gv-worker binary (dev fallback).
 fn default_worker_bin() -> String {
-    let release = "./target/release/gv-worker";
-    let debug = "./target/debug/gv-worker";
+    let release = "./target/release/gv-worker-v2";
+    let debug = "./target/debug/gv-worker-v2";
     if std::path::Path::new(release).exists() {
         release.to_string()
     } else {
@@ -440,7 +440,7 @@ fn default_worker_bin() -> String {
 /// 1. `override` (from config.toml `gv_web.worker_bin`)
 /// 2. `GV_WORKER_BIN` env var
 /// 3. `current_exe` (single-binary deploy — dispatches as subcommand)
-/// 4. Auto-detect (`./target/release/gv-worker` → `./target/debug/gv-worker`)
+/// 4. Auto-detect (`./target/release/gv-worker-v2` → `./target/debug/gv-worker-v2`)
 pub fn resolve_worker_bin(override_: Option<&str>) -> String {
     if let Some(path) = override_ {
         return path.to_string();
@@ -470,7 +470,7 @@ pub fn resolve_worker_bin(override_: Option<&str>) -> String {
 /// `worker_bin_override` — path to the worker binary.  Resolution order:
 /// 1. This argument (from `config.toml` `gv_web.worker_bin`)
 /// 2. `GV_WORKER_BIN` env var
-/// 3. Auto-detect (`./target/release/gv-worker` → `./target/debug/gv-worker`)
+/// 3. Auto-detect (`./target/release/gv-worker-v2` → `./target/debug/gv-worker-v2`)
 ///
 /// `platform` — DAT platform string (e.g. "Nintendo - Game Boy").
 /// Mapped to a core via `core_for_platform()` and passed as `GV_CORE_PATH`.
@@ -691,8 +691,8 @@ mod tests {
     async fn reap_kills_stale_worker() {
         let game_id = "test-reap-1";
         let tmp = tempfile::tempdir().expect("tempdir");
-        let fake_worker = tmp.path().join("gv-worker");
-        std::os::unix::fs::symlink("/bin/sleep", &fake_worker).expect("symlink fake gv-worker");
+        let fake_worker = tmp.path().join("gv-worker-v2");
+        std::os::unix::fs::symlink("/bin/sleep", &fake_worker).expect("symlink fake gv-worker-v2");
         let child = Command::new(&fake_worker)
             .arg("60")
             .spawn()
@@ -802,8 +802,8 @@ mod tests {
             .map(|e| e.to_string_lossy().to_string())
             .unwrap_or_default();
         assert!(
-            path == "./target/release/gv-worker"
-                || path == "./target/debug/gv-worker"
+            path == "./target/release/gv-worker-v2"
+                || path == "./target/debug/gv-worker-v2"
                 || path == exe,
             "expected release/debug/current_exe path, got: {path}"
         );
