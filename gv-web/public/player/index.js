@@ -100,8 +100,6 @@ export async function inspectRoute(pc) {
   }
 }
 
-const STUN_SERVER = "stun:stun.l.google.com:19302";
-
 function gvCsrfHeaders() {
   let token = document.cookie
     .split(";")
@@ -195,7 +193,7 @@ export class GvPlayer {
     this._video.playsinline = true;
 
     /** @type {Array<{urls: string|string[], username?: string, credential?: string}>} */
-    this._iceServers = (options && options.iceServers) || [{ urls: STUN_SERVER }];
+    this._iceServers = (options && options.iceServers) || [];
     this._iceTransportPolicy = (options && options.iceTransportPolicy) || "all";
 
     /** @type {number} Player seat index (0 = default, 1–N for multi-seat). */
@@ -350,8 +348,8 @@ export class GvPlayer {
    * @param {string} serverId   — server UUID
    * @param {string} gameId     — game identifier
    */
-  async connectViaRelay(serverId, gameId, hostToken) {
-    console.log("[gv] connectViaRelay starting", { serverId, gameId });
+  async connectViaRelay(serverId, gameId, hostToken, pollToken, roomToken) {
+    console.log("[gv] connectViaRelay starting", { serverId, gameId, roomToken: !!roomToken, pollToken: !!pollToken });
     if (this._state !== State.IDLE) {
       this.disconnect();
     }
@@ -369,14 +367,18 @@ export class GvPlayer {
     await this._pc.setLocalDescription(offer);
 
     // POST sdp_offer command — returns a worker_token we use to poll
+    const cmdBody = {
+      server_id: serverId,
+      type: "sdp_offer",
+      payload: { game_id: gameId, sdp: offer.sdp, host_token: hostToken },
+    };
+    if (roomToken) {
+      cmdBody.payload.room_token = roomToken;
+    }
     const cmdResp = await fetch("/api/server/command", {
       method: "POST",
       headers: gvCsrfHeaders(),
-      body: JSON.stringify({
-        server_id: serverId,
-        type: "sdp_offer",
-        payload: { game_id: gameId, sdp: offer.sdp, host_token: hostToken },
-      }),
+      body: JSON.stringify(cmdBody),
     });
 
     if (!cmdResp.ok) {
@@ -392,9 +394,10 @@ export class GvPlayer {
       throw new Error("sdp_offer response missing worker_token");
     }
 
-    // Poll for the worker's SDP answer
-    console.log("[gv] polling for SDP answer...");
-    const answerSdp = await this._pollForAnswer(serverId, workerToken);
+    // Poll for the worker's SDP answer.
+    // Use the start_game pollToken if available (ties to the session),
+    // otherwise fall back to the sdp_offer's workerToken.
+    const answerSdp = await this._pollForAnswer(serverId, pollToken || workerToken);
     console.log("[gv] SDP answer received, setting remote description");
 
     await this._pc.setRemoteDescription(

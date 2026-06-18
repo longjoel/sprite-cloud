@@ -400,6 +400,22 @@ pub fn vp8_keyframe_interval_secs() -> f64 {
     *INTERVAL
 }
 
+/// VP8 encoder usage mode (libvpx `usage` parameter).
+/// 0 = good quality (default) — best quality, higher CPU
+/// 1 = realtime — lower latency, much lower CPU (for weak hardware like N100/RPi)
+/// Read from `GV_VP8_USAGE` env var, defaults to 0.
+pub fn vp8_usage() -> u32 {
+    use std::sync::LazyLock;
+    static USAGE: LazyLock<u32> = LazyLock::new(|| {
+        std::env::var("GV_VP8_USAGE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|&v| v <= 1)
+            .unwrap_or(0)
+    });
+    *USAGE
+}
+
 /// How often to send per-frame stats over DataChannel (in frames).
 /// Every 5th frame (~6 Hz) for smooth HUD updates.
 pub const STATS_SEND_INTERVAL: u64 = 5;

@@ -85,6 +85,7 @@ services:
       GV_ICE_TURN_CREDENTIAL: ${GV_ICE_TURN_CREDENTIAL:-}
       GV_ICE_TRANSPORT_POLICY: ${GV_ICE_TRANSPORT_POLICY:-all}
       RUST_LOG: ${RUST_LOG:-info}
+      GV_VP8_USAGE: ${GV_VP8_USAGE:-0}
     healthcheck:
       test: ["CMD", "pgrep", "gv-server"]
       interval: 15s

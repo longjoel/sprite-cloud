@@ -1,6 +1,7 @@
 pub mod audio_pipeline;
 pub mod config;
 pub mod core_bridge;
+pub mod player_assets;
 pub mod saves;
 pub mod test_pattern;
 pub mod vp8_encoder;
@@ -46,7 +47,7 @@ pub async fn run_worker(port: u16) -> Result<(), Box<dyn std::error::Error>> {
 
     use axum::routing::{get, post};
     let app = axum::Router::new()
-        .route("/", get(handle_index))
+        .route("/", get(handle_root))
         .route("/sdp", post(handle_offer))
         .route("/state", get(handle_connection_state))
         .route("/test-frame", get(handle_test_frame))

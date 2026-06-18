@@ -51,6 +51,8 @@ pub struct CoreHandle {
     /// Core's actual frame rate (e.g. 59.94 for NES, 60.0 for most).
     pub fps: f64,
     pub sample_rate: f64,
+    /// Audio channel count detected from the platform (1 = mono, 2 = stereo).
+    pub audio_channels: u16,
     pub frame_rx: Receiver<CoreFrame>,
     pub cmd_tx: SyncSender<CoreCommand>,
     pub response_rx: Receiver<CoreResponse>,
@@ -62,6 +64,11 @@ pub struct CoreHandle {
 /// Returns a `CoreHandle` with frame dimensions, frame receiver,
 /// command sender, and response receiver.
 pub fn spawn_core_thread() -> Option<CoreHandle> {
+    let audio_channels: u16 = std::env::var("GV_AUDIO_CHANNELS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2);
+
     let core_path = std::env::var("GV_CORE_PATH").unwrap_or_else(|_| {
         let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         p.pop();
@@ -82,10 +89,7 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
             .unwrap_or_else(|_| "/tmp".into())
             .into(),
         save_dir,
-        audio_channels: std::env::var("GV_AUDIO_CHANNELS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(2),
+        audio_channels,
     };
 
     // SAFETY: the core is loaded in a dedicated thread. The core path
@@ -293,6 +297,7 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
         height,
         fps,
         sample_rate,
+        audio_channels,
         frame_rx,
         cmd_tx,
         response_rx,

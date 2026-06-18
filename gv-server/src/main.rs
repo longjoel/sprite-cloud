@@ -144,6 +144,10 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
         verify.user_id
     );
 
+    // Validate prerequisites before entering the poll loop.
+    // Failures here are fatal — don't start with broken prerequisites.
+    validate_prerequisites(&cfg, worker_bin.as_deref());
+
     tracing::info!("gv-server running — polling for commands...");
 
     // Kill any workers orphaned by a previous crash
@@ -234,6 +238,26 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                             "[WORKER] killing previous worker for game {game_id}"
                                         );
                                         old.kill().await;
+                                    }
+
+                                    // Kill ALL workers owned by this host_token — when a user
+                                    // starts a new game, any existing sessions they own are
+                                    // terminated. This prevents worker leak on game switch.
+                                    if let Some(ht) = host_token {
+                                        let mut victim_ids: Vec<String> = Vec::new();
+                                        for (gid, w) in workers.iter() {
+                                            if w.host_token() == Some(ht) {
+                                                victim_ids.push(gid.clone());
+                                            }
+                                        }
+                                        for gid in &victim_ids {
+                                            if let Some(old) = workers.remove(gid) {
+                                                tracing::info!(
+                                                    "[WORKER] killing worker for game {gid} (same host_token, user switched games)"
+                                                );
+                                                old.kill().await;
+                                            }
+                                        }
                                     }
 
                                     match worker::spawn_worker(game_id, worker_bin.as_deref(), host_token, rom_path.as_deref(), platform).await {
@@ -327,10 +351,70 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         sdp.len()
                                     );
 
-                                    // Find the worker for this game and relay the SDP
+                                    // Guest SDP offers must NOT be forwarded to the worker.
+                                    // The worker is single-peer — forwarding a guest SDP cancels
+                                    // the host's streaming session (do_webrtc_handshake kills
+                                    // the old CancellationToken and aborts the stream handle).
+                                    // Multi-peer WebRTC in the worker is tracked separately.
+                                    let is_guest = cmd
+                                        .payload
+                                        .get("room_token")
+                                        .and_then(|v| v.as_str())
+                                        .is_some();
+
+                                    if is_guest {
+                                        tracing::warn!(
+                                            "[SDP] guest sdp_offer for game {game_id} — viewer mode not yet supported"
+                                        );
+                                        // Complete the command with an error result so the guest
+                                        // browser sees a clean failure instead of polling forever.
+                                        // Use command_result (not notify_once) to avoid rotating
+                                        // the room_token on every blocked attempt.
+                                        let result = serde_json::json!({
+                                            "error": "viewer_mode_not_supported",
+                                            "message": "Multi-viewer WebRTC not yet available"
+                                        });
+                                        if let Err(e) = client
+                                            .command_result(&cmd.id, &cmd.lease_token, &result)
+                                            .await
+                                        {
+                                            tracing::error!(
+                                                "[SDP] command_result failed for guest: {e:#}"
+                                            );
+                                        }
+                                        continue;
+                                    }
+
+                                    // Reap exited workers before relaying SDP.  A zombie
+                                    // child still has a PID, so signal-0 liveness checks are
+                                    // insufficient; `reap_if_exited()` uses Child::try_wait().
+                                    if workers
+                                        .get_mut(game_id)
+                                        .map(|worker| worker.reap_if_exited())
+                                        .unwrap_or(false)
+                                    {
+                                        workers.remove(game_id);
+                                        if let Err(e) = client
+                                            .command_result(
+                                                &cmd.id,
+                                                &cmd.lease_token,
+                                                &serde_json::json!({
+                                                    "error": "worker_exited",
+                                                    "message": "Worker exited before SDP could be relayed"
+                                                }),
+                                            )
+                                            .await
+                                        {
+                                            tracing::error!(
+                                                "[SDP] command_result failed for exited worker: {e:#}"
+                                            );
+                                        }
+                                        continue;
+                                    }
+
+                                    // Find the worker for this game and relay the SDP.
                                     if let Some(worker) = workers.get(game_id) {
-                                        let internal_url =
-                                            internal_worker_url(&worker.url);
+                                        let internal_url = internal_worker_url(&worker.url);
                                         tracing::info!(
                                             "[SDP] forwarding to worker at {internal_url}"
                                         );
@@ -371,34 +455,110 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                                             tracing::error!(
                                                                 "[SDP] worker response missing 'sdp' field"
                                                             );
+                                                            if let Err(e) = client
+                                                                .command_result(
+                                                                    &cmd.id,
+                                                                    &cmd.lease_token,
+                                                                    &serde_json::json!({
+                                                                        "error": "worker_answer_missing_sdp"
+                                                                    }),
+                                                                )
+                                                                .await
+                                                            {
+                                                                tracing::error!(
+                                                                    "[SDP] command_result failed for missing SDP: {e:#}"
+                                                                );
+                                                            }
                                                         }
                                                     }
                                                     Err(e) => {
                                                         tracing::error!(
                                                             "[SDP] failed to parse worker answer: {e}"
                                                         );
+                                                        if let Err(err) = client
+                                                            .command_result(
+                                                                &cmd.id,
+                                                                &cmd.lease_token,
+                                                                &serde_json::json!({
+                                                                    "error": "worker_answer_parse_failed",
+                                                                    "message": e.to_string()
+                                                                }),
+                                                            )
+                                                            .await
+                                                        {
+                                                            tracing::error!(
+                                                                "[SDP] command_result failed for parse error: {err:#}"
+                                                            );
+                                                        }
                                                     }
                                                 }
                                             }
                                             Ok(resp) => {
                                                 let status = resp.status();
+                                                let status_code = status.as_u16();
                                                 let body = resp.text().await.unwrap_or_default();
                                                 tracing::error!(
                                                     "[SDP] worker returned HTTP {}: {}",
-                                                    status.as_u16(),
+                                                    status_code,
                                                     body
                                                 );
+                                                if let Err(e) = client
+                                                    .command_result(
+                                                        &cmd.id,
+                                                        &cmd.lease_token,
+                                                        &serde_json::json!({
+                                                            "error": "worker_sdp_http_error",
+                                                            "status": status_code,
+                                                            "message": body
+                                                        }),
+                                                    )
+                                                    .await
+                                                {
+                                                    tracing::error!(
+                                                        "[SDP] command_result failed for HTTP error: {e:#}"
+                                                    );
+                                                }
                                             }
                                             Err(e) => {
                                                 tracing::error!(
                                                     "[SDP] failed to reach worker at {internal_url}: {e}"
                                                 );
+                                                if let Err(err) = client
+                                                    .command_result(
+                                                        &cmd.id,
+                                                        &cmd.lease_token,
+                                                        &serde_json::json!({
+                                                            "error": "worker_unreachable",
+                                                            "message": e.to_string()
+                                                        }),
+                                                    )
+                                                    .await
+                                                {
+                                                    tracing::error!(
+                                                        "[SDP] command_result failed for unreachable worker: {err:#}"
+                                                    );
+                                                }
                                             }
                                         }
                                     } else {
                                         tracing::warn!(
-                                            "[SDP] no worker running for game {game_id} — ignoring sdp_offer"
+                                            "[SDP] no worker running for game {game_id} — completing sdp_offer with error"
                                         );
+                                        if let Err(e) = client
+                                            .command_result(
+                                                &cmd.id,
+                                                &cmd.lease_token,
+                                                &serde_json::json!({
+                                                    "error": "worker_not_running",
+                                                    "message": "No worker is running for this game"
+                                                }),
+                                            )
+                                            .await
+                                        {
+                                            tracing::error!(
+                                                "[SDP] command_result failed for no-worker: {e:#}"
+                                            );
+                                        }
                                     }
                                 } else if cmd.command_type == "browse_files" {
                                     let path = cmd
@@ -555,6 +715,32 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                 }
                             }
                         }
+
+                        // ── Dead worker cleanup ──────────────────────────────
+                        // Check if any spawned workers have died unexpectedly
+                        // (crash, OOM, SIGKILL from outside).  If so, remove
+                        // from the map and tell gv-web to end the session.
+                        let mut dead: Vec<String> = Vec::new();
+                        for (game_id, worker) in workers.iter_mut() {
+                            if worker.reap_if_exited() {
+                                tracing::warn!(
+                                    "[WORKER] worker for game {game_id} died — notifying gv-web"
+                                );
+                                dead.push(game_id.clone());
+                            }
+                        }
+                        for game_id in &dead {
+                            workers.remove(game_id);
+                            // Best-effort — if gv-web is unreachable, the session
+                            // will be cleaned up on next gv-server startup by
+                            // reap_stale_workers + the upsert invariant.
+                            if let Err(e) = client.notify_worker_dead(game_id).await {
+                                tracing::error!(
+                                    "[WORKER] failed to notify death for {game_id}: {e:#}"
+                                );
+                            }
+                        }
+
                         tokio::time::sleep(Duration::from_millis(resp.next_poll_ms)).await;
                     }
                     Err(e) => {
@@ -642,6 +828,75 @@ fn collect_metadata(cfg: &config::Config) -> gv_web::ServerMetadata {
         lan_addresses,
         rom_roots,
         ice,
+    }
+}
+
+// ── Boot-time validation ──────────────────────────────────────────────
+
+/// Validate that the server's prerequisites are met before entering
+/// the poll loop.  Failures here are fatal — the server exits with
+/// a clear error message instead of starting in a broken state.
+fn validate_prerequisites(cfg: &config::Config, worker_bin: Option<&str>) {
+    let mut ok = true;
+
+    // 1. ROM roots exist, are directories, and are readable.
+    if let Some(rom) = &cfg.rom {
+        for root in &rom.roots {
+            match std::fs::metadata(root) {
+                Err(e) => {
+                    tracing::error!(
+                        "ROM root not found: {root} ({e})"
+                    );
+                    ok = false;
+                }
+                Ok(meta) if !meta.is_dir() => {
+                    tracing::error!(
+                        "ROM root is not a directory: {root}"
+                    );
+                    ok = false;
+                }
+                Ok(_) => {
+                    tracing::info!("ROM root ok: {root}");
+                }
+            }
+        }
+    } else {
+        tracing::warn!("No ROM roots configured — library will be empty");
+    }
+
+    // 2. Worker binary exists and is executable.
+    let resolved = worker::resolve_worker_bin(worker_bin);
+    match std::fs::metadata(&resolved) {
+        Err(e) => {
+            tracing::error!(
+                "Worker binary not found: {resolved} ({e})"
+            );
+            tracing::error!(
+                "Build: cargo build --release -p gv-server"
+            );
+            ok = false;
+        }
+        Ok(meta) => {
+            // On Unix, check the executable bit.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                if meta.permissions().mode() & 0o111 == 0 {
+                    tracing::error!(
+                        "Worker binary is not executable: {resolved}"
+                    );
+                    ok = false;
+                }
+            }
+            if ok {
+                tracing::info!("Worker binary ok: {resolved}");
+            }
+        }
+    }
+
+    if !ok {
+        tracing::error!("Prerequisite validation failed — exiting.");
+        std::process::exit(1);
     }
 }
 

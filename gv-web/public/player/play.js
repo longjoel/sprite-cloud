@@ -143,15 +143,18 @@ async function fetchIceConfig() {
   try {
     const r = await fetch("/api/ice-config");
     if (r.ok) return await r.json();
+    console.warn("[gv] /api/ice-config returned HTTP", r.status);
   } catch (e) {
-    console.warn("[gv] failed to fetch ICE config, using defaults:", e?.message || e);
+    console.warn("[gv] /api/ice-config unreachable:", e?.message || e);
   }
-  // Fallback: Google STUN
+  // Fallback: Google STUN only. TURN will not be available.
+  // Configure GV_ICE_* env vars on gv-web for TURN support.
+  console.warn("[gv] ICE: using Google STUN fallback — no TURN, NAT may fail");
   return { iceServers: [{ urls: "stun:stun.l.google.com:19302" }], iceTransportPolicy: "all" };
 }
 
-function startPlayer(video, serverId, gameId, corePath, callbacks) {
-  console.log("[gv] startPlayer called", { serverId, gameId, videoTag: video?.tagName });
+function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
+  console.log("[gv] startPlayer called", { serverId, gameId, joinToken: !!joinToken });
 
   // Fetch ICE config first, then create player with it
   let player = null;
@@ -160,6 +163,8 @@ function startPlayer(video, serverId, gameId, corePath, callbacks) {
   console.log("[gv] GvPlayer created, calling doConnect");
   let reconnectAttempts = 0;
   let reconnectTimer = null;
+  let startGameToken = null;
+  let gameStarted = false;
 
   // Generate a host token once — reused across reconnects so the
   // worker recognizes the same host after a disconnect.
@@ -179,10 +184,21 @@ function startPlayer(video, serverId, gameId, corePath, callbacks) {
     }
 
     try {
-      // Auto-start the game first
-      console.log("[gv] calling startGame...");
-      await startGame(serverId, gameId, corePath, hostToken, callbacks);
-      console.log("[gv] startGame complete");
+      if (joinToken) {
+        // Guest join — game already running, skip startGame
+        console.log("[gv] guest join — skipping startGame, using room_token:", joinToken);
+      } else if (!gameStarted) {
+        // Auto-start the game once. Reconnects should renegotiate against
+        // the existing worker/session instead of recursively spawning a
+        // fresh worker and resetting the reconnect counter.
+        console.log("[gv] calling startGame...");
+        const sgResult = await startGame(serverId, gameId, corePath, hostToken, callbacks);
+        startGameToken = sgResult.workerToken;
+        gameStarted = true;
+        console.log("[gv] startGame complete");
+      } else {
+        console.log("[gv] reconnect — reusing existing game session");
+      }
     } catch (err) {
       callbacks.onError?.(err.message || String(err));
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
@@ -194,7 +210,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks) {
     // Now connect via relay
     try {
       console.log("[gv] calling connectViaRelay...");
-      await player.connectViaRelay(serverId, gameId, hostToken);
+      await player.connectViaRelay(serverId, gameId, hostToken, startGameToken, joinToken || undefined);
       console.log("[gv] connectViaRelay returned");
     } catch (err) {
       callbacks.onError?.(err.message || String(err));
@@ -210,7 +226,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks) {
       callbacks.onReconnecting?.(reconnectAttempts);
       reconnectTimer = setTimeout(() => {
         player.disconnect();
-        player = startPlayer(video, serverId, gameId, corePath, callbacks);
+        doConnect();
       }, RECONNECT_DELAY_MS);
     } else {
       callbacks.onReconnectFailed?.();
