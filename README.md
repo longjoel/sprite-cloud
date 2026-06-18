@@ -40,9 +40,18 @@ cargo build -p gv-worker-v2
 
 See `.env.example` — single source of truth for all components.
 
-## Deployment
+## One-liner install
 
-For production, build with `--release` and set the worker binary path in
+```bash
+curl -sSL https://raw.githubusercontent.com/longjoel/games-vault/main/scripts/install.sh | sh
+```
+
+Detects OS (Ubuntu/Debian, Fedora, Arch) and arch, installs system deps, downloads
+`gv-server`, and sets up a systemd service. See [scripts/install.sh](scripts/install.sh).
+
+## Manual deployment
+
+For manual setups, build with `--release` and configure
 `~/.config/games-vault/config.toml`:
 
 ```toml
