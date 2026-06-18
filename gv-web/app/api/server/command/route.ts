@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { commands, gameFiles, games, serverMembers, servers } from "@/lib/db/schema";
-import { CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, CMD_BROWSE_FILES, CMD_SCAN_PATHS } from "@/lib/constants";
+import { commands, gameFiles, games, serverMembers, servers, sessions } from "@/lib/db/schema";
+import { ACTIVE_SESSION_STATES, CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, CMD_BROWSE_FILES, CMD_SCAN_PATHS } from "@/lib/constants";
 import { and, eq } from "drizzle-orm";
 import { applyRateLimit } from "@/lib/rate-limit";
 import crypto from "crypto";
@@ -61,10 +61,11 @@ function validatePayload(type: string, payload: unknown): { ok: true; payload: R
       return { ok: true, payload };
     }
     case CMD_SDP_OFFER: {
-      if (!hasOnlyKeys(payload, ["game_id", "sdp", "host_token"])) return { ok: false, error: "payload has unexpected fields" };
+      if (!hasOnlyKeys(payload, ["game_id", "sdp", "host_token", "room_token"])) return { ok: false, error: "payload has unexpected fields" };
       if (typeof payload.game_id !== "string" || payload.game_id.length === 0) return { ok: false, error: "payload.game_id required" };
       if (typeof payload.sdp !== "string" || payload.sdp.length === 0) return { ok: false, error: "payload.sdp required" };
       if (payload.host_token !== undefined && typeof payload.host_token !== "string") return { ok: false, error: "payload.host_token must be string" };
+      if (payload.room_token !== undefined && typeof payload.room_token !== "string") return { ok: false, error: "payload.room_token must be string" };
       return { ok: true, payload };
     }
     case CMD_BROWSE_FILES: {
@@ -99,13 +100,7 @@ export async function POST(request: NextRequest) {
   if (rateLimited) return rateLimited;
 
   const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "sign in first" }, { status: 401 });
-  }
-
-  if (!validateCsrf(request)) {
-    return NextResponse.json({ error: "csrf token invalid" }, { status: 403 });
-  }
+  let serverId: string;
 
   let body: CommandBody;
   try {
@@ -122,30 +117,83 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Validate server_id
-  if (!body.server_id) {
-    return NextResponse.json({ error: "server_id required" }, { status: 400 });
-  }
+  // ── Guest join via room_token (sdp_offer only) ────────────────────
+  if (body.type === CMD_SDP_OFFER) {
+    const sdpPayload = body.payload as Record<string, unknown> | undefined;
+    const roomToken = sdpPayload?.room_token as string | undefined;
+    if (roomToken) {
+      // Resolve room_token → active session → server_id
+      const [roomSession] = await db
+        .select({ serverId: sessions.serverId, status: sessions.status })
+        .from(sessions)
+        .where(eq(sessions.roomToken, roomToken))
+        .limit(1);
 
-  // Verify the user owns this server (admin role)
-  const [membership] = await db
-    .select({ role: serverMembers.role })
-    .from(serverMembers)
-    .innerJoin(servers, eq(servers.id, serverMembers.serverId))
-    .where(
-      and(
-        eq(serverMembers.serverId, body.server_id),
-        eq(serverMembers.userId, session.user.id),
-        eq(serverMembers.role, "admin"),
-      ),
-    )
-    .limit(1);
-
-  if (!membership) {
-    return NextResponse.json(
-      { error: "server not found or not authorized" },
-      { status: 403 },
-    );
+      if (!roomSession) {
+        return NextResponse.json({ error: "invalid room_token" }, { status: 403 });
+      }
+      if (roomSession.status === "stopped" || roomSession.status === "ended") {
+        return NextResponse.json({ error: "session ended" }, { status: 410 });
+      }
+      serverId = roomSession.serverId!;
+      // Guest auth successful — skip session + CSRF + membership checks
+    } else {
+      // No room_token — fall through to normal auth
+      if (!session?.user?.id) {
+        return NextResponse.json({ error: "sign in first" }, { status: 401 });
+      }
+      if (!validateCsrf(request)) {
+        return NextResponse.json({ error: "csrf token invalid" }, { status: 403 });
+      }
+      // Verify the user owns this server (admin role)
+      const [membership] = await db
+        .select({ role: serverMembers.role })
+        .from(serverMembers)
+        .innerJoin(servers, eq(servers.id, serverMembers.serverId))
+        .where(
+          and(
+            eq(serverMembers.serverId, body.server_id),
+            eq(serverMembers.userId, session.user.id),
+            eq(serverMembers.role, "admin"),
+          ),
+        )
+        .limit(1);
+      if (!membership) {
+        return NextResponse.json(
+          { error: "server not found or not authorized" },
+          { status: 403 },
+        );
+      }
+      serverId = body.server_id;
+    }
+  } else {
+    // Non-sdp_offer commands require normal auth
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "sign in first" }, { status: 401 });
+    }
+    if (!validateCsrf(request)) {
+      return NextResponse.json({ error: "csrf token invalid" }, { status: 403 });
+    }
+    // Verify the user owns this server (admin role)
+    const [membership] = await db
+      .select({ role: serverMembers.role })
+      .from(serverMembers)
+      .innerJoin(servers, eq(servers.id, serverMembers.serverId))
+      .where(
+        and(
+          eq(serverMembers.serverId, body.server_id),
+          eq(serverMembers.userId, session.user.id),
+          eq(serverMembers.role, "admin"),
+        ),
+      )
+      .limit(1);
+    if (!membership) {
+      return NextResponse.json(
+        { error: "server not found or not authorized" },
+        { status: 403 },
+      );
+    }
+    serverId = body.server_id;
   }
 
   const payloadResult = validatePayload(body.type, body.payload ?? {});
@@ -176,7 +224,7 @@ export async function POST(request: NextRequest) {
         .where(
           and(
             eq(gameFiles.gameId, sp.game_id as string),
-            eq(gameFiles.serverId, body.server_id),
+            eq(gameFiles.serverId, serverId),
           ),
         )
         .limit(1);
@@ -200,12 +248,65 @@ export async function POST(request: NextRequest) {
   const [cmd] = await db
     .insert(commands)
     .values({
-      serverId: body.server_id,
+      serverId: serverId,
       type: body.type,
       payload: enrichedPayload,
       workerToken,
     })
     .returning({ id: commands.id });
+
+  // ── Session lifecycle ────────────────────────────────────────────
+
+  if (body.type === CMD_START_GAME) {
+    const hostToken = (payloadResult.payload as any).host_token as string | undefined;
+
+    // End any active sessions owned by the same host_token.
+    // This implements "starting a new game kills the old one."
+    if (hostToken) {
+      const victims = await db
+        .select({ id: sessions.id, gameId: sessions.gameId })
+        .from(sessions)
+        .where(
+          and(
+            eq(sessions.hostToken, hostToken),
+            eq(sessions.serverId, serverId),
+            // only sessions that are still alive
+          ),
+        );
+      for (const v of victims) {
+        await db
+          .update(sessions)
+          .set({ status: "ended", endedAt: new Date(), roomToken: null })
+          .where(eq(sessions.id, v.id));
+      }
+    }
+
+    // Create a fresh session in "spawning" state.
+    // The server will transition it to "ready" when the worker is up.
+    await db.insert(sessions).values({
+      userId: session.user.id,
+      serverId,
+      gameId: enrichedPayload.game_id as string,
+      commandId: cmd.id,
+      hostToken: hostToken ?? null,
+      status: "spawning",
+      stateEnteredAt: new Date(),
+    });
+  }
+
+  if (body.type === CMD_STOP_GAME) {
+    const gameId = (payloadResult.payload as any).game_id as string;
+    await db
+      .update(sessions)
+      .set({ status: "ended", endedAt: new Date(), roomToken: null })
+      .where(
+        and(
+          eq(sessions.gameId, gameId),
+          eq(sessions.serverId, serverId),
+          eq(sessions.status, "ready"),
+        ),
+      );
+  }
 
   return NextResponse.json({ id: cmd.id, worker_token: workerToken }, { status: 201 });
 }
