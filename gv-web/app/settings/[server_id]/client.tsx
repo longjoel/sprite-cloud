@@ -422,7 +422,7 @@ async function enqueueCommand(
 ): Promise<{ id: string }> {
   const resp = await fetch("/api/server/command", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: csrfHeaders(),
     body: JSON.stringify({ server_id: serverId, type, payload }),
   });
   if (!resp.ok) {
