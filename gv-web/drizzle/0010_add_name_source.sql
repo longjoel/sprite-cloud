@@ -1,0 +1,1 @@
+ALTER TABLE games ADD COLUMN IF NOT EXISTS name_source text NOT NULL DEFAULT 'import';

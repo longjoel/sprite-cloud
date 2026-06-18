@@ -7,12 +7,13 @@ import { and, eq } from "drizzle-orm";
 // ── Types ──────────────────────────────────────────────────────────────
 
 interface ImportFile {
-  name: string; // display name (DAT match or filename)
+  name: string;       // display name (DAT match or filename)
   platform: string;
-  rom_path: string; // relative path within a ROM root
-  file_name: string;
+  rom_path: string;
+  file_name: string;  // original filename for stable slug
   file_size?: number;
   file_hash?: string;
+  dat_name?: string;  // DAT canonical name (if matched)
 }
 
 interface ImportBody {
@@ -22,28 +23,23 @@ interface ImportBody {
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-function slugify(name: string, platform: string): string {
-  const base = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-  const plat = platform
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-  return `${base}-${plat}`;
+/** Stable slug from filename — re-scans always match the same game row. */
+function fileSlug(fileName: string, platform: string): string {
+  const stem = fileName.replace(/\.[^.]+$/, "").toLowerCase();
+  const clean = stem.replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const plat = platform.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return `${clean}-${plat}`;
+}
+
+/** Display name: DAT match > filename without extension. */
+function displayName(file: ImportFile): string {
+  if (file.dat_name) return file.dat_name;
+  const stem = file.file_name.replace(/\.[^.]+$/, "");
+  return stem.replace(/[_-]+/g, " ").trim() || file.file_name;
 }
 
 // ── POST /api/library/import ───────────────────────────────────────────
 
-/**
- * Accepts scan results from the settings page and creates `games` +
- * `game_files` rows so they appear in the library on the home page.
- *
- * Deduplication: games are keyed by name + platform (slug). If a game
- * already exists it is reused. game_files are keyed by (server_id, rom_path)
- * — inserting the same file twice is a no-op.
- */
 export async function POST(request: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -88,36 +84,33 @@ export async function POST(request: NextRequest) {
   let skipped = 0;
 
   for (const file of body.files) {
-    if (!file.name || !file.platform || !file.rom_path || !file.file_name) {
-      continue; // skip malformed entries
-    }
+    if (!file.file_name || !file.platform || !file.rom_path) continue;
 
-    const slug = slugify(file.name, file.platform);
+    const name = displayName(file);
+    const slug = fileSlug(file.file_name, file.platform);
 
-    // Upsert game — find by slug or create
-    let gameRows = await db
-      .select({ id: games.id })
+    // Look up by filename-based slug (stable across re-scans)
+    const existingRows = await db
+      .select({ id: games.id, name: games.name, nameSource: games.nameSource })
       .from(games)
       .where(eq(games.slug, slug))
       .limit(1);
 
     let gameId: string;
-
-    if (gameRows.length > 0) {
-      gameId = gameRows[0].id;
+    if (existingRows.length > 0) {
+      gameId = existingRows[0].id;
+      // Update name if source is 'import' and we have a better name
+      if (existingRows[0].nameSource === "import" && name !== existingRows[0].name) {
+        await db.update(games).set({ name }).where(eq(games.id, gameId));
+      }
     } else {
       const [created] = await db
         .insert(games)
-        .values({
-          name: file.name,
-          slug,
-          platform: file.platform,
-        })
+        .values({ name, slug, platform: file.platform, nameSource: "import" })
         .returning({ id: games.id });
       gameId = created.id;
     }
 
-    // Insert game_file (skip if already exists for this server+path)
     try {
       await db.insert(gameFiles).values({
         gameId,
@@ -129,7 +122,6 @@ export async function POST(request: NextRequest) {
       });
       imported++;
     } catch {
-      // unique constraint violation → already imported, skip
       skipped++;
     }
   }
