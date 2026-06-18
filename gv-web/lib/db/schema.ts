@@ -90,6 +90,21 @@ export const commands = pgTable("commands", {
 
 // ── Game sessions (one per game start) ────────────────────────────────
 
+// ── Session state machine ───────────────────────────────────────────────
+//
+//  spawning → ready → connected → playing
+//       ↓        ↓         ↓          ↓
+//    timed_out  timed_out  timed_out  ended
+//
+//  Transitions:
+//    start_game cmd  →  session created in "spawning"
+//    server notify   →  "spawning" → "ready" (worker URL reported)
+//    sdp_answer       →  "ready" → "connected" (SDP handshake complete)
+//    dc open (client) →  "connected" → "playing" (DataChannel operational)
+//    stop_game cmd   →  "playing" → "ended"
+//    timeout (>60s)  →  "spawning" | "ready" | "connected" → "timed_out"
+//    worker dead     →  "playing" | "connected" → "ended" (server notifies)
+
 export const sessions = pgTable("sessions", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id")
@@ -98,10 +113,14 @@ export const sessions = pgTable("sessions", {
   serverId: uuid("server_id").references(() => servers.id),
   commandId: uuid("command_id").references(() => commands.id),
   gameId: text("game_id").notNull(),
+  hostToken: text("host_token"),
   workerUrl: text("worker_url"),
   sdpAnswer: text("sdp_answer"),
-  status: text("status").notNull().default("pending"),
-  // pending → ready → active → ended
+  roomToken: text("room_token").unique(),
+  maxSeats: integer("max_seats").notNull().default(1),
+  status: text("status").notNull().default("spawning"),
+  // spawning → ready → connected → playing → ended | timed_out
+  stateEnteredAt: timestamp("state_entered_at", { withTimezone: true }).defaultNow().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   endedAt: timestamp("ended_at", { withTimezone: true }),
 });

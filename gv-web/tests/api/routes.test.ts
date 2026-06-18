@@ -187,9 +187,16 @@ describe("POST /api/auth/pair/claim", () => {
 
   it("claims a valid code and returns server_id + api_key", async () => {
     const future = new Date(Date.now() + 300_000);
-    mockDb.select.mockReturnValue(
-      mockQueryBuilder([{ code: "ABCD-EFGH", userId: "user-1", status: "pending", expiresAt: future }]),
-    );
+
+    // First select: pairing code lookup
+    // Second select: existing server check (no existing server → first pair)
+    mockDb.select
+      .mockReturnValueOnce(
+        mockQueryBuilder([{ code: "ABCD-EFGH", userId: "user-1", status: "pending", expiresAt: future }]),
+      )
+      .mockReturnValueOnce(
+        mockQueryBuilder([]), // no existing server
+      );
 
     // Mock insert chain: insert().values().returning()
     const insertBuilder = {
@@ -610,20 +617,36 @@ describe("GET /api/ice-config", () => {
 // ── /api/health ────────────────────────────────────────────────────────
 
 describe("GET /api/health", () => {
-  it("returns ok when DB is reachable", async () => {
-    mockDb.execute.mockResolvedValueOnce(undefined);
+  it("returns ok when all components are healthy", async () => {
+    mockDb.execute.mockResolvedValueOnce(undefined); // db check
+    // Check order: api_routes → gv_server → schema
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{}]), // api_routes: sessions table is queryable
+    );
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{ id: "server-1", lastSeenAt: new Date() }]), // gv_server
+    );
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{ roomToken: "x", maxSeats: 1, sdpAnswer: null }]), // schema
+    );
+
     const { GET } = await import("@/app/api/health/route");
     const resp = await GET();
     expect(resp.status).toBe(200);
     const body = await resp.json();
     expect(body.status).toBe("ok");
+    expect(body.components.db.status).toBe("ok");
+    expect(body.components.gv_server.status).toBe("ok");
   });
 
-  it("returns 500 when DB is down", async () => {
+  it("returns 503 with per-component status when DB is down", async () => {
     mockDb.execute.mockRejectedValueOnce(new Error("connection refused"));
     const { GET } = await import("@/app/api/health/route");
     const resp = await GET();
-    expect(resp.status).toBe(500);
+    expect(resp.status).toBe(503);
+    const body = await resp.json();
+    expect(body.status).toBe("error");
+    expect(body.components.db.status).toBe("error");
   });
 });
 

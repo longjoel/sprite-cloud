@@ -64,6 +64,13 @@
       "when": 1781658840695,
       "tag": "0008_bright_hannibal_king",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1781716754963,
+      "tag": "0009_fluffy_hydra",
+      "breakpoints": true
     }
   ]
 }
