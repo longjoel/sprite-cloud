@@ -159,12 +159,103 @@ async fn fetch_dat(system: &str, cache_dir: &Path) -> Result<String> {
     Ok(text)
 }
 
-/// Parse a Logiqx XML DAT file into entries.
+/// Parse a DAT file into entries. Supports two formats:
+///
+/// 1. **clrmamepro** — parenthesized format used by libretro-database:
+///    ```text
+///    game (
+///        name "Game Name"
+///        rom ( name "file.nes" size N crc XXXXXXXX md5 ... sha1 ... )
+///    )
+///    ```
+/// 2. **Logiqx XML** — traditional `<datafile><game><rom/></game></datafile>`.
 ///
 /// # Security
-/// Validates the `<datafile>` root element. If the response is HTML,
-/// JSON, or empty (e.g. a GitHub error page), parsing fails.
-fn parse_dat(xml: &str) -> Result<Vec<RomEntry>> {
+/// If neither format is detected, parsing fails — corrupt/HTML/JSON
+/// responses produce an error, not bad matches.
+fn parse_dat(input: &str) -> Result<Vec<RomEntry>> {
+    // Detect format: clrmamepro starts with "clrmamepro"; XML with "<"
+    let trimmed = input.trim_start();
+    if trimmed.starts_with("clrmamepro") {
+        return parse_dat_clrmamepro(input);
+    }
+    if trimmed.starts_with('<') {
+        return parse_dat_xml(input);
+    }
+    anyhow::bail!("unknown DAT format — expected clrmamepro or XML");
+}
+
+/// Parse clrmamepro-format DAT (parenthesized, used by libretro-database).
+fn parse_dat_clrmamepro(input: &str) -> Result<Vec<RomEntry>> {
+    let mut entries = Vec::new();
+
+    // Find each "game (...)" block.  Inside each game block, find the
+    // "rom (...)" sub-block and extract key-value pairs.
+    let mut pos = 0;
+    let bytes = input.as_bytes();
+    let len = bytes.len();
+
+    while pos < len {
+        // Find next "game (" token
+        if let Some(game_start) = input[pos..].find("game (") {
+            let gs = pos + game_start + 6; // skip "game ("
+            // Find the matching closing paren for the game block
+            let game_close = find_matching_paren(bytes, gs - 1)?;
+            let game_block = &input[gs..game_close];
+
+            // Extract game name from the game block
+            let game_name = extract_clrmamepro_value(game_block, "name");
+
+            // Find "rom (" inside the game block
+            if let Some(rom_start) = game_block.find("rom (") {
+                let rs = rom_start + 5; // skip "rom ("
+                let rom_block_bytes = game_block.as_bytes();
+                let rom_close = find_matching_paren(rom_block_bytes, rs - 1)?;
+                let rom_block = &game_block[rs..rom_close];
+
+                let entry = RomEntry {
+                    game_name: game_name.clone().unwrap_or_default(),
+                    canonical_name: canonicalize_name(
+                        &game_name.unwrap_or_default(),
+                    ),
+                    rom_name: extract_clrmamepro_value(rom_block, "name")
+                        .unwrap_or_default(),
+                    size: extract_clrmamepro_value(rom_block, "size")
+                        .unwrap_or_default()
+                        .parse()
+                        .unwrap_or(0),
+                    crc: extract_clrmamepro_value(rom_block, "crc")
+                        .unwrap_or_default()
+                        .to_lowercase(),
+                    md5: extract_clrmamepro_value(rom_block, "md5")
+                        .unwrap_or_default()
+                        .to_lowercase(),
+                    sha1: extract_clrmamepro_value(rom_block, "sha1")
+                        .unwrap_or_default()
+                        .to_lowercase(),
+                };
+
+                // Only include entries with a valid CRC (required for matching)
+                if !entry.crc.is_empty() {
+                    entries.push(entry);
+                }
+            }
+
+            pos = game_close + 1;
+        } else {
+            break;
+        }
+    }
+
+    if entries.is_empty() {
+        anyhow::bail!("no game entries found in DAT");
+    }
+
+    Ok(entries)
+}
+
+/// Parse Logiqx XML-format DAT (traditional).
+fn parse_dat_xml(xml: &str) -> Result<Vec<RomEntry>> {
     use quick_xml::Reader;
     use quick_xml::events::Event;
 
@@ -183,17 +274,22 @@ fn parse_dat(xml: &str) -> Result<Vec<RomEntry>> {
                 b"game" => {
                     current_game = e
                         .try_get_attribute("name")?
-                        .map(|a| a.unescape_value().unwrap_or_default().to_string());
+                        .map(|a| {
+                            a.unescape_value()
+                                .unwrap_or_default()
+                                .to_string()
+                        });
                 }
                 b"rom" => {
-                    let entry = parse_rom_element(e, current_game.as_deref());
+                    let entry =
+                        parse_rom_element(e, current_game.as_deref());
                     current_rom = Some(entry);
                 }
                 _ => {}
             },
             Event::Empty(ref e) if e.name().as_ref() == b"rom" => {
-                // Self-closing <rom .../> — common in DAT files
-                let entry = parse_rom_element(e, current_game.as_deref());
+                let entry =
+                    parse_rom_element(e, current_game.as_deref());
                 current_rom = Some(entry);
             }
             Event::End(ref e) if e.name().as_ref() == b"game" => {
@@ -217,6 +313,58 @@ fn parse_dat(xml: &str) -> Result<Vec<RomEntry>> {
     Ok(entries)
 }
 
+/// Find the index of the closing paren matching the open paren at
+/// `open_pos` in `bytes`.  Handles nested parens and quoted strings.
+fn find_matching_paren(bytes: &[u8], open_pos: usize) -> Result<usize> {
+    let mut depth = 0;
+    let mut in_quotes = false;
+
+    for i in (open_pos + 1)..bytes.len() {
+        let b = bytes[i];
+        if b == b'"' {
+            in_quotes = !in_quotes;
+            continue;
+        }
+        if in_quotes {
+            continue;
+        }
+        if b == b'(' {
+            depth += 1;
+        } else if b == b')' {
+            if depth == 0 {
+                return Ok(i);
+            }
+            depth -= 1;
+        }
+    }
+
+    anyhow::bail!("unmatched parenthesis in DAT file")
+}
+
+/// Extract a space-separated key-value from clrmamepro format.
+/// Values are quoted strings (`name "Game Name"`) or bare tokens
+/// (`size 262160`). Returns `None` if the key is not found.
+fn extract_clrmamepro_value(block: &str, key: &str) -> Option<String> {
+    let search = format!(" {} ", key);
+    if let Some(pos) = block.find(&search) {
+        let rest = &block[pos + search.len()..];
+        let rest = rest.trim_start();
+        if rest.starts_with('"') {
+            // Quoted value
+            let end = rest[1..].find('"')?;
+            Some(rest[1..=end].to_string())
+        } else {
+            // Bare token (e.g., size 262160)
+            let end = rest
+                .find(|c: char| c.is_whitespace() || c == ')')
+                .unwrap_or(rest.len());
+            Some(rest[..end].to_string())
+        }
+    } else {
+        None
+    }
+}
+
 fn attr(e: &quick_xml::events::BytesStart, name: &str) -> Option<String> {
     e.try_get_attribute(name)
         .ok()
@@ -232,9 +380,9 @@ fn parse_rom_element(e: &quick_xml::events::BytesStart, game_name: Option<&str>)
         canonical_name: canonicalize_name(raw_game),
         rom_name: attr(e, "name").unwrap_or_default(),
         size: attr(e, "size").unwrap_or_default().parse().unwrap_or(0),
-        crc: attr(e, "crc").unwrap_or_default(),
-        md5: attr(e, "md5").unwrap_or_default(),
-        sha1: attr(e, "sha1").unwrap_or_default(),
+        crc: attr(e, "crc").unwrap_or_default().to_lowercase(),
+        md5: attr(e, "md5").unwrap_or_default().to_lowercase(),
+        sha1: attr(e, "sha1").unwrap_or_default().to_lowercase(),
     }
 }
 
@@ -300,7 +448,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_minimal_dat() {
+    fn parse_minimal_xml_dat() {
         let xml = r#"<?xml version="1.0"?>
 <datafile>
   <game name="Test Game (USA)">
@@ -310,16 +458,35 @@ mod tests {
         let entries = parse_dat(xml).unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].game_name, "Test Game (USA)");
-        assert_eq!(entries[0].crc, "ABCD1234");
+        assert_eq!(entries[0].crc, "abcd1234"); // normalized to lowercase
         assert_eq!(entries[0].canonical_name, "Test Game");
     }
 
     #[test]
-    fn parse_rejects_missing_datafile_root() {
+    fn parse_minimal_clrmamepro_dat() {
+        let dat = r#"clrmamepro (
+    name "Nintendo - Nintendo Entertainment System"
+)
+game (
+    name "Super Mario Bros. (World)"
+    rom ( name "Super Mario Bros. (World).nes" size 40976 crc 3337ec46 md5 deadbeef sha1 cafe )
+)"#;
+        let entries = parse_dat(dat).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].game_name, "Super Mario Bros. (World)");
+        assert_eq!(entries[0].rom_name, "Super Mario Bros. (World).nes");
+        assert_eq!(entries[0].size, 40976);
+        assert_eq!(entries[0].crc, "3337ec46");
+        assert_eq!(entries[0].canonical_name, "Super Mario Bros.");
+    }
+
+    #[test]
+    fn parse_rejects_html() {
         let xml = "<html><body>404 Not Found</body></html>";
         let result = parse_dat(xml);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("datafile"));
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("datafile") || msg.contains("unknown DAT format"));
     }
 
     #[test]
