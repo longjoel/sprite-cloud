@@ -40,6 +40,20 @@ cargo build -p gv-worker-v2
 
 See `.env.example` — single source of truth for all components.
 
+### Password hashing
+
+Credentials provider passwords must be stored as bcrypt hashes (plaintext is deprecated).
+
+```bash
+# Generate a hash (interactive prompt)
+node scripts/hash-password.mjs
+
+# Or from a pipe
+echo "your-password" | node scripts/hash-password.mjs --stdin
+```
+
+Set `LAN_PASS_HASH` in gv-web's environment with the output. `LAN_PASS` (plaintext) still works as a fallback but logs a deprecation warning.
+
 ## One-liner install
 
 ```bash
