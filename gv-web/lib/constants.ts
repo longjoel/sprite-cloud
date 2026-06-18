@@ -33,3 +33,23 @@ export const STATUS_DELIVERED = "delivered" as const;
 
 /** How long gv-server owns a leased command before it can be retried. */
 export const COMMAND_LEASE_MS = 30_000;
+
+/** Session states (state machine) */
+export const SESSION_SPAWNING = "spawning" as const;
+export const SESSION_READY = "ready" as const;
+export const SESSION_CONNECTED = "connected" as const;
+export const SESSION_PLAYING = "playing" as const;
+export const SESSION_ENDED = "ended" as const;
+export const SESSION_TIMED_OUT = "timed_out" as const;
+export const SESSION_STOPPED = "stopped" as const; // legacy — transitioned to ended
+
+/** Session states that are considered "active" (game in progress). */
+export const ACTIVE_SESSION_STATES = new Set([
+  SESSION_SPAWNING,
+  SESSION_READY,
+  SESSION_CONNECTED,
+  SESSION_PLAYING,
+]);
+
+/** How long a session can stay in a single state before timing out. */
+export const SESSION_STATE_TIMEOUT_MS = 60_000; // 60s
