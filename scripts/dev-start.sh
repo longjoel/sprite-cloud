@@ -60,8 +60,31 @@ cmd_status() {
     else
         echo -e "  Postgres  ${RED}DOWN${NC}"
     fi
-    if curl -sf "http://localhost:$WEB_PORT/api/health" >/dev/null 2>&1; then
-        echo -e "  gv-web    ${GREEN}ok${NC}  http://localhost:$WEB_PORT"
+
+    # Use deep health check for gv-web + stack status
+    local health
+    health=$(curl -sf "http://localhost:$WEB_PORT/api/health" 2>/dev/null || echo "")
+    if [ -n "$health" ]; then
+        local overall=$(echo "$health" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
+        case "$overall" in
+            ok)       echo -e "  gv-web    ${GREEN}ok${NC}  http://localhost:$WEB_PORT  (health: $overall)" ;;
+            degraded) echo -e "  gv-web    ${YELLOW}ok${NC}  http://localhost:$WEB_PORT  (health: $overall)" ;;
+            *)        echo -e "  gv-web    ${RED}DOWN${NC}  http://localhost:$WEB_PORT  (health: $overall)" ;;
+        esac
+        # Show component breakdown
+        echo "$health" | python3 -c "
+import sys, json
+h = json.load(sys.stdin)
+for name, c in sorted(h['components'].items()):
+    s = c['status']
+    d = c.get('detail', '')
+    if s == 'ok':
+        print(f'    {name}: {s}')
+    elif d:
+        print(f'    {name}: \033[1;33m{s}\033[0m — {d}')
+    else:
+        print(f'    {name}: \033[1;31m{s}\033[0m')
+" 2>/dev/null || true
     else
         echo -e "  gv-web    ${RED}DOWN${NC}"
     fi
