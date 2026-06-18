@@ -9,7 +9,6 @@ import LibraryClient from "@/components/LibraryClient";
 
 export default async function Home() {
   const session = await auth();
-  const games = await listGames();
 
   // Find all servers the user is a member of
   let serverIds: string[] = [];
@@ -21,6 +20,9 @@ export default async function Home() {
       .where(eq(serverMembers.userId, session.user.id));
     serverIds = memberships.map((m) => m.serverId);
   }
+
+  // Only return games from servers the user is a member of
+  const games = await listGames(serverIds);
 
   return (
     <LibraryClient

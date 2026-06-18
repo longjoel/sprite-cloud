@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { games, gameFiles } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 export interface GameEntry {
   id: string;
@@ -9,8 +9,11 @@ export interface GameEntry {
   maxPlayers: number;
 }
 
-/** List all known games. Multi-server scope comes in #177. */
-export async function listGames(): Promise<GameEntry[]> {
+/** List games scoped to the user's server memberships.
+ *  Empty serverIds → returns nothing (logged out or no servers). */
+export async function listGames(serverIds: string[]): Promise<GameEntry[]> {
+  if (serverIds.length === 0) return [];
+
   const rows = await db
     .selectDistinct({
       id: games.id,
@@ -20,6 +23,7 @@ export async function listGames(): Promise<GameEntry[]> {
     })
     .from(games)
     .innerJoin(gameFiles, eq(games.id, gameFiles.gameId))
+    .where(inArray(gameFiles.serverId, serverIds))
     .orderBy(games.name);
 
   return rows as GameEntry[];
