@@ -55,6 +55,18 @@ pub struct DatIndex {
     by_sha1: HashMap<String, Vec<RomEntry>>,
 }
 
+impl DatIndex {
+    /// Merge another index's entries into this one.
+    pub fn merge(&mut self, other: DatIndex) {
+        for (k, v) in other.by_crc {
+            self.by_crc.entry(k).or_default().extend(v);
+        }
+        for (k, v) in other.by_sha1 {
+            self.by_sha1.entry(k).or_default().extend(v);
+        }
+    }
+}
+
 // ── Public API ─────────────────────────────────────────────────────────
 
 /// Build a [`DatIndex`] for the platform that matches a file extension.
