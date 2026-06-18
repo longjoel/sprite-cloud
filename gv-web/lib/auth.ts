@@ -31,7 +31,10 @@ function lanCredentialsEnabled(): boolean {
 // ── Providers ─────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const providers: any[] = [GitHub({})];
+const providers: any[] = [];
+if (process.env.AUTH_GITHUB_ID) {
+  providers.push(GitHub({}));
+}
 
 // Side door: LAN-only basic auth. Only available when LAN_USER + LAN_PASS
 // are set. Requests from non-LAN IPs are rejected — this isn't a backdoor,
@@ -40,7 +43,7 @@ if (lanCredentialsEnabled()) {
   providers.push(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Credentials({
-      id: "lan",
+      id: "credentials",
       name: "LAN Login",
       credentials: {
         username: { label: "Username", type: "text" },
