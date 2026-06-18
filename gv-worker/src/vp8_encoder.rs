@@ -66,6 +66,8 @@ pub struct Vp8Encoder {
     height: u32,
     /// Core frame rate — used to reconstruct full config on set_bitrate().
     fps: f64,
+    /// VP8 encoder usage mode (0=good quality, 1=realtime).
+    usage: u32,
     /// Tracks whether the next frame should be a keyframe.
     need_keyframe: bool,
     /// Monotonically increasing frame counter (used as PTS).
@@ -111,7 +113,9 @@ impl Vp8Encoder {
             // all fields with valid values.
             let mut cfg = MaybeUninit::<vpx_codec_enc_cfg_t>::uninit();
             // usage=0: generic / good-quality encoder profile
-            let err = vpx_codec_enc_config_default(iface, cfg.as_mut_ptr(), 0);
+            // usage=1: realtime (lower latency, lower CPU — preferred for weak hardware)
+            let usage = crate::config::vp8_usage();
+            let err = vpx_codec_enc_config_default(iface, cfg.as_mut_ptr(), usage);
             if err != VPX_CODEC_OK {
                 return Err(VpxError::Config(format!("{:?}", err)));
             }
@@ -131,8 +135,11 @@ impl Vp8Encoder {
             // env var (default 2.5s).  kf_max_dist is in timebase units.
             cfg.kf_max_dist = (fps * crate::config::vp8_keyframe_interval_secs()).round() as u32;
             // Error-resilient: enables intra-refresh and partition boundaries
-            // so the browser can recover from packet loss mid-stream
-            cfg.g_error_resilient = 1;
+            // so the browser can recover from packet loss mid-stream.
+            // Realtime mode (usage=1) doesn't support g_error_resilient — skip it.
+            if crate::config::vp8_usage() == 0 {
+                cfg.g_error_resilient = 1;
+            }
 
             let mut ctx = MaybeUninit::<vpx_codec_ctx_t>::uninit();
             // flags=0: no VPX_CODEC_USE_* flags needed for basic encoding
@@ -168,6 +175,7 @@ impl Vp8Encoder {
                 width,
                 height,
                 fps,
+                usage,
                 need_keyframe: true,
                 frame_count: 0,
             })
@@ -289,7 +297,7 @@ impl Vp8Encoder {
             let err = vpx_codec_enc_config_default(
                 vpx_codec_vp8_cx(),
                 cfg.as_mut_ptr(),
-                0,
+                self.usage,
             );
             if err != VPX_CODEC_OK {
                 return Err(VpxError::Config(format!("{:?}", err)));
@@ -302,7 +310,9 @@ impl Vp8Encoder {
             cfg.g_timebase.num = 1;
             cfg.g_timebase.den = self.fps.round() as i32;
             cfg.kf_max_dist = (self.fps * crate::config::vp8_keyframe_interval_secs()).round() as u32;
-            cfg.g_error_resilient = 1;
+            if self.usage == 0 {
+                cfg.g_error_resilient = 1;
+            }
             cfg.rc_target_bitrate = kbps;
 
             let err = vpx_codec_enc_config_set(&mut self.ctx as *mut _, &cfg);

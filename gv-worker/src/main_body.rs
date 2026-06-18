@@ -1,3 +1,5 @@
+use webrtc::api::setting_engine::SettingEngine;
+
 use axum::{
     extract::{Query, State},
     http::{header, HeaderMap, StatusCode},
@@ -13,6 +15,7 @@ use config::{
 use core_bridge::CoreCommand;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -249,16 +252,9 @@ async fn handle_shutdown(
     Ok(StatusCode::OK)
 }
 
-/// GET / — embedded test page.
-///
-/// Deprecated: use gv-web production player at /play/:game_id instead.
-/// Kept for local dev smoke testing only.
-async fn handle_index(
-    headers: HeaderMap,
-    State(state): State<Arc<AppState>>,
-) -> Result<axum::response::Html<String>, StatusCode> {
-    require_control_token(&state, &headers)?;
-    Ok(axum::response::Html(build_index_html()))
+/// GET / — minimal health redirect (no auth required).
+async fn handle_root() -> impl axum::response::IntoResponse {
+    (StatusCode::OK, axum::response::Json(serde_json::json!({"status": "ok", "service": "gv-worker"})))
 }
 
 // ---------------------------------------------------------------------------
@@ -294,7 +290,13 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
     registry = register_default_interceptors(registry, &mut media_engine)
         .map_err(|e| format!("register interceptors: {}", e))?;
 
+    // Filter to IPv4 only — Docker host networking exposes IPv6 link-local
+    // addresses that webrtc-rs cannot bind, which blocks ICE candidate gathering.
+    let mut se = SettingEngine::default();
+    se.set_ip_filter(Box::new(|ip: IpAddr| ip.is_ipv4()));
+
     let api = APIBuilder::new()
+        .with_setting_engine(se)
         .with_media_engine(media_engine)
         .with_interceptor_registry(registry)
         .build();
@@ -331,6 +333,7 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
         core_cmd_tx,
         core_response_rx,
         core_sample_rate,
+        core_audio_channels,
     ) = match core_bridge::spawn_core_thread() {
         Some(handle) => {
             let target_h = min_output_height();
@@ -364,6 +367,7 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
                 Some(handle.cmd_tx),
                 Some(handle.response_rx),
                 Some(handle.sample_rate),
+                handle.audio_channels as usize,
             )
         }
         None => {
@@ -380,6 +384,7 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
                 None,
                 None,
                 None,
+                2, // default to stereo when no core
             )
         }
     };
@@ -401,10 +406,7 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
     let audio_pipeline: Arc<tokio::sync::Mutex<Option<AudioPipeline>>> =
         Arc::new(tokio::sync::Mutex::new(match core_sample_rate {
             Some(rate) => {
-                let audio_channels = std::env::var("GV_AUDIO_CHANNELS")
-                    .ok()
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(2);
+                let audio_channels = core_audio_channels;
                 match AudioPipeline::new(rate, audio_channels) {
                     Ok(p) => Some(p),
                     Err(e) => {
@@ -902,7 +904,6 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
 struct StreamCtx {
     track: Arc<TrackLocalStaticSample>,
     audio_track: Arc<TrackLocalStaticSample>,
-    #[allow(dead_code)] // stats send disabled due to SCTP ErrChunk
     dc_stream: Arc<tokio::sync::Mutex<Option<Arc<webrtc::data_channel::RTCDataChannel>>>>,
     cancel: CancellationToken,
     peer_connection: Arc<RTCPeerConnection>,
@@ -1165,7 +1166,7 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
 
                         // ---- Send per-frame stats over DataChannel ----
                         if frame_num.is_multiple_of(STATS_SEND_INTERVAL) {
-                            if let Ok(_stats) = serde_json::to_string(&serde_json::json!({
+                            if let Ok(stats) = serde_json::to_string(&serde_json::json!({
                                 "type": "stats",
                                 "frame": frame_num,
                                 "video": {
@@ -1183,15 +1184,14 @@ async fn stream_vp8_frames(ctx: StreamCtx) {
                                     "uptime_sec": start_instant.elapsed().as_secs()
                                 }
                             })) {
-                                // FIXME: Stats send may trigger SCTP ErrChunk when mixed with binary input.
-                                // Disabled temporarily to isolate DataChannel input issues.
-                                /*
+                                // Send per-frame stats over DataChannel.
+                                // Note: err_chunk/input were misdiagnosed —
+                                // pong send_text works on same DC without issues.
                                 if let Some(dc) = ctx.dc_stream.lock().await.as_ref() {
-                                    if let Err(e) = dc.send_text(stats).await {
+                                    if let Err(e) = dc.send_text(&stats).await {
                                         tracing::warn!("[STREAM] DC stats send failed: {}", e);
                                     }
                                 }
-                                */
                             }
                         }
                     }
@@ -1271,178 +1271,6 @@ fn map_key_to_joypad(key: &str) -> Option<libretro_runner::JoypadButton> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Test page
-// ---------------------------------------------------------------------------
-
-fn build_index_html() -> String {
-    use std::sync::LazyLock;
-
-    static HTML: LazyLock<String> = LazyLock::new(|| {
-        format!(
-            r##"<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Games Vault — Test Pattern</title>
-<style>
-  body {{ background:#111; display:flex; flex-direction:column; align-items:center; height:100vh; margin:0; color:#ccc; font:14px monospace }}
-  video, canvas {{ image-rendering:pixelated; border:1px solid #333; max-width:100vw; max-height:80vh; object-fit:contain }}
-  .log {{ margin-top:8px; font-size:12px; opacity:0.7; max-width:640px; width:100%; overflow-y:auto; max-height:30vh }}
-  button {{ margin:4px; padding:4px 12px; background:#333; color:#ccc; border:1px solid #555; cursor:pointer }}
-  button:hover {{ background:#444 }}
-</style>
-</head>
-<body>
-<h3 style="margin:12px 0 4px">gv-worker</h3>
-<canvas id="c" width="{w}" height="{h}" style="display:none"></canvas>
-<video id="v" autoplay playsinline muted width="{w}" height="{h}" style="display:none"></video>
-<div>
-  <button onclick="testHttp()">HTTP poll</button>
-  <button onclick="testWebrtc()">WebRTC test</button>
-  <button onclick="stopAll()">Stop</button>
-</div>
-<pre class="log" id="log"></pre>
-<script>
-const canvas = document.getElementById("c");
-const ctx = canvas.getContext("2d");
-const video = document.getElementById("v");
-const logEl = document.getElementById("log");
-let frame = 0;
-let running = false;
-let pc = null;
-
-function log(msg) {{
-  logEl.textContent += msg + "\\n";
-  logEl.scrollTop = logEl.scrollHeight;
-}}
-
-async function testHttp() {{
-  running = true;
-  canvas.style.display = "block";
-  video.style.display = "none";
-  log("HTTP poll started");
-  tickHttp();
-}}
-
-async function tickHttp() {{
-  if (!running) return;
-  try {{
-    const resp = await fetch("/test-frame?frame=" + frame);
-    const buf = await resp.arrayBuffer();
-    const raw = new Uint8ClampedArray(buf);
-    const img = new ImageData({w}, {h});
-    for (let i = 0; i < raw.length; i += 3) {{
-      const j = (i / 3) * 4;
-      img.data[j]     = raw[i];
-      img.data[j + 1] = raw[i + 1];
-      img.data[j + 2] = raw[i + 2];
-      img.data[j + 3] = 255;
-    }}
-    ctx.putImageData(img, 0, 0);
-    frame++;
-  }} catch(e) {{ log("Error: "+e); }}
-  requestAnimationFrame(tickHttp);
-}}
-
-async function testWebrtc() {{
-  log("Creating RTCPeerConnection...");
-  canvas.style.display = "none";
-  video.style.display = "block";
-
-  pc = new RTCPeerConnection({{
-    iceServers: [{{ urls: "{stun}" }}]
-  }});
-
-  // Create DataChannel for keyboard input
-  const dc = pc.createDataChannel("diagnostics");
-  dc.onopen = () => log("DC open — keyboard input active");
-  dc.onclose = () => log("DC closed");
-
-  // RetroArch binary mask (KEEP IN SYNC with libretro-runner/src/lib.rs — JoypadButton enum)
-  const BIT_MAP = {{
-    ArrowUp:4,ArrowDown:5,ArrowLeft:6,ArrowRight:7,
-    w:4,a:6,s:5,d:7, e:2, q:3, z:0, x:8,
-    Enter:3,' ':3
-  }};
-  let inputState = 0;
-  const sendMask = () => {{
-    if (dc.readyState === "open") {{
-      dc.send(new Uint8Array([0, inputState & 0xFF, inputState >> 8]).buffer);
-    }}
-  }};
-  document.addEventListener("keydown", (e) => {{
-    if (e.target.tagName === "BUTTON") return;
-    const bit = BIT_MAP[e.key];
-    if (bit === undefined) return;
-    e.preventDefault();
-    inputState |= (1 << bit);
-    sendMask();
-  }});
-  document.addEventListener("keyup", (e) => {{
-    const bit = BIT_MAP[e.key];
-    if (bit === undefined) return;
-    inputState &= ~(1 << bit);
-    sendMask();
-  }});
-  window.addEventListener("blur", () => {{ inputState = 0; sendMask(); }});
-  log("Keyboard listeners active — WASD/arrows to play, Z/X for A/B");
-
-  pc.oniceconnectionstatechange = () => {{
-    log("ICE state: " + pc.iceConnectionState);
-  }};
-  pc.onconnectionstatechange = () => {{
-    log("Connection state: " + pc.connectionState);
-  }};
-  let mediaStream = null;
-  pc.ontrack = (e) => {{
-    log("Got remote track: " + e.track.kind);
-    if (!mediaStream) {{ mediaStream = new MediaStream(); video.srcObject = mediaStream; }}
-    mediaStream.addTrack(e.track);
-  }};
-
-  pc.addTransceiver("video", {{ direction: "recvonly" }});
-  pc.addTransceiver("audio", {{ direction: "recvonly" }});
-  log("Transceivers added: video + audio");
-
-  const offer = await pc.createOffer();
-  await pc.setLocalDescription(offer);
-  log("Offer created, sending to worker...");
-
-  const resp = await fetch("/sdp", {{
-    method: "POST",
-    headers: {{ "Content-Type": "application/json" }},
-    body: JSON.stringify({{ sdp: offer.sdp }})
-  }});
-  const answer = await resp.json();
-  if (!answer.sdp) {{ log("SDP ERROR: empty answer"); return; }}
-
-  log("Answer received (" + answer.sdp.length + " chars)");
-  await pc.setRemoteDescription(new RTCSessionDescription({{
-    type: "answer", sdp: answer.sdp
-  }}));
-  log("Remote description set, waiting for ICE...");
-}}
-
-function stopAll() {{
-  running = false;
-  if (pc) {{ pc.close(); pc = null; }}
-  canvas.style.display = "none";
-  video.style.display = "none";
-  log("Stopped");
-}}
-</script>
-</body>
-</html>"##,
-            w = VIDEO_WIDTH,
-            h = VIDEO_HEIGHT,
-            stun = stun_server().as_str(),
-        )
-    });
-
-    HTML.clone()
-}
 
 #[cfg(test)]
 mod tests {

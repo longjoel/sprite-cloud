@@ -2,7 +2,9 @@
 
 import Script from "next/script";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useInterval } from "@/lib/poll";
+import { Badge, Button, Toast } from "@/components/ui";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -12,7 +14,7 @@ const RTT_POLL_MS = 500;
 
 // ── Types ─────────────────────────────────────────────────────────────
 
-interface Toast {
+interface ToastData {
   text: string;
   ok: boolean;
 }
@@ -24,6 +26,7 @@ interface GvPlay {
     gameId: string,
     corePath: string | null,
     callbacks: PlayerCallbacks,
+    joinToken?: string,
   ) => any;
   saveState: (player: any, slot: number) => boolean;
   loadState: (player: any, slot: number) => boolean;
@@ -54,13 +57,30 @@ interface GamePlayerProps {
   serverId: string;
   gameName?: string;
   onClose?: () => void;
+  /** Session ID for share/join deep linking. Optional — share hidden without it. */
+  sessionId?: string;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────
+
+function routeVariant(routeLabel: string) {
+  const map: Record<string, "success" | "info" | "warning" | "error" | "muted"> = {
+    local: "success",
+    direct: "info",
+    relay: "warning",
+    failed: "error",
+    unknown: "muted",
+  };
+  return map[routeLabel] || "muted";
 }
 
 // ── Component ─────────────────────────────────────────────────────────
 
-export default function GamePlayer({ gameId, serverId, gameName, onClose }: GamePlayerProps) {
+export default function GamePlayer({ gameId, serverId, gameName, onClose, sessionId }: GamePlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<any>(null);
+  const searchParams = useSearchParams();
+  const joinToken = searchParams.get("join") || undefined;
 
   const [status, setStatus] = useState("loading…");
   const [error, setError] = useState<string | null>(null);
@@ -69,15 +89,15 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
   const [showDisconnect, setShowDisconnect] = useState(false);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const [reconnectMsg, setReconnectMsg] = useState("");
-  const [toast, setToast] = useState<Toast | null>(null);
+  const [toast, setToast] = useState<ToastData | null>(null);
   const [route, setRoute] = useState<string | null>(null);
   const [routeDetail, setRouteDetail] = useState<string | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [connected, setConnected] = useState(false);
   const [scriptReady, setScriptReady] = useState(false);
-  // Whether RTT polling should be active (player running).
   const [rttActive, setRttActive] = useState(false);
+  const [roomToken, setRoomToken] = useState<string | null>(null);
 
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedRef = useRef(false);
@@ -88,27 +108,6 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
     setToast({ text, ok });
     setTimeout(() => setToast(null), TOAST_DURATION_MS);
   }, []);
-
-  // ── Route badge style ───────────────────────────────────────────────
-
-  const routeBadgeStyle = (routeLabel: string): React.CSSProperties => {
-    const colors: Record<string, { bg: string; fg: string }> = {
-      local:  { bg: "rgba(0,255,0,0.12)", fg: "#2a2" },
-      direct: { bg: "rgba(100,160,255,0.12)", fg: "#6af" },
-      relay:  { bg: "rgba(255,165,0,0.12)", fg: "#fa0" },
-      failed: { bg: "rgba(255,0,0,0.12)", fg: "#a22" },
-      unknown:{ bg: "rgba(128,128,128,0.10)", fg: "#888" },
-    };
-    const c = colors[routeLabel] || colors.unknown;
-    return {
-      fontSize: 10,
-      padding: "1px 6px",
-      borderRadius: 3,
-      background: c.bg,
-      color: c.fg,
-      textTransform: "uppercase",
-    };
-  };
 
   // ── Controls auto-hide ────────────────────────────────────────────
 
@@ -131,11 +130,9 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
     }
   }, rttActive ? RTT_POLL_MS : null);
 
-  // ── Player script — check if already loaded (next/script caches it) ─
+  // ── Player script — check if already loaded ───────────────────────
 
   useEffect(() => {
-    // If the script was already loaded in a previous mount (modal reopen),
-    // gvPlay is already on window.  Set scriptReady immediately.
     if (window.gvPlay) {
       setScriptReady(true);
     }
@@ -204,6 +201,7 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
           setRouteDetail(detail);
         },
       },
+      joinToken,
     );
 
     playerRef.current = player;
@@ -217,7 +215,23 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
   // ── Cleanup on unmount ────────────────────────────────────────────
 
   useEffect(() => {
+    // Capture at mount time — gameId/serverId don't change within a lifecycle
+    const gid = gameId;
+    const sid = serverId;
     return () => {
+      // Send stop_game so the server kills the worker. Fire-and-forget
+      // so unmount isn't blocked if the network request hangs.
+      if (gid && sid) {
+        fetch("/api/server/command", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            server_id: sid,
+            type: "stop_game",
+            payload: { game_id: gid },
+          }),
+        }).catch(() => {});
+      }
       if (playerRef.current) {
         playerRef.current.disconnect();
         playerRef.current = null;
@@ -274,18 +288,55 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
     if (!ok) showToast("Not connected", false);
   };
 
+  // ── Share (deep link) — updates browser URL so it's copyable ────────
+  const shareUrlSet = useRef(false);
+
+  useEffect(() => {
+    if (!connected) return;
+    if (roomToken) return; // already fetched
+
+    (async () => {
+      try {
+        const resp = await fetch("/api/room/share", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ game_id: gameId, server_id: serverId, max_seats: 4 }),
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+
+        setRoomToken(data.room_token);
+        shareUrlSet.current = true;
+        window.history.replaceState(
+          null,
+          "",
+          `/play/${gameId}?join=${data.room_token}`,
+        );
+      } catch { /* silently ignore — share is best-effort */ }
+    })();
+  }, [connected, gameId, serverId, roomToken]);
+
+  // Restore original URL only on unmount (game closed), not on re-render
+  useEffect(() => {
+    const originalUrl = window.location.pathname + window.location.search;
+    return () => {
+      if (shareUrlSet.current) {
+        window.history.replaceState(null, "", originalUrl);
+      }
+    };
+  }, []);
+
   // ── Render ────────────────────────────────────────────────────────
 
   return (
     <div style={styles.shell} onMouseMove={wakeControls} onKeyDown={wakeControls}>
-      {/* ── Load player script ────────────────────────────────── */}
       <Script
         src="/player/play.js"
         type="module"
         onLoad={() => setScriptReady(true)}
       />
 
-      {/* ── Game video ─────────────────────────────────────────── */}
+      {/* ── Game video ─────────────────────────────────── */}
       <video
         ref={videoRef}
         autoPlay
@@ -294,7 +345,7 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
         style={styles.video}
       />
 
-      {/* ── Top bar ────────────────────────────────────────────── */}
+      {/* ── Top bar ───────────────────────────────────── */}
       <div
         style={{
           ...styles.topBar,
@@ -304,13 +355,13 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
       >
         <span style={styles.gameTitle}>{gameName || gameId}</span>
         {onClose && (
-          <button style={styles.backBtn} onClick={onClose}>
+          <Button variant="secondary" size="md" onClick={onClose}>
             ← Back
-          </button>
+          </Button>
         )}
       </div>
 
-      {/* ── Bottom bar ─────────────────────────────────────────── */}
+      {/* ── Bottom bar ────────────────────────────────── */}
       <div
         style={{
           ...styles.bottomBar,
@@ -322,29 +373,31 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
           Arrows = Move &nbsp;|&nbsp; Z = A &nbsp;|&nbsp; X = B &nbsp;|&nbsp; Enter = Start
         </span>
         {route && (
-          <span style={routeBadgeStyle(route)} title={routeDetail || route}>
+          <Badge variant={routeVariant(route)} title={routeDetail || route}>
             {route}
-          </span>
+          </Badge>
         )}
         <div style={styles.bottomRight}>
-          <button style={styles.btn} onClick={() => setShowSlots(!showSlots)}>
+          <Button variant="secondary" size="sm" onClick={() => setShowSlots(!showSlots)}>
             💾 Slots
-          </button>
-          <button style={styles.btn} onClick={toggleFullscreen}>
+          </Button>
+          <Button variant="secondary" size="sm" onClick={toggleFullscreen}>
             {isFullscreen ? "↙" : "⛶"}
-          </button>
+          </Button>
         </div>
       </div>
 
-      {/* ── Connecting / loading state ─────────────────────────── */}
+      {/* ── Connecting / loading state ─────────────────── */}
       {!connected && !showDisconnect && (
         <div style={styles.centerMessage}>
-          <p style={styles.loadingText}>{status || `Starting ${gameName || "game"}…`}</p>
+          <p style={styles.loadingText}>
+            {status || `Starting ${gameName || "game"}…`}
+          </p>
           {error && <p style={styles.errorText}>{error}</p>}
         </div>
       )}
 
-      {/* ── Disconnect overlay ─────────────────────────────────── */}
+      {/* ── Disconnect overlay ─────────────────────────── */}
       {showDisconnect && (
         <div style={styles.overlay}>
           <div style={styles.overlayPanel}>
@@ -359,28 +412,28 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
               <>
                 <p style={styles.overlayTitle}>Reconnection failed</p>
                 <p style={styles.overlaySub}>Refresh the page to try again</p>
-                <button
-                  style={styles.btn}
+                <Button
+                  variant="secondary"
                   onClick={() => window.location.reload()}
                 >
                   Refresh
-                </button>
+                </Button>
               </>
             )}
           </div>
         </div>
       )}
 
-      {/* ── Save/load panel ────────────────────────────────────── */}
+      {/* ── Save/load panel ────────────────────────────── */}
       {showSlots && (
         <>
           <div style={styles.backdrop} onClick={() => setShowSlots(false)} />
           <div style={styles.slotPanel}>
             <div style={styles.slotHeader}>
               <span>Save</span>
-              <button style={styles.btnClose} onClick={() => setShowSlots(false)}>
+              <Button variant="ghost" onClick={() => setShowSlots(false)}>
                 ✕
-              </button>
+              </Button>
             </div>
             <div style={styles.slotRow}>
               {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
@@ -401,16 +454,11 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose }: Game
         </>
       )}
 
-      {/* ── Toast ──────────────────────────────────────────────── */}
+      {/* ── Toast ─────────────────────────────────────── */}
       {toast && (
-        <div
-          style={{
-            ...styles.toast,
-            borderColor: toast.ok ? "#2a2" : "#a22",
-          }}
-        >
+        <Toast variant={toast.ok ? "success" : "error"} onDone={() => setToast(null)}>
           {toast.text}
-        </div>
+        </Toast>
       )}
     </div>
   );
@@ -425,9 +473,9 @@ const styles: Record<string, React.CSSProperties> = {
     height: "100%",
     background: "#000",
     overflow: "hidden",
-    fontFamily: "monospace",
-    fontSize: 14,
-    color: "#ccc",
+    fontFamily: "var(--font-mono)",
+    fontSize: "var(--font-size-md)",
+    color: "var(--color-cream)",
   },
   video: {
     position: "absolute",
@@ -446,25 +494,16 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: "8px 16px",
+    padding: "var(--space-4) var(--space-6)",
     background: "rgba(0,0,0,0.6)",
     zIndex: 10,
     transition: "opacity 0.3s",
   },
   gameTitle: {
-    color: "#fff",
-    fontSize: 16,
+    color: "var(--color-cream)",
+    fontSize: "var(--font-size-lg)",
+    fontFamily: "var(--font-mono)",
     fontWeight: 700,
-  },
-  backBtn: {
-    background: "rgba(255,255,255,0.1)",
-    border: "1px solid rgba(255,255,255,0.2)",
-    color: "#fff",
-    cursor: "pointer",
-    fontSize: 14,
-    fontFamily: "monospace",
-    padding: "6px 16px",
-    borderRadius: 4,
   },
   bottomBar: {
     position: "absolute",
@@ -474,37 +513,18 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: "8px 16px",
+    padding: "var(--space-4) var(--space-6)",
     background: "rgba(0,0,0,0.6)",
     zIndex: 10,
     transition: "opacity 0.3s",
   },
   hint: {
-    fontSize: 12,
-    color: "#888",
+    fontSize: "var(--font-size-sm)",
+    color: "var(--color-muted)",
   },
   bottomRight: {
     display: "flex",
-    gap: 8,
-  },
-  btn: {
-    padding: "4px 14px",
-    background: "#333",
-    color: "#ccc",
-    border: "1px solid #555",
-    cursor: "pointer",
-    fontFamily: "monospace",
-    fontSize: 13,
-    borderRadius: 2,
-  },
-  btnClose: {
-    background: "none",
-    border: "none",
-    color: "#888",
-    cursor: "pointer",
-    fontSize: 16,
-    padding: 0,
-    lineHeight: 1,
+    gap: "var(--space-4)",
   },
   centerMessage: {
     position: "absolute",
@@ -514,10 +534,15 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: "center" as const,
     zIndex: 20,
   },
+  loadingText: {
+    color: "var(--color-cream)",
+    fontSize: "var(--font-size-md)",
+    fontFamily: "var(--font-mono)",
+  },
   errorText: {
-    color: "#a22",
-    fontSize: 13,
-    marginTop: 8,
+    color: "var(--color-error)",
+    fontSize: "var(--font-size-base)",
+    marginTop: "var(--space-4)",
   },
   overlay: {
     position: "absolute",
@@ -530,17 +555,18 @@ const styles: Record<string, React.CSSProperties> = {
   },
   overlayPanel: {
     textAlign: "center" as const,
-    padding: 32,
+    padding: "var(--space-8)",
   },
   overlayTitle: {
-    color: "#fff",
-    fontSize: 18,
-    margin: "0 0 8px",
+    color: "var(--color-cream)",
+    fontSize: "var(--font-size-xl)",
+    fontFamily: "var(--font-mono)",
+    margin: "0 0 var(--space-4)",
   },
   overlaySub: {
-    color: "#888",
-    fontSize: 14,
-    margin: "0 0 16px",
+    color: "var(--color-muted)",
+    fontSize: "var(--font-size-md)",
+    margin: "0 0 var(--space-6)",
   },
   backdrop: {
     position: "absolute",
@@ -552,45 +578,34 @@ const styles: Record<string, React.CSSProperties> = {
     bottom: 56,
     left: "50%",
     transform: "translateX(-50%)",
-    background: "rgba(0,0,0,0.92)",
-    border: "1px solid #333",
-    borderRadius: 4,
-    padding: "12px 16px",
+    background: "var(--color-mahogany)",
+    border: "1px solid var(--color-brass)",
+    borderRadius: "var(--radius-md)",
+    padding: "var(--space-5) var(--space-6)",
     zIndex: 26,
   },
   slotHeader: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    fontSize: 12,
-    color: "#888",
-    marginBottom: 8,
+    fontSize: "var(--font-size-sm)",
+    fontFamily: "var(--font-mono)",
+    color: "var(--color-muted)",
+    marginBottom: "var(--space-4)",
   },
   slotRow: {
     display: "flex",
-    gap: 6,
+    gap: "var(--space-3)",
   },
   slotBtn: {
     width: 32,
     height: 32,
-    background: "#222",
-    color: "#ccc",
-    border: "1px solid #444",
+    background: "var(--color-walnut)",
+    color: "var(--color-cream)",
+    border: "1px solid var(--color-bamboo)",
     cursor: "pointer",
-    fontFamily: "monospace",
-    fontSize: 14,
-    borderRadius: 2,
-  },
-  toast: {
-    position: "absolute",
-    top: 48,
-    left: "50%",
-    transform: "translateX(-50%)",
-    background: "#111",
-    border: "1px solid #333",
-    borderRadius: 4,
-    padding: "8px 20px",
-    fontSize: 13,
-    zIndex: 40,
+    fontFamily: "var(--font-mono)",
+    fontSize: "var(--font-size-md)",
+    borderRadius: "var(--radius-sm)",
   },
 };

@@ -72,8 +72,8 @@ fn test_page_loads() {
     let resp = ureq::get(&url(port, "/")).call().expect("GET / failed");
     assert_eq!(resp.status(), 200);
     let body = resp.into_string().unwrap();
-    assert!(body.contains("gv-worker"));
-    assert!(body.contains("WebRTC test"));
+    assert!(body.contains("Games Vault"), "embedded player page should render");
+    assert!(body.contains("connecting"), "embedded player should have status element");
     child.kill().ok();
 }
 
