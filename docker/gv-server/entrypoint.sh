@@ -3,7 +3,7 @@ set -eu
 
 echo "[gv-server] entrypoint starting..."
 
-# Verify required files exist
+# Verify required binaries exist
 for bin in /usr/local/bin/gv-server /usr/local/bin/gv-worker-v2; do
   if [ ! -f "$bin" ]; then
     echo "[gv-server] ERROR: $bin not found — build host binaries first (./scripts/dev-start.sh build)"
@@ -21,12 +21,6 @@ if ! ldd /usr/local/bin/gv-worker-v2 >/dev/null 2>&1; then
   ldd /usr/local/bin/gv-worker-v2 || true
 fi
 
-# Verify GV_API_KEY is set
-if [ -z "${GV_API_KEY:-}" ]; then
-  echo "[gv-server] ERROR: GV_API_KEY not set — run ./scripts/dev-start.sh pair first"
-  exit 1
-fi
-
 # Wait for gv-web to be healthy
 echo "[gv-server] waiting for gv-web..."
 until curl -sf http://localhost:3000/api/health >/dev/null 2>&1; do
@@ -38,4 +32,22 @@ echo "[gv-server] gv-web is healthy"
 mkdir -p /cores /saves /system
 
 echo "[gv-server] starting..."
-exec gv-server start
+gv-server start
+EXIT_CODE=$?
+
+# Exit code 2 = auth failure (API key rejected, database recreated, etc.)
+# Don't loop — the operator must re-pair before the server can work.
+if [ "$EXIT_CODE" -eq 2 ]; then
+  echo ""
+  echo "==========================================="
+  echo "  Server needs re-pairing."
+  echo "  Run: gv-server pair <CODE>"
+  echo "  Get a code from the gv-web Settings page."
+  echo "  Container will stay up for inspection."
+  echo "==========================================="
+  echo ""
+  # Sleep forever so the operator can docker exec in and re-pair
+  while true; do sleep 3600; done
+fi
+
+exit "$EXIT_CODE"

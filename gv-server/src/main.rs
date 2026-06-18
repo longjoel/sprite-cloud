@@ -137,7 +137,26 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
 
     // Verify the API key is still valid — also report server metadata
     let metadata = collect_metadata(&cfg);
-    let verify = client.verify_with_metadata(&metadata).await?;
+    let verify = match client.verify_with_metadata(&metadata).await {
+        Ok(v) => v,
+        Err(e) => {
+            let msg = format!("{e:#}");
+            if msg.contains("401") || msg.contains("unauthorized") {
+                tracing::error!(
+                    "[AUTH] API key rejected — server must re-pair.\n\
+                     The gv-web database may have been recreated, or this server's\n\
+                     API key was revoked. Run:\n\n  \
+                     gv-server pair <CODE>\n\n\
+                     Get a pairing code from the gv-web Settings page.\n\
+                     This container will now exit and NOT restart — re-pair first."
+                );
+                // Exit cleanly (not a crash) so Docker restart policy can be
+                // set to on-failure without looping. Exit code 2 = config error.
+                std::process::exit(2);
+            }
+            return Err(e);
+        }
+    };
     tracing::info!(
         "Connected to gv-web as server {} (user: {})",
         verify.server_id,
