@@ -33,14 +33,14 @@ impl GstAudioEncoder {
 
         let pipeline_str = format!(
             "appsrc name=audio_src is-live=true format=time \
-             ! audioconvert ! audioresample \
+             ! audioconvert ! audioresample quality=0 \
              ! audio/x-raw,rate=48000,channels=2 \
              ! opusenc \
                audio-type=restricted-lowdelay \
                frame-size=20 \
                bitrate={br} \
                inband-fec=true \
-             ! appsink name=audio_sink sync=false async=false drop=true max-buffers=8",
+             ! appsink name=audio_sink sync=false async=false drop=true max-buffers=4",
             br = bitrate,
         );
 
@@ -127,6 +127,9 @@ impl GstAudioEncoder {
 
     pub fn channels(&self) -> u16 {
         self.channels
+    }
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
     }
 }
 

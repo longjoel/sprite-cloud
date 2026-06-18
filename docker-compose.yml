@@ -86,7 +86,7 @@ services:
       GV_ICE_TRANSPORT_POLICY: ${GV_ICE_TRANSPORT_POLICY:-all}
       RUST_LOG: ${RUST_LOG:-info}
       # ── GStreamer encoder tuning (worker-v2) ──
-      GV_GST_VIDEO_CPU_USED: ${GV_GST_VIDEO_CPU_USED:-4}
+      GV_GST_VIDEO_CPU_USED: ${GV_GST_VIDEO_CPU_USED:-8}
       GV_GST_VIDEO_THREADS: ${GV_GST_VIDEO_THREADS:-4}
       GV_GST_VIDEO_BITRATE_KBPS: ${GV_GST_VIDEO_BITRATE_KBPS:-2000}
       GV_GST_VIDEO_DEADLINE: ${GV_GST_VIDEO_DEADLINE:-1}
@@ -95,7 +95,7 @@ services:
       GV_GST_VIDEO_SCALE_HEIGHT: ${GV_GST_VIDEO_SCALE_HEIGHT:-1080}
       # Cap the integer scale factor (default 4). Prevents excessive upscaling
       # that overwhelms the VP8 encoder at low bitrates.
-      GV_GST_VIDEO_MAX_SCALE: ${GV_GST_VIDEO_MAX_SCALE:-4}
+      GV_GST_VIDEO_MAX_SCALE: ${GV_GST_VIDEO_MAX_SCALE:-2}
       GV_GST_AUDIO_BITRATE: ${GV_GST_AUDIO_BITRATE:-64000}
     healthcheck:
       test: ["CMD", "pgrep", "gv-server"]
