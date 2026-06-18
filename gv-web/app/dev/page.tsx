@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { pollUntil, useInterval } from "@/lib/poll";
+import { Button } from "@/components/ui";
 
 // ── Constants (no magic values) ───────────────────────────────────────
 
@@ -31,6 +32,16 @@ interface StatusCard {
   ok: boolean;
 }
 
+// ── Links ──────────────────────────────────────────────────────────────
+
+const LINKS: Array<{ label: string; href: string }> = [
+  { label: "Games Vault (v1)", href: "http://localhost:8090" },
+  { label: "Jellyfin", href: "http://localhost:8096" },
+  { label: "Home Assistant", href: "http://localhost:8123" },
+  { label: "gv-test VPS", href: "https://gv-test.lngnckr.tech" },
+  { label: "Production", href: "https://lngnckr.tech" },
+];
+
 // ── Page ──────────────────────────────────────────────────────────────
 
 export default function DevDashboard() {
@@ -53,11 +64,8 @@ export default function DevDashboard() {
 
   const refresh = useCallback(async () => {
     const results: StatusCard[] = [];
-
-    // gv-web itself
     results.push({ label: "gv-web", value: "up", ok: true });
 
-    // Health check (pings DB, no auth required)
     try {
       const r = await fetch("/api/health");
       if (r.ok) {
@@ -70,9 +78,7 @@ export default function DevDashboard() {
       results.push({ label: "DB", value: "unreachable", ok: false });
     }
 
-    // Poll endpoint (how many pending commands?)
     try {
-      // This will 401 without a bearer token, but confirms the route exists
       const r = await fetch("/api/server/poll");
       if (r.status === 401) {
         results.push({ label: "poll API", value: "up (needs auth)", ok: true });
@@ -156,9 +162,8 @@ export default function DevDashboard() {
       return;
     }
 
-    // 1. Queue start_game command
     setPlayStatus("Queueing…");
-    let workerToken: string;
+    let token: string;
     try {
       const r = await fetch("/api/server/command", {
         method: "POST",
@@ -174,24 +179,22 @@ export default function DevDashboard() {
         setPlayStatus(`Command failed: HTTP ${r.status} — ${JSON.stringify(data)}`);
         return;
       }
-      workerToken = data.worker_token;
-      setWorkerToken(workerToken);
+      token = data.worker_token;
+      setWorkerToken(token);
     } catch (e) {
       setPlayStatus(`Network error: ${e}`);
       return;
     }
 
-    // 2. Poll for worker URL (must include worker_token)
     const POLL_MS = 500;
     const TIMEOUT_MS = 30_000;
-
     setPlayStatus("Waiting for worker…");
 
     try {
       const url = await pollUntil<string>(
         async () => {
           const r = await fetch(
-            `/api/server/notify?server_id=${encodeURIComponent(playServerId)}&worker_token=${encodeURIComponent(workerToken)}`,
+            `/api/server/notify?server_id=${encodeURIComponent(playServerId)}&worker_token=${encodeURIComponent(token)}`,
           );
           const data = await r.json();
           return data.worker_url ?? null;
@@ -208,53 +211,53 @@ export default function DevDashboard() {
   // ── Render ───────────────────────────────────────────────────────
 
   return (
-    <main style={styles.main}>
-      <h1 style={styles.h1}>Dev Dashboard</h1>
+    <main style={S.main}>
+      <h1 style={S.h1}>Dev Dashboard</h1>
 
       {/* Status cards */}
-      <div style={styles.row}>
+      <div style={S.row}>
         {cards.map((c) => (
           <div
             key={c.label}
             style={{
-              ...styles.card,
-              borderColor: c.ok ? "#2a2" : "#a22",
+              ...S.card,
+              borderColor: c.ok ? "var(--color-success)" : "var(--color-error)",
             }}
           >
-            <div style={styles.cardLabel}>{c.label}</div>
-            <div style={styles.cardValue}>{c.value}</div>
+            <div style={S.cardLabel}>{c.label}</div>
+            <div style={S.cardValue}>{c.value}</div>
           </div>
         ))}
       </div>
 
       {/* Pairing code */}
-      <section style={styles.section}>
-        <h2 style={styles.h2}>Pairing Code</h2>
-        <button style={styles.btn} onClick={generateCode}>
+      <section style={S.section}>
+        <h2 style={S.h2}>Pairing Code</h2>
+        <Button variant="secondary" size="sm" onClick={generateCode}>
           Generate
-        </button>
+        </Button>
         {pairingCode && (
-          <code style={styles.code}>{pairingCode}</code>
+          <code style={S.code}>{pairingCode}</code>
         )}
       </section>
 
       {/* Command queue */}
-      <section style={styles.section}>
-        <h2 style={styles.h2}>Queue Command</h2>
-        <div style={styles.formRow}>
-          <label style={styles.label}>
+      <section style={S.section}>
+        <h2 style={S.h2}>Queue Command</h2>
+        <div style={S.formRow}>
+          <label style={S.label}>
             server_id
             <input
-              style={styles.input}
+              style={S.input}
               value={cmdServerId}
               onChange={(e) => setCmdServerId(e.target.value)}
               placeholder="00000000-0000-0000-0000-000000000000"
             />
           </label>
-          <label style={styles.label}>
+          <label style={S.label}>
             type
             <select
-              style={{ ...styles.input, width: 160 }}
+              style={{ ...S.input, width: 160 }}
               value={cmdType}
               onChange={(e) => setCmdType(e.target.value)}
             >
@@ -264,54 +267,54 @@ export default function DevDashboard() {
             </select>
           </label>
         </div>
-        <label style={styles.label}>
+        <label style={S.label}>
           payload (JSON)
           <textarea
-            style={{ ...styles.input, height: 60, fontFamily: "monospace" }}
+            style={{ ...S.input, height: 60 }}
             value={cmdPayload}
             onChange={(e) => setCmdPayload(e.target.value)}
           />
         </label>
-        <button style={styles.btn} onClick={queueCommand}>
+        <Button variant="secondary" size="sm" onClick={queueCommand}>
           Send
-        </button>
+        </Button>
         {cmdResult && (
-          <pre style={styles.pre}>{cmdResult}</pre>
+          <pre style={S.pre}>{cmdResult}</pre>
         )}
       </section>
 
-      {/* Links */}
-      <section style={styles.section}>
-        <h2 style={styles.h2}>Play Game</h2>
-        <div style={styles.formRow}>
-          <label style={styles.label}>
+      {/* Play Game */}
+      <section style={S.section}>
+        <h2 style={S.h2}>Play Game</h2>
+        <div style={S.formRow}>
+          <label style={S.label}>
             server_id
             <input
-              style={styles.input}
+              style={S.input}
               value={playServerId}
               onChange={(e) => setPlayServerId(e.target.value)}
               placeholder="00000000-0000-0000-0000-000000000000"
             />
           </label>
-          <label style={styles.label}>
+          <label style={S.label}>
             game_id
             <input
-              style={{ ...styles.input, width: 120 }}
+              style={{ ...S.input, width: 120 }}
               value={playGameId}
               onChange={(e) => setPlayGameId(e.target.value)}
             />
           </label>
         </div>
-        <button style={styles.btn} onClick={playGame}>
+        <Button variant="primary" size="sm" onClick={playGame}>
           Play
-        </button>
+        </Button>
         {playStatus && (
-          <pre style={styles.pre}>{playStatus}</pre>
+          <pre style={S.pre}>{playStatus}</pre>
         )}
         {workerUrl && (
-          <div style={{ marginTop: 8 }}>
+          <div style={{ marginTop: "var(--space-4)" }}>
             <a
-              style={styles.link}
+              style={S.link}
               href={`/player/index.html?worker=${encodeURIComponent(workerUrl)}`}
               target="_blank"
               rel="noreferrer"
@@ -323,11 +326,11 @@ export default function DevDashboard() {
       </section>
 
       {/* Links */}
-      <section style={styles.section}>
-        <h2 style={styles.h2}>Links</h2>
-        <div style={styles.linkRow}>
+      <section style={S.section}>
+        <h2 style={S.h2}>Links</h2>
+        <div style={S.linkRow}>
           {LINKS.map((l) => (
-            <a key={l.href} style={styles.link} href={l.href}>
+            <a key={l.href} style={S.link} href={l.href}>
               {l.label}
             </a>
           ))}
@@ -337,88 +340,92 @@ export default function DevDashboard() {
   );
 }
 
-// ── Links ──────────────────────────────────────────────────────────────
+// ── Styles ─────────────────────────────────────────────────────────────
 
-const LINKS: Array<{ label: string; href: string }> = [
-  { label: "Games Vault (v1)", href: "http://localhost:8090" },
-  { label: "Jellyfin", href: "http://localhost:8096" },
-  { label: "Home Assistant", href: "http://localhost:8123" },
-  { label: "gv-test VPS", href: "https://gv-test.lngnckr.tech" },
-  { label: "Production", href: "https://lngnckr.tech" },
-];
-
-// ── Styles (inline, no build step needed) ─────────────────────────────
-
-const styles: Record<string, React.CSSProperties> = {
+const S: Record<string, React.CSSProperties> = {
   main: {
-    padding: "2rem",
-    fontFamily: "monospace",
-    background: "#111",
-    color: "#ccc",
+    padding: "var(--space-8)",
+    fontFamily: "var(--font-mono)",
+    background: "var(--color-mahogany)",
+    color: "var(--color-cream)",
     minHeight: "100vh",
   },
-  h1: { margin: "0 0 1.5rem", fontSize: "1.5rem", color: "#fff" },
-  h2: { margin: "1.5rem 0 0.5rem", fontSize: "1rem", color: "#aaa" },
-  section: { marginBottom: "1.5rem" },
-  row: { display: "flex", gap: 12, flexWrap: "wrap" },
-  card: {
-    border: "1px solid #333",
-    padding: "12px 16px",
-    borderRadius: 4,
-    minWidth: 140,
+  h1: {
+    margin: "0 0 var(--space-7)",
+    fontSize: "var(--font-size-h1)",
+    color: "var(--color-brass)",
+    fontFamily: "var(--font-mono)",
   },
-  cardLabel: { fontSize: 11, color: "#888", marginBottom: 4 },
-  cardValue: { fontSize: 18, color: "#fff" },
-  btn: {
-    margin: "4px 0",
-    padding: "4px 14px",
-    background: "#333",
-    color: "#ccc",
-    border: "1px solid #555",
-    cursor: "pointer",
-    fontFamily: "monospace",
-    fontSize: 13,
+  h2: {
+    margin: "var(--space-7) 0 var(--space-3)",
+    fontSize: "var(--font-size-h2)",
+    color: "var(--color-muted)",
+    fontFamily: "var(--font-mono)",
+  },
+  section: { marginBottom: "var(--space-7)" },
+  row: { display: "flex", gap: "var(--space-5)", flexWrap: "wrap" },
+  card: {
+    border: "1px solid var(--color-bamboo)",
+    padding: "var(--space-5) var(--space-6)",
+    borderRadius: "var(--radius-md)",
+    minWidth: 140,
+    background: "var(--color-teak)",
+  },
+  cardLabel: {
+    fontSize: "var(--font-size-xs)",
+    color: "var(--color-muted)",
+    marginBottom: "var(--space-2)",
+    fontFamily: "var(--font-mono)",
+  },
+  cardValue: {
+    fontSize: "var(--font-size-xl)",
+    color: "var(--color-cream)",
+    fontFamily: "var(--font-mono)",
   },
   code: {
     display: "block",
-    marginTop: 8,
-    padding: "6px 10px",
-    background: "#222",
-    fontSize: 16,
+    marginTop: "var(--space-4)",
+    padding: "var(--space-3) var(--space-4)",
+    background: "var(--color-walnut)",
+    fontSize: "var(--font-size-lg)",
     letterSpacing: 2,
-    color: "#0f0",
+    color: "var(--color-lime)",
+    fontFamily: "var(--font-mono)",
   },
-  formRow: { display: "flex", gap: 12, marginBottom: 8 },
+  formRow: { display: "flex", gap: "var(--space-5)", marginBottom: "var(--space-4)" },
   label: {
     display: "flex",
     flexDirection: "column",
-    gap: 4,
-    fontSize: 12,
-    color: "#888",
+    gap: "var(--space-2)",
+    fontSize: "var(--font-size-sm)",
+    color: "var(--color-muted)",
+    fontFamily: "var(--font-mono)",
     flex: 1,
   },
   input: {
-    padding: "4px 8px",
-    background: "#222",
-    color: "#ccc",
-    border: "1px solid #444",
-    fontFamily: "monospace",
-    fontSize: 13,
-    borderRadius: 2,
+    padding: "var(--space-2) var(--space-4)",
+    background: "var(--color-walnut)",
+    color: "var(--color-cream)",
+    border: "1px solid var(--color-bamboo)",
+    fontFamily: "var(--font-mono)",
+    fontSize: "var(--font-size-base)",
+    borderRadius: "var(--radius-sm)",
   },
   pre: {
-    marginTop: 8,
-    padding: "8px 10px",
-    background: "#222",
-    fontSize: 12,
-    color: "#aaa",
+    marginTop: "var(--space-4)",
+    padding: "var(--space-4)",
+    background: "var(--color-walnut)",
+    fontSize: "var(--font-size-sm)",
+    color: "var(--color-muted)",
     whiteSpace: "pre-wrap",
+    fontFamily: "var(--font-mono)",
   },
-  linkRow: { display: "flex", gap: 16, flexWrap: "wrap" },
+  linkRow: { display: "flex", gap: "var(--space-6)", flexWrap: "wrap" },
   link: {
-    color: "#6af",
+    color: "var(--color-info)",
     textDecoration: "none",
-    fontSize: 13,
-    padding: "4px 0",
+    fontSize: "var(--font-size-base)",
+    fontFamily: "var(--font-mono)",
+    padding: "var(--space-2) 0",
   },
 };
