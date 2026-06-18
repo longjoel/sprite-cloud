@@ -283,7 +283,7 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
     );
 
     // Load libretro core
-    let (core_width, core_height, core_frame_rx, core_cmd_tx, core_response_rx, core_sample_rate, core_audio_channels) =
+    let (core_width, core_height, core_fps, core_frame_rx, core_cmd_tx, core_response_rx, core_sample_rate, core_audio_channels) =
         match crate::core_bridge::spawn_core_thread() {
             Some(handle) => {
                 tracing::info!(
@@ -294,6 +294,7 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
                 (
                     handle.width,
                     handle.height,
+                    handle.fps,
                     Some(handle.frame_rx),
                     Some(handle.cmd_tx),
                     Some(handle.response_rx),
@@ -308,7 +309,7 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
 
     // Create GStreamer encoders
     let video_enc = Arc::new(tokio::sync::Mutex::new(
-        GstVideoEncoder::new(core_width, core_height)
+        GstVideoEncoder::new(core_width, core_height, core_fps)
             .map_err(|e| format!("video encoder: {e}"))?,
     ));
 
@@ -606,6 +607,7 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
         video_enc,
         audio_enc,
         core_frame_rx,
+        fps: core_fps,
     };
 
     let handle = tokio::spawn(async move {
@@ -632,12 +634,13 @@ struct StreamCtx {
     video_enc: Arc<tokio::sync::Mutex<GstVideoEncoder>>,
     audio_enc: Arc<tokio::sync::Mutex<Option<GstAudioEncoder>>>,
     core_frame_rx: Option<std::sync::mpsc::Receiver<crate::core_bridge::CoreFrame>>,
+    fps: f64,
 }
 
 async fn stream_frames(ctx: StreamCtx) {
     use webrtc::media::Sample;
 
-    let frame_interval = Duration::from_secs_f64(1.0 / 60.0); // 60fps ticker
+    let frame_interval = Duration::from_secs_f64(1.0 / ctx.fps.max(1.0));
     let mut frame_num: u64 = 0;
     let mut audio_ts: u32 = 0;
     let mut audio_write_errs: u64 = 0;
@@ -652,7 +655,7 @@ async fn stream_frames(ctx: StreamCtx) {
     // Probe the first frame and rebuild the encoder if needed.
     let mut resolution_probed = false;
 
-    tracing::info!("[STREAM] Starting GStreamer-powered frame loop @ 60fps");
+    tracing::info!("[STREAM] Starting GStreamer frame loop @ {:.1}fps", ctx.fps);
 
     loop {
         tokio::select! {
@@ -695,7 +698,7 @@ async fn stream_frames(ctx: StreamCtx) {
                                             ecw = enc_core_w, ech = enc_core_h, aw = f.width, ah = f.height,
                                         );
                                         drop(enc);
-                                        match GstVideoEncoder::new(f.width, f.height) {
+                                        match GstVideoEncoder::new(f.width, f.height, ctx.fps) {
                                             Ok(new_enc) => {
                                                 *ctx.video_enc.lock().await = new_enc;
                                             }
@@ -758,9 +761,10 @@ async fn stream_frames(ctx: StreamCtx) {
                             let sample = Sample {
                                 data: vp8_data.into(),
                                 duration: frame_interval,
-                                packet_timestamp: (frame_num
+                                packet_timestamp: frame_num
                                     .wrapping_sub(1)
-                                    .saturating_mul(VP8_CLOCK_RATE as u64 / 60)) as u32,
+                                    .saturating_mul((VP8_CLOCK_RATE as f64 / ctx.fps.max(1.0)).round() as u64)
+                                    as u32,
                                 ..Default::default()
                             };
                             if let Err(e) = ctx.track.write_sample(&sample).await {

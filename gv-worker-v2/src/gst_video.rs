@@ -24,12 +24,14 @@ pub struct GstVideoEncoder {
     output_height: u32,
     /// Integer scale factor: max(1, floor(GV_GST_VIDEO_SCALE_HEIGHT / core_height)).
     scale_factor: u32,
+    /// Frame duration in nanoseconds (derived from core fps).
+    frame_duration_ns: u64,
     frames_pushed: u64,
     frames_pulled: u64,
 }
 
 impl GstVideoEncoder {
-    pub fn new(core_width: u32, core_height: u32) -> Result<Self, String> {
+    pub fn new(core_width: u32, core_height: u32, fps: f64) -> Result<Self, String> {
         let scale_height = crate::config::gst_video_scale_height();
         let max_scale = crate::config::gst_video_max_scale().max(1);
         let scale_factor = if scale_height > 0 && core_height > 0 {
@@ -39,6 +41,11 @@ impl GstVideoEncoder {
         };
         let output_width = core_width * scale_factor;
         let output_height = core_height * scale_factor;
+        let frame_duration_ns = if fps > 0.0 {
+            (1_000_000_000.0 / fps) as u64
+        } else {
+            16_666_667 // fallback: 60fps
+        };
 
         let cpu = crate::config::gst_video_cpu_used();
         let threads = crate::config::gst_video_threads();
@@ -125,6 +132,7 @@ impl GstVideoEncoder {
             output_width,
             output_height,
             scale_factor,
+            frame_duration_ns,
             frames_pushed: 0,
             frames_pulled: 0,
         })
@@ -176,9 +184,9 @@ impl GstVideoEncoder {
         let mut buffer = gst::Buffer::from_slice(data);
         {
             let buf = buffer.make_mut();
-            let pts = frame_num.saturating_mul(16_666_667); // ~60fps in ns
+            let pts = frame_num.saturating_mul(self.frame_duration_ns);
             buf.set_pts(gst::ClockTime::from_nseconds(pts));
-            buf.set_duration(gst::ClockTime::from_nseconds(16_666_667));
+            buf.set_duration(gst::ClockTime::from_nseconds(self.frame_duration_ns));
         }
         self.appsrc
             .push_buffer(buffer)
