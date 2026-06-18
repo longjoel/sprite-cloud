@@ -664,29 +664,39 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         all_files.extend(files);
                                     }
 
-                                    // Match against DAT index (loaded lazily)
+                                    // Match against DAT index (loaded lazily per extension)
                                     let mut dat_lock = dat_index.write().await;
                                     if dat_lock.is_none() {
-                                        // Try to load DATs for each extension we found
-                                        // sharing the mutability borrow
+                                        let mut combined: Option<crate::dat::DatIndex> = None;
+                                        let mut seen_exts = std::collections::HashSet::new();
                                         for file in &all_files {
                                             if let Some(ext) = file
                                                 .relative_path
                                                 .rsplit('.')
                                                 .next()
-                                                && let Some(index) = crate::dat::load_for_extension(
-                                                    ext,
+                                            {
+                                                let ext_lower = ext.to_lowercase();
+                                                if seen_exts.contains(&ext_lower) {
+                                                    continue;
+                                                }
+                                                seen_exts.insert(ext_lower.clone());
+                                                if let Some(index) = crate::dat::load_for_extension(
+                                                    &ext_lower,
                                                     &dirs::cache_dir()
                                                         .unwrap_or_default()
                                                         .join("games-vault")
                                                         .join("dat"),
                                                 )
                                                 .await
-                                            {
-                                                *dat_lock = Some(index);
-                                                break;
+                                                {
+                                                    match &mut combined {
+                                                        Some(c) => c.merge(index),
+                                                        None => combined = Some(index),
+                                                    }
+                                                }
                                             }
                                         }
+                                        *dat_lock = combined;
                                     }
 
                                     let mut matches = Vec::new();
