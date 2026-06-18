@@ -55,6 +55,7 @@ if (lanCredentialsEnabled()) {
           request?.headers?.get("x-real-ip") ||
           "127.0.0.1";
 
+        // VPS: IP gate skipped when LAN_AUTH_ALLOW_PUBLIC=1
         if (!isLanIp(ip) && process.env.LAN_AUTH_ALLOW_PUBLIC !== "1") {
           console.warn(JSON.stringify({
             service: "gv-web",
