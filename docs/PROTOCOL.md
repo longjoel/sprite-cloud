@@ -493,7 +493,7 @@ spawn_worker(game_id, worker_bin_override) -> SpawnedWorker
 
 1. `config.toml` → `gv_web.worker_bin` (persistent, set during pairing)
 2. `GV_WORKER_BIN` env var (override)
-3. Auto-detect: `./target/release/gv-worker` → `./target/debug/gv-worker`
+3. Auto-detect: `./target/release/gv-worker-v2` → `./target/debug/gv-worker-v2`
 
 ### Kill
 
@@ -598,7 +598,7 @@ See `.env.example` for the full list. Key variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GV_WORKER_BIN` | auto-detect | gv-worker binary path |
+| `GV_WORKER_BIN` | auto-detect | gv-worker-v2 binary path |
 | `GV_WORKER_HOST` | LAN IP | Hostname in worker URL |
 | `GV_WEB_TIMEOUT_SECS` | 30 | HTTP timeout for gv-web calls |
 | `STUN_SERVER` | stun:stun.l.google.com:19302 | WebRTC NAT traversal |
