@@ -1,17 +1,46 @@
 #!/usr/bin/env bash
 # Games Vault — one-liner self-hosted install
-# curl -sSL https://lngnckr.tech/install.sh | sh
+#   curl -sSL https://... | sh            # system-wide (needs sudo)
+#   curl -sSL https://... | sh -s -- --rootless  # user-only (no sudo)
 set -euo pipefail
 
 BOLD='\033[1m'
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
+YELLOW='\033[0;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
 log()  { printf "${CYAN}→${NC} %s\n" "$*"; }
 ok()   { printf "${GREEN}✓${NC} %s\n" "$*"; }
+warn() { printf "${YELLOW}!${NC} %s\n" "$*"; }
 err()  { printf "${RED}✗${NC} %s\n" "$*" >&2; exit 1; }
+
+ROOTLESS=false
+WEB_URL=""
+ROM_DIR=""
+
+# ── Parse args ──────────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --rootless)           ROOTLESS=true; shift ;;
+    --web-url)            WEB_URL="$2"; shift 2 ;;
+    --rom-dir)            ROM_DIR="$2"; shift 2 ;;
+    --help|-h)
+      printf "Usage: install.sh [--rootless] [--web-url URL] [--rom-dir PATH]\n"
+      printf "  --rootless   Install as current user (no sudo)\n"
+      printf "  --web-url    gv-web URL (skip prompt)\n"
+      printf "  --rom-dir    ROM directory (skip prompt)\n"
+      exit 0
+      ;;
+    *) err "unknown flag: $1 (use --help)" ;;
+  esac
+done
+
+# Also support GV_ROOTLESS=1 env var
+if [[ "${GV_ROOTLESS:-}" == "1" ]]; then
+  ROOTLESS=true
+fi
 
 # ── Detect OS ──────────────────────────────────────────────────────────
 UNAME_S=$(uname -s)
@@ -53,71 +82,114 @@ case "$OS_ID" in
     ;;
 esac
 
+# ── Set paths ──────────────────────────────────────────────────────────
+if $ROOTLESS; then
+  MODE="rootless (user)"
+  SUDO=""
+  BIN_DIR="${HOME}/.local/bin"
+  CONFIG_DIR="${HOME}/.config/games-vault"
+  DATA_DIR="${HOME}/.local/share/games-vault"
+  SYSTEMD_DIR="${HOME}/.config/systemd/user"
+  SYSTEMCTL="systemctl --user"
+  SU_CMD=""  # no user switch needed
+else
+  MODE="system-wide (root)"
+  if [ "$(id -u)" -eq 0 ]; then
+    SUDO=""
+    warn "running as root — sudo prefix omitted"
+  elif command -v sudo >/dev/null 2>&1; then
+    SUDO="sudo"
+  else
+    err "sudo not found — run as root or use --rootless"
+  fi
+  BIN_DIR="/usr/local/bin"
+  CONFIG_DIR="/etc/games-vault"
+  DATA_DIR="/var/lib/games-vault"
+  SYSTEMD_DIR="/etc/systemd/system"
+  SYSTEMCTL="sudo systemctl"
+  SU_CMD="games-vault:games-vault"
+fi
+
+CORES_DIR="${DATA_DIR}/cores"
+CONFIG_FILE="${CONFIG_DIR}/config.toml"
+BIN_PATH="${BIN_DIR}/gv-server"
+
 printf "${BOLD}Games Vault — Self-Hosted Install${NC}\n"
+printf "  Mode:   ${CYAN}%s${NC}\n" "$MODE"
 printf "  OS:     ${GREEN}%s${NC}\n" "$OS_ID"
 printf "  Arch:   ${GREEN}%s${NC}\n" "$ARCH"
 printf "  Pkg:    ${GREEN}%s${NC}\n" "$PKG_MGR"
+printf "  Binary: ${GREEN}%s${NC}\n" "$BIN_PATH"
+printf "  Config: ${GREEN}%s${NC}\n" "$CONFIG_FILE"
 echo ""
 
 # ── Install system dependencies ────────────────────────────────────────
-log "Installing system dependencies (GStreamer, Opus, VP8, GL)…"
-
-case "$PKG_MGR" in
-  apt)
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq --no-install-recommends $GST_PKGS curl ca-certificates
-    ;;
-  dnf)
-    sudo dnf install -y -q $GST_PKGS curl ca-certificates
-    ;;
-  pacman)
-    sudo pacman -Syu --noconfirm --needed $GST_PKGS curl ca-certificates
-    ;;
-esac
-
-ok "system dependencies installed"
-
-# ── Create system user ─────────────────────────────────────────────────
-if ! id games-vault >/dev/null 2>&1; then
-  log "Creating games-vault user…"
-  sudo useradd -r -s /usr/sbin/nologin -m -d /var/lib/games-vault games-vault
-  ok "user games-vault created"
+if $ROOTLESS; then
+  warn "rootless mode — skipping system package install"
+  warn "install manually: ${GST_PKGS} curl ca-certificates"
 else
-  ok "user games-vault already exists"
+  log "Installing system dependencies (GStreamer, Opus, VP8, GL)…"
+
+  case "$PKG_MGR" in
+    apt)
+      $SUDO apt-get update -qq
+      $SUDO apt-get install -y -qq --no-install-recommends $GST_PKGS curl ca-certificates
+      ;;
+    dnf)
+      $SUDO dnf install -y -q $GST_PKGS curl ca-certificates
+      ;;
+    pacman)
+      $SUDO pacman -Syu --noconfirm --needed $GST_PKGS curl ca-certificates
+      ;;
+  esac
+
+  ok "system dependencies installed"
 fi
+
+# ── Create directories ─────────────────────────────────────────────────
+if ! $ROOTLESS; then
+  if ! id games-vault >/dev/null 2>&1; then
+    log "Creating games-vault user…"
+    $SUDO useradd -r -s /usr/sbin/nologin -m -d "$DATA_DIR" games-vault
+    ok "user games-vault created"
+  else
+    ok "user games-vault already exists"
+  fi
+fi
+
+$SUDO mkdir -p "$BIN_DIR" "$CONFIG_DIR" "$DATA_DIR" "$CORES_DIR"
+
+if ! $ROOTLESS; then
+  $SUDO chown -R "$SU_CMD" "$DATA_DIR"
+fi
+
+ok "directories created"
 
 # ── Download binary ────────────────────────────────────────────────────
 BIN_URL="${GV_BIN_URL:-https://github.com/longjoel/games-vault/releases/latest/download/gv-server-${ARCH}}"
-BIN_PATH="/usr/local/bin/gv-server"
 
 log "Downloading gv-server ($ARCH)…"
-sudo curl -sSL "$BIN_URL" -o "$BIN_PATH"
-sudo chmod +x "$BIN_PATH"
+$SUDO curl -sSL "$BIN_URL" -o "$BIN_PATH"
+$SUDO chmod +x "$BIN_PATH"
 ok "gv-server installed to $BIN_PATH"
 
-# ── Core directory ─────────────────────────────────────────────────────
-CORES_DIR="/var/lib/games-vault/cores"
-sudo mkdir -p "$CORES_DIR"
-sudo chown games-vault:games-vault "$CORES_DIR"
-ok "cores directory: $CORES_DIR"
-
 # ── Config ─────────────────────────────────────────────────────────────
-CONFIG_DIR="/etc/games-vault"
-CONFIG_FILE="$CONFIG_DIR/config.toml"
-sudo mkdir -p "$CONFIG_DIR"
-
 log "Configuration"
 echo ""
 
-printf "  ${CYAN}Web URL${NC} [https://lngnckr.tech]: "
-read -r WEB_URL
-WEB_URL="${WEB_URL:-https://lngnckr.tech}"
+if [[ -z "$WEB_URL" ]]; then
+  printf "  ${CYAN}Web URL${NC} [https://lngnckr.tech]: "
+  read -r WEB_URL
+  WEB_URL="${WEB_URL:-https://lngnckr.tech}"
+fi
 
-printf "  ${CYAN}ROM directory${NC} [/srv/storage/games/roms]: "
-read -r ROM_DIR
-ROM_DIR="${ROM_DIR:-/srv/storage/games/roms}"
+if [[ -z "$ROM_DIR" ]]; then
+  printf "  ${CYAN}ROM directory${NC} [/srv/storage/games/roms]: "
+  read -r ROM_DIR
+  ROM_DIR="${ROM_DIR:-/srv/storage/games/roms}"
+fi
 
-sudo tee "$CONFIG_FILE" > /dev/null << EOF
+$SUDO tee "$CONFIG_FILE" > /dev/null << EOF
 [gv_web]
 url = "${WEB_URL}"
 
@@ -125,16 +197,47 @@ url = "${WEB_URL}"
 roots = ["${ROM_DIR}"]
 EOF
 
-sudo chown -R games-vault:games-vault "$CONFIG_DIR"
-sudo chmod 600 "$CONFIG_FILE"
+if $ROOTLESS; then
+  $SUDO chmod 600 "$CONFIG_FILE"
+else
+  $SUDO chown "$SU_CMD" "$CONFIG_DIR"
+  $SUDO chmod 600 "$CONFIG_FILE"
+fi
+
 ok "config written to $CONFIG_FILE"
 
-# ── Systemd service (disabled until paired) ────────────────────────────
-SERVICE_FILE="/etc/systemd/system/gv-server.service"
+# ── Systemd service ────────────────────────────────────────────────────
+SERVICE_FILE="${SYSTEMD_DIR}/gv-server.service"
+
+if $ROOTLESS; then
+  mkdir -p "$SYSTEMD_DIR"
+fi
 
 log "Installing systemd service…"
 
-sudo tee "$SERVICE_FILE" > /dev/null << EOF
+if $ROOTLESS; then
+  # User-level service — runs as current user, no hardening directives
+  cat > "$SERVICE_FILE" << EOF
+[Unit]
+Description=Games Vault Server (user)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment="XDG_CONFIG_HOME=${HOME}/.config"
+Environment="GV_CORES_DIR=${CORES_DIR}"
+Environment="RUST_LOG=info"
+ExecStart=${BIN_PATH} start
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=default.target
+EOF
+else
+  $SUDO tee "$SERVICE_FILE" > /dev/null << EOF
 [Unit]
 Description=Games Vault Server
 After=network-online.target
@@ -156,7 +259,7 @@ LimitNOFILE=65536
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/var/lib/games-vault /tmp/gv-workers
+ReadWritePaths=${DATA_DIR} /tmp/gv-workers
 PrivateTmp=yes
 PrivateDevices=no
 DeviceAllow=/dev/dri rw
@@ -164,8 +267,9 @@ DeviceAllow=/dev/dri rw
 [Install]
 WantedBy=multi-user.target
 EOF
+fi
 
-sudo systemctl daemon-reload
+$SYSTEMCTL daemon-reload
 ok "systemd service installed (disabled — pair first)"
 
 # ── Done ───────────────────────────────────────────────────────────────
@@ -181,12 +285,18 @@ printf "     Go to ${CYAN}${WEB_URL}${NC} → Pair Server → copy the code\n"
 printf "     Run: ${BOLD}gv-server pair <CODE>${NC}\n"
 echo ""
 printf "  ${BOLD}2. Start the service:${NC}\n"
-printf "     ${BOLD}sudo systemctl enable --now gv-server${NC}\n"
+printf "     ${BOLD}${SYSTEMCTL} enable --now gv-server${NC}\n"
 echo ""
-printf "  Status:  ${BOLD}sudo systemctl status gv-server${NC}\n"
-printf "  Logs:    ${BOLD}sudo journalctl -u gv-server -f${NC}\n"
+printf "  Status:  ${BOLD}${SYSTEMCTL} status gv-server${NC}\n"
+printf "  Logs:    ${BOLD}journalctl ${SYSTEMCTL/#systemctl/} -u gv-server -f${NC}\n"
 printf "  Config:  ${BOLD}${CONFIG_FILE}${NC}\n"
 printf "  Cores:   ${BOLD}${CORES_DIR}${NC}\n"
 echo ""
 printf "  Games auto-download cores from the buildbot.\n"
 printf "  Place ROMs in ${BOLD}${ROM_DIR}${NC} and they'll appear in the web UI.\n"
+
+if $ROOTLESS; then
+  echo ""
+  warn "Rootless install — you must install system deps yourself:"
+  printf "     ${BOLD}${GST_PKGS} curl ca-certificates${NC}\n"
+fi
