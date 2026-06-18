@@ -54,7 +54,7 @@ services:
       context: .
       dockerfile: docker/gv-server/Dockerfile
     network_mode: host
-    restart: unless-stopped
+    restart: on-failure:3
     depends_on:
       gv-web:
         condition: service_healthy
