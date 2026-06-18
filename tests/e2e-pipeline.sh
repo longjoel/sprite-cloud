@@ -57,9 +57,9 @@ export XDG_CONFIG_HOME="$TMPDIR"
 mkdir -p "$TMPDIR/games-vault"
 
 GV_SERVER_BIN="${GV_SERVER_BIN:-./target/debug/gv-server}"
-GV_WORKER_BIN="${GV_WORKER_BIN:-./target/debug/gv-worker}"
+GV_WORKER_BIN="${GV_WORKER_BIN:-./target/debug/gv-worker-v2}"
 [ -x "$GV_SERVER_BIN" ] || cargo build --bin gv-server
-[ -x "$GV_WORKER_BIN" ] || cargo build --bin gv-worker
+[ -x "$GV_WORKER_BIN" ] || cargo build --bin gv-worker-v2
 
 cat > "$TMPDIR/games-vault/config.toml" << CFGEOF
 [gv_web]

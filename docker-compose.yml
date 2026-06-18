@@ -60,7 +60,7 @@ services:
     volumes:
       # Host-built release binaries (rw for auto-download writes to cores dir)
       - ./target/release/gv-server:/usr/local/bin/gv-server:ro
-      - ./target/release/gv-worker:/usr/local/bin/gv-worker:ro
+      - ./target/release/gv-worker-v2:/usr/local/bin/gv-worker-v2:ro
       - ./test-data/cores:/cores:rw
       # Host config
       - /etc/games-vault/config.toml:/etc/games-vault/config.toml:ro
@@ -75,7 +75,7 @@ services:
       GV_API_KEY: ${GV_API_KEY:-}
       GV_CORES_DIR: /cores
       GV_ROM_ROOTS: ${GV_ROM_ROOTS:-/srv/storage/games/roms}
-      GV_WORKER_BIN: /usr/local/bin/gv-worker
+      GV_WORKER_BIN: ${GV_WORKER_BIN:-/usr/local/bin/gv-worker-v2}
       GV_SAVES_DIR: /saves
       GV_SYSTEM_DIR: /system
       ALLOWED_ORIGIN: ${AUTH_URL:-http://vault:3000}
@@ -85,7 +85,18 @@ services:
       GV_ICE_TURN_CREDENTIAL: ${GV_ICE_TURN_CREDENTIAL:-}
       GV_ICE_TRANSPORT_POLICY: ${GV_ICE_TRANSPORT_POLICY:-all}
       RUST_LOG: ${RUST_LOG:-info}
-      GV_VP8_USAGE: ${GV_VP8_USAGE:-0}
+      # ── GStreamer encoder tuning (worker-v2) ──
+      GV_GST_VIDEO_CPU_USED: ${GV_GST_VIDEO_CPU_USED:-4}
+      GV_GST_VIDEO_THREADS: ${GV_GST_VIDEO_THREADS:-4}
+      GV_GST_VIDEO_BITRATE_KBPS: ${GV_GST_VIDEO_BITRATE_KBPS:-2000}
+      GV_GST_VIDEO_DEADLINE: ${GV_GST_VIDEO_DEADLINE:-1}
+      # Integer scaling: nearest-neighbor upscale core output to at least this height.
+      # 0 = off (passthrough). e.g. 1080 → NES 240p → 4× → 960p.
+      GV_GST_VIDEO_SCALE_HEIGHT: ${GV_GST_VIDEO_SCALE_HEIGHT:-1080}
+      # Cap the integer scale factor (default 4). Prevents excessive upscaling
+      # that overwhelms the VP8 encoder at low bitrates.
+      GV_GST_VIDEO_MAX_SCALE: ${GV_GST_VIDEO_MAX_SCALE:-4}
+      GV_GST_AUDIO_BITRATE: ${GV_GST_AUDIO_BITRATE:-64000}
     healthcheck:
       test: ["CMD", "pgrep", "gv-server"]
       interval: 15s

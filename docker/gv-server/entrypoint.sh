@@ -4,7 +4,7 @@ set -eu
 echo "[gv-server] entrypoint starting..."
 
 # Verify required files exist
-for bin in /usr/local/bin/gv-server /usr/local/bin/gv-worker; do
+for bin in /usr/local/bin/gv-server /usr/local/bin/gv-worker-v2; do
   if [ ! -f "$bin" ]; then
     echo "[gv-server] ERROR: $bin not found — build host binaries first (./scripts/dev-start.sh build)"
     exit 1
@@ -16,9 +16,9 @@ for bin in /usr/local/bin/gv-server /usr/local/bin/gv-worker; do
 done
 
 # Verify shared libs are available (fail early)
-if ! ldd /usr/local/bin/gv-worker >/dev/null 2>&1; then
-  echo "[gv-server] WARNING: gv-worker has unmet library dependencies:"
-  ldd /usr/local/bin/gv-worker || true
+if ! ldd /usr/local/bin/gv-worker-v2 >/dev/null 2>&1; then
+  echo "[gv-server] WARNING: gv-worker-v2 has unmet library dependencies:"
+  ldd /usr/local/bin/gv-worker-v2 || true
 fi
 
 # Verify GV_API_KEY is set

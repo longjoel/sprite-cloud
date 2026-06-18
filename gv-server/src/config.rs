@@ -20,7 +20,7 @@ pub struct GvWeb {
     /// Path to the gv-worker binary (optional).
     ///
     /// When set, overrides the `GV_WORKER_BIN` env var and the auto-detection
-    /// fallback (`./target/release/gv-worker` → `./target/debug/gv-worker`).
+    /// fallback (`./target/release/gv-worker-v2` → `./target/debug/gv-worker-v2`).
     ///
     /// Useful for production deployments where the binary lives outside the
     /// Cargo target directory (e.g. `/opt/games-vault/gv-worker`).

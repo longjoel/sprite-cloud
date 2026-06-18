@@ -161,7 +161,7 @@ Traefik routes the external domain to this port.
 
 ```bash
 # /etc/games-vault.env
-GV_WORKER_BIN=/opt/games-vault/gv-worker
+GV_WORKER_BIN=/opt/games-vault/gv-worker-v2
 GV_WORKER_HOST=vault.local
 GV_WEB_URL=http://localhost:3001
 GV_WEB_TIMEOUT_SECS=30

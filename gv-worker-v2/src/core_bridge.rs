@@ -64,10 +64,10 @@ pub struct CoreHandle {
 /// Returns a `CoreHandle` with frame dimensions, frame receiver,
 /// command sender, and response receiver.
 pub fn spawn_core_thread() -> Option<CoreHandle> {
-    let audio_channels: u16 = std::env::var("GV_AUDIO_CHANNELS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(2);
+    // The audio_sample_callback in libretro-runner always pushes
+    // stereo pairs (left + right), even for mono cores like NES.
+    // Use 2 channels so GStreamer interprets the buffer correctly.
+    let channels: u16 = 2;
 
     let core_path = std::env::var("GV_CORE_PATH").unwrap_or_else(|_| {
         let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -89,7 +89,7 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
             .unwrap_or_else(|_| "/tmp".into())
             .into(),
         save_dir,
-        audio_channels,
+        audio_channels: channels,
     };
 
     // SAFETY: the core is loaded in a dedicated thread. The core path
@@ -297,7 +297,7 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
         height,
         fps,
         sample_rate,
-        audio_channels,
+        audio_channels: channels,
         frame_rx,
         cmd_tx,
         response_rx,

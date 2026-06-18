@@ -1,15 +1,11 @@
 [package]
-name = "gv-worker"
+name = "gv-worker-v2"
 version = "0.1.0"
 edition = "2021"
-description = "Games Vault worker — per-game process launched by gv-server"
-
-[lib]
-name = "gv_worker"
-path = "src/lib.rs"
+description = "Games Vault worker v2 — GStreamer-powered WebRTC game streaming"
 
 [[bin]]
-name = "gv-worker"
+name = "gv-worker-v2"
 path = "src/main.rs"
 
 [dependencies]
@@ -18,21 +14,18 @@ tokio-util = "0.7"
 axum = "0.7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-image = "0.25"
 webrtc = { version = "0.17", features = ["pem"] }
-env-libvpx-sys = { version = "5.1", features = ["generate"] }
 tower-http = { version = "0.6.11", features = ["cors"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "time"] }
 local-ip-address = "0.6"
-opus = "0.3"
+gstreamer = "0.23"
+gstreamer-app = "0.23"
 libretro-runner = { path = "../libretro-runner" }
 sha2 = "0.11.0"
 hex = "0.4.3"
-rubato = "3.0"
 rust-embed = { version = "8", features = ["mime-guess"] }
 mime_guess = "2"
 
 [dev-dependencies]
 ureq = { version = "2", features = ["json"] }
-serde_json = "1"
