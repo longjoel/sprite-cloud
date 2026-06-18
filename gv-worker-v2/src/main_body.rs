@@ -738,7 +738,7 @@ async fn stream_frames(ctx: StreamCtx) {
                     if let Some(ref mut enc) = *ctx.audio_enc.lock().await {
                         let mut buf = std::mem::take(&mut audio_acc);
                         buf.extend_from_slice(&audio_data);
-                        let chunk = 960 * enc.channels() as usize;
+                        let chunk = (enc.sample_rate() as f64 * 0.02).round() as usize * enc.channels() as usize;
                         while buf.len() >= chunk {
                             let rest = buf.split_off(chunk);
                             enc.push(&buf);
