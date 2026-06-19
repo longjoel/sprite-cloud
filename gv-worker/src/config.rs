@@ -1,9 +1,16 @@
-//! Worker-v2 configuration — all tunables via env vars with sensible defaults.
+//! Worker configuration — all tunables via env vars with sensible defaults.
 //!
 //! GStreamer encoder params follow nosebleed's naming convention
 //! (GV_GST_VIDEO_*, GV_GST_AUDIO_*) for discoverability.
 
 use std::sync::LazyLock;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VideoCodecPreference {
+    Auto,
+    Vp8,
+    H264,
+}
 
 // ── Helper ──────────────────────────────────────────────────────────────────
 
@@ -76,6 +83,36 @@ pub fn ice_config() -> IceConfig {
 }
 
 // ── GStreamer video encoder ─────────────────────────────────────────────────
+
+/// Video codec preference. GV_GST_VIDEO_CODEC, default auto.
+/// Values: auto, vp8, h264.
+pub fn gst_video_codec() -> VideoCodecPreference {
+    static V: LazyLock<VideoCodecPreference> = LazyLock::new(|| {
+        match std::env::var("GV_GST_VIDEO_CODEC")
+            .unwrap_or_else(|_| "auto".into())
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "vp8" => VideoCodecPreference::Vp8,
+            "h264" | "h.264" | "avc" => VideoCodecPreference::H264,
+            _ => VideoCodecPreference::Auto,
+        }
+    });
+    *V
+}
+
+/// H.264 GStreamer encoder factory. GV_GST_VIDEO_H264_ENCODER, default auto.
+/// Examples: x264enc, vaapih264enc, nvh264enc.
+pub fn gst_video_h264_encoder() -> String {
+    static V: LazyLock<String> = LazyLock::new(|| {
+        std::env::var("GV_GST_VIDEO_H264_ENCODER")
+            .unwrap_or_else(|_| "auto".into())
+            .trim()
+            .to_string()
+    });
+    V.clone()
+}
 
 /// VP8 cpu-used: 0 (best quality) … 16 (fastest).
 /// GV_GST_VIDEO_CPU_USED, default 4.
@@ -159,7 +196,7 @@ pub const AUDIO_CHANNELS: u16 = 2;
 pub const OPUS_SDP_FMTP: &str = "minptime=10;useinbandfec=1";
 pub const AUDIO_TRACK_ID: &str = "audio";
 pub const VIDEO_TRACK_ID: &str = "video";
-pub const STREAM_ID: &str = "gv-worker-v2";
+pub const STREAM_ID: &str = "gv-worker";
 pub const VP8_CLOCK_RATE: u32 = 90_000;
 
 pub const STATS_SEND_INTERVAL: u64 = 5;

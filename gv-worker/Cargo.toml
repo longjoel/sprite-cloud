@@ -1,11 +1,11 @@
 [package]
-name = "gv-worker-v2"
+name = "gv-worker"
 version = "0.1.0"
 edition = "2021"
-description = "Games Vault worker v2 — GStreamer-powered WebRTC game streaming"
+description = "Games Vault worker — GStreamer-powered WebRTC game streaming"
 
 [[bin]]
-name = "gv-worker-v2"
+name = "gv-worker"
 path = "src/main.rs"
 
 [dependencies]
