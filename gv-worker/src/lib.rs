@@ -1,4 +1,5 @@
 pub mod config;
+pub mod encoder_probe;
 pub mod gst_video;
 pub mod gst_audio;
 pub mod core_bridge;

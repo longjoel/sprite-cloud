@@ -23,7 +23,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tower_http::cors::CorsLayer;
 use webrtc::api::interceptor_registry::register_default_interceptors;
-use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_OPUS, MIME_TYPE_VP8};
+use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_H264, MIME_TYPE_OPUS, MIME_TYPE_VP8};
 use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::APIBuilder;
 use webrtc::ice_transport::ice_server::RTCIceServer;
@@ -43,7 +43,7 @@ use crate::config::{
 };
 use crate::core_bridge::CoreCommand;
 use crate::gst_audio::GstAudioEncoder;
-use crate::gst_video::GstVideoEncoder;
+use crate::gst_video::{GstVideoEncoder, VideoCodec};
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -221,6 +221,49 @@ pub async fn build_app() -> Result<Router, Box<dyn std::error::Error>> {
     Ok(app)
 }
 
+fn sdp_offer_supports_h264(offer_sdp: &str) -> bool {
+    offer_sdp
+        .lines()
+        .any(|line| line.to_ascii_lowercase().contains("h264/90000"))
+}
+
+fn create_video_encoder(
+    core_width: u32,
+    core_height: u32,
+    core_fps: f64,
+    offer_sdp: &str,
+) -> Result<GstVideoEncoder, String> {
+    match config::gst_video_codec() {
+        config::VideoCodecPreference::Vp8 => {
+            GstVideoEncoder::new_with_codec(core_width, core_height, core_fps, VideoCodec::Vp8)
+        }
+        config::VideoCodecPreference::H264 => {
+            if !sdp_offer_supports_h264(offer_sdp) {
+                return Err(
+                    "GV_GST_VIDEO_CODEC=h264 but browser offer does not include H.264".into(),
+                );
+            }
+            GstVideoEncoder::new_with_codec(core_width, core_height, core_fps, VideoCodec::H264)
+        }
+        config::VideoCodecPreference::Auto => {
+            if sdp_offer_supports_h264(offer_sdp) {
+                match GstVideoEncoder::new_with_codec(
+                    core_width,
+                    core_height,
+                    core_fps,
+                    VideoCodec::H264,
+                ) {
+                    Ok(enc) => return Ok(enc),
+                    Err(e) => tracing::warn!(
+                        "[GST-video] H.264 auto setup failed, falling back to VP8: {e}"
+                    ),
+                }
+            }
+            GstVideoEncoder::new_with_codec(core_width, core_height, core_fps, VideoCodec::Vp8)
+        }
+    }
+}
+
 // ── WebRTC handshake ────────────────────────────────────────────────────────
 
 async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<SdpAnswer, String> {
@@ -307,11 +350,12 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
             }
         };
 
-    // Create GStreamer encoders
-    let video_enc = Arc::new(tokio::sync::Mutex::new(
-        GstVideoEncoder::new(core_width, core_height, core_fps)
-            .map_err(|e| format!("video encoder: {e}"))?,
-    ));
+    // Create GStreamer encoders. Codec selection must happen before adding the
+    // WebRTC track because the RTP capability has to match the encoded bytes.
+    let video_encoder = create_video_encoder(core_width, core_height, core_fps, offer_sdp)
+        .map_err(|e| format!("video encoder: {e}"))?;
+    let selected_video_codec = video_encoder.codec();
+    let video_enc = Arc::new(tokio::sync::Mutex::new(video_encoder));
 
     let audio_enc: Arc<tokio::sync::Mutex<Option<GstAudioEncoder>>> =
         Arc::new(tokio::sync::Mutex::new(match core_sample_rate {
@@ -339,13 +383,23 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
         }
     }));
 
-    // Video track
+    // Video track — codec selected during encoder creation
     let video_track = Arc::new(TrackLocalStaticSample::new(
         RTCRtpCodecCapability {
-            mime_type: MIME_TYPE_VP8.to_owned(),
+            mime_type: match selected_video_codec {
+                VideoCodec::Vp8 => MIME_TYPE_VP8,
+                VideoCodec::H264 => MIME_TYPE_H264,
+            }
+            .to_owned(),
             clock_rate: VP8_CLOCK_RATE,
             channels: 0,
-            sdp_fmtp_line: String::new(),
+            sdp_fmtp_line: match selected_video_codec {
+                VideoCodec::Vp8 => String::new(),
+                VideoCodec::H264 => {
+                    "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
+                        .to_string()
+                }
+            },
             rtcp_feedback: vec![],
         },
         VIDEO_TRACK_ID.to_owned(),
