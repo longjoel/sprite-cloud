@@ -173,7 +173,7 @@ async fn handle_shutdown(
 async fn handle_root() -> impl axum::response::IntoResponse {
     (
         StatusCode::OK,
-        axum::response::Json(serde_json::json!({"status": "ok", "service": "gv-worker-v2"})),
+        axum::response::Json(serde_json::json!({"status": "ok", "service": "gv-worker"})),
     )
 }
 

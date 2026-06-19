@@ -1361,7 +1361,7 @@ dependencies = [
  "clap",
  "crc32fast",
  "dirs",
- "gv-worker-v2",
+ "gv-worker",
  "hex",
  "libc",
  "local-ip-address",
@@ -1383,7 +1383,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gv-worker-v2"
+name = "gv-worker"
 version = "0.1.0"
 dependencies = [
  "axum",
