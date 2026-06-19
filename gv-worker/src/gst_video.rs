@@ -58,15 +58,6 @@ impl GstVideoEncoder {
         fps: f64,
         codec: VideoCodec,
     ) -> Result<Self, String> {
-        if codec != VideoCodec::Vp8 {
-            return Err(
-                "H.264 encoding not yet implemented — encoder probing coming in v3".into(),
-            );
-        }
-        Self::new_vp8(core_width, core_height, fps)
-    }
-
-    fn new_vp8(core_width: u32, core_height: u32, fps: f64) -> Result<Self, String> {
         let scale_height = crate::config::gst_video_scale_height();
         let max_scale = crate::config::gst_video_max_scale().max(1);
         let scale_factor = if scale_height > 0 && core_height > 0 {
@@ -79,41 +70,17 @@ impl GstVideoEncoder {
         let frame_duration_ns = if fps > 0.0 {
             (1_000_000_000.0 / fps) as u64
         } else {
-            16_666_667 // fallback: 60fps
+            16_666_667
         };
 
-        let cpu = crate::config::gst_video_cpu_used();
-        let threads = crate::config::gst_video_threads();
-        let bitrate = crate::config::gst_video_bitrate_kbps();
-        let deadline = crate::config::gst_video_deadline();
-        let kf_dist = crate::config::gst_video_keyframe_max_dist();
-
-        let pipeline_str = format!(
-            "appsrc name=video_src is-live=true format=time \
-             ! videoconvert \
-             ! video/x-raw,format=I420,width={w},height={h} \
-             ! vp8enc \
-               name=vp8enc \
-               deadline={deadline} \
-               cpu-used={cpu} \
-               threads={threads} \
-               keyframe-max-dist={kf} \
-               target-bitrate={br} \
-               error-resilient=partitions \
-             ! appsink name=video_sink sync=false async=false drop=true max-buffers=4",
-            w = output_width,
-            h = output_height,
-            deadline = deadline,
-            cpu = cpu,
-            threads = threads,
-            kf = kf_dist,
-            br = bitrate,
-        );
-
-        let pipeline = gst::parse::launch(&pipeline_str)
-            .map_err(|e| format!("video pipeline launch: {e}"))?
-            .downcast::<gst::Pipeline>()
-            .map_err(|e| format!("not a Pipeline: {e:?}"))?;
+        let (pipeline, encoder_name) = match codec {
+            VideoCodec::Vp8 => build_vp8_pipeline(output_width, output_height)?,
+            VideoCodec::H264 => {
+                let available =
+                    crate::encoder_probe::probe_h264_encoders();
+                build_h264_pipeline(output_width, output_height, &available)?
+            }
+        };
 
         let appsrc = pipeline
             .by_name("video_src")
@@ -127,7 +94,6 @@ impl GstVideoEncoder {
             .downcast::<gst_app::AppSink>()
             .map_err(|e| format!("video_sink: {e:?}"))?;
 
-        // Caps declare the output (post-scaling) resolution.
         let caps = gst::Caps::builder("video/x-raw")
             .field("format", "RGB")
             .field("width", output_width as i32)
@@ -144,17 +110,24 @@ impl GstVideoEncoder {
 
         if scale_factor > 1 {
             tracing::info!(
-                "[GST-video] {}×{} →{}× → {}×{} cpu-used={cpu} threads={threads} deadline={deadline} bitrate={br}kbps",
-                core_width, core_height,
+                "[GST-video] {}×{} →{}× → {}×{} codec={} encoder={} bitrate={}kbps",
+                core_width,
+                core_height,
                 scale_factor,
-                output_width, output_height,
-                cpu = cpu, threads = threads, deadline = deadline, br = bitrate,
+                output_width,
+                output_height,
+                codec.label(),
+                encoder_name,
+                crate::config::gst_video_bitrate_kbps(),
             );
         } else {
             tracing::info!(
-                "[GST-video] {}×{} cpu-used={cpu} threads={threads} deadline={deadline} bitrate={br}kbps",
-                output_width, output_height,
-                cpu = cpu, threads = threads, deadline = deadline, br = bitrate,
+                "[GST-video] {}×{} codec={} encoder={} bitrate={}kbps",
+                output_width,
+                output_height,
+                codec.label(),
+                encoder_name,
+                crate::config::gst_video_bitrate_kbps(),
             );
         }
 
@@ -162,8 +135,8 @@ impl GstVideoEncoder {
             pipeline,
             appsrc,
             appsink,
-            codec: VideoCodec::Vp8,
-            encoder_name: "vp8enc".into(),
+            codec,
+            encoder_name,
             core_width,
             core_height,
             output_width,
@@ -266,6 +239,127 @@ impl Drop for GstVideoEncoder {
         let _ = self.pipeline.set_state(gst::State::Null);
     }
 }
+
+// ── Pipeline builders ───────────────────────────────────────────────────────
+
+fn build_vp8_pipeline(
+    output_width: u32,
+    output_height: u32,
+) -> Result<(gst::Pipeline, String), String> {
+    let cpu = crate::config::gst_video_cpu_used();
+    let threads = crate::config::gst_video_threads();
+    let bitrate = crate::config::gst_video_bitrate_kbps();
+    let deadline = crate::config::gst_video_deadline();
+    let kf_dist = crate::config::gst_video_keyframe_max_dist();
+
+    let pipeline_str = format!(
+        "appsrc name=video_src is-live=true format=time \
+         ! videoconvert \
+         ! video/x-raw,format=I420,width={w},height={h} \
+         ! vp8enc \
+           name=vp8enc \
+           deadline={deadline} \
+           cpu-used={cpu} \
+           threads={threads} \
+           keyframe-max-dist={kf} \
+           target-bitrate={br} \
+           error-resilient=partitions \
+         ! appsink name=video_sink sync=false async=false drop=true max-buffers=4",
+        w = output_width,
+        h = output_height,
+        deadline = deadline,
+        cpu = cpu,
+        threads = threads,
+        kf = kf_dist,
+        br = bitrate,
+    );
+
+    launch_pipeline(&pipeline_str).map(|p| (p, "vp8enc".into()))
+}
+
+fn build_h264_pipeline(
+    output_width: u32,
+    output_height: u32,
+    available: &[crate::encoder_probe::H264EncoderInfo],
+) -> Result<(gst::Pipeline, String), String> {
+    let configured = crate::config::gst_video_h264_encoder();
+
+    if configured.eq_ignore_ascii_case("auto") || configured.is_empty() {
+        let mut errors = Vec::new();
+        for info in available {
+            let pipeline_str =
+                h264_pipeline_string(&info.factory_name, output_width, output_height);
+            match launch_pipeline(&pipeline_str) {
+                Ok(p) => return Ok((p, info.factory_name.clone())),
+                Err(e) => {
+                    tracing::warn!("[GST-video] {}: {e}", info.factory_name);
+                    errors.push(format!("{}: {e}", info.factory_name));
+                }
+            }
+        }
+        Err(format!(
+            "no H.264 encoder available (tried: {})",
+            if errors.is_empty() {
+                "none found".into()
+            } else {
+                errors.join("; ")
+            }
+        ))
+    } else {
+        let pipeline_str = h264_pipeline_string(&configured, output_width, output_height);
+        launch_pipeline(&pipeline_str).map(|p| (p, configured))
+    }
+}
+
+fn h264_pipeline_string(encoder: &str, output_width: u32, output_height: u32) -> String {
+    let bitrate = crate::config::gst_video_bitrate_kbps();
+    let kf_dist = crate::config::gst_video_keyframe_max_dist();
+
+    let encoder_params = if encoder == "x264enc" || encoder == "openh264enc" {
+        // Software encoders: x264enc (libx264) and openh264enc (OpenH264)
+        // use pass= instead of rate-control=, speed-preset + tune instead of target-usage,
+        // and bframes= instead of max-bframes=.
+        format!(
+            "bitrate={br} pass=cbr speed-preset=ultrafast tune=zerolatency \
+             bframes=0 cabac=false dct8x8=false key-int-max={kf}",
+            br = bitrate,
+            kf = kf_dist,
+        )
+    } else {
+        // Hardware encoders: VAAPI (vaapih264enc, vah264enc, vah264lpenc),
+        // NVENC (nvh264enc), QSV (qsvh264enc, msdkh264enc), AMF (amfh264enc).
+        format!(
+            "bitrate={br} rate-control=cbr key-int-max={kf} \
+             max-bframes=0 cabac=false dct8x8=false",
+            br = bitrate,
+            kf = kf_dist,
+        )
+    };
+
+    format!(
+        "appsrc name=video_src is-live=true format=time \
+         ! videoconvert \
+         ! video/x-raw,format=NV12,width={w},height={h} \
+         ! {encoder} \
+           name=h264enc \
+           {params} \
+         ! h264parse config-interval=-1 \
+         ! video/x-h264,stream-format=byte-stream,alignment=au,profile=constrained-baseline \
+         ! appsink name=video_sink sync=false async=false drop=true max-buffers=4",
+        w = output_width,
+        h = output_height,
+        params = encoder_params,
+    )
+}
+
+fn launch_pipeline(pipeline_str: &str) -> Result<gst::Pipeline, String> {
+    gst::parse::launch(pipeline_str)
+        .map_err(|e| format!("video pipeline launch: {e}"))?
+        .downcast::<gst::Pipeline>()
+        .map_err(|e| format!("not a Pipeline: {e:?}"))
+}
+
+// ── Integer scaling ────────────────────────────────────────────────────────
 
 /// Nearest-neighbor integer scaling: each source pixel maps to scale_factor×scale_factor
 /// destination pixels. RGB24 interleaved (3 bytes per pixel).
