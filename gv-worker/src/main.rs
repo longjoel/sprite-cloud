@@ -4,5 +4,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .and_then(|p| p.parse().ok())
         .unwrap_or(0);
-    gv_worker_v2::run_worker(port).await
+    gv_worker::run_worker(port).await
 }

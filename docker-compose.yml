@@ -61,7 +61,7 @@ services:
     volumes:
       # Host-built release binaries (rw for auto-download writes to cores dir)
       - ./target/release/gv-server:/usr/local/bin/gv-server:ro
-      - ./target/release/gv-worker-v2:/usr/local/bin/gv-worker-v2:ro
+      - ./target/release/gv-worker:/usr/local/bin/gv-worker:ro
       - ./test-data/cores:/cores:rw
       # Host config
       - /etc/games-vault/config.toml:/etc/games-vault/config.toml:ro
@@ -76,7 +76,7 @@ services:
       GV_API_KEY: ${GV_API_KEY:-}
       GV_CORES_DIR: /cores
       GV_ROM_ROOTS: ${GV_ROM_ROOTS:-/srv/storage/games/roms}
-      GV_WORKER_BIN: ${GV_WORKER_BIN:-/usr/local/bin/gv-worker-v2}
+      GV_WORKER_BIN: ${GV_WORKER_BIN:-/usr/local/bin/gv-worker}
       GV_SAVE_DIR: /saves
       GV_SYSTEM_DIR: /system
       ALLOWED_ORIGIN: ${AUTH_URL:-http://vault:3000}

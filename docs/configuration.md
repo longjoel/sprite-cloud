@@ -47,7 +47,7 @@ gv-worker <port>
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GV_WORKER_BIN` | auto-detect | Path to gv-worker-v2 binary. Resolution order: `config.toml` → env var → auto-detect (`./target/release/gv-worker-v2` → `./target/debug/gv-worker-v2`). |
+| `GV_WORKER_BIN` | auto-detect | Path to gv-worker binary. Resolution order: `config.toml` → env var → auto-detect (`./target/release/gv-worker` → `./target/debug/gv-worker`). |
 | `GV_WORKER_HOST` | auto-detected LAN IP | Hostname in the worker connect URL sent to the browser. Falls back to `localhost`. |
 | `GV_WEB_TIMEOUT_SECS` | `30` | HTTP request timeout for gv-web API calls (seconds). |
 | `STUN_SERVER` | — | Passed through to gv-worker on spawn. |

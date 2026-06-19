@@ -1,21 +1,38 @@
-//! GStreamer VP8 video encoder with nearest-neighbor integer scaling.
+//! GStreamer video encoder with nearest-neighbor integer scaling.
 //!
-//! Pipeline: appsrc → videoconvert → vp8enc → appsink
+//! Software path: appsrc → videoconvert → vp8enc → appsink
+//! Hardware path: appsrc → videoconvert → <h264 encoder> → h264parse → appsink
 //!
 //! Receives raw RGB24 frames at the core's native resolution,
 //! applies nearest-neighbor integer upscaling (if configured),
-//! then pushes pre-scaled frames to GStreamer for VP8 encoding.
-//! GStreamer handles colorspace conversion (RGB→I420) and
-//! multi-threaded encoding internally.
+//! then pushes pre-scaled frames to GStreamer for VP8 or H.264 encoding.
+//! GStreamer handles colorspace conversion and encoder scheduling internally.
 
 use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VideoCodec {
+    Vp8,
+    H264,
+}
+
+impl VideoCodec {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Vp8 => "vp8",
+            Self::H264 => "h264",
+        }
+    }
+}
+
 pub struct GstVideoEncoder {
     pipeline: gst::Pipeline,
     appsrc: gst_app::AppSrc,
     appsink: gst_app::AppSink,
+    codec: VideoCodec,
+    encoder_name: String,
     /// Original core resolution (e.g., 256×240 for NES).
     core_width: u32,
     core_height: u32,
@@ -32,6 +49,24 @@ pub struct GstVideoEncoder {
 
 impl GstVideoEncoder {
     pub fn new(core_width: u32, core_height: u32, fps: f64) -> Result<Self, String> {
+        Self::new_with_codec(core_width, core_height, fps, VideoCodec::Vp8)
+    }
+
+    pub fn new_with_codec(
+        core_width: u32,
+        core_height: u32,
+        fps: f64,
+        codec: VideoCodec,
+    ) -> Result<Self, String> {
+        if codec != VideoCodec::Vp8 {
+            return Err(
+                "H.264 encoding not yet implemented — encoder probing coming in v3".into(),
+            );
+        }
+        Self::new_vp8(core_width, core_height, fps)
+    }
+
+    fn new_vp8(core_width: u32, core_height: u32, fps: f64) -> Result<Self, String> {
         let scale_height = crate::config::gst_video_scale_height();
         let max_scale = crate::config::gst_video_max_scale().max(1);
         let scale_factor = if scale_height > 0 && core_height > 0 {
@@ -127,6 +162,8 @@ impl GstVideoEncoder {
             pipeline,
             appsrc,
             appsink,
+            codec: VideoCodec::Vp8,
+            encoder_name: "vp8enc".into(),
             core_width,
             core_height,
             output_width,
@@ -212,6 +249,12 @@ impl GstVideoEncoder {
     }
     pub fn scale_factor(&self) -> u32 {
         self.scale_factor
+    }
+    pub fn codec(&self) -> VideoCodec {
+        self.codec
+    }
+    pub fn encoder_name(&self) -> &str {
+        &self.encoder_name
     }
     pub fn stats(&self) -> (u64, u64) {
         (self.frames_pushed, self.frames_pulled)

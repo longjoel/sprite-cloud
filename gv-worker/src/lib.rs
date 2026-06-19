@@ -23,7 +23,7 @@ pub async fn run_worker(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind(addr).await?;
     let bound_port = listener.local_addr()?.port();
 
-    tracing::info!("gv-worker-v2 listening on port {bound_port}");
+    tracing::info!("gv-worker listening on port {bound_port}");
     eprintln!("WORKER_READY port={bound_port}");
     tracing::info!("open http://localhost:{bound_port}");
 
