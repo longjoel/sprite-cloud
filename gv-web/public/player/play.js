@@ -187,8 +187,24 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
 
     try {
       if (joinToken) {
-        // Guest join — game already running, skip startGame
-        console.log("[gv] guest join — skipping startGame, using room_token:", joinToken);
+        // Guest join — game already running, resolve room_token → peer_token
+        console.log("[gv] guest join — resolving room_token:", joinToken);
+        callbacks?.onProgress?.("Joining room…");
+        const joinResp = await fetch("/api/room/join", {
+          method: "POST",
+          headers: csrfHeaders(),
+          body: JSON.stringify({ room_token: joinToken }),
+        });
+        if (!joinResp.ok) {
+          const errData = await joinResp.json().catch(() => ({}));
+          throw new Error(`room join failed: HTTP ${joinResp.status} — ${errData.error || "unknown"}`);
+        }
+        const joinData = await joinResp.json();
+        console.log("[gv] room/join response:", joinData);
+        // Use the issued peer_token as our auth token to the worker
+        player._peerToken = joinData.peer_token;
+        player._seat = joinData.seat;
+        player._role = joinData.role;
       } else if (!gameStarted) {
         // Auto-start the game once. Reconnects should renegotiate against
         // the existing worker/session instead of recursively spawning a
@@ -212,7 +228,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
     // Now connect via relay
     try {
       console.log("[gv] calling connectViaRelay...");
-      await player.connectViaRelay(serverId, gameId, hostToken, startGameToken, joinToken || undefined);
+      await player.connectViaRelay(serverId, gameId, hostToken, startGameToken, joinToken || undefined, player._peerToken);
       console.log("[gv] connectViaRelay returned");
     } catch (err) {
       callbacks.onError?.(err.message || String(err));
