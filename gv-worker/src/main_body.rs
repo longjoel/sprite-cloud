@@ -340,69 +340,60 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
         .map_err(|e| format!("peer connection: {e}"))?,
     );
 
-    // Load libretro core + create encoders — once per session.
-    // The core thread and encoders live in AppState and survive
-    // across peer handshake cycles.
+    // Load libretro core + create encoders — fresh each handshake.
+    // AppState stores current values for health/monitoring.
+    // Task 7 (#415) will make encoders truly shared across peers.
     let (core_width, core_height, core_fps, core_frame_rx, core_cmd_tx, core_response_rx, core_sample_rate, core_audio_channels, selected_video_codec, video_enc, audio_enc) =
     {
-        if !state.session_active.load(Ordering::Acquire) {
-            // First peer — spawn core and create encoders
-            let (w, h, fps, frame_rx, cmd_tx, response_rx, sample_rate, audio_ch) =
-                match crate::core_bridge::spawn_core_thread() {
-                    Some(handle) => {
-                        tracing::info!(
-                            "[STREAM] Core: {}×{} @ {:.1}fps {:.0}Hz",
-                            handle.width, handle.height, handle.fps, handle.sample_rate
-                        );
-                        state.core_loaded.store(true, Ordering::Relaxed);
-                        (
-                            handle.width,
-                            handle.height,
-                            handle.fps,
-                            Some(handle.frame_rx),
-                            Some(handle.cmd_tx),
-                            Some(handle.response_rx),
-                            Some(handle.sample_rate),
-                            handle.audio_channels as usize,
-                        )
+        let (w, h, fps, frame_rx, cmd_tx, response_rx, sample_rate, audio_ch) =
+            match crate::core_bridge::spawn_core_thread() {
+                Some(handle) => {
+                    tracing::info!(
+                        "[STREAM] Core: {}×{} @ {:.1}fps {:.0}Hz",
+                        handle.width, handle.height, handle.fps, handle.sample_rate
+                    );
+                    state.core_loaded.store(true, Ordering::Relaxed);
+                    (
+                        handle.width,
+                        handle.height,
+                        handle.fps,
+                        Some(handle.frame_rx),
+                        Some(handle.cmd_tx),
+                        Some(handle.response_rx),
+                        Some(handle.sample_rate),
+                        handle.audio_channels as usize,
+                    )
+                }
+                None => {
+                    return Err("no libretro core available".into());
+                }
+            };
+
+        let video_encoder = create_video_encoder(w, h, fps, offer_sdp)
+            .map_err(|e| format!("video encoder: {e}"))?;
+        let selected = video_encoder.codec();
+        let venc = Arc::new(tokio::sync::Mutex::new(video_encoder));
+
+        let aenc: Arc<tokio::sync::Mutex<Option<GstAudioEncoder>>> =
+            Arc::new(tokio::sync::Mutex::new(match sample_rate {
+                Some(rate) => match GstAudioEncoder::new(rate, audio_ch as u16) {
+                    Ok(enc) => Some(enc),
+                    Err(e) => {
+                        tracing::error!("[AUDIO] encoder failed: {e} — audio disabled");
+                        None
                     }
-                    None => {
-                        return Err("no libretro core available".into());
-                    }
-                };
+                },
+                None => None,
+            }));
 
-            let video_encoder = create_video_encoder(w, h, fps, offer_sdp)
-                .map_err(|e| format!("video encoder: {e}"))?;
-            let selected = video_encoder.codec();
-            let venc = Arc::new(tokio::sync::Mutex::new(video_encoder));
+        // Store current values in AppState for health/monitoring
+        *state.core_width.lock().await = w;
+        *state.core_height.lock().await = h;
+        *state.core_fps.lock().await = fps;
+        *state.video_enc.lock().await = Some(venc.clone());
+        *state.audio_enc.lock().await = Some(aenc.clone());
 
-            let aenc: Arc<tokio::sync::Mutex<Option<GstAudioEncoder>>> =
-                Arc::new(tokio::sync::Mutex::new(match sample_rate {
-                    Some(rate) => match GstAudioEncoder::new(rate, audio_ch as u16) {
-                        Ok(enc) => Some(enc),
-                        Err(e) => {
-                            tracing::error!("[AUDIO] encoder failed: {e} — audio disabled");
-                            None
-                        }
-                    },
-                    None => None,
-                }));
-
-            // Store encoders + dimensions in AppState for reuse across peers
-            *state.core_width.lock().await = w;
-            *state.core_height.lock().await = h;
-            *state.core_fps.lock().await = fps;
-            *state.video_enc.lock().await = Some(venc.clone());
-            *state.audio_enc.lock().await = Some(aenc.clone());
-            state.session_active.store(true, Ordering::Release);
-
-            (w, h, fps, frame_rx, cmd_tx, response_rx, sample_rate, audio_ch, selected, venc, aenc)
-        } else {
-            // Reconnect — can't reuse the core frame receiver.
-            // Core frame RX is consumed by the current stream and can't
-            // be cloned. Proper fan-out coming in Task 7 (#415).
-            return Err("reconnect not yet supported — refresh the page to restart".into());
-        }
+        (w, h, fps, frame_rx, cmd_tx, response_rx, sample_rate, audio_ch, selected, venc, aenc)
     };
 
     // ICE gathering
