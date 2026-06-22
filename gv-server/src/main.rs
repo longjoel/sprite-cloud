@@ -427,6 +427,13 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         if let Some(pt) = cmd.payload.get("peer_token").and_then(|v| v.as_str()) {
                                             sdp_body["peer_token"] = serde_json::Value::String(pt.to_string());
                                         }
+                                        // gv-web resolves peer_token → role + seat and enriches the payload
+                                        if let Some(pr) = cmd.payload.get("peer_role").and_then(|v| v.as_str()) {
+                                            sdp_body["peer_role"] = serde_json::Value::String(pr.to_string());
+                                        }
+                                        if let Some(ps) = cmd.payload.get("peer_seat") {
+                                            sdp_body["peer_seat"] = ps.clone();
+                                        }
 
                                         match client
                                             .http_client()
