@@ -243,6 +243,24 @@ export async function POST(request: NextRequest) {
         );
       }
     }
+  } else if (body.type === CMD_SDP_OFFER) {
+    // Enrich with peer_role/peer_seat from peerTokens DB
+    const sp = payloadResult.payload;
+    const peerToken = sp.peer_token as string | undefined;
+    if (peerToken) {
+      const [peer] = await db
+        .select({ role: peerTokens.role, seat: peerTokens.seat })
+        .from(peerTokens)
+        .where(eq(peerTokens.token, peerToken))
+        .limit(1);
+      if (peer) {
+        enrichedPayload = {
+          ...sp,
+          peer_role: peer.role,
+          peer_seat: peer.seat,
+        };
+      }
+    }
   }
 
   // Insert command
