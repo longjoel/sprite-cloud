@@ -184,3 +184,20 @@ export const gameFiles = pgTable(
     idxServer: index("idx_game_files_server").on(table.serverId),
   }),
 );
+
+// ── Peer tokens (per-peer bearer tokens for WebRTC auth) ─────────────
+//
+// Issued when a session starts (host) or a guest joins via room_token.
+// Each peer gets a unique token, seat, and role. The worker validates
+// tokens before accepting SDP offers.
+
+export const peerTokens = pgTable("peer_tokens", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  sessionId: uuid("session_id")
+    .references(() => sessions.id)
+    .notNull(),
+  token: text("token").notNull().unique(),       // 32-char hex
+  seat: integer("seat").notNull(),               // 0=host, 1..N=players/watchers
+  role: text("role").notNull().default("viewer"), // host | player | viewer
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});

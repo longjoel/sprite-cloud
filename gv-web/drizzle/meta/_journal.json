@@ -71,6 +71,13 @@
       "when": 1781716754963,
       "tag": "0009_fluffy_hydra",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782147630547,
+      "tag": "0010_smooth_goliath",
+      "breakpoints": true
     }
   ]
 }
