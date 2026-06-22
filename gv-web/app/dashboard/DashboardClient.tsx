@@ -535,20 +535,6 @@ export default function DashboardClient({ memberships }: Props) {
         )}
       </section>
 
-      {/* ── Links ────────────────────────────────────────────────── */}
-      <section style={S.section}>
-        <div style={S.linkRow}>
-          <a href="/" style={S.link}>
-            ← Library
-          </a>
-          <a href="http://localhost:8096" style={S.link}>
-            Jellyfin
-          </a>
-          <a href="http://localhost:8123" style={S.link}>
-            Home Assistant
-          </a>
-        </div>
-      </section>
     </>
   );
 }
@@ -721,13 +707,5 @@ const S: Record<string, React.CSSProperties> = {
     color: "var(--color-muted)",
     whiteSpace: "pre-wrap" as const,
     fontFamily: "var(--font-mono)",
-  },
-  linkRow: { display: "flex", gap: "var(--space-6)", flexWrap: "wrap" as const },
-  link: {
-    color: "var(--color-info)",
-    textDecoration: "none",
-    fontSize: "var(--font-size-base)",
-    fontFamily: "var(--font-mono)",
-    padding: "var(--space-2) 0",
   },
 };
