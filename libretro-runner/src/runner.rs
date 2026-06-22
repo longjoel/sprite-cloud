@@ -686,6 +686,21 @@ impl Core {
             }
         }
     }
+
+    /// Reset the emulated system (hardware reset — keeps loaded ROM).
+    pub fn reset(&mut self) {
+        tracing::warn!("[CORE] reset() called but retro_reset fn pointer not wired");
+    }
+
+    /// Eject the current virtual disc.
+    pub fn disk_eject(&mut self) {
+        tracing::warn!("[CORE] disk_eject() called but disk control not wired");
+    }
+
+    /// Insert disc at the given index.
+    pub fn disk_insert(&mut self, index: u32) {
+        tracing::warn!("[CORE] disk_insert({}) called but disk control not wired", index);
+    }
 }
 
 impl Drop for Core {

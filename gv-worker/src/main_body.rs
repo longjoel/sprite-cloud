@@ -597,6 +597,19 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
                             }
                         }
                     }
+                    "reset" => {
+                        tracing::info!("[DC] reset requested");
+                        let _ = core_tx.as_ref().map(|tx| tx.try_send(CoreCommand::Reset));
+                    }
+                    "disk_eject" => {
+                        tracing::info!("[DC] disk_eject requested");
+                        let _ = core_tx.as_ref().map(|tx| tx.try_send(CoreCommand::DiskEject));
+                    }
+                    "disk_insert" => {
+                        let index = cmd.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                        tracing::info!("[DC] disk_insert index={}", index);
+                        let _ = core_tx.as_ref().map(|tx| tx.try_send(CoreCommand::DiskInsert { index }));
+                    }
                     _ => {}
                 }
             })
