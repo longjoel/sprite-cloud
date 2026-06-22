@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
   const rateLimited = applyRateLimit(request, PAIR_RATE_LIMIT);
   if (rateLimited) return rateLimited;
 
-  let body: { code: string; rom_roots?: string[] };
+  let body: { code: string; server_name?: string; rom_roots?: string[] };
   try {
     body = await request.json();
   } catch {
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
   // This prevents data orphans when a user re-pairs after a config reset.
   const apiKey = generateApiKey();
   const apiKeyHash = hashApiKey(apiKey);
-  const serverName = "gv-server";
+  const serverName = (body.server_name || "gv-server").trim() || "gv-server";
 
   // Check for existing server by user + name
   const [existing] = await db
