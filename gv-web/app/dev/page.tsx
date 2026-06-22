@@ -32,20 +32,45 @@ interface StatusCard {
   ok: boolean;
 }
 
+interface VersionCard {
+  label: string;
+  version: string;
+  commit: string;
+  detail?: string;
+}
+
+interface HealthPayload {
+  status: string;
+  versions?: {
+    web?: { package_version?: string; git_sha?: string; released_at_utc?: string };
+    server?: { package_version?: string; git_sha?: string; built_at_utc?: string };
+    worker?: { package_version?: string; git_sha?: string; built_at_utc?: string };
+    runner?: { package_version?: string; git_sha?: string; built_at_utc?: string };
+    source_server?: { name?: string; id?: string; last_seen_at?: string };
+  };
+}
+
+function shortSha(sha?: string): string {
+  return sha ? sha.slice(0, 7) : "—";
+}
+
 // ── Links ──────────────────────────────────────────────────────────────
 
 const LINKS: Array<{ label: string; href: string }> = [
-  { label: "Games Vault (v1)", href: "http://localhost:8090" },
+  { label: "Home", href: "/" },
+  { label: "Dashboard", href: "/dashboard" },
+  { label: "Settings", href: "/settings" },
+  { label: "Health JSON", href: "/api/health" },
   { label: "Jellyfin", href: "http://localhost:8096" },
   { label: "Home Assistant", href: "http://localhost:8123" },
-  { label: "gv-test VPS", href: "https://gv-test.lngnckr.tech" },
-  { label: "Production", href: "https://lngnckr.tech" },
 ];
 
 // ── Page ──────────────────────────────────────────────────────────────
 
 export default function DevDashboard() {
   const [cards, setCards] = useState<StatusCard[]>([]);
+  const [versions, setVersions] = useState<VersionCard[]>([]);
+  const [versionSource, setVersionSource] = useState<string>("");
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [cmdServerId, setCmdServerId] = useState("");
   const [cmdType, setCmdType] = useState("start_game");
@@ -69,13 +94,43 @@ export default function DevDashboard() {
     try {
       const r = await fetch("/api/health");
       if (r.ok) {
-        const data = await r.json();
+        const data: HealthPayload = await r.json();
         results.push({ label: "DB", value: "connected", ok: data.status === "ok" });
+        const versionCards: VersionCard[] = [
+          {
+            label: "web",
+            version: data.versions?.web?.package_version || "unknown",
+            commit: shortSha(data.versions?.web?.git_sha),
+            detail: data.versions?.web?.released_at_utc,
+          },
+          {
+            label: "server",
+            version: data.versions?.server?.package_version || "unknown",
+            commit: shortSha(data.versions?.server?.git_sha),
+            detail: data.versions?.server?.built_at_utc,
+          },
+          {
+            label: "worker",
+            version: data.versions?.worker?.package_version || "unknown",
+            commit: shortSha(data.versions?.worker?.git_sha),
+            detail: data.versions?.worker?.built_at_utc,
+          },
+          {
+            label: "runner",
+            version: data.versions?.runner?.package_version || "unknown",
+            commit: shortSha(data.versions?.runner?.git_sha),
+            detail: data.versions?.runner?.built_at_utc,
+          },
+        ];
+        setVersions(versionCards);
+        setVersionSource(data.versions?.source_server?.name || data.versions?.source_server?.id || "");
       } else {
         results.push({ label: "DB", value: `HTTP ${r.status}`, ok: false });
       }
     } catch {
       results.push({ label: "DB", value: "unreachable", ok: false });
+      setVersions([]);
+      setVersionSource("");
     }
 
     try {
@@ -230,6 +285,32 @@ export default function DevDashboard() {
         ))}
       </div>
 
+
+      {/* Live versions */}
+      <section style={S.section}>
+        <h2 style={S.h2}>Live Versions</h2>
+        <div style={S.row}>
+          {versions.length > 0 ? (
+            versions.map((v) => (
+              <div key={v.label} style={S.card}>
+                <div style={S.cardLabel}>{v.label}</div>
+                <div style={S.cardValue}>{v.version}</div>
+                <div style={S.cardSubvalue}>commit {v.commit}</div>
+                {v.detail && <div style={S.cardMeta}>{v.detail}</div>}
+              </div>
+            ))
+          ) : (
+            <div style={S.card}>
+              <div style={S.cardLabel}>versions</div>
+              <div style={S.cardSubvalue}>No live version data yet</div>
+            </div>
+          )}
+        </div>
+        {versionSource && (
+          <div style={S.versionSource}>source server: {versionSource}</div>
+        )}
+      </section>
+
       {/* Pairing code */}
       <section style={S.section}>
         <h2 style={S.h2}>Pairing Code</h2>
@@ -382,6 +463,18 @@ const S: Record<string, React.CSSProperties> = {
     color: "var(--color-cream)",
     fontFamily: "var(--font-mono)",
   },
+  cardSubvalue: {
+    marginTop: "var(--space-2)",
+    fontSize: "var(--font-size-sm)",
+    color: "var(--color-cyan)",
+    fontFamily: "var(--font-mono)",
+  },
+  cardMeta: {
+    marginTop: "var(--space-2)",
+    fontSize: "var(--font-size-xs)",
+    color: "var(--color-muted)",
+    fontFamily: "var(--font-mono)",
+  },
   code: {
     display: "block",
     marginTop: "var(--space-4)",
@@ -421,6 +514,7 @@ const S: Record<string, React.CSSProperties> = {
     fontFamily: "var(--font-mono)",
   },
   linkRow: { display: "flex", gap: "var(--space-6)", flexWrap: "wrap" },
+  versionSource: { marginTop: "var(--space-3)", fontSize: "var(--font-size-xs)", color: "var(--color-muted)", fontFamily: "var(--font-mono)" },
   link: {
     color: "var(--color-info)",
     textDecoration: "none",
