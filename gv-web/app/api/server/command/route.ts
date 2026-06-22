@@ -61,11 +61,12 @@ function validatePayload(type: string, payload: unknown): { ok: true; payload: R
       return { ok: true, payload };
     }
     case CMD_SDP_OFFER: {
-      if (!hasOnlyKeys(payload, ["game_id", "sdp", "host_token", "room_token"])) return { ok: false, error: "payload has unexpected fields" };
+      if (!hasOnlyKeys(payload, ["game_id", "sdp", "host_token", "room_token", "peer_token"])) return { ok: false, error: "payload has unexpected fields" };
       if (typeof payload.game_id !== "string" || payload.game_id.length === 0) return { ok: false, error: "payload.game_id required" };
       if (typeof payload.sdp !== "string" || payload.sdp.length === 0) return { ok: false, error: "payload.sdp required" };
       if (payload.host_token !== undefined && typeof payload.host_token !== "string") return { ok: false, error: "payload.host_token must be string" };
       if (payload.room_token !== undefined && typeof payload.room_token !== "string") return { ok: false, error: "payload.room_token must be string" };
+      if (payload.peer_token !== undefined && typeof payload.peer_token !== "string") return { ok: false, error: "payload.peer_token must be string" };
       return { ok: true, payload };
     }
     case CMD_BROWSE_FILES: {
