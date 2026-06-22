@@ -218,6 +218,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
         console.log("[gv] reconnect — reusing existing game session");
       }
     } catch (err) {
+      console.error("[gv] startGame/join error:", err?.message || err);
       callbacks.onError?.(err.message || String(err));
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         doReconnect();
@@ -228,9 +229,13 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
     // Now connect via relay
     try {
       console.log("[gv] calling connectViaRelay...");
+      console.log("[gv] player type:", typeof player, "constructor:", player?.constructor?.name);
+      console.log("[gv] proto methods:", Object.getOwnPropertyNames(Object.getPrototypeOf(player)));
+      console.log("[gv] has connectViaRelay:", typeof player.connectViaRelay);
       await player.connectViaRelay(serverId, gameId, hostToken, startGameToken, joinToken || undefined, player._peerToken);
       console.log("[gv] connectViaRelay returned");
     } catch (err) {
+      console.error("[gv] connectViaRelay error:", err?.message || err, err?.stack);
       callbacks.onError?.(err.message || String(err));
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         doReconnect();
@@ -291,7 +296,8 @@ function sendCommand(player, cmd) {
   try {
     player._dc.send(JSON.stringify(cmd));
     return true;
-  } catch {
+  } catch (e) {
+    console.warn("[gv] sendCommand failed:", e?.message || e);
     return false;
   }
 }

@@ -347,7 +347,12 @@ export class GvPlayer {
    *
    * @param {string} serverId   — server UUID
    * @param {string} gameId     — game identifier
-   async connectViaRelay(serverId, gameId, hostToken, pollToken, roomToken, peerToken) {
+   * @param {string} hostToken  — host reconnection token
+   * @param {string} pollToken  — worker_token for answer polling
+   * @param {string} [roomToken]— room token for guest joins
+   * @param {string} [peerToken]— peer auth token
+   */
+  async connectViaRelay(serverId, gameId, hostToken, pollToken, roomToken, peerToken) {
      console.log("[gv] connectViaRelay starting", { serverId, gameId, roomToken: !!roomToken, pollToken: !!pollToken, peerToken: !!peerToken });
 
      if (this._state !== State.IDLE) {
@@ -966,6 +971,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
       };
 
       player.connect(workerParam).catch((err) => {
+        console.error("[gv] auto-connect failed:", err?.message || err, err?.stack);
         if (statusEl) {
           statusEl.textContent = `error: ${err.message || err}`;
           statusEl.classList.add("error");

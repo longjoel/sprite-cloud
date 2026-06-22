@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npx eslint public/player/*.js && next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "npx eslint public/player/*.js && next lint",
     "test": "vitest run"
   },
   "dependencies": {
@@ -19,6 +19,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/bcryptjs": "^3.0.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
