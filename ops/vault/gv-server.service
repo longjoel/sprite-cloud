@@ -1,0 +1,26 @@
+[Unit]
+Description=Games Vault Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=games-vault
+Group=games-vault
+EnvironmentFile=/etc/games-vault.env
+Environment="XDG_CONFIG_HOME=/etc"
+ExecStartPre=/usr/bin/mkdir -p /tmp/gv-workers
+ExecStart=/usr/local/bin/gv-server start
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/games-vault /tmp/gv-workers
+PrivateDevices=no
+DeviceAllow=/dev/dri rw
+
+[Install]
+WantedBy=multi-user.target
