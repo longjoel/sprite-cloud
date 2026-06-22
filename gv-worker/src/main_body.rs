@@ -59,11 +59,27 @@ struct SdpOffer {
     peer_token: Option<String>,
     #[serde(default)]
     host_token: Option<String>,
+    /// Trusted peer_role from gv-web (pre-validated against peer_tokens DB)
+    #[serde(default)]
+    peer_role: Option<String>,
+    /// Trusted peer_seat from gv-web
+    #[serde(default)]
+    peer_seat: Option<u32>,
 }
 
 impl SdpOffer {
     fn effective_token(&self) -> Option<&str> {
         self.peer_token.as_deref().or(self.host_token.as_deref())
+    }
+
+    /// Returns (role, seat) from trusted gv-web enrichment, if present
+    fn trusted_role_seat(&self) -> Option<(PeerRole, u32)> {
+        match (self.peer_role.as_deref(), self.peer_seat) {
+            (Some("host"), seat) => Some((PeerRole::Host, seat.unwrap_or(0))),
+            (Some("player"), seat) => Some((PeerRole::Player, seat.unwrap_or(0))),
+            (Some("viewer"), seat) => Some((PeerRole::Viewer, seat.unwrap_or(0))),
+            _ => None,
+        }
     }
 }
 
@@ -162,9 +178,15 @@ async fn handle_offer(
     if offer.sdp.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "empty SDP".into()));
     }
-    // Validate token against authorized list (peer_token or host_token)
+    // Determine peer identity — prefer trusted role/seat from gv-web
+    // (pre-validated against the peer_tokens DB), otherwise fall back
+    // to token-based validation (host or pre-registered peer_tokens).
     let peer_token: String;
-    let (peer_role, peer_seat) = if let Some(token) = offer.effective_token() {
+    let (peer_role, peer_seat) = if let Some((role, seat)) = offer.trusted_role_seat() {
+        // gv-web already validated this token against the DB
+        peer_token = offer.peer_token.clone().unwrap_or_default();
+        (role, seat)
+    } else if let Some(token) = offer.effective_token() {
         peer_token = token.to_string();
         // Try peer_tokens first; fall back to host_token (UUID from gv-web)
         if let Some((role, seat)) = validate_peer_token(&state.peer_tokens, token) {
