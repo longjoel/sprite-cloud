@@ -34,6 +34,8 @@ mod runner;
 pub use crate::runner::Core;
 pub use info::{CoreInfo, FirmwareFile, check_firmware, detect_core, discover_cores, parse_info};
 
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 use std::path::PathBuf;
 
 /// Errors that can occur during core operations.
