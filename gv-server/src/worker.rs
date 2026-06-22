@@ -561,6 +561,19 @@ pub async fn spawn_worker(
         }
     }
 
+    // Forward ICE (STUN/TURN) configuration to the worker for WebRTC.
+    for key in &[
+        "GV_ICE_STUN_URLS",
+        "GV_ICE_TURN_URLS",
+        "GV_ICE_TURN_USERNAME",
+        "GV_ICE_TURN_CREDENTIAL",
+        "GV_ICE_TRANSPORT_POLICY",
+    ] {
+        if let Ok(val) = std::env::var(key) {
+            cmd.env(key, val);
+        }
+    }
+
     let mut child = cmd
         .spawn()
         .with_context(|| format!("spawn gv-worker at {bin}"))?;
