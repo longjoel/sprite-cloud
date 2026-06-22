@@ -189,6 +189,24 @@ pub fn host_token_from_env() -> Option<String> {
     V.clone()
 }
 
+/// Per-peer tokens for multi-peer WebRTC auth. GV_PEER_TOKENS (JSON).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct PeerToken {
+    pub token: String,
+    pub seat: u32,
+    pub role: String, // "host" | "player" | "viewer"
+}
+
+pub fn peer_tokens() -> Vec<PeerToken> {
+    static V: LazyLock<Vec<PeerToken>> = LazyLock::new(|| {
+        std::env::var("GV_PEER_TOKENS")
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    });
+    V.clone()
+}
+
 // ── Common constants ────────────────────────────────────────────────────────
 
 pub const AUDIO_SAMPLE_RATE: u32 = 48_000;
