@@ -24,6 +24,12 @@ SERVICE_NAME="${GV_VPS_SERVICE:-gv-web}"
 PUBLIC_HEALTH_URL="${GV_PUBLIC_HEALTH_URL:-https://lngnckr.tech/api/health}"
 IMAGE_SHA_TAG="gv-web-prod:${GV_SHORT_SHA}"
 IMAGE_LATEST_TAG="gv-web-prod:latest"
+WEB_PACKAGE_VERSION="$(python3 - <<'PY'
+import json
+with open('gv-web/package.json', 'r', encoding='utf-8') as f:
+    print(json.load(f)['version'])
+PY
+)"
 
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
   "$SCRIPT_DIR/build-release.sh"
@@ -31,7 +37,11 @@ fi
 
 cd "$PROJECT_DIR"
 log "building $IMAGE_SHA_TAG and $IMAGE_LATEST_TAG"
-docker build -f docker/gv-web/Dockerfile.prod -t "$IMAGE_SHA_TAG" -t "$IMAGE_LATEST_TAG" .
+docker build -f docker/gv-web/Dockerfile.prod \
+  --build-arg GV_WEB_GIT_SHA="$GV_SHA" \
+  --build-arg GV_WEB_VERSION="$WEB_PACKAGE_VERSION" \
+  --build-arg GV_WEB_RELEASED_AT_UTC="$GV_BUILT_AT" \
+  -t "$IMAGE_SHA_TAG" -t "$IMAGE_LATEST_TAG" .
 
 log "shipping image to $VPS_USER@$VPS_HOST"
 docker save "$IMAGE_SHA_TAG" "$IMAGE_LATEST_TAG" | ssh "$VPS_USER@$VPS_HOST" docker load

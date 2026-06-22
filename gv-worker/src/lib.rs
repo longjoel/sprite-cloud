@@ -10,6 +10,9 @@ pub mod main_body;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+pub const LIBRETRO_RUNNER_VERSION: &str = libretro_runner::VERSION;
+
 pub async fn run_worker(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .json()

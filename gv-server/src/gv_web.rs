@@ -27,11 +27,35 @@ pub struct VerifyResponse {
     pub name: String,
 }
 
+/// Release/build metadata for a deployed component.
+#[derive(Debug, Serialize)]
+pub struct ComponentVersion {
+    pub package_version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_sha: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artifact_sha256: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub built_at_utc: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub released_at_utc: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub binary_path: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct VersionMetadata {
+    pub server: ComponentVersion,
+    pub worker: ComponentVersion,
+    pub runner: ComponentVersion,
+}
+
 /// Non-secret metadata reported by gv-server during verify.
 /// Excludes credentials, tokens, and other secrets.
 #[derive(Debug, Serialize)]
 pub struct ServerMetadata {
     pub version: String,
+    pub versions: VersionMetadata,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub lan_addresses: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
