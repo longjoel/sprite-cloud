@@ -11,6 +11,84 @@ import {
 import { eq, desc, count, and, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
+interface ComponentVersion {
+  package_version: string;
+  git_sha?: string;
+  artifact_sha256?: string;
+  built_at_utc?: string;
+  released_at_utc?: string;
+  binary_path?: string;
+}
+
+interface VersionMetadata {
+  server?: ComponentVersion;
+  worker?: ComponentVersion;
+  runner?: ComponentVersion;
+}
+
+interface ServerMetadata {
+  version?: string;
+  versions?: VersionMetadata;
+  rom_roots?: string[];
+}
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readComponentVersion(value: unknown): ComponentVersion | null {
+  const obj = asObject(value);
+  if (!obj || typeof obj.package_version !== "string") return null;
+  return {
+    package_version: obj.package_version,
+    git_sha: typeof obj.git_sha === "string" ? obj.git_sha : undefined,
+    artifact_sha256:
+      typeof obj.artifact_sha256 === "string" ? obj.artifact_sha256 : undefined,
+    built_at_utc: typeof obj.built_at_utc === "string" ? obj.built_at_utc : undefined,
+    released_at_utc:
+      typeof obj.released_at_utc === "string" ? obj.released_at_utc : undefined,
+    binary_path: typeof obj.binary_path === "string" ? obj.binary_path : undefined,
+  };
+}
+
+function readServerMetadata(value: unknown): ServerMetadata {
+  const obj = asObject(value);
+  if (!obj) return {};
+  const versions = asObject(obj.versions);
+  return {
+    version: typeof obj.version === "string" ? obj.version : undefined,
+    rom_roots: Array.isArray(obj.rom_roots)
+      ? obj.rom_roots.filter((x): x is string => typeof x === "string")
+      : undefined,
+    versions: versions
+      ? {
+          server: readComponentVersion(versions.server) ?? undefined,
+          worker: readComponentVersion(versions.worker) ?? undefined,
+          runner: readComponentVersion(versions.runner) ?? undefined,
+        }
+      : undefined,
+  };
+}
+
+function shortSha(sha?: string): string {
+  return sha ? sha.slice(0, 7) : "—";
+}
+
+function formatTimestamp(ts?: string): string {
+  if (!ts) return "—";
+  return ts.replace("T", " ").replace("Z", " UTC");
+}
+
+function webVersion(): ComponentVersion {
+  return {
+    package_version: process.env.GV_WEB_VERSION || "unknown",
+    git_sha: process.env.GV_WEB_GIT_SHA || undefined,
+    released_at_utc: process.env.GV_WEB_RELEASED_AT_UTC || undefined,
+  };
+}
+
 // ── Dashboard — admin-only operational view ─────────────────────────
 
 export default async function DashboardPage() {
@@ -154,6 +232,13 @@ export default async function DashboardPage() {
     ? Math.round((now - new Date(adminServers[0].lastSeenAt).getTime()) / 1000)
     : null;
 
+  const serverMetadata = adminServers.map((srv) => ({
+    id: srv.id,
+    name: srv.name || srv.id.slice(0, 8),
+    metadata: readServerMetadata(srv.metadata),
+  }));
+  const liveWebVersion = webVersion();
+
   const sessionMap: Record<string, number> = {};
   for (const row of sessionCounts) {
     sessionMap[row.status] = row.count;
@@ -226,6 +311,86 @@ export default async function DashboardPage() {
                 </span>
               )}
             </span>
+          </div>
+        </div>
+      </section>
+
+
+      {/* ── Live versions ──────────────────────────────────────────── */}
+      <section style={S.section}>
+        <h2 style={S.h2}>Live versions</h2>
+        <div style={S.card}>
+          <div style={S.tableWrap}>
+            <table style={S.table}>
+              <thead>
+                <tr>
+                  <th style={S.th}>Scope</th>
+                  <th style={S.th}>Component</th>
+                  <th style={S.th}>Package</th>
+                  <th style={S.th}>Commit</th>
+                  <th style={S.th}>Built / released</th>
+                  <th style={S.th}>Path</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style={S.td}>web</td>
+                  <td style={S.td}>gv-web</td>
+                  <td style={S.td}>
+                    <code style={S.code}>{liveWebVersion.package_version}</code>
+                  </td>
+                  <td style={S.td}>
+                    <code style={S.code}>{shortSha(liveWebVersion.git_sha)}</code>
+                  </td>
+                  <td style={S.td}>{formatTimestamp(liveWebVersion.released_at_utc)}</td>
+                  <td style={S.td}>
+                    <span style={S.muted}>container env</span>
+                  </td>
+                </tr>
+                {serverMetadata.flatMap((srv) => {
+                  const versions = srv.metadata.versions;
+                  if (!versions?.server && !versions?.worker && !versions?.runner) {
+                    return [
+                      <tr key={`${srv.id}-missing`}>
+                        <td style={S.td}>{srv.name}</td>
+                        <td style={S.td} colSpan={5}>
+                          <span style={S.muted}>No component versions reported yet.</span>
+                        </td>
+                      </tr>,
+                    ];
+                  }
+
+                  return ([
+                    ["server", versions?.server],
+                    ["worker", versions?.worker],
+                    ["runner", versions?.runner],
+                  ] as const)
+                    .filter(([, version]) => Boolean(version))
+                    .map(([component, version]) => (
+                      <tr key={`${srv.id}-${component}`}>
+                        <td style={S.td}>{srv.name}</td>
+                        <td style={S.td}>{component}</td>
+                        <td style={S.td}>
+                          <code style={S.code}>{version?.package_version ?? "—"}</code>
+                        </td>
+                        <td style={S.td}>
+                          <code style={S.code}>{shortSha(version?.git_sha)}</code>
+                        </td>
+                        <td style={S.td}>
+                          {formatTimestamp(version?.built_at_utc || version?.released_at_utc)}
+                        </td>
+                        <td style={S.td}>
+                          {version?.binary_path ? (
+                            <code style={S.code}>{version.binary_path}</code>
+                          ) : (
+                            <span style={S.muted}>—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ));
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       </section>
