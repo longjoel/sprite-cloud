@@ -65,8 +65,39 @@ ssh root@lngnckr.tech 'cat /docker/gv-web/RELEASE_COMMIT'
 
 ## Rules
 
-1. `main` is stable-only.
-2. Every production deploy writes a `RELEASE_COMMIT` marker.
-3. Never claim something is deployed until `smoke-test.sh` passes.
-4. Any emergency rollback gets both a branch and a dated `known-good-*` tag.
-5. Repo-tracked templates under `ops/` are the source of truth for service wiring.
+1. `main` is stable-only. Every commit on `main` must pass CI. The CI workflow (`.github/workflows/ci.yml`) runs on every push and PR to `main`, building Rust release binaries + gv-web production bundle + running all tests. If CI is red, the commit does not go to production.
+
+2. Branch protection: `main` requires CI to pass before merge. **Note:** GitHub branch protection rules require a public repo or GitHub Pro for private repos. If the repo is private and on the free plan, enforcement is manual — the release operator verifies CI green before deploying.
+
+3. Every production deploy writes a `RELEASE_COMMIT` marker on both host and VPS so the live SHA is always answerable.
+
+4. Never claim something is deployed until `smoke-test.sh` passes on both sides.
+
+5. Any emergency rollback gets both a branch and a dated `known-good-*` tag for traceability.
+
+6. Repo-tracked templates under `ops/` are the source of truth for service wiring — if a box diverges from `ops/`, the box is wrong.
+
+## CI gate
+
+The CI workflow (`.github/workflows/ci.yml`) is the release gate. It runs on:
+
+- Every push to `main`
+- Every pull request targeting `main`
+
+Jobs:
+1. **rust** — builds `gv-server` + `gv-worker` in release mode, runs unit tests, runs libretro-runner smoke tests
+2. **web** — installs pnpm deps, builds gv-web production bundle
+
+A separate deploy workflow (`.github/workflows/deploy.yml`) runs on push to `main` (gv-web/** paths only) and builds + ships the Docker image to the VPS, then health-checks it. It does NOT run on PRs — only on merge to `main`.
+
+### Manual enforcement (private repo)
+
+If the repo is private and GitHub branch protection is unavailable (free plan), the release operator enforces the gate manually:
+
+```bash
+# Before deploying, check CI status on the target commit
+gh run list --branch main --workflow ci.yml --limit 1
+# Must show ✓ (green)
+
+# If red, do not deploy
+```
