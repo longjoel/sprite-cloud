@@ -818,6 +818,21 @@ export default function GamePlayer({
               <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "disk_insert", index: 0 }); showToast("Disk 0 inserted", true); }}>
                 💿 Insert 0
               </Button>
+              {roomToken && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    const url = `${window.location.origin}/play/${gameId}?join=${roomToken}`;
+                    navigator.clipboard.writeText(url).then(
+                      () => showToast("Share link copied!", true),
+                      () => showToast("Copy failed", false)
+                    );
+                  }}
+                >
+                  🔗 Share Link
+                </Button>
+              )}
             </div>
           </div>
         </>

@@ -380,39 +380,8 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         sdp.len()
                                     );
 
-                                    // Guest SDP offers must NOT be forwarded to the worker.
-                                    // The worker is single-peer — forwarding a guest SDP cancels
-                                    // the host's streaming session (do_webrtc_handshake kills
-                                    // the old CancellationToken and aborts the stream handle).
-                                    // Multi-peer WebRTC in the worker is tracked separately.
-                                    let is_guest = cmd
-                                        .payload
-                                        .get("room_token")
-                                        .and_then(|v| v.as_str())
-                                        .is_some();
-
-                                    if is_guest {
-                                        tracing::warn!(
-                                            "[SDP] guest sdp_offer for game {game_id} — viewer mode not yet supported"
-                                        );
-                                        // Complete the command with an error result so the guest
-                                        // browser sees a clean failure instead of polling forever.
-                                        // Use command_result (not notify_once) to avoid rotating
-                                        // the room_token on every blocked attempt.
-                                        let result = serde_json::json!({
-                                            "error": "viewer_mode_not_supported",
-                                            "message": "Multi-viewer WebRTC not yet available"
-                                        });
-                                        if let Err(e) = client
-                                            .command_result(&cmd.id, &cmd.lease_token, &result)
-                                            .await
-                                        {
-                                            tracing::error!(
-                                                "[SDP] command_result failed for guest: {e:#}"
-                                            );
-                                        }
-                                        continue;
-                                    }
+                                    // Guest SDP offers are now supported — the worker has multi-peer
+                                    // infrastructure (singleton core, PeerRegistry, fan-out).
 
                                     // Reap exited workers before relaying SDP.  A zombie
                                     // child still has a PID, so signal-0 liveness checks are
@@ -448,11 +417,18 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                             "[SDP] forwarding to worker at {internal_url}"
                                         );
 
+                                        // Build the SDP body — include host_token so the
+                                        // worker can validate the offer authorisation.
+                                        let mut sdp_body = serde_json::json!({ "sdp": sdp });
+                                        if let Some(ht) = cmd.payload.get("host_token").and_then(|v| v.as_str()) {
+                                            sdp_body["host_token"] = serde_json::Value::String(ht.to_string());
+                                        }
+
                                         match client
                                             .http_client()
                                             .post(format!("{internal_url}/sdp"))
                                             .bearer_auth(worker.control_token())
-                                            .json(&serde_json::json!({ "sdp": sdp }))
+                                            .json(&sdp_body)
                                             .send()
                                             .await
                                         {
