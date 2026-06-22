@@ -186,14 +186,15 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
     }
 
     try {
-      if (joinToken) {
-        // Guest join — game already running, resolve room_token → peer_token
-        console.log("[gv] guest join — resolving room_token:", joinToken);
+      if (joinToken || player._roomToken) {
+        // Guest join — use rotated room_token from SDP poll if available
+        const rt = player._roomToken || joinToken;
+        console.log("[gv] guest join — resolving room_token:", rt);
         callbacks?.onProgress?.("Joining room…");
         const joinResp = await fetch("/api/room/join", {
           method: "POST",
           headers: csrfHeaders(),
-          body: JSON.stringify({ room_token: joinToken }),
+          body: JSON.stringify({ room_token: rt }),
         });
         if (!joinResp.ok) {
           const errData = await joinResp.json().catch(() => ({}));
