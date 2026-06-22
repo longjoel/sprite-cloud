@@ -75,6 +75,13 @@ struct AppState {
     destruct_timer: Mutex<Option<JoinHandle<()>>>,
     core_loaded: AtomicBool,
     frames_encoded: AtomicU64,
+    // ── Shared session state (extracted from do_webrtc_handshake) ──
+    session_active: AtomicBool,
+    video_enc: Mutex<Option<Arc<tokio::sync::Mutex<GstVideoEncoder>>>>,
+    audio_enc: Mutex<Option<Arc<tokio::sync::Mutex<Option<GstAudioEncoder>>>>>,
+    core_width: Mutex<u32>,
+    core_height: Mutex<u32>,
+    core_fps: Mutex<f64>,
 }
 
 // ── HTTP handlers ───────────────────────────────────────────────────────────
@@ -196,6 +203,12 @@ pub async fn build_app() -> Result<Router, Box<dyn std::error::Error>> {
         destruct_timer: Mutex::new(None),
         core_loaded: AtomicBool::new(false),
         frames_encoded: AtomicU64::new(0),
+        session_active: AtomicBool::new(false),
+        video_enc: Mutex::new(None),
+        audio_enc: Mutex::new(None),
+        core_width: Mutex::new(0),
+        core_height: Mutex::new(0),
+        core_fps: Mutex::new(0.0),
     });
 
     let cors = CorsLayer::new()
@@ -325,49 +338,70 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
         .map_err(|e| format!("peer connection: {e}"))?,
     );
 
-    // Load libretro core
-    let (core_width, core_height, core_fps, core_frame_rx, core_cmd_tx, core_response_rx, core_sample_rate, core_audio_channels) =
-        match crate::core_bridge::spawn_core_thread() {
-            Some(handle) => {
-                tracing::info!(
-                    "[STREAM] Core: {}×{} @ {:.1}fps {:.0}Hz",
-                    handle.width, handle.height, handle.fps, handle.sample_rate
-                );
-                state.core_loaded.store(true, Ordering::Relaxed);
-                (
-                    handle.width,
-                    handle.height,
-                    handle.fps,
-                    Some(handle.frame_rx),
-                    Some(handle.cmd_tx),
-                    Some(handle.response_rx),
-                    Some(handle.sample_rate),
-                    handle.audio_channels as usize,
-                )
-            }
-            None => {
-                return Err("no libretro core available".into());
-            }
-        };
+    // Load libretro core + create encoders — once per session.
+    // The core thread and encoders live in AppState and survive
+    // across peer handshake cycles.
+    let (core_width, core_height, core_fps, core_frame_rx, core_cmd_tx, core_response_rx, core_sample_rate, core_audio_channels, selected_video_codec, video_enc, audio_enc) =
+    {
+        if !state.session_active.load(Ordering::Acquire) {
+            // First peer — spawn core and create encoders
+            let (w, h, fps, frame_rx, cmd_tx, response_rx, sample_rate, audio_ch) =
+                match crate::core_bridge::spawn_core_thread() {
+                    Some(handle) => {
+                        tracing::info!(
+                            "[STREAM] Core: {}×{} @ {:.1}fps {:.0}Hz",
+                            handle.width, handle.height, handle.fps, handle.sample_rate
+                        );
+                        state.core_loaded.store(true, Ordering::Relaxed);
+                        (
+                            handle.width,
+                            handle.height,
+                            handle.fps,
+                            Some(handle.frame_rx),
+                            Some(handle.cmd_tx),
+                            Some(handle.response_rx),
+                            Some(handle.sample_rate),
+                            handle.audio_channels as usize,
+                        )
+                    }
+                    None => {
+                        return Err("no libretro core available".into());
+                    }
+                };
 
-    // Create GStreamer encoders. Codec selection must happen before adding the
-    // WebRTC track because the RTP capability has to match the encoded bytes.
-    let video_encoder = create_video_encoder(core_width, core_height, core_fps, offer_sdp)
-        .map_err(|e| format!("video encoder: {e}"))?;
-    let selected_video_codec = video_encoder.codec();
-    let video_enc = Arc::new(tokio::sync::Mutex::new(video_encoder));
+            let video_encoder = create_video_encoder(w, h, fps, offer_sdp)
+                .map_err(|e| format!("video encoder: {e}"))?;
+            let selected = video_encoder.codec();
+            let venc = Arc::new(tokio::sync::Mutex::new(video_encoder));
 
-    let audio_enc: Arc<tokio::sync::Mutex<Option<GstAudioEncoder>>> =
-        Arc::new(tokio::sync::Mutex::new(match core_sample_rate {
-            Some(rate) => match GstAudioEncoder::new(rate, core_audio_channels as u16) {
-                Ok(enc) => Some(enc),
-                Err(e) => {
-                    tracing::error!("[AUDIO] encoder failed: {e} — audio disabled");
-                    None
-                }
-            },
-            None => None,
-        }));
+            let aenc: Arc<tokio::sync::Mutex<Option<GstAudioEncoder>>> =
+                Arc::new(tokio::sync::Mutex::new(match sample_rate {
+                    Some(rate) => match GstAudioEncoder::new(rate, audio_ch as u16) {
+                        Ok(enc) => Some(enc),
+                        Err(e) => {
+                            tracing::error!("[AUDIO] encoder failed: {e} — audio disabled");
+                            None
+                        }
+                    },
+                    None => None,
+                }));
+
+            // Store encoders + dimensions in AppState for reuse across peers
+            *state.core_width.lock().await = w;
+            *state.core_height.lock().await = h;
+            *state.core_fps.lock().await = fps;
+            *state.video_enc.lock().await = Some(venc.clone());
+            *state.audio_enc.lock().await = Some(aenc.clone());
+            state.session_active.store(true, Ordering::Release);
+
+            (w, h, fps, frame_rx, cmd_tx, response_rx, sample_rate, audio_ch, selected, venc, aenc)
+        } else {
+            // Reconnect — can't reuse the core frame receiver.
+            // Core frame RX is consumed by the current stream and can't
+            // be cloned. Proper fan-out coming in Task 7 (#415).
+            return Err("reconnect not yet supported — refresh the page to restart".into());
+        }
+    };
 
     // ICE gathering
     let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
