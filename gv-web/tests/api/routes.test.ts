@@ -10,6 +10,12 @@
 
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 
+const mockWebVersionEnv = {
+  GV_WEB_VERSION: "0.1.0",
+  GV_WEB_GIT_SHA: "web-sha-123",
+  GV_WEB_RELEASED_AT_UTC: "2026-06-22T13:20:39Z",
+};
+
 // ── Mocks (must come before imports) ──────────────────────────────────
 
 const mockDb = {
@@ -117,6 +123,9 @@ function mkReq(url: string, init?: RequestInit) {
 
 function resetAllMocks() {
   vi.clearAllMocks();
+  process.env.GV_WEB_VERSION = mockWebVersionEnv.GV_WEB_VERSION;
+  process.env.GV_WEB_GIT_SHA = mockWebVersionEnv.GV_WEB_GIT_SHA;
+  process.env.GV_WEB_RELEASED_AT_UTC = mockWebVersionEnv.GV_WEB_RELEASED_AT_UTC;
   mockAuth.mockResolvedValue({ user: { id: "user-1", name: "Tester", email: "test@example.com" } });
   mockVerifyBearerToken.mockResolvedValue({
     id: "server-1",
@@ -629,6 +638,20 @@ describe("GET /api/health", () => {
     mockDb.select.mockReturnValueOnce(
       mockQueryBuilder([{ roomToken: "x", maxSeats: 1, sdpAnswer: null }]), // schema
     );
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{
+        id: "server-1",
+        name: "Home PC",
+        lastSeenAt: new Date("2026-06-22T13:20:39Z"),
+        metadata: {
+          versions: {
+            server: { package_version: "0.1.0", git_sha: "server-sha" },
+            worker: { package_version: "0.1.0", git_sha: "worker-sha" },
+            runner: { package_version: "0.1.0", git_sha: "runner-sha" },
+          },
+        },
+      }]),
+    );
 
     const { GET } = await import("@/app/api/health/route");
     const resp = await GET();
@@ -637,6 +660,11 @@ describe("GET /api/health", () => {
     expect(body.status).toBe("ok");
     expect(body.components.db.status).toBe("ok");
     expect(body.components.gv_server.status).toBe("ok");
+    expect(body.versions.web).toMatchObject({ package_version: "0.1.0", git_sha: "web-sha-123" });
+    expect(body.versions.server).toMatchObject({ git_sha: "server-sha" });
+    expect(body.versions.worker).toMatchObject({ git_sha: "worker-sha" });
+    expect(body.versions.runner).toMatchObject({ git_sha: "runner-sha" });
+    expect(body.versions.source_server).toMatchObject({ id: "server-1", name: "Home PC" });
   });
 
   it("returns 503 with per-component status when DB is down", async () => {
@@ -647,6 +675,7 @@ describe("GET /api/health", () => {
     const body = await resp.json();
     expect(body.status).toBe("error");
     expect(body.components.db.status).toBe("error");
+    expect(body.versions.web).toMatchObject({ package_version: "0.1.0", git_sha: "web-sha-123" });
   });
 });
 
