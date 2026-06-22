@@ -306,12 +306,13 @@ export class GvPlayer {
 
     const offer = await this._pc.createOffer();
     await this._pc.setLocalDescription(offer);
+    await this._waitForIceGatheringComplete();
 
     const sdpUrl = `${url}${SDP_ENDPOINT}`;
     const resp = await fetch(sdpUrl, {
       method: "POST",
       headers: gvCsrfHeaders(),
-      body: JSON.stringify({ sdp: offer.sdp }),
+      body: JSON.stringify({ sdp: this._pc.localDescription?.sdp || offer.sdp }),
     });
 
     if (!resp.ok) {
@@ -371,12 +372,13 @@ export class GvPlayer {
 
     const offer = await this._pc.createOffer();
     await this._pc.setLocalDescription(offer);
+    await this._waitForIceGatheringComplete();
 
     // POST sdp_offer command — returns a worker_token we use to poll
     const cmdBody = {
       server_id: serverId,
       type: "sdp_offer",
-      payload: { game_id: gameId, sdp: offer.sdp, host_token: hostToken },
+      payload: { game_id: gameId, sdp: this._pc.localDescription?.sdp || offer.sdp, host_token: hostToken },
     };
     if (roomToken) {
       cmdBody.payload.room_token = roomToken;
@@ -658,6 +660,27 @@ export class GvPlayer {
       clearTimeout(this._disconnectedTimer);
       this._disconnectedTimer = null;
     }
+  }
+
+  async _waitForIceGatheringComplete() {
+    if (!this._pc || this._pc.iceGatheringState === "complete") return;
+
+    await new Promise((resolve, reject) => {
+      const onStateChange = () => {
+        if (!this._pc || this._pc.iceGatheringState === "complete") finish(resolve);
+      };
+      const finish = (fn) => {
+        clearTimeout(timeout);
+        this._pc?.removeEventListener?.("icegatheringstatechange", onStateChange);
+        fn();
+      };
+      const timeout = setTimeout(() => {
+        finish(() => reject(new Error("Timed out waiting for local ICE candidates")));
+      }, this._iceTimeout);
+
+      this._pc.addEventListener?.("icegatheringstatechange", onStateChange);
+      onStateChange();
+    });
   }
 
   /**

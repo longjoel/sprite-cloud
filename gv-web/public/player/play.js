@@ -235,7 +235,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
       console.log("[gv] player type:", typeof player, "constructor:", player?.constructor?.name);
       console.log("[gv] proto methods:", Object.getOwnPropertyNames(Object.getPrototypeOf(player)));
       console.log("[gv] has connectViaRelay:", typeof player.connectViaRelay);
-      await player.connectViaRelay(serverId, gameId, hostToken, startGameToken, joinToken || undefined, player._peerToken);
+      await player.connectViaRelay(serverId, gameId, hostToken, startGameToken, player._roomToken || joinToken || undefined, player._peerToken);
       console.log("[gv] connectViaRelay returned");
     } catch (err) {
       console.error("[gv] connectViaRelay error:", err?.message || err, err?.stack);
