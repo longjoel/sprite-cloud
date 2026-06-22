@@ -45,14 +45,17 @@ use crate::config::{
 use crate::core_bridge::CoreCommand;
 use crate::gst_audio::GstAudioEncoder;
 use crate::gst_video::{GstVideoEncoder, VideoCodec};
+use std::collections::HashMap;
 
 // ── Types ───────────────────────────────────────────────────────────────────
+
+type PeerId = String; // peer_token (32-char hex)
 
 #[derive(Debug, Deserialize)]
 struct SdpOffer {
     sdp: String,
     #[serde(default)]
-    host_token: Option<String>,
+    peer_token: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -63,14 +66,24 @@ struct SdpAnswer {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum PeerRole {
     Host,
+    Player,
     Viewer,
+}
+
+struct PeerState {
+    pc: Arc<RTCPeerConnection>,
+    dc: Arc<tokio::sync::Mutex<Option<Arc<webrtc::data_channel::RTCDataChannel>>>>,
+    role: PeerRole,
+    seat: u32,
+    video_track: Arc<TrackLocalStaticSample>,
+    audio_track: Arc<TrackLocalStaticSample>,
 }
 
 struct AppState {
     cancel: Mutex<CancellationToken>,
     stream_handle: Mutex<Option<JoinHandle<()>>>,
-    peer_connection: Mutex<Option<Arc<RTCPeerConnection>>>,
-    host_token: Mutex<Option<String>>,
+    peers: Mutex<HashMap<PeerId, PeerState>>,
+    peer_tokens: Vec<config::PeerToken>,
     control_token: Option<String>,
     exit_signal: CancellationToken,
     destruct_timer: Mutex<Option<JoinHandle<()>>>,
@@ -110,16 +123,19 @@ fn require_control_token(state: &AppState, headers: &HeaderMap) -> Result<(), St
     }
 }
 
-fn apply_sdp_host_token(host_token: &mut Option<String>, offered: Option<&str>) {
-    let Some(token) = offered else { return };
-    if host_token.as_deref() != Some(token) {
-        tracing::info!("[SDP] host token updated");
-        *host_token = Some(token.to_string());
-    }
+fn validate_peer_token(tokens: &[config::PeerToken], offered: &str) -> Option<(PeerRole, u32)> {
+    tokens.iter().find(|t| t.token == offered).map(|t| {
+        let role = match t.role.as_str() {
+            "host" => PeerRole::Host,
+            "player" => PeerRole::Player,
+            _ => PeerRole::Viewer,
+        };
+        (role, t.seat)
+    })
 }
 
 fn binary_input_allowed(role: Option<PeerRole>) -> bool {
-    role == Some(PeerRole::Host)
+    matches!(role, Some(PeerRole::Host) | Some(PeerRole::Player))
 }
 
 async fn handle_offer(
@@ -131,11 +147,14 @@ async fn handle_offer(
     if offer.sdp.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "empty SDP".into()));
     }
-    if let Some(ref token) = offer.host_token {
-        let mut host = state.host_token.lock().await;
-        apply_sdp_host_token(&mut host, Some(token));
-    }
-    do_webrtc_handshake(state, &offer.sdp)
+    // Validate peer_token against authorized list
+    let (peer_role, peer_seat) = if let Some(ref token) = offer.peer_token {
+        validate_peer_token(&state.peer_tokens, token)
+            .ok_or((StatusCode::UNAUTHORIZED, "invalid peer_token".into()))?
+    } else {
+        return Err((StatusCode::UNAUTHORIZED, "missing peer_token".into()));
+    };
+    do_webrtc_handshake(state, &offer.sdp, peer_role, peer_seat)
         .await
         .map(Json)
         .map_err(|e| {
@@ -149,11 +168,12 @@ async fn handle_connection_state(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     require_control_token(&state, &headers)?;
-    let pc = state.peer_connection.lock().await;
-    let s = pc
-        .as_ref()
-        .map(|pc| format!("{:?}", pc.connection_state()))
-        .unwrap_or_else(|| "no connection".into());
+    let peers = state.peers.lock().await;
+    let s = if peers.is_empty() {
+        "no connection".into()
+    } else {
+        peers.values().next().map(|p| format!("{:?}", p.pc.connection_state())).unwrap_or_else(|| "unknown".into())
+    };
     Ok(Json(serde_json::json!({"state": s})))
 }
 
@@ -189,17 +209,20 @@ async fn handle_root() -> impl axum::response::IntoResponse {
 // ── App builder ─────────────────────────────────────────────────────────────
 
 pub async fn build_app() -> Result<Router, Box<dyn std::error::Error>> {
-    let host_token = config::host_token_from_env();
+    let peer_tokens = config::peer_tokens();
     let control_token = config::worker_control_token();
     if control_token.is_some() {
         tracing::info!("[STARTUP] worker control token required for HTTP control endpoints");
+    }
+    if !peer_tokens.is_empty() {
+        tracing::info!("[STARTUP] {} peer token(s) loaded", peer_tokens.len());
     }
 
     let state = Arc::new(AppState {
         cancel: Mutex::new(CancellationToken::new()),
         stream_handle: Mutex::new(None),
-        peer_connection: Mutex::new(None),
-        host_token: Mutex::new(host_token),
+        peers: Mutex::new(HashMap::new()),
+        peer_tokens,
         control_token,
         exit_signal: CancellationToken::new(),
         destruct_timer: Mutex::new(None),
@@ -282,8 +305,8 @@ fn create_video_encoder(
 
 // ── WebRTC handshake ────────────────────────────────────────────────────────
 
-async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<SdpAnswer, String> {
-    // Cancel previous session
+async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str, peer_role: PeerRole, peer_seat: u32) -> Result<SdpAnswer, String> {
+    // Cancel previous session (single-peer mode — will change in Task 6)
     let cancel = {
         let old = state.cancel.lock().await;
         old.cancel();
@@ -499,7 +522,7 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
     let dc_stream: Arc<tokio::sync::Mutex<Option<Arc<webrtc::data_channel::RTCDataChannel>>>> =
         Arc::new(tokio::sync::Mutex::new(None));
     let dc_stream_for_spawn = dc_stream.clone(); // clone before move
-    let dc_host_token = { state.host_token.lock().await.clone() };
+    let dc_peer_tokens = state.peer_tokens.clone();
     let dc_core_cmd = core_cmd_tx.clone();
 
     tokio::spawn(async move {
@@ -518,17 +541,15 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
         *dc_stream_for_spawn.lock().await = Some(dc.clone());
 
         let role: Arc<tokio::sync::Mutex<Option<PeerRole>>> =
-            Arc::new(tokio::sync::Mutex::new(None));
+            Arc::new(tokio::sync::Mutex::new(Some(peer_role))); // pre-authenticated
 
         // Auth timeout
         let dc_to = dc.clone();
         let role_to = role.clone();
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(dc_auth_timeout_secs())).await;
-            if role_to.lock().await.is_none() {
-                tracing::warn!("[DC] auth timeout — closing");
-                dc_to.close().await.ok();
-            }
+            // If DC auth still expects confirmation, close
+            // (role is pre-set for now — Task 8 formalizes per-peer auth)
         });
         dc.on_message(Box::new({
             let dc_cmd = dc.clone();
@@ -536,7 +557,7 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
             let dc = dc_cmd.clone();
             let role = role.clone();
             let core_tx = dc_core_cmd.clone();
-            let session_token = dc_host_token.clone();
+            let peer_tokens = dc_peer_tokens.clone();
             Box::pin(async move {
                 // Binary input (3-byte RetroArch format)
                 if msg.data.len() == 3 {
@@ -570,11 +591,15 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
                 };
                 let cmd_type = cmd.get("cmd").and_then(|v| v.as_str()).unwrap_or("");
 
-                // Auth
+                // Auth — validate peer_token against authorized list
                 if cmd_type == "auth" {
-                    if let Some(token) = cmd.get("host_token").and_then(|v| v.as_str()) {
-                        let is_host = session_token.as_deref() == Some(token);
-                        *role.lock().await = Some(if is_host { PeerRole::Host } else { PeerRole::Viewer });
+                    if let Some(token) = cmd.get("peer_token").and_then(|v| v.as_str()) {
+                        let authorized = validate_peer_token(&peer_tokens, token).is_some();
+                        if !authorized {
+                            tracing::warn!("[DC] auth failed — invalid peer_token");
+                            dc.close().await.ok();
+                        }
+                        // role is already set from SDP validation
                     }
                     return;
                 }
@@ -669,9 +694,17 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
         });
     }
 
-    // Store state
+    // Store peer in registry
     {
-        *state.peer_connection.lock().await = Some(Arc::clone(&pc));
+        let peer_id = "host".to_string(); // TODO(#413): use actual peer_token
+        state.peers.lock().await.insert(peer_id, PeerState {
+            pc: Arc::clone(&pc),
+            dc: dc_stream.clone(),
+            role: peer_role,
+            seat: peer_seat,
+            video_track: Arc::clone(&video_track),
+            audio_track: Arc::clone(&audio_track),
+        });
     }
     {
         let mut timer = state.destruct_timer.lock().await;
@@ -923,7 +956,7 @@ async fn stream_frames(ctx: StreamCtx) {
     tracing::info!("[STREAM] Loop exited");
 
     let _ = ctx.peer_connection.close().await;
-    *ctx.app_state.peer_connection.lock().await = None;
+    ctx.app_state.peers.lock().await.clear();
 
     // Self-destruct timer
     {
