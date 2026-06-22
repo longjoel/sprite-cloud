@@ -78,6 +78,7 @@ struct AppState {
     frames_encoded: AtomicU64,
     // ── Shared session state (extracted from do_webrtc_handshake) ──
     session_active: AtomicBool,
+    core_spawning: Mutex<()>,  // serialize core loads — libretro not reentrant
     video_enc: Mutex<Option<Arc<tokio::sync::Mutex<GstVideoEncoder>>>>,
     audio_enc: Mutex<Option<Arc<tokio::sync::Mutex<Option<GstAudioEncoder>>>>>,
     core_width: Mutex<u32>,
@@ -205,6 +206,7 @@ pub async fn build_app() -> Result<Router, Box<dyn std::error::Error>> {
         core_loaded: AtomicBool::new(false),
         frames_encoded: AtomicU64::new(0),
         session_active: AtomicBool::new(false),
+        core_spawning: Mutex::new(()),
         video_enc: Mutex::new(None),
         audio_enc: Mutex::new(None),
         core_width: Mutex::new(0),
@@ -345,6 +347,9 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
     // Task 7 (#415) will make encoders truly shared across peers.
     let (core_width, core_height, core_fps, core_frame_rx, core_cmd_tx, core_response_rx, core_sample_rate, core_audio_channels, selected_video_codec, video_enc, audio_enc) =
     {
+        // Serialize core loads — libretro is not reentrant.
+        // Dropping the guard before the next SDP offer releases the lock.
+        let _core_guard = state.core_spawning.lock().await;
         let (w, h, fps, frame_rx, cmd_tx, response_rx, sample_rate, audio_ch) =
             match crate::core_bridge::spawn_core_thread() {
                 Some(handle) => {
