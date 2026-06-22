@@ -381,6 +381,9 @@ export class GvPlayer {
     if (roomToken) {
       cmdBody.payload.room_token = roomToken;
     }
+    if (peerToken) {
+      cmdBody.payload.peer_token = peerToken;
+    }
     const cmdResp = await fetch("/api/server/command", {
       method: "POST",
       headers: gvCsrfHeaders(),

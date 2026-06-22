@@ -417,11 +417,15 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                             "[SDP] forwarding to worker at {internal_url}"
                                         );
 
-                                        // Build the SDP body — include host_token so the
+                                        // Build the SDP body — include tokens so the
                                         // worker can validate the offer authorisation.
                                         let mut sdp_body = serde_json::json!({ "sdp": sdp });
                                         if let Some(ht) = cmd.payload.get("host_token").and_then(|v| v.as_str()) {
                                             sdp_body["host_token"] = serde_json::Value::String(ht.to_string());
+                                        }
+                                        // Guest peers use peer_token from /api/room/join
+                                        if let Some(pt) = cmd.payload.get("peer_token").and_then(|v| v.as_str()) {
+                                            sdp_body["peer_token"] = serde_json::Value::String(pt.to_string());
                                         }
 
                                         match client
