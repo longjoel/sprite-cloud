@@ -613,23 +613,9 @@ export default function GamePlayer({
         const data = await resp.json();
         setRoomToken(data.room_token);
         shareUrlSet.current = true;
-        window.history.replaceState(
-          null,
-          "",
-          `/play/${gameId}?join=${data.room_token}`,
-        );
       } catch { /* best-effort */ }
     })();
   }, [connected, gameId, serverId, roomToken]);
-
-  useEffect(() => {
-    const originalUrl = window.location.pathname + window.location.search;
-    return () => {
-      if (shareUrlSet.current) {
-        window.history.replaceState(null, "", originalUrl);
-      }
-    };
-  }, []);
 
   // ── Render ────────────────────────────────────────────────────────
 
