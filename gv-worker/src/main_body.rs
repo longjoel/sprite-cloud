@@ -27,6 +27,7 @@ use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_H264, MIME_TYPE_OPUS, MIM
 use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::APIBuilder;
 use webrtc::ice_transport::ice_server::RTCIceServer;
+use webrtc::ice::network_type::NetworkType;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::peer_connection::policy::ice_transport_policy::RTCIceTransportPolicy;
@@ -305,6 +306,7 @@ async fn do_webrtc_handshake(state: Arc<AppState>, offer_sdp: &str) -> Result<Sd
 
     let mut se = SettingEngine::default();
     se.set_ip_filter(Box::new(|ip: IpAddr| ip.is_ipv4()));
+    se.set_network_types(vec![NetworkType::Udp4, NetworkType::Tcp4]);
 
     let api = APIBuilder::new()
         .with_setting_engine(se)
