@@ -764,14 +764,42 @@ export class GvPlayer {
    *  Select=2, B=0, A=8.
    *  KEEP IN SYNC: libretro-runner/src/lib.rs — JoypadButton enum. */
   _setupKeyboardInput() {
-    const BIT_MAP = {
+    // Full 16-bit default mapping.
+    // Bits: B=0, Y=1, Select=2, Start=3, Up=4, Down=5, Left=6, Right=7,
+    //       A=8, X=9, L=10, R=11, L2=12, R2=13, L3=14, R3=15
+    const DEFAULT_BIT_MAP = Object.freeze({
+      // D-pad
       ArrowUp: 4, ArrowDown: 5, ArrowLeft: 6, ArrowRight: 7,
-      w: 4, a: 6, s: 5, d: 7,    // W=Up, A=Left, S=Down, D=Right
-      e: 2,                       // E=Select
-      q: 3,                       // Q=Start
+      w: 4, a: 6, s: 5, d: 7,
+      // Face buttons (SNES layout: B=bottom, A=right, Y=left, X=top)
       z: 0, x: 8,                 // B, A
-      Enter: 3, ' ': 3,           // Start
-    };
+      c: 9, v: 1,                 // X, Y
+      // Shoulder
+      f: 10, g: 11,               // L, R
+      r: 12, t: 13,               // L2, R2
+      // Start / Select
+      q: 3, e: 2,
+      Enter: 3, ' ': 3,
+      Shift: 2,                   // Select
+    });
+
+    // Load saved remapping from localStorage, fall back to defaults
+    let BIT_MAP = { ...DEFAULT_BIT_MAP };
+    try {
+      const saved = localStorage.getItem("gv-keymap");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === "object") {
+          Object.assign(BIT_MAP, parsed);
+        }
+      }
+    } catch (_) { /* ignore corrupt storage */ }
+
+    // Expose for remapping UI
+    this._bitMap = BIT_MAP;
+    this._defaultBitMap = DEFAULT_BIT_MAP;
+
+    /** @returns {Record<string, number>} current key→bit mapping */
 
     this._inputState = 0;
 
@@ -816,6 +844,10 @@ export class GvPlayer {
     // Reset state on blur (stuck keys if user tabs away)
     this._blurHandler = () => { this._inputState = 0; sendMask(); };
     window.addEventListener("blur", this._blurHandler);
+    // Expose getter for remap UI
+    /** @returns {Record<string, number>} */
+    this.getKeyMapping = () => BIT_MAP;
+
   }
 
   _removeKeyboardInput() {
@@ -887,6 +919,23 @@ export class GvPlayer {
       cancelAnimationFrame(this._gamepadRAF);
       this._gamepadRAF = null;
     }
+  }
+
+  // ── Key remapping ────────────────────────────────────────────
+
+  /** Update a key mapping and persist to localStorage. */
+  setKeyMapping(key, bit) {
+    this._bitMap[key] = bit;
+    try {
+      localStorage.setItem("gv-keymap", JSON.stringify(this._bitMap));
+    } catch (_) { /* ignore */ }
+  }
+
+  /** Reset all key mappings to defaults. */
+  resetKeymap() {
+    this._bitMap = { ...this._defaultBitMap };
+    try { localStorage.removeItem("gv-keymap"); } catch (_) {}
+    return this._bitMap;
   }
 
   // ── Cleanup ──────────────────────────────────────────────────
