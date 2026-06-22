@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { peerTokens, sessions } from "@/lib/db/schema";
+import { commands, peerTokens, sessions } from "@/lib/db/schema";
 import { eq, sql } from "drizzle-orm";
 import crypto from "crypto";
 
@@ -33,8 +33,10 @@ export async function POST(request: NextRequest) {
       serverId: sessions.serverId,
       status: sessions.status,
       maxSeats: sessions.maxSeats,
+      commandWorkerToken: commands.workerToken,
     })
     .from(sessions)
+    .leftJoin(commands, eq(commands.id, sessions.commandId))
     .where(eq(sessions.roomToken, body.room_token))
     .limit(1);
 
@@ -74,6 +76,7 @@ export async function POST(request: NextRequest) {
     game_id: session.gameId,
     server_id: session.serverId,
     max_seats: session.maxSeats,
+    worker_token: session.commandWorkerToken,
     peer_token: guestPeerToken,
     seat,
     role,
