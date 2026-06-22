@@ -137,6 +137,175 @@ function labelColor(state: StepState): string {
   }
 }
 
+// ── Key remap labels ─────────────────────────────────────────────────
+
+const BUTTON_LABELS: Record<number, string> = {
+  0: "B", 1: "Y", 2: "Select", 3: "Start", 4: "Up", 5: "Down",
+  6: "Left", 7: "Right", 8: "A", 9: "X", 10: "L", 11: "R",
+  12: "L2", 13: "R2", 14: "L3", 15: "R3",
+};
+
+// ── Remap panel ──────────────────────────────────────────────────────
+
+function RemapPanel({
+  playerRef,
+  waiting,
+  setWaiting,
+  onClose,
+}: {
+  playerRef: React.RefObject<any>;
+  waiting: string | null;
+  setWaiting: (v: string | null) => void;
+  onClose: () => void;
+}) {
+  const mapping = playerRef.current?.getKeyMapping?.() || {};
+
+  // Build reverse map: bit → [keys]
+  const bitKeys: Record<number, string[]> = {};
+  for (const [key, bit] of Object.entries(mapping)) {
+    const b = bit as number;
+    if (!bitKeys[b]) bitKeys[b] = [];
+    bitKeys[b].push(key);
+  }
+
+  // Listen for next keypress when waiting
+  // Import useEffect at top of RemapPanel — already available via module scope
+  useEffect(() => {
+    if (!waiting) return;
+    const handler = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const bit = parseInt(waiting);
+      if (playerRef.current?.setKeyMapping) {
+        playerRef.current.setKeyMapping(e.key, bit);
+      }
+      setWaiting(null);
+    };
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [waiting, playerRef, setWaiting]);
+
+  return (
+    <div style={remapStyles.panel}>
+      <div style={remapStyles.header}>
+        <span>Key Mapping</span>
+        <div style={{ display: "flex", gap: "var(--space-3)" }}>
+          <button
+            style={remapStyles.resetBtn}
+            onClick={() => {
+              playerRef.current?.resetKeymap?.();
+              onClose();
+            }}
+          >
+            Reset defaults
+          </button>
+          <button style={remapStyles.closeBtn} onClick={onClose}>
+            ✕
+          </button>
+        </div>
+      </div>
+      {waiting && (
+        <p style={remapStyles.waiting}>
+          Press a key for {BUTTON_LABELS[parseInt(waiting)] || `bit ${waiting}`}…
+        </p>
+      )}
+      <div style={remapStyles.grid}>
+        {Object.entries(BUTTON_LABELS).map(([bitStr, label]) => {
+          const bit = parseInt(bitStr);
+          const keys = bitKeys[bit] || [];
+          return (
+            <button
+              key={bit}
+              style={{
+                ...remapStyles.cell,
+                outline:
+                  waiting === bitStr
+                    ? "2px solid var(--color-brass)"
+                    : undefined,
+              }}
+              onClick={() => setWaiting(bitStr)}
+            >
+              <span style={remapStyles.cellLabel}>{label}</span>
+              <span style={remapStyles.cellKey}>
+                {keys.length > 0 ? keys.slice(0, 3).join(", ") : "—"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const remapStyles: Record<string, React.CSSProperties> = {
+  panel: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    transform: "translate(-50%, -50%)",
+    background: "rgba(0,0,0,0.95)",
+    border: "1px solid var(--color-bamboo)",
+    borderRadius: "var(--radius-md)",
+    padding: "var(--space-6)",
+    zIndex: 27,
+    maxWidth: 380,
+    width: "90vw",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "var(--space-4)",
+    fontFamily: "var(--font-mono)",
+    fontSize: "var(--font-size-sm)",
+    color: "var(--color-muted)",
+  },
+  waiting: {
+    textAlign: "center" as const,
+    fontFamily: "var(--font-mono)",
+    fontSize: "var(--font-size-sm)",
+    color: "var(--color-brass)",
+    marginBottom: "var(--space-3)",
+  },
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "var(--space-2)",
+  },
+  cell: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "var(--space-2) var(--space-3)",
+    background: "var(--color-walnut)",
+    border: "1px solid var(--color-bamboo)",
+    borderRadius: "var(--radius-sm)",
+    color: "var(--color-cream)",
+    cursor: "pointer",
+    fontFamily: "var(--font-mono)",
+    fontSize: "var(--font-size-xs)",
+  },
+  cellLabel: { fontWeight: 600 },
+  cellKey: { color: "var(--color-cyan)", fontSize: 10 },
+  resetBtn: {
+    background: "none",
+    border: "1px solid var(--color-bamboo)",
+    borderRadius: "var(--radius-sm)",
+    color: "var(--color-muted)",
+    cursor: "pointer",
+    fontSize: 10,
+    padding: "2px 6px",
+    fontFamily: "var(--font-mono)",
+  },
+  closeBtn: {
+    background: "none",
+    border: "none",
+    color: "var(--color-muted)",
+    cursor: "pointer",
+    fontSize: 14,
+  },
+};
+
 // ── Component ─────────────────────────────────────────────────────────
 
 export default function GamePlayer({
@@ -168,6 +337,9 @@ export default function GamePlayer({
   const [scriptReady, setScriptReady] = useState(false);
   const [rttActive, setRttActive] = useState(false);
   const [roomToken, setRoomToken] = useState<string | null>(null);
+  const [showRemap, setShowRemap] = useState(false);
+  const [remapWaiting, setRemapWaiting] = useState<string | null>(null);
+  const [showRoomControls, setShowRoomControls] = useState(false);
 
   const [pipeline, setPipeline] = useState<Record<string, StepState>>(
     () => mergePipeline(defaultPipeline(), initialPipeline),
@@ -209,6 +381,19 @@ export default function GamePlayer({
   const showToast = useCallback((text: string, ok: boolean) => {
     setToast({ text, ok });
     setTimeout(() => setToast(null), TOAST_DURATION_MS);
+  }, []);
+
+  // ── DC command helper ────────────────────────────────────────────
+
+  const sendDC = useCallback((cmd: Record<string, unknown>) => {
+    const p = playerRef.current;
+    if (!p?._dc || p._dc.readyState !== "open") return false;
+    try {
+      p._dc.send(JSON.stringify(cmd));
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
 
   // ── Controls auto-hide ────────────────────────────────────────────
@@ -494,6 +679,12 @@ export default function GamePlayer({
           </Badge>
         )}
         <div style={styles.bottomRight}>
+          <Button variant="secondary" size="sm" onClick={() => setShowRemap(!showRemap)}>
+            🎮 Keys
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => setShowRoomControls(!showRoomControls)}>
+            ⚙ Room
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => setShowSlots(!showSlots)}>
             💾 Slots
           </Button>
@@ -598,6 +789,49 @@ export default function GamePlayer({
                   {n}
                 </button>
               ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Key remap overlay */}
+      {showRemap && (
+        <>
+          <div style={styles.backdrop} onClick={() => { setShowRemap(false); setRemapWaiting(null); }} />
+          <RemapPanel
+            playerRef={playerRef}
+            waiting={remapWaiting}
+            setWaiting={setRemapWaiting}
+            onClose={() => { setShowRemap(false); setRemapWaiting(null); }}
+          />
+        </>
+      )}
+
+      {/* Room controls overlay */}
+      {showRoomControls && (
+        <>
+          <div style={styles.backdrop} onClick={() => setShowRoomControls(false)} />
+          <div style={styles.roomPanel}>
+            <div style={styles.slotHeader}>
+              <span>Room</span>
+              <Button variant="ghost" onClick={() => setShowRoomControls(false)}>✕</Button>
+            </div>
+            <div style={styles.roomGrid}>
+              <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "reset" }); showToast("Reset", true); }}>
+                ↺ Reset
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "save_state", slot: 1 }); showToast("Saved slot 1", true); }}>
+                💾 Quick Save
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "load_state", slot: 1 }); showToast("Loaded slot 1", true); }}>
+                📂 Quick Load
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "disk_eject" }); showToast("Disk ejected", true); }}>
+                💿 Eject
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "disk_insert", index: 0 }); showToast("Disk 0 inserted", true); }}>
+                💿 Insert 0
+              </Button>
             </div>
           </div>
         </>
@@ -786,5 +1020,23 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     fontSize: "var(--font-size-sm)",
     fontFamily: "var(--font-mono)",
+  },
+  roomPanel: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    transform: "translate(-50%, -50%)",
+    background: "rgba(0,0,0,0.95)",
+    border: "1px solid var(--color-bamboo)",
+    borderRadius: "var(--radius-md)",
+    padding: "var(--space-6)",
+    zIndex: 27,
+    minWidth: 220,
+  },
+  roomGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "var(--space-2)",
+    marginTop: "var(--space-3)",
   },
 };

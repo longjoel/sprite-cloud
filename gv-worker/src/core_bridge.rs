@@ -36,6 +36,9 @@ pub enum CoreCommand {
     SetInput { port: u32, state: u16 },
     SaveState { slot: u8 },
     LoadState { slot: u8 },
+    Reset,
+    DiskEject,
+    DiskInsert { index: u32 },
 }
 
 /// Responses sent from the core thread back to the streaming task.
@@ -198,6 +201,18 @@ pub fn spawn_core_thread() -> Option<CoreHandle> {
                     }
                     CoreCommand::LoadState { slot } => {
                         handle_load_state(&mut core, slot, rom_hash.as_deref(), &response_tx);
+                    }
+                    CoreCommand::Reset => {
+                        tracing::info!("[CORE] Reset requested");
+                        core.reset();
+                    }
+                    CoreCommand::DiskEject => {
+                        tracing::info!("[CORE] Disk eject requested");
+                        core.disk_eject();
+                    }
+                    CoreCommand::DiskInsert { index } => {
+                        tracing::info!("[CORE] Disk insert index={}", index);
+                        core.disk_insert(index);
                     }
                 }
             }
