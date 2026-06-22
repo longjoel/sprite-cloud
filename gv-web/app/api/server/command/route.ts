@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { commands, gameFiles, games, serverMembers, servers, sessions } from "@/lib/db/schema";
+import { commands, gameFiles, games, peerTokens, serverMembers, servers, sessions } from "@/lib/db/schema";
 import { ACTIVE_SESSION_STATES, CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, CMD_BROWSE_FILES, CMD_SCAN_PATHS } from "@/lib/constants";
 import { and, eq } from "drizzle-orm";
 import { applyRateLimit } from "@/lib/rate-limit";
@@ -257,6 +257,8 @@ export async function POST(request: NextRequest) {
 
   // ── Session lifecycle ────────────────────────────────────────────
 
+  let hostPeerToken: string | undefined;
+
   if (body.type === CMD_START_GAME) {
     const hostToken = (payloadResult.payload as any).host_token as string | undefined;
     const userId = (session?.user?.id as string) || undefined;
@@ -288,7 +290,7 @@ export async function POST(request: NextRequest) {
 
     // Create a fresh session in "spawning" state.
     // The server will transition it to "ready" when the worker is up.
-    await db.insert(sessions).values({
+    const [newSession] = await db.insert(sessions).values({
       userId: uid,
       serverId,
       gameId: enrichedPayload.game_id as string,
@@ -296,7 +298,28 @@ export async function POST(request: NextRequest) {
       hostToken: hostToken ?? null,
       status: "spawning",
       stateEnteredAt: new Date(),
+    }).returning({ id: sessions.id });
+
+    // Issue host peer_token — seat 0, role host
+    hostPeerToken = crypto.randomBytes(16).toString("hex");
+    await db.insert(peerTokens).values({
+      sessionId: newSession.id,
+      token: hostPeerToken,
+      seat: 0,
+      role: "host",
     });
+
+    // Attach peer_tokens to enriched payload for gv-server to pass to worker
+    enrichedPayload = {
+      ...enrichedPayload,
+      peer_tokens: [{ token: hostPeerToken, seat: 0, role: "host" }],
+    };
+
+    // Update the already-inserted command with peer_tokens
+    await db
+      .update(commands)
+      .set({ payload: enrichedPayload })
+      .where(eq(commands.id, cmd.id));
   }
 
   if (body.type === CMD_STOP_GAME) {
@@ -313,5 +336,8 @@ export async function POST(request: NextRequest) {
       );
   }
 
-  return NextResponse.json({ id: cmd.id, worker_token: workerToken }, { status: 201 });
+  return NextResponse.json(
+    { id: cmd.id, worker_token: workerToken, host_peer_token: body.type === CMD_START_GAME ? hostPeerToken : undefined },
+    { status: 201 },
+  );
 }
