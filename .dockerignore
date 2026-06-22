@@ -1,11 +1,14 @@
 # Rust build artifacts (huge)
 target/
+.release/
 
-# Next.js build cache
+# Next.js build cache (regenerated in Docker)
 gv-web/.next/
 
-# Dependencies
+# Dependencies (copied from builder stage)
+node_modules/
 gv-web/node_modules/
+gv-player/node_modules/
 
 # Git
 .git/
