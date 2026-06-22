@@ -91,7 +91,11 @@ async fn cmd_pair(code: &str, gv_web_url: &str) -> Result<()> {
         tracing::info!("  rom_roots: {:?}", rom_roots);
     }
 
-    let resp = gv_web::GvWebClient::claim(code, gv_web_url, rom_roots.clone()).await?;
+    let hostname = std::fs::read_to_string("/proc/sys/kernel/hostname")
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    let resp = gv_web::GvWebClient::claim(code, gv_web_url, rom_roots.clone(), &hostname).await?;
 
     let cfg = config::Config {
         gv_web: config::GvWeb {

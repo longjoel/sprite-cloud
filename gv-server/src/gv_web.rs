@@ -9,6 +9,7 @@ use crate::config::Auth;
 #[derive(Debug, Serialize)]
 struct ClaimRequest {
     code: String,
+    server_name: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     rom_roots: Vec<String>,
 }
@@ -138,7 +139,7 @@ impl GvWebClient {
 
     /// POST /api/auth/pair/claim — exchange pairing code for API key.
     /// Optionally reports the server's ROM root paths to gv-web.
-    pub async fn claim(code: &str, gv_web_url: &str, rom_roots: Vec<String>) -> Result<ClaimResponse> {
+    pub async fn claim(code: &str, gv_web_url: &str, rom_roots: Vec<String>, hostname: &str) -> Result<ClaimResponse> {
         let client = reqwest::Client::builder()
             .timeout(crate::config::http_timeout())
             .build()
@@ -149,6 +150,7 @@ impl GvWebClient {
             .post(&url)
             .json(&ClaimRequest {
                 code: code.to_string(),
+                server_name: hostname.to_string(),
                 rom_roots,
             })
             .send()
