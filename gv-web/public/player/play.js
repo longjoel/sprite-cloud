@@ -205,6 +205,8 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
         player._peerToken = joinData.peer_token;
         player._seat = joinData.seat;
         player._role = joinData.role;
+        // Use session's worker_token for polling (from start_game command)
+        startGameToken = joinData.worker_token;
       } else if (!gameStarted) {
         // Auto-start the game once. Reconnects should renegotiate against
         // the existing worker/session instead of recursively spawning a
