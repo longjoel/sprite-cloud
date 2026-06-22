@@ -10,6 +10,7 @@ import {
 } from "@/lib/db/schema";
 import { eq, desc, count, and, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
+import DashboardClient from "./DashboardClient";
 
 interface ComponentVersion {
   package_version: string;
@@ -224,6 +225,16 @@ export default async function DashboardPage() {
 
   // Helpers
   const now = Date.now();
+  // Fetch ROM roots for each admin server
+  const romRootsByServer: Record<string, string[]> = {};
+  for (const srv of adminServers) {
+    const roots = await db
+      .select({ path: serverRomRoots.path })
+      .from(serverRomRoots)
+      .where(eq(serverRomRoots.serverId, srv.id));
+    romRootsByServer[srv.id] = roots.map((r) => r.path);
+  }
+
   const serverOnline =
     adminServers[0]?.lastSeenAt
       ? now - new Date(adminServers[0].lastSeenAt).getTime() < 120_000
@@ -251,66 +262,39 @@ export default async function DashboardPage() {
         <span style={S.refreshHint}>Refresh to update</span>
       </div>
 
-      {/* ── Server status ─────────────────────────────────────────── */}
+      {/* ── Health ───────────────────────────────────────────────── */}
       <section style={S.section}>
-        <h2 style={S.h2}>Server</h2>
+        <h2 style={S.h2}>Health</h2>
         <div style={S.card}>
-          <div style={S.row}>
-            <span style={S.label}>Status</span>
-            <span
-              style={{
-                ...S.badge,
-                background: serverOnline
-                  ? "var(--color-successBg)"
-                  : "var(--color-errorBg)",
-                color: serverOnline
-                  ? "var(--color-success)"
-                  : "var(--color-error)",
-              }}
-            >
-              {serverOnline ? "online" : "offline"}
-            </span>
-          </div>
-          {lastSeenSecs !== null && (
-            <div style={S.row}>
-              <span style={S.label}>Last poll</span>
-              <span style={S.value}>
-                {lastSeenSecs < 10
-                  ? "just now"
-                  : `${lastSeenSecs}s ago`}
-              </span>
-            </div>
-          )}
-          {adminServers.map((srv) => (
-            <div key={srv.id} style={S.row}>
-              <span style={S.label}>Server ID</span>
-              <code style={S.code}>{srv.id.slice(0, 13)}…</code>
-            </div>
-          ))}
-          <div style={S.row}>
-            <span style={S.label}>ROM roots</span>
-            <span style={S.value}>
-              {romRoots.length > 0
-                ? romRoots.map((r) => r.path).join(", ")
-                : "none reported"}
-            </span>
-          </div>
-          <div style={S.row}>
-            <span style={S.label}>Active workers</span>
-            <span style={S.value}>
-              {
+          <div style={S.healthRow}>
+            <HealthCard label="gv-web" value="up" ok={true} />
+            <HealthCard label="DB" value="connected" ok={true} />
+            <HealthCard
+              label="gv-server"
+              value={serverOnline ? "online" : "offline"}
+              ok={serverOnline}
+            />
+            <HealthCard
+              label="last poll"
+              value={
+                lastSeenSecs !== null
+                  ? lastSeenSecs < 10
+                    ? "just now"
+                    : `${lastSeenSecs}s ago`
+                  : "never"
+              }
+              ok={lastSeenSecs !== null && lastSeenSecs < 300}
+            />
+            <HealthCard
+              label="workers"
+              value={String(
                 activeSessions.filter((s) =>
                   ["ready", "connected", "playing"].includes(s.status),
-                ).length
-              }{" "}
-              running
-              {stuckSpawning.length > 0 && (
-                <span style={S.warn}>
-                  {" "}
-                  +{stuckSpawning.length} stuck spawning
-                </span>
+                ).length,
               )}
-            </span>
+              ok={stuckSpawning.length === 0}
+              warn={stuckSpawning.length > 0 ? `${stuckSpawning.length} stuck` : undefined}
+            />
           </div>
         </div>
       </section>
@@ -394,6 +378,18 @@ export default async function DashboardPage() {
           </div>
         </div>
       </section>
+
+
+      {/* ── Servers ──────────────────────────────────────────────── */}
+      <DashboardClient
+        memberships={adminServers.map((srv) => ({
+          id: srv.id,
+          name: srv.name || srv.id.slice(0, 8),
+          lastSeenAt: srv.lastSeenAt?.toISOString() ?? null,
+          role: "admin",
+          romRoots: romRootsByServer[srv.id] ?? [],
+        }))}
+      />
 
       {/* ── Sessions ──────────────────────────────────────────────── */}
       <section style={S.section}>
@@ -582,6 +578,41 @@ export default async function DashboardPage() {
   );
 }
 
+// ── Health card ─────────────────────────────────────────────────────
+
+function HealthCard({
+  label,
+  value,
+  ok,
+  warn,
+}: {
+  label: string;
+  value: string;
+  ok: boolean;
+  warn?: string;
+}) {
+  return (
+    <div
+      style={{
+        ...S.healthCard,
+        borderColor: ok ? "var(--color-success)" : "var(--color-error)",
+      }}
+    >
+      <div style={S.healthLabel}>{label}</div>
+      <div
+        style={{
+          ...S.healthValue,
+          color: ok ? "var(--color-cream)" : "var(--color-error)",
+        }}
+      >
+        {value}
+      </div>
+      {warn && <div style={S.healthWarn}>{warn}</div>}
+    </div>
+  );
+}
+
+
 // ── Styles (Humidor design tokens) ──────────────────────────────────
 
 const S: Record<string, React.CSSProperties> = {
@@ -614,6 +645,36 @@ const S: Record<string, React.CSSProperties> = {
     letterSpacing: "0.05em",
     marginBottom: "var(--space-5)",
   },
+  healthRow: {
+    display: "flex",
+    gap: "var(--space-5)",
+    flexWrap: "wrap" as const,
+  },
+  healthCard: {
+    border: "1px solid var(--color-bamboo)",
+    padding: "var(--space-4) var(--space-6)",
+    borderRadius: "var(--radius-md)",
+    minWidth: 110,
+    background: "var(--color-teak)",
+  },
+  healthLabel: {
+    fontSize: "var(--font-size-xs)",
+    color: "var(--color-muted)",
+    marginBottom: "var(--space-2)",
+    fontFamily: "var(--font-mono)",
+  },
+  healthValue: {
+    fontSize: "var(--font-size-lg)",
+    fontFamily: "var(--font-mono)",
+    fontWeight: 600,
+  },
+  healthWarn: {
+    marginTop: "var(--space-2)",
+    fontSize: "var(--font-size-xs)",
+    color: "var(--color-warning)",
+    fontFamily: "var(--font-mono)",
+  },
+
   refreshHint: {
     fontSize: "var(--font-size-xs)",
     color: "var(--color-muted)",

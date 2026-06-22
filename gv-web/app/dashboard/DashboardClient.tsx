@@ -12,7 +12,7 @@ interface Membership {
   name: string;
   romRoots: string[];
   lastSeenAt: string | null;
-  role: string; // "admin" | "member"
+  role: string;
 }
 
 interface Props {
@@ -33,18 +33,38 @@ function serverStatus(
 
 function timeAgo(ts: string | null): string {
   if (!ts) return "never";
-  const s = Math.round(
-    (Date.now() - new Date(ts).getTime()) / 1000,
-  );
+  const s = Math.round((Date.now() - new Date(ts).getTime()) / 1000);
   if (s < 60) return `${s}s ago`;
   if (s < 3600) return `${Math.round(s / 60)}m ago`;
   if (s < 86400) return `${Math.round(s / 3600)}h ago`;
   return `${Math.round(s / 86400)}d ago`;
 }
 
+const NUMERIC_UUID_RE = /^[0-9a-f-]{36}$/;
+
+function csrfHeaders(): Record<string, string> {
+  let token = document.cookie
+    .split(";")
+    .map((p) => p.trim())
+    .find((p) => p.startsWith("gv_csrf_token="))
+    ?.split("=")
+    .slice(1)
+    .join("=");
+  if (!token) {
+    token = crypto.randomUUID();
+    document.cookie = `gv_csrf_token=${encodeURIComponent(
+      token,
+    )}; Path=/; SameSite=Lax`;
+  }
+  return {
+    "Content-Type": "application/json",
+    "x-csrf-token": decodeURIComponent(token),
+  };
+}
+
 // ── Component ──────────────────────────────────────────────────────────
 
-export default function SettingsClient({ memberships }: Props) {
+export default function DashboardClient({ memberships }: Props) {
   const router = useRouter();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
@@ -54,6 +74,17 @@ export default function SettingsClient({ memberships }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [pairingError, setPairingError] = useState<string | null>(null);
+
+  // Dev tools state
+  const [showDevTools, setShowDevTools] = useState(false);
+  const [cmdServerId, setCmdServerId] = useState("");
+  const [cmdType, setCmdType] = useState("start_game");
+  const [cmdPayload, setCmdPayload] = useState('{"game_id":"smw"}');
+  const [cmdResult, setCmdResult] = useState("");
+  const [playServerId, setPlayServerId] = useState("");
+  const [playGameId, setPlayGameId] = useState("smw");
+  const [playStatus, setPlayStatus] = useState("");
+  const [workerUrl, setWorkerUrl] = useState<string | null>(null);
 
   function toggle(id: string) {
     setExpanded((prev) => {
@@ -130,12 +161,90 @@ export default function SettingsClient({ memberships }: Props) {
     }
   }
 
-  return (
-    <main style={S.main}>
-      <h1 style={S.h1}>Settings</h1>
+  async function queueCommand() {
+    if (!NUMERIC_UUID_RE.test(cmdServerId)) {
+      setCmdResult("Invalid server_id format (must be UUID)");
+      return;
+    }
+    let payload: unknown;
+    try {
+      payload = JSON.parse(cmdPayload);
+    } catch {
+      setCmdResult("Invalid JSON payload");
+      return;
+    }
+    try {
+      const r = await fetch("/api/server/command", {
+        method: "POST",
+        headers: csrfHeaders(),
+        body: JSON.stringify({
+          server_id: cmdServerId,
+          type: cmdType,
+          payload,
+        }),
+      });
+      const data = await r.json();
+      setCmdResult(`HTTP ${r.status}: ${JSON.stringify(data)}`);
+    } catch (e) {
+      setCmdResult(`Network error: ${e}`);
+    }
+  }
 
+  async function playGame() {
+    setWorkerUrl(null);
+    setPlayStatus("");
+
+    if (!NUMERIC_UUID_RE.test(playServerId)) {
+      setPlayStatus("Invalid server_id (must be UUID)");
+      return;
+    }
+
+    setPlayStatus("Queueing…");
+    try {
+      const qr = await fetch("/api/server/command", {
+        method: "POST",
+        headers: csrfHeaders(),
+        body: JSON.stringify({
+          server_id: playServerId,
+          type: "start_game",
+          payload: { game_id: playGameId },
+        }),
+      });
+      if (!qr.ok) {
+        const err = await qr.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${qr.status}`);
+      }
+      const cmd = await qr.json();
+
+      // Poll for worker URL
+      setPlayStatus("Waiting for worker…");
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        const nr = await fetch(
+          `/api/server/notify?server_id=${playServerId}`,
+        );
+        if (nr.ok) {
+          const data = await nr.json();
+          if (data.worker_url) {
+            setWorkerUrl(data.worker_url);
+            setPlayStatus("Ready!");
+            return;
+          }
+        }
+      }
+      setPlayStatus("Timeout — worker did not report URL");
+    } catch (e: unknown) {
+      setPlayStatus(
+        e instanceof Error ? e.message : "Play failed",
+      );
+    }
+  }
+
+  return (
+    <>
       {error && <div style={S.error}>{error}</div>}
 
+      {/* ── Servers ──────────────────────────────────────────────── */}
       <section style={S.section}>
         <h2 style={S.h2}>Servers</h2>
         {memberships.length === 0 ? (
@@ -149,14 +258,12 @@ export default function SettingsClient({ memberships }: Props) {
                 <th style={S.th}>Status</th>
                 <th style={S.th}>Name</th>
                 <th style={S.th}>Last seen</th>
-                <th style={S.th}>Role</th>
                 <th style={S.th} />
               </tr>
             </thead>
             <tbody>
               {memberships.map((s) => {
                 const status = serverStatus(s.lastSeenAt);
-                const isAdmin = s.role === "admin";
                 const isOpen = expanded.has(s.id);
 
                 return (
@@ -195,13 +302,11 @@ export default function SettingsClient({ memberships }: Props) {
                         </form>
                       ) : (
                         <span
-                          style={
-                            isAdmin ? S.editableName : undefined
-                          }
+                          style={S.editableName}
                           onClick={() =>
-                            isAdmin && startRename(s.id, s.name)
+                            startRename(s.id, s.name)
                           }
-                          title={isAdmin ? "Click to rename" : undefined}
+                          title="Click to rename"
                         >
                           {s.name || s.id.slice(0, 8)}
                         </span>
@@ -209,15 +314,6 @@ export default function SettingsClient({ memberships }: Props) {
                     </td>
                     <td style={S.td}>
                       {timeAgo(s.lastSeenAt)}
-                    </td>
-                    <td style={S.td}>
-                      <Badge
-                        variant={
-                          isAdmin ? "info" : "muted"
-                        }
-                      >
-                        {isAdmin ? "admin" : "member"}
-                      </Badge>
                     </td>
                     <td style={S.td}>
                       <div style={S.actionRow}>
@@ -228,18 +324,16 @@ export default function SettingsClient({ memberships }: Props) {
                         >
                           {isOpen ? "Collapse" : "Manage"}
                         </Button>
-                        {isAdmin && (
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => {
-                              setDeleting(s.id);
-                              setDeleteConfirm("");
-                            }}
-                          >
-                            Remove
-                          </Button>
-                        )}
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() => {
+                            setDeleting(s.id);
+                            setDeleteConfirm("");
+                          }}
+                        >
+                          Remove
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -311,7 +405,7 @@ export default function SettingsClient({ memberships }: Props) {
           </section>
         ))}
 
-      {/* Pairing code */}
+      {/* ── Pairing ──────────────────────────────────────────────── */}
       <section style={S.section}>
         <h2 style={S.h2}>Pairing</h2>
         <div style={S.pairingRow}>
@@ -333,62 +427,149 @@ export default function SettingsClient({ memberships }: Props) {
         </div>
       </section>
 
-      <p>
-        <a href="/" style={S.link}>
-          ← Library
-        </a>
-      </p>
-    </main>
+      {/* ── Dev tools ────────────────────────────────────────────── */}
+      <section style={S.section}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowDevTools(!showDevTools)}
+        >
+          {showDevTools ? "Hide dev tools" : "Dev tools"}
+        </Button>
+        {showDevTools && (
+          <div style={S.devSection}>
+            {/* Command queue */}
+            <h3 style={S.h3}>Command queue</h3>
+            <div style={S.formRow}>
+              <label style={S.formLabel}>
+                server_id
+                <input
+                  style={S.formInput}
+                  value={cmdServerId}
+                  onChange={(e) => setCmdServerId(e.target.value)}
+                  placeholder="00000000-0000-0000-0000-000000000000"
+                />
+              </label>
+              <label style={S.formLabel}>
+                type
+                <select
+                  style={S.formSelect}
+                  value={cmdType}
+                  onChange={(e) => setCmdType(e.target.value)}
+                >
+                  <option value="start_game">start_game</option>
+                  <option value="stop_game">stop_game</option>
+                  <option value="sdp_offer">sdp_offer</option>
+                </select>
+              </label>
+            </div>
+            <label style={S.formLabel}>
+              payload (JSON)
+              <textarea
+                style={{ ...S.formInput, height: 60 }}
+                value={cmdPayload}
+                onChange={(e) => setCmdPayload(e.target.value)}
+              />
+            </label>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={queueCommand}
+            >
+              Send
+            </Button>
+            {cmdResult && (
+              <pre style={S.pre}>{cmdResult}</pre>
+            )}
+
+            {/* Play game */}
+            <h3 style={{ ...S.h3, marginTop: "var(--space-6)" }}>
+              Play game
+            </h3>
+            <div style={S.formRow}>
+              <label style={S.formLabel}>
+                server_id
+                <input
+                  style={S.formInput}
+                  value={playServerId}
+                  onChange={(e) =>
+                    setPlayServerId(e.target.value)
+                  }
+                  placeholder="00000000-0000-0000-0000-000000000000"
+                />
+              </label>
+              <label style={S.formLabel}>
+                game_id
+                <input
+                  style={{ ...S.formInput, width: 120 }}
+                  value={playGameId}
+                  onChange={(e) =>
+                    setPlayGameId(e.target.value)
+                  }
+                />
+              </label>
+            </div>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={playGame}
+            >
+              Play
+            </Button>
+            {playStatus && (
+              <pre style={S.pre}>{playStatus}</pre>
+            )}
+            {workerUrl && (
+              <div style={{ marginTop: "var(--space-4)" }}>
+                <a
+                  style={S.link}
+                  href={`/player/index.html?worker=${encodeURIComponent(workerUrl)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open Player → {workerUrl}
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* ── Links ────────────────────────────────────────────────── */}
+      <section style={S.section}>
+        <div style={S.linkRow}>
+          <a href="/" style={S.link}>
+            ← Library
+          </a>
+          <a href="http://localhost:8096" style={S.link}>
+            Jellyfin
+          </a>
+          <a href="http://localhost:8123" style={S.link}>
+            Home Assistant
+          </a>
+        </div>
+      </section>
+    </>
   );
-}
-
-// ── API helpers ────────────────────────────────────────────────────────
-
-function csrfHeaders(): Record<string, string> {
-  let token = document.cookie
-    .split(";")
-    .map((p) => p.trim())
-    .find((p) => p.startsWith("gv_csrf_token="))
-    ?.split("=")
-    .slice(1)
-    .join("=");
-  if (!token) {
-    token = crypto.randomUUID();
-    document.cookie = `gv_csrf_token=${encodeURIComponent(
-      token,
-    )}; Path=/; SameSite=Lax`;
-  }
-  return {
-    "Content-Type": "application/json",
-    "x-csrf-token": decodeURIComponent(token),
-  };
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────
 
 const S: Record<string, React.CSSProperties> = {
-  main: {
-    padding: "var(--space-8)",
-    fontFamily: "var(--font-mono)",
-    background: "var(--color-mahogany)",
-    color: "var(--color-cream)",
-    minHeight: "100vh",
-    maxWidth: 960,
-    margin: "0 auto",
-  },
-  h1: {
-    margin: "0 0 var(--space-8)",
-    fontSize: "var(--font-size-h1)",
-    color: "var(--color-brass)",
-    fontFamily: "var(--font-mono)",
-  },
+  section: { marginBottom: "var(--space-8)" },
   h2: {
     margin: "0 0 var(--space-6)",
     fontSize: "var(--font-size-h2)",
     color: "var(--color-muted)",
     fontFamily: "var(--font-mono)",
   },
-  section: { marginBottom: "var(--space-8)" },
+  h3: {
+    margin: "0 0 var(--space-4)",
+    fontSize: "var(--font-size-base)",
+    color: "var(--color-brass)",
+    fontFamily: "var(--font-mono)",
+    textTransform: "uppercase" as const,
+  },
   panel: {
     marginBottom: "var(--space-8)",
     padding: "var(--space-6)",
@@ -493,10 +674,60 @@ const S: Record<string, React.CSSProperties> = {
     fontSize: "var(--font-size-sm)",
     color: "var(--color-error)",
   },
+  devSection: {
+    marginTop: "var(--space-5)",
+    padding: "var(--space-6)",
+    background: "var(--color-teak)",
+    border: "1px solid var(--color-bamboo)",
+    borderRadius: "var(--radius-md)",
+  },
+  formRow: {
+    display: "flex",
+    gap: "var(--space-5)",
+    marginBottom: "var(--space-4)",
+  },
+  formLabel: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "var(--space-2)",
+    fontSize: "var(--font-size-sm)",
+    color: "var(--color-muted)",
+    fontFamily: "var(--font-mono)",
+    flex: 1,
+  },
+  formInput: {
+    padding: "var(--space-2) var(--space-4)",
+    background: "var(--color-walnut)",
+    color: "var(--color-cream)",
+    border: "1px solid var(--color-bamboo)",
+    fontFamily: "var(--font-mono)",
+    fontSize: "var(--font-size-base)",
+    borderRadius: "var(--radius-sm)",
+  },
+  formSelect: {
+    padding: "var(--space-2) var(--space-4)",
+    background: "var(--color-walnut)",
+    color: "var(--color-cream)",
+    border: "1px solid var(--color-bamboo)",
+    fontFamily: "var(--font-mono)",
+    fontSize: "var(--font-size-base)",
+    borderRadius: "var(--radius-sm)",
+  },
+  pre: {
+    marginTop: "var(--space-4)",
+    padding: "var(--space-4)",
+    background: "var(--color-walnut)",
+    fontSize: "var(--font-size-sm)",
+    color: "var(--color-muted)",
+    whiteSpace: "pre-wrap" as const,
+    fontFamily: "var(--font-mono)",
+  },
+  linkRow: { display: "flex", gap: "var(--space-6)", flexWrap: "wrap" as const },
   link: {
     color: "var(--color-info)",
     textDecoration: "none",
     fontSize: "var(--font-size-base)",
     fontFamily: "var(--font-mono)",
+    padding: "var(--space-2) 0",
   },
 };
