@@ -6,6 +6,15 @@ import { Badge, Button, Input } from "@/components/ui";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
+interface ComponentVersion {
+  package_version: string;
+  git_sha?: string;
+  artifact_sha256?: string;
+  built_at_utc?: string;
+  released_at_utc?: string;
+  binary_path?: string;
+}
+
 interface ServerMetadata {
   version: string;
   lan_addresses: string[];
@@ -15,6 +24,11 @@ interface ServerMetadata {
     turn_urls: string[];
     turn_configured: boolean;
     transport_policy: string;
+  };
+  versions?: {
+    server?: ComponentVersion;
+    worker?: ComponentVersion;
+    runner?: ComponentVersion;
   };
 }
 
@@ -236,6 +250,51 @@ export default function ServerManager({
                 label="ICE policy"
                 value={metadata.ice?.transport_policy || "—"}
               />
+            </tbody>
+          </table>
+        </section>
+      )}
+
+
+      {metadata?.versions && (metadata.versions.server || metadata.versions.worker || metadata.versions.runner) && (
+        <section style={S.section}>
+          <h2 style={S.h2}>Components</h2>
+          <table style={S.table}>
+            <thead>
+              <tr>
+                <th style={S.th}>Component</th>
+                <th style={S.th}>Package</th>
+                <th style={S.th}>Commit</th>
+                <th style={S.th}>Built</th>
+                <th style={S.th}>Path</th>
+              </tr>
+            </thead>
+            <tbody>
+              {([
+                ["server", metadata.versions.server],
+                ["worker", metadata.versions.worker],
+                ["runner", metadata.versions.runner],
+              ] as const)
+                .filter(([, version]) => Boolean(version))
+                .map(([component, version]) => (
+                  <tr key={component}>
+                    <td style={S.td}>{component}</td>
+                    <td style={S.td}>
+                      <code style={S.fileName}>{version?.package_version ?? "—"}</code>
+                    </td>
+                    <td style={S.td}>
+                      <code style={S.fileName}>{version?.git_sha?.slice(0, 7) ?? "—"}</code>
+                    </td>
+                    <td style={S.td}>{version?.built_at_utc ?? version?.released_at_utc ?? "—"}</td>
+                    <td style={S.td}>
+                      {version?.binary_path ? (
+                        <code style={S.fileName}>{version.binary_path}</code>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         </section>
