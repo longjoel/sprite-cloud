@@ -207,10 +207,44 @@ export default function PlayPage() {
   }
 
   if (serverError) {
+    // Determine which step failed
+    const stepState = (id: string): string => {
+      if (id === "ice") return "done";
+      if (id === "server") return serverError.includes("offline") || serverError.includes("not found") ? "failed" : "done";
+      if (id === "game") return serverError.includes("not available") ? "failed" : "pending";
+      return "pending";
+    };
+    const stepDot = (state: string) =>
+      state === "done" ? "✓" : state === "failed" ? "✖" : "○";
+    const stepBg = (state: string) =>
+      state === "done" ? "var(--color-success)" :
+      state === "failed" ? "var(--color-error)" : "var(--color-walnut)";
+    const stepColor = (state: string) =>
+      state === "failed" ? "var(--color-error)" :
+      state === "done" ? "var(--color-success)" : "var(--color-muted)";
+
     return (
       <main style={{ ...styles.shell, background: "var(--color-mahogany)" }}>
         <div style={styles.center}>
-          <p style={{ ...styles.text, color: "var(--color-error)" }}>
+          <p style={styles.text}>Could not start game</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)", marginTop: "var(--space-5)", marginBottom: "var(--space-4)" }}>
+            {["ice","server","game","worker","handshake","connected"].map((id) => {
+              const s = stepState(id);
+              const label = id.charAt(0).toUpperCase() + id.slice(1);
+              return (
+                <div key={id} style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+                  <span style={{
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    width: 22, height: 22, borderRadius: "50%", fontSize: 11,
+                    fontFamily: "var(--font-mono)", color: "#000", fontWeight: 700,
+                    background: stepBg(s),
+                  }}>{stepDot(s)}</span>
+                  <span style={{ fontSize: "var(--font-size-sm)", fontFamily: "var(--font-mono)", color: stepColor(s) }}>{label}</span>
+                </div>
+              );
+            })}
+          </div>
+          <p style={{ ...styles.hint, color: "var(--color-error)" }}>
             {serverError}
           </p>
           <a href="/" style={styles.hint}>← Back to Library</a>
@@ -226,6 +260,7 @@ export default function PlayPage() {
       <GamePlayer
         gameId={gameId}
         serverId={resolvedServerId}
+        initialPipeline={{ ice: "done", server: "done", game: "done", worker: "active" }}
         onClose={() => router.push("/")}
       />
     </main>

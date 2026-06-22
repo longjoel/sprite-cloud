@@ -12,6 +12,40 @@ const TOAST_DURATION_MS = 2_000;
 const CONTROLS_HIDE_MS = 3_000;
 const RTT_POLL_MS = 500;
 
+// ── Pipeline ──────────────────────────────────────────────────────────
+
+type StepState = "pending" | "active" | "done" | "failed";
+
+interface PipelineStep {
+  id: string;
+  label: string;
+}
+
+const PIPELINE_STEPS: PipelineStep[] = [
+  { id: "ice", label: "ICE" },
+  { id: "server", label: "Server" },
+  { id: "game", label: "Game" },
+  { id: "worker", label: "Worker" },
+  { id: "handshake", label: "Handshake" },
+  { id: "connected", label: "Playing" },
+];
+
+function defaultPipeline(): Record<string, StepState> {
+  const out: Record<string, StepState> = {};
+  for (const s of PIPELINE_STEPS) {
+    out[s.id] = s.id === "ice" ? "active" : "pending";
+  }
+  return out;
+}
+
+function mergePipeline(
+  base: Record<string, StepState>,
+  overrides?: Record<string, StepState>,
+): Record<string, StepState> {
+  if (!overrides) return base;
+  return { ...base, ...overrides };
+}
+
 // ── Types ─────────────────────────────────────────────────────────────
 
 interface ToastData {
@@ -57,8 +91,8 @@ interface GamePlayerProps {
   serverId: string;
   gameName?: string;
   onClose?: () => void;
-  /** Session ID for share/join deep linking. Optional — share hidden without it. */
   sessionId?: string;
+  initialPipeline?: Record<string, StepState>;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -74,9 +108,45 @@ function routeVariant(routeLabel: string) {
   return map[routeLabel] || "muted";
 }
 
+// ── Pipeline dot helpers ──────────────────────────────────────────────
+
+function dotColor(state: StepState): string {
+  switch (state) {
+    case "done": return "var(--color-success)";
+    case "failed": return "var(--color-error)";
+    case "active": return "var(--color-brass)";
+    default: return "var(--color-walnut)";
+  }
+}
+
+function dotChar(state: StepState): string {
+  switch (state) {
+    case "done": return "✓";
+    case "failed": return "✖";
+    case "active": return "●";
+    default: return "○";
+  }
+}
+
+function labelColor(state: StepState): string {
+  switch (state) {
+    case "active": return "var(--color-cream)";
+    case "failed": return "var(--color-error)";
+    case "done": return "var(--color-success)";
+    default: return "var(--color-muted)";
+  }
+}
+
 // ── Component ─────────────────────────────────────────────────────────
 
-export default function GamePlayer({ gameId, serverId, gameName, onClose, sessionId }: GamePlayerProps) {
+export default function GamePlayer({
+  gameId,
+  serverId,
+  gameName,
+  onClose,
+  sessionId,
+  initialPipeline,
+}: GamePlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<any>(null);
   const searchParams = useSearchParams();
@@ -99,8 +169,40 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose, sessio
   const [rttActive, setRttActive] = useState(false);
   const [roomToken, setRoomToken] = useState<string | null>(null);
 
+  const [pipeline, setPipeline] = useState<Record<string, StepState>>(
+    () => mergePipeline(defaultPipeline(), initialPipeline),
+  );
+
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedRef = useRef(false);
+
+  // ── Pipeline helpers ──────────────────────────────────────────────
+
+  const advanceStep = useCallback((stepId: string) => {
+    setPipeline((prev) => {
+      const next: Record<string, StepState> = { ...prev };
+      next[stepId] = "done";
+      const idx = PIPELINE_STEPS.findIndex((s) => s.id === stepId);
+      if (idx >= 0 && idx < PIPELINE_STEPS.length - 1) {
+        const nextId = PIPELINE_STEPS[idx + 1].id;
+        if (next[nextId] === "pending") next[nextId] = "active";
+      }
+      return next;
+    });
+  }, []);
+
+  const failStep = useCallback((stepId: string) => {
+    setPipeline((prev) => {
+      const next: Record<string, StepState> = { ...prev };
+      next[stepId] = "failed";
+      return next;
+    });
+  }, []);
+
+  const retryStep = useCallback((_stepId: string) => {
+    setError(null);
+    window.location.reload();
+  }, []);
 
   // ── Toast ─────────────────────────────────────────────────────────
 
@@ -114,12 +216,17 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose, sessio
   const wakeControls = useCallback(() => {
     setControlsVisible(true);
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    hideTimerRef.current = setTimeout(() => setControlsVisible(false), CONTROLS_HIDE_MS);
+    hideTimerRef.current = setTimeout(
+      () => setControlsVisible(false),
+      CONTROLS_HIDE_MS,
+    );
   }, []);
 
   useEffect(() => {
     wakeControls();
-    return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
+    return () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    };
   }, [wakeControls]);
 
   // ── RTT polling ──────────────────────────────────────────────────
@@ -130,7 +237,7 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose, sessio
     }
   }, rttActive ? RTT_POLL_MS : null);
 
-  // ── Player script — check if already loaded ───────────────────────
+  // ── Player script ─────────────────────────────────────────────────
 
   useEffect(() => {
     if (window.gvPlay) {
@@ -138,7 +245,7 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose, sessio
     }
   }, []);
 
-  // ── Player init (after script loads) ──────────────────────────────
+  // ── Player init ───────────────────────────────────────────────────
 
   useEffect(() => {
     if (!scriptReady || !videoRef.current || !serverId) return;
@@ -148,6 +255,7 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose, sessio
     if (!gvPlay) return;
 
     startedRef.current = true;
+    advanceStep("ice");
 
     const player = gvPlay.startPlayer(
       videoRef.current,
@@ -157,16 +265,24 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose, sessio
       {
         onStateChange(state: string, detail?: string) {
           setStatus(state);
-          if (state === "error") {
-            setError(detail ?? "connection error");
-            setConnected(false);
+          if (state === "connecting") {
+            advanceStep("handshake");
           }
           if (state === "connected") {
+            advanceStep("connected");
             setError(null);
             setConnected(true);
             setShowDisconnect(false);
           }
-          if (state === "idle" || state === "connecting") {
+          if (state === "error") {
+            const activeStep = PIPELINE_STEPS.find(
+              (s) => pipeline[s.id] === "active",
+            );
+            if (activeStep) failStep(activeStep.id);
+            setError(detail ?? "connection error");
+            setConnected(false);
+          }
+          if (state === "idle") {
             setConnected(false);
           }
         },
@@ -179,9 +295,16 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose, sessio
         },
         onError(msg: string) {
           setError(msg);
+          const activeStep = PIPELINE_STEPS.find(
+            (s) => pipeline[s.id] === "active",
+          );
+          if (activeStep) failStep(activeStep.id);
         },
         onProgress(msg: string) {
           setStatus(msg);
+          if (msg.includes("Starting game")) advanceStep("game");
+          else if (msg.includes("Worker")) advanceStep("worker");
+          else if (msg.includes("handshak")) advanceStep("handshake");
         },
         onReconnecting(attempt: number) {
           setShowDisconnect(true);
@@ -210,17 +333,14 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose, sessio
     return () => {
       setRttActive(false);
     };
-  }, [scriptReady, serverId, gameId, showToast]);
+  }, [scriptReady, serverId, gameId, showToast, advanceStep, failStep]);
 
-  // ── Cleanup on unmount ────────────────────────────────────────────
+  // ── Cleanup ───────────────────────────────────────────────────────
 
   useEffect(() => {
-    // Capture at mount time — gameId/serverId don't change within a lifecycle
     const gid = gameId;
     const sid = serverId;
     return () => {
-      // Send stop_game so the server kills the worker. Fire-and-forget
-      // so unmount isn't blocked if the network request hangs.
       if (gid && sid) {
         fetch("/api/server/command", {
           method: "POST",
@@ -240,15 +360,13 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose, sessio
     };
   }, []);
 
-  // ── Fullscreen listener ───────────────────────────────────────────
+  // ── Fullscreen ────────────────────────────────────────────────────
 
   useEffect(() => {
     const handler = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", handler);
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
-
-  // ── Fullscreen ────────────────────────────────────────────────────
 
   const toggleFullscreen = async () => {
     if (!document.fullscreenElement) {
@@ -260,13 +378,13 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose, sessio
         ) {
           await (screen.orientation as any).lock?.("landscape");
         }
-      } catch { /* orientation lock not supported */ }
+      } catch { /* not supported */ }
     } else {
       await document.exitFullscreen();
     }
   };
 
-  // ── Save/load slot click ──────────────────────────────────────────
+  // ── Slots ─────────────────────────────────────────────────────────
 
   const handleSave = (slot: number) => {
     const gvPlay = window.gvPlay;
@@ -288,23 +406,26 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose, sessio
     if (!ok) showToast("Not connected", false);
   };
 
-  // ── Share (deep link) — updates browser URL so it's copyable ────────
+  // ── Share ─────────────────────────────────────────────────────────
+
   const shareUrlSet = useRef(false);
 
   useEffect(() => {
     if (!connected) return;
-    if (roomToken) return; // already fetched
-
+    if (roomToken) return;
     (async () => {
       try {
         const resp = await fetch("/api/room/share", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ game_id: gameId, server_id: serverId, max_seats: 4 }),
+          body: JSON.stringify({
+            game_id: gameId,
+            server_id: serverId,
+            max_seats: 4,
+          }),
         });
         if (!resp.ok) return;
         const data = await resp.json();
-
         setRoomToken(data.room_token);
         shareUrlSet.current = true;
         window.history.replaceState(
@@ -312,11 +433,10 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose, sessio
           "",
           `/play/${gameId}?join=${data.room_token}`,
         );
-      } catch { /* silently ignore — share is best-effort */ }
+      } catch { /* best-effort */ }
     })();
   }, [connected, gameId, serverId, roomToken]);
 
-  // Restore original URL only on unmount (game closed), not on re-render
   useEffect(() => {
     const originalUrl = window.location.pathname + window.location.search;
     return () => {
@@ -330,22 +450,18 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose, sessio
 
   return (
     <div style={styles.shell} onMouseMove={wakeControls} onKeyDown={wakeControls}>
-      <Script
-        src="/player/play.js"
-        type="module"
-        onLoad={() => setScriptReady(true)}
-      />
+      <style>{`
+        @keyframes gv-pipeline-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.35; }
+        }
+      `}</style>
 
-      {/* ── Game video ─────────────────────────────────── */}
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        style={styles.video}
-      />
+      <Script src="/player/play.js" type="module" onLoad={() => setScriptReady(true)} />
 
-      {/* ── Top bar ───────────────────────────────────── */}
+      <video ref={videoRef} autoPlay playsInline muted style={styles.video} />
+
+      {/* Top bar */}
       <div
         style={{
           ...styles.topBar,
@@ -361,7 +477,7 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose, sessio
         )}
       </div>
 
-      {/* ── Bottom bar ────────────────────────────────── */}
+      {/* Bottom bar */}
       <div
         style={{
           ...styles.bottomBar,
@@ -387,35 +503,70 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose, sessio
         </div>
       </div>
 
-      {/* ── Connecting / loading state ─────────────────── */}
+      {/* Pipeline loading */}
       {!connected && !showDisconnect && (
         <div style={styles.centerMessage}>
           <p style={styles.loadingText}>
-            {status || `Starting ${gameName || "game"}…`}
+            {gameName ? `Starting ${gameName}` : "Starting game"}
           </p>
-          {error && <p style={styles.errorText}>{error}</p>}
+          <div style={styles.pipeline}>
+            {PIPELINE_STEPS.map((step) => {
+              const state = pipeline[step.id] || "pending";
+              return (
+                <div key={step.id} style={styles.stepRow}>
+                  <span
+                    style={{
+                      ...styles.stepDot,
+                      background: dotColor(state),
+                      animation:
+                        state === "active"
+                          ? "gv-pipeline-pulse 1.2s ease-in-out infinite"
+                          : undefined,
+                    }}
+                  >
+                    {dotChar(state)}
+                  </span>
+                  <span style={{ ...styles.stepLabel, color: labelColor(state) }}>
+                    {step.label}
+                  </span>
+                  {state === "failed" && (
+                    <button
+                      style={styles.retryBtn}
+                      onClick={() => retryStep(step.id)}
+                      title="Retry"
+                    >
+                      ↻
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {error && (
+            <div style={styles.errorBox}>
+              <p style={styles.pipelineError}>{error}</p>
+              <Button variant="secondary" size="sm" onClick={() => window.location.reload()}>
+                Retry
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* ── Disconnect overlay ─────────────────────────── */}
+      {/* Disconnect overlay */}
       {showDisconnect && (
         <div style={styles.overlay}>
           <div style={styles.overlayPanel}>
             {reconnectAttempt < 5 ? (
               <>
                 <p style={styles.overlayTitle}>Connection lost</p>
-                <p style={styles.overlaySub}>
-                  {reconnectMsg || "Reconnecting…"}
-                </p>
+                <p style={styles.overlaySub}>{reconnectMsg || "Reconnecting…"}</p>
               </>
             ) : (
               <>
                 <p style={styles.overlayTitle}>Reconnection failed</p>
                 <p style={styles.overlaySub}>Refresh the page to try again</p>
-                <Button
-                  variant="secondary"
-                  onClick={() => window.location.reload()}
-                >
+                <Button variant="secondary" onClick={() => window.location.reload()}>
                   Refresh
                 </Button>
               </>
@@ -424,16 +575,14 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose, sessio
         </div>
       )}
 
-      {/* ── Save/load panel ────────────────────────────── */}
+      {/* Slots */}
       {showSlots && (
         <>
           <div style={styles.backdrop} onClick={() => setShowSlots(false)} />
           <div style={styles.slotPanel}>
             <div style={styles.slotHeader}>
               <span>Save</span>
-              <Button variant="ghost" onClick={() => setShowSlots(false)}>
-                ✕
-              </Button>
+              <Button variant="ghost" onClick={() => setShowSlots(false)}>✕</Button>
             </div>
             <div style={styles.slotRow}>
               {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
@@ -454,7 +603,6 @@ export default function GamePlayer({ gameId, serverId, gameName, onClose, sessio
         </>
       )}
 
-      {/* ── Toast ─────────────────────────────────────── */}
       {toast && (
         <Toast variant={toast.ok ? "success" : "error"} onDone={() => setToast(null)}>
           {toast.text}
@@ -500,10 +648,9 @@ const styles: Record<string, React.CSSProperties> = {
     transition: "opacity 0.3s",
   },
   gameTitle: {
+    fontSize: "var(--font-size-md)",
     color: "var(--color-cream)",
-    fontSize: "var(--font-size-lg)",
     fontFamily: "var(--font-mono)",
-    fontWeight: 700,
   },
   bottomBar: {
     position: "absolute",
@@ -513,19 +660,18 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: "var(--space-4) var(--space-6)",
+    padding: "var(--space-3) var(--space-6)",
     background: "rgba(0,0,0,0.6)",
     zIndex: 10,
     transition: "opacity 0.3s",
+    gap: "var(--space-4)",
   },
   hint: {
     fontSize: "var(--font-size-sm)",
     color: "var(--color-muted)",
+    fontFamily: "var(--font-mono)",
   },
-  bottomRight: {
-    display: "flex",
-    gap: "var(--space-4)",
-  },
+  bottomRight: { display: "flex", gap: "var(--space-3)" },
   centerMessage: {
     position: "absolute",
     top: "50%",
@@ -533,79 +679,112 @@ const styles: Record<string, React.CSSProperties> = {
     transform: "translate(-50%, -50%)",
     textAlign: "center" as const,
     zIndex: 20,
+    maxWidth: "90vw",
   },
   loadingText: {
-    color: "var(--color-cream)",
-    fontSize: "var(--font-size-md)",
     fontFamily: "var(--font-mono)",
+    color: "var(--color-cream)",
+    fontSize: "var(--font-size-lg)",
+    marginBottom: "var(--space-6)",
   },
-  errorText: {
-    color: "var(--color-error)",
-    fontSize: "var(--font-size-base)",
+  pipeline: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "var(--space-3)",
+    marginBottom: "var(--space-5)",
+  },
+  stepRow: { display: "flex", alignItems: "center", gap: "var(--space-3)" },
+  stepDot: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 22,
+    height: 22,
+    borderRadius: "50%",
+    fontSize: 11,
+    fontFamily: "var(--font-mono)",
+    color: "#000",
+    fontWeight: 700,
+    flexShrink: 0,
+  },
+  stepLabel: { fontSize: "var(--font-size-sm)", fontFamily: "var(--font-mono)" },
+  retryBtn: {
+    marginLeft: "var(--space-2)",
+    background: "none",
+    border: "1px solid var(--color-bamboo)",
+    borderRadius: "var(--radius-sm)",
+    color: "var(--color-brass)",
+    cursor: "pointer",
+    fontSize: 14,
+    padding: "2px 6px",
+    fontFamily: "var(--font-mono)",
+    lineHeight: 1,
+  },
+  errorBox: {
     marginTop: "var(--space-4)",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: "var(--space-3)",
+    alignItems: "center",
+  },
+  pipelineError: {
+    fontSize: "var(--font-size-sm)",
+    color: "var(--color-error)",
+    fontFamily: "var(--font-mono)",
   },
   overlay: {
     position: "absolute",
     inset: 0,
-    background: "rgba(0,0,0,0.75)",
+    background: "rgba(0,0,0,0.85)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     zIndex: 30,
   },
-  overlayPanel: {
-    textAlign: "center" as const,
-    padding: "var(--space-8)",
-  },
+  overlayPanel: { textAlign: "center" as const, padding: "var(--space-8)" },
   overlayTitle: {
+    fontSize: "var(--font-size-h3)",
     color: "var(--color-cream)",
-    fontSize: "var(--font-size-xl)",
     fontFamily: "var(--font-mono)",
-    margin: "0 0 var(--space-4)",
+    marginBottom: "var(--space-4)",
   },
   overlaySub: {
+    fontSize: "var(--font-size-sm)",
     color: "var(--color-muted)",
-    fontSize: "var(--font-size-md)",
-    margin: "0 0 var(--space-6)",
+    fontFamily: "var(--font-mono)",
+    marginBottom: "var(--space-6)",
   },
-  backdrop: {
-    position: "absolute",
-    inset: 0,
-    zIndex: 25,
-  },
+  backdrop: { position: "absolute", inset: 0, zIndex: 25 },
   slotPanel: {
     position: "absolute",
-    bottom: 56,
+    bottom: "var(--space-16)",
     left: "50%",
     transform: "translateX(-50%)",
-    background: "var(--color-mahogany)",
-    border: "1px solid var(--color-brass)",
+    background: "rgba(0,0,0,0.9)",
+    border: "1px solid var(--color-bamboo)",
     borderRadius: "var(--radius-md)",
-    padding: "var(--space-5) var(--space-6)",
+    padding: "var(--space-6)",
     zIndex: 26,
   },
   slotHeader: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    fontSize: "var(--font-size-sm)",
-    fontFamily: "var(--font-mono)",
-    color: "var(--color-muted)",
     marginBottom: "var(--space-4)",
+    fontFamily: "var(--font-mono)",
+    fontSize: "var(--font-size-sm)",
+    color: "var(--color-muted)",
   },
-  slotRow: {
-    display: "flex",
-    gap: "var(--space-3)",
-  },
+  slotRow: { display: "flex", gap: "var(--space-2)" },
   slotBtn: {
     width: 32,
     height: 32,
+    borderRadius: "var(--radius-sm)",
     background: "var(--color-walnut)",
     color: "var(--color-cream)",
     border: "1px solid var(--color-bamboo)",
     cursor: "pointer",
+    fontSize: "var(--font-size-sm)",
     fontFamily: "var(--font-mono)",
-    fontSize: "var(--font-size-md)",
-    borderRadius: "var(--radius-sm)",
   },
 };

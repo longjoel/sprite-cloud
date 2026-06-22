@@ -107,7 +107,8 @@ async function startGame(serverId, gameId, corePath, hostToken, callbacks) {
     throw new Error("start_game response missing worker_token");
   }
 
-  callbacks?.onProgress?.("Waiting for worker…");
+  callbacks?.onProgress?.("Starting game…");
+  callbacks?.onProgress?.("Worker starting…");
 
   // Poll for worker URL
   const start = Date.now();
@@ -172,6 +173,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
 
   const doConnect = async () => {
     callbacks.onStateChange?.("connecting");
+    callbacks?.onProgress?.("handshaking");
 
     // Wait for ICE config, then apply to player
     const iceConfig = await iceConfigPromise;
