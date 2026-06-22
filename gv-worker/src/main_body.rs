@@ -103,8 +103,8 @@ fn require_control_token(state: &AppState, headers: &HeaderMap) -> Result<(), St
 
 fn apply_sdp_host_token(host_token: &mut Option<String>, offered: Option<&str>) {
     let Some(token) = offered else { return };
-    if host_token.is_none() {
-        tracing::info!("[SDP] host token set from first offer");
+    if host_token.as_deref() != Some(token) {
+        tracing::info!("[SDP] host token updated");
         *host_token = Some(token.to_string());
     }
 }
