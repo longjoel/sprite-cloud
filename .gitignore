@@ -34,4 +34,5 @@ test-data/
 # Hermes agent work directory
 .hermes/
 .next/
+.release/
 gv-web/tsconfig.tsbuildinfo

@@ -61,3 +61,17 @@ sudo systemctl enable --now gv-web gv-server
 
 Note: systemd units require a production build (`next build`) and the
 `games-vault` user to exist.
+
+## Release system
+
+The repo now has a single release path for both the local host and the VPS:
+
+```bash
+./scripts/build-release.sh      # compile Rust + build gv-web prod bundle
+./scripts/deploy-vault.sh       # install host binaries, stamp release commit, smoke test worker
+./scripts/deploy-vps-web.sh     # ship gv-web image to VPS, stamp release commit, verify health
+./scripts/smoke-test.sh         # verify local + remote release markers and health
+./scripts/promote-main.sh       # promote stable code to main (optionally after deploy-first)
+```
+
+See `docs/RELEASE.md` for the rules and release marker locations.
