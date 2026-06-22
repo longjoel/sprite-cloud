@@ -1,0 +1,13 @@
+services:
+  gv-web:
+    image: gv-web-prod:latest
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
