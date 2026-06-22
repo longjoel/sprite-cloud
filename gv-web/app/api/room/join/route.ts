@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { sessions } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { peerTokens, sessions } from "@/lib/db/schema";
+import { eq, sql } from "drizzle-orm";
+import crypto from "crypto";
 
 // ── POST /api/room/join — guest resolves a room_token to session details
 //
 // No auth required — the room_token IS the auth.
-// Returns worker_url + game info so the guest can connect.
+// Returns worker_url + game info + peer_token so the guest can connect.
 
 export async function POST(request: NextRequest) {
   let body: { room_token: string };
@@ -49,10 +50,32 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "session not ready" }, { status: 503 });
   }
 
+  // Count existing peers for this session to assign the next seat
+  const [countResult] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(peerTokens)
+    .where(eq(peerTokens.sessionId, session.id));
+
+  const existingCount = countResult?.count ?? 0;
+  const seat = existingCount; // 0=host (already exists), 1=first guest, etc.
+  const role = seat < session.maxSeats ? "player" : "viewer";
+
+  // Issue guest peer_token
+  const guestPeerToken = crypto.randomBytes(16).toString("hex");
+  await db.insert(peerTokens).values({
+    sessionId: session.id,
+    token: guestPeerToken,
+    seat,
+    role,
+  });
+
   return NextResponse.json({
     worker_url: session.workerUrl,
     game_id: session.gameId,
     server_id: session.serverId,
     max_seats: session.maxSeats,
+    peer_token: guestPeerToken,
+    seat,
+    role,
   });
 }
