@@ -347,17 +347,18 @@ export class GvPlayer {
    *
    * @param {string} serverId   — server UUID
    * @param {string} gameId     — game identifier
-   */
-  async connectViaRelay(serverId, gameId, hostToken, pollToken, roomToken) {
-    console.log("[gv] connectViaRelay starting", { serverId, gameId, roomToken: !!roomToken, pollToken: !!pollToken });
-    if (this._state !== State.IDLE) {
-      this.disconnect();
-    }
+   async connectViaRelay(serverId, gameId, hostToken, pollToken, roomToken, peerToken) {
+     console.log("[gv] connectViaRelay starting", { serverId, gameId, roomToken: !!roomToken, pollToken: !!pollToken, peerToken: !!peerToken });
 
-    this._setState(State.CONNECTING);
+     if (this._state !== State.IDLE) {
+       this.disconnect();
+     }
 
-    // Store host token for DataChannel auth message
-    this._hostToken = hostToken || null;
+     this._setState(State.CONNECTING);
+
+     // Store tokens for DataChannel auth and SDP payload
+     this._hostToken = hostToken || null;
+     this._peerToken = peerToken || null;
 
     this._createPeerConnection();
 
@@ -554,9 +555,12 @@ export class GvPlayer {
     // Flush any accumulated input state and send auth when the DataChannel opens
     this._dc.onopen = () => {
       // Send auth message first — must be the first message on the channel
-      if (this._hostToken) {
+      const authCmd = { cmd: "auth" };
+      if (this._peerToken) authCmd.peer_token = this._peerToken;
+      if (this._hostToken && !this._peerToken) authCmd.host_token = this._hostToken;
+      if (authCmd.peer_token || authCmd.host_token) {
         try {
-          this._dc.send(JSON.stringify({ cmd: "auth", host_token: this._hostToken }));
+          this._dc.send(JSON.stringify(authCmd));
         } catch (e) {
           console.warn("[DC] auth send failed:", e?.message || e, "— DC closing");
           this._dc.close();
