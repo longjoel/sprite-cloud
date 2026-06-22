@@ -678,7 +678,10 @@ export class GvPlayer {
         throw new Error(`Notify poll failed: HTTP ${resp.status}`);
       }
       const data = await resp.json();
-      if (data.sdp_answer) return data.sdp_answer;
+      if (data.sdp_answer) {
+        if (data.room_token) this._roomToken = data.room_token;
+        return data.sdp_answer;
+      }
       await new Promise(r => setTimeout(r, RELAY_POLL_MS));
     }
     throw new Error("Timed out waiting for SDP answer from relay");
