@@ -481,6 +481,7 @@ pub async fn spawn_worker(
     host_token: Option<&str>,
     content_path: Option<&str>,
     platform: Option<&str>,
+    peer_tokens_json: Option<&str>,
 ) -> Result<SpawnedWorker> {
     let bin = resolve_worker_bin(worker_bin_override);
 
@@ -507,6 +508,11 @@ pub async fn spawn_worker(
     // Per-worker bearer token for HTTP control/debug endpoints.
     let control_token = generate_worker_control_token();
     cmd.env("GV_WORKER_CONTROL_TOKEN", &control_token);
+
+    // Per-peer tokens for multi-peer WebRTC auth.
+    if let Some(tokens) = peer_tokens_json {
+        cmd.env("GV_PEER_TOKENS", tokens);
+    }
 
     // Forward VP8 usage mode to the worker (0=good quality, 1=realtime).
     // Read from the server's own environment — set GV_VP8_USAGE=1 on

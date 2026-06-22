@@ -250,6 +250,10 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         .payload
                                         .get("platform")
                                         .and_then(|v| v.as_str());
+                                    let peer_tokens_json = cmd
+                                        .payload
+                                        .get("peer_tokens")
+                                        .and_then(|v| serde_json::to_string(v).ok());
                                     tracing::info!(
                                         "[POLL] start_game command {} (game: {})",
                                         cmd.id, game_id
@@ -285,7 +289,7 @@ async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         }
                                     }
 
-                                    match worker::spawn_worker(game_id, worker_bin.as_deref(), host_token, rom_path.as_deref(), platform).await {
+                                    match worker::spawn_worker(game_id, worker_bin.as_deref(), host_token, rom_path.as_deref(), platform, peer_tokens_json.as_deref()).await {
                                         Ok(worker) => {
                                             let url = worker.url.clone();
                                             tracing::info!("[WORKER] spawned at {url}");
