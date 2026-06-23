@@ -92,6 +92,32 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
     color: var(--color-muted);
   }
 
+  /* ── Warnings banner ─────────────────────────────────────── */
+  #warnings {
+    display: none;
+    padding: var(--space-4) var(--space-7);
+    background: rgba(255, 184, 48, 0.1);
+    border-bottom: 1px solid var(--color-warning);
+    color: var(--color-warning);
+    font-size: var(--font-size-xs);
+  }
+
+  #warnings.visible { display: block; }
+
+  /* ── Playing indicator ───────────────────────────────────── */
+  #playing-bar {
+    display: none;
+    padding: var(--space-4) var(--space-7);
+    background: rgba(0, 229, 255, 0.08);
+    border-bottom: 1px solid var(--color-cyan);
+    color: var(--color-cyan);
+    font-size: var(--font-size-xs);
+    cursor: pointer;
+  }
+
+  #playing-bar.visible { display: block; }
+  #playing-bar:hover { background: rgba(0, 229, 255, 0.14); }
+
   /* ── Search ──────────────────────────────────────────────── */
   #search-box {
     width: 100%;
@@ -122,7 +148,7 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
   /* ── Grid ────────────────────────────────────────────────── */
   #game-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: var(--space-5);
     padding: var(--space-5) var(--space-7);
   }
@@ -137,7 +163,7 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
     transition: border-color 0.2s, transform 0.15s;
     display: flex;
     flex-direction: column;
-    gap: var(--space-4);
+    gap: var(--space-3);
   }
 
   .game-card:hover {
@@ -149,11 +175,24 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
     transform: translateY(0);
   }
 
+  .game-card.playing {
+    border-color: var(--color-cyan);
+    background: var(--color-bamboo);
+  }
+
   .game-card .name {
     font-size: var(--font-size-base);
     color: var(--color-cream);
     word-break: break-word;
     font-weight: 500;
+  }
+
+  .game-card .dir {
+    font-size: var(--font-size-xs);
+    color: var(--color-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .game-card .meta {
@@ -180,6 +219,11 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
   .badge-unknown {
     background: rgba(184, 168, 136, 0.15);
     color: var(--color-muted);
+  }
+
+  .badge-playing {
+    background: rgba(0, 229, 255, 0.12);
+    color: var(--color-cyan);
   }
 
   /* ── States ──────────────────────────────────────────────── */
@@ -233,6 +277,11 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
   </div>
 </header>
 
+<div id="warnings"></div>
+<div id="playing-bar">
+  ▶ &nbsp;<span id="playing-name"></span>&nbsp;is running — click to resume
+</div>
+
 <div id="search-box">
   <input type="text" id="search" placeholder="Filter games…" autofocus>
 </div>
@@ -256,17 +305,36 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
     const count = document.getElementById('game-count');
     const search = document.getElementById('search');
     const hostname = document.getElementById('hostname');
+    const warnings = document.getElementById('warnings');
+    const playingBar = document.getElementById('playing-bar');
+    const playingName = document.getElementById('playing-name');
 
     hostname.textContent = location.hostname;
 
     let games = [];
+    let sessions = {}; // game_id → worker_url
 
     // ── Load ──────────────────────────────────────────────────
     async function load() {
       try {
-        const resp = await fetch('/api/games');
+        const [resp, sessResp] = await Promise.all([
+          fetch('/api/games'),
+          fetch('/api/sessions'),
+        ]);
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
-        games = await resp.json();
+        const data = await resp.json();
+        games = data.games;
+
+        if (data.warnings && data.warnings.length) {
+          warnings.textContent = data.warnings.join(' · ');
+          warnings.classList.add('visible');
+        }
+
+        if (sessResp.ok) {
+          const sessList = await sessResp.json();
+          for (const s of sessList) sessions[s.game_id] = s.worker_url;
+        }
+
         loading.classList.remove('state-visible');
         render();
       } catch (e) {
@@ -286,6 +354,21 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
 
       count.textContent = filtered.length + ' game' + (filtered.length !== 1 ? 's' : '');
 
+      // Update playing bar
+      const activeSession = Object.entries(sessions)[0];
+      if (activeSession) {
+        const [gid, wurl] = activeSession;
+        // Find the game name
+        const g = games.find(x => x.id === gid);
+        playingName.textContent = g ? g.name : 'Game';
+        playingBar.classList.add('visible');
+        playingBar.onclick = () => {
+          window.location.href = wurl + '/player';
+        };
+      } else {
+        playingBar.classList.remove('visible');
+      }
+
       if (games.length === 0) {
         empty.classList.add('state-visible');
         return;
@@ -294,14 +377,17 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
 
       grid.innerHTML = '';
       for (const g of filtered) {
+        const isPlaying = !!sessions[g.id];
         const card = document.createElement('div');
-        card.className = 'game-card';
+        card.className = 'game-card' + (isPlaying ? ' playing' : '');
         card.innerHTML =
           '<div class="name">' + escapeHtml(g.name) + '</div>' +
+          '<div class="dir">' + escapeHtml(g.directory) + '</div>' +
           '<div class="meta">' +
             '<span class="badge ' + (g.platform === 'Unknown' ? 'badge-unknown' : 'badge-platform') + '">' +
               escapeHtml(g.platform) +
             '</span>' +
+            (isPlaying ? '<span class="badge badge-playing">playing</span>' : '') +
           '</div>';
         card.addEventListener('click', () => play(g.id, g.name));
         grid.appendChild(card);
@@ -310,25 +396,28 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
 
     // ── Play ──────────────────────────────────────────────────
     async function play(id, name) {
-      // Show a toast-style status
       count.textContent = 'starting ' + name + '…';
       count.style.color = 'var(--color-brass)';
 
       try {
         const resp = await fetch('/api/games/' + id + '/play', { method: 'POST' });
         if (!resp.ok) {
-          count.textContent = 'failed to start: ' + resp.status;
+          const text = await resp.text();
+          count.textContent = text || ('failed to start: ' + resp.status);
           count.style.color = 'var(--color-error)';
           return;
         }
         const data = await resp.json();
-        // Redirect to the worker's player page
+        // Build the player URL using the browser's own hostname (#466)
+        const url = new URL(data.worker_url);
+        url.hostname = location.hostname;
+        url.port = url.port; // preserve worker port
         const params = new URLSearchParams({
           peer_token: data.peer_token,
           role: 'host',
           seat: '0',
         });
-        window.location.href = data.worker_url + '/player?' + params.toString();
+        window.location.href = url.origin + '/player?' + params.toString();
       } catch (e) {
         count.textContent = 'error: ' + e.message;
         count.style.color = 'var(--color-error)';
