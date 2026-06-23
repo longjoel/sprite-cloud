@@ -152,6 +152,14 @@ pub async fn start_play(
     let full_path = find_in_roots(&rel_path, &state.rom_roots)
         .ok_or((StatusCode::NOT_FOUND, format!("game not found: {rel_path}")))?;
 
+    // Verify file still exists (TOCTOU guard — #459)
+    if !full_path.is_file() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            format!("game file disappeared: {rel_path}"),
+        ));
+    }
+
     // Generate a stable game_id from the base64-encoded relative path (#454)
     let game_id = URL_SAFE_NO_PAD.encode(rel_path.as_bytes());
 

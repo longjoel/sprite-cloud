@@ -171,6 +171,7 @@ pub(super) struct AppState {
     #[allow(dead_code)]
     session_active: AtomicBool,
     core_spawning: Mutex<()>,  // serialize core loads — libretro not reentrant
+    pub(super) core_error: Mutex<Option<String>>,  // set when core fails to load ROM
     core_cmd_tx: Mutex<Option<std::sync::mpsc::SyncSender<CoreCommand>>>,
     core_frame_rx: Mutex<Option<std::sync::mpsc::Receiver<CoreFrame>>>,
     core_response_rx: Mutex<Option<std::sync::mpsc::Receiver<CoreResponse>>>,
@@ -209,6 +210,7 @@ pub async fn build_app() -> Result<Router, Box<dyn std::error::Error>> {
         frames_encoded: AtomicU64::new(0),
         session_active: AtomicBool::new(false),
         core_spawning: Mutex::new(()),
+        core_error: Mutex::new(None),
         core_cmd_tx: Mutex::new(None),
         core_frame_rx: Mutex::new(None),
         core_response_rx: Mutex::new(None),
@@ -329,7 +331,11 @@ async fn load_core(state: &AppState) -> Result<CoreHandle, String> {
                 audio_channels: handle.audio_channels as usize,
             })
         }
-        None => Err("no libretro core available".into()),
+        None => {
+            let msg = "no libretro core available — the ROM may be corrupt or unsupported".to_string();
+            *state.core_error.lock().await = Some(msg.clone());
+            Err(msg)
+        }
     }
 }
 
