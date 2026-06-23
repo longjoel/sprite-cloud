@@ -65,12 +65,36 @@ export async function POST(request: NextRequest) {
 
   // ── Stop action: transition session to ended ──────────────────────────
   if (body.action === "stop") {
-    // Find the session by command_id (most precise) or fall back to game+server
-    const [session] = await db
-      .select({ id: sessions.id, status: sessions.status })
-      .from(sessions)
-      .where(eq(sessions.commandId, body.command_id))
-      .limit(1);
+    // Find the most recent active session for this game+server.
+    // __worker_dead__ is a sentinel for unexpected worker exits (OOM, crash)
+    // — there's no real command_id to match, so use game+server.
+    const isWorkerDead = body.command_id === "__worker_dead__";
+
+    let session: { id: string; status: string } | undefined;
+
+    if (!isWorkerDead) {
+      // Try command_id first (most precise)
+      [session] = await db
+        .select({ id: sessions.id, status: sessions.status })
+        .from(sessions)
+        .where(eq(sessions.commandId, body.command_id))
+        .limit(1);
+    }
+
+    // Fallback: find by game_id + server_id (for worker_dead or missing cmd match)
+    if (!session) {
+      [session] = await db
+        .select({ id: sessions.id, status: sessions.status })
+        .from(sessions)
+        .where(
+          and(
+            eq(sessions.gameId, body.game_id),
+            eq(sessions.serverId, server.id),
+          ),
+        )
+        .orderBy(desc(sessions.createdAt))
+        .limit(1);
+    }
 
     if (session) {
       await db
