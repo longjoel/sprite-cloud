@@ -6,46 +6,22 @@ import { useSearchParams } from "next/navigation";
 import { useInterval } from "@/lib/poll";
 import { Badge, Button, Toast } from "@/components/ui";
 import RemapPanel from "./GamePlayerRemapPanel";
+import {
+  type StepState,
+  PIPELINE_STEPS,
+  defaultPipeline,
+  mergePipeline,
+  routeVariant,
+  dotColor,
+  dotChar,
+  labelColor,
+} from "./GamePlayerPipeline";
 
 // ── Constants ────────────────────────────────────────────────────────
 
 const TOAST_DURATION_MS = 2_000;
 const CONTROLS_HIDE_MS = 3_000;
 const RTT_POLL_MS = 500;
-
-// ── Pipeline ──────────────────────────────────────────────────────────
-
-type StepState = "pending" | "active" | "done" | "failed";
-
-interface PipelineStep {
-  id: string;
-  label: string;
-}
-
-const PIPELINE_STEPS: PipelineStep[] = [
-  { id: "ice", label: "ICE" },
-  { id: "server", label: "Server" },
-  { id: "game", label: "Game" },
-  { id: "worker", label: "Worker" },
-  { id: "handshake", label: "Handshake" },
-  { id: "connected", label: "Playing" },
-];
-
-function defaultPipeline(): Record<string, StepState> {
-  const out: Record<string, StepState> = {};
-  for (const s of PIPELINE_STEPS) {
-    out[s.id] = s.id === "ice" ? "active" : "pending";
-  }
-  return out;
-}
-
-function mergePipeline(
-  base: Record<string, StepState>,
-  overrides?: Record<string, StepState>,
-): Record<string, StepState> {
-  if (!overrides) return base;
-  return { ...base, ...overrides };
-}
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -94,48 +70,6 @@ interface GamePlayerProps {
   onClose?: () => void;
   sessionId?: string;
   initialPipeline?: Record<string, StepState>;
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────
-
-function routeVariant(routeLabel: string) {
-  const map: Record<string, "success" | "info" | "warning" | "error" | "muted"> = {
-    local: "success",
-    direct: "info",
-    relay: "warning",
-    failed: "error",
-    unknown: "muted",
-  };
-  return map[routeLabel] || "muted";
-}
-
-// ── Pipeline dot helpers ──────────────────────────────────────────────
-
-function dotColor(state: StepState): string {
-  switch (state) {
-    case "done": return "var(--color-success)";
-    case "failed": return "var(--color-error)";
-    case "active": return "var(--color-brass)";
-    default: return "var(--color-walnut)";
-  }
-}
-
-function dotChar(state: StepState): string {
-  switch (state) {
-    case "done": return "✓";
-    case "failed": return "✖";
-    case "active": return "●";
-    default: return "○";
-  }
-}
-
-function labelColor(state: StepState): string {
-  switch (state) {
-    case "active": return "var(--color-cream)";
-    case "failed": return "var(--color-error)";
-    case "done": return "var(--color-success)";
-    default: return "var(--color-muted)";
-  }
 }
 
 // ── Component ─────────────────────────────────────────────────────────
