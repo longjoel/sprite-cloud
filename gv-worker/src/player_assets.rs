@@ -31,9 +31,14 @@ pub fn serve_player_file(path: &str) -> Response<Body> {
             .unwrap();
     };
 
-    let mime = mime_guess::from_path(file_path)
-        .first_or_octet_stream()
-        .to_string();
+    let mime = match file_path.rsplit('.').next() {
+        Some("js") => "text/javascript".to_string(),
+        Some("html") => "text/html; charset=utf-8".to_string(),
+        Some("css") => "text/css".to_string(),
+        _ => mime_guess::from_path(file_path)
+            .first_or_octet_stream()
+            .to_string(),
+    };
 
     Response::builder()
         .status(StatusCode::OK)
