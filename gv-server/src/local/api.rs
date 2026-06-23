@@ -41,6 +41,10 @@ pub struct GamesResponse {
 pub struct PlayResponse {
     pub worker_url: String,
     pub peer_token: String,
+    /// Assigned controller seat (0 = P1 host, 1 = P2 player, …)
+    pub seat: u32,
+    /// Role for this peer ("host" or "player")
+    pub role: String,
 }
 
 #[derive(Serialize)]
@@ -112,7 +116,9 @@ pub async fn list_sessions(
 /// Spawn a gv-worker for the selected game and return connection info.
 ///
 /// If a worker for this game is already running, returns the existing
-/// worker URL (prevents duplicate spawns).
+/// worker URL (prevents duplicate spawns) with an incremented seat for
+/// multi-player. First player always gets seat 0 / host; subsequent
+/// players get seats 1, 2, … with role "player".
 pub async fn start_play(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
@@ -128,32 +134,8 @@ pub async fn start_play(
     let full_path = find_in_roots(&rel_path, &state.rom_roots)
         .ok_or((StatusCode::NOT_FOUND, format!("game not found: {rel_path}")))?;
 
-    // Generate a stable game_id from the full path — uses base64 so
-    // paths with the same filename stem get different IDs (#454).
+    // Generate a stable game_id from the base64-encoded relative path (#454)
     let game_id = URL_SAFE_NO_PAD.encode(rel_path.as_bytes());
-
-    // Check if this game already has a running worker (#455)
-    {
-        let sessions = state.sessions.lock().await;
-        if let Some(existing_url) = sessions.get(&game_id) {
-            // Verify the worker is still alive
-            let workers = state.workers.lock().await;
-            if workers.contains_key(existing_url) {
-                let peer_token: String = rand::thread_rng()
-                    .sample_iter(&rand::distributions::Alphanumeric)
-                    .take(24)
-                    .map(char::from)
-                    .collect();
-                return Ok(Json(PlayResponse {
-                    worker_url: existing_url.clone(),
-                    peer_token,
-                }));
-            }
-        }
-    }
-
-    // Detect platform for core selection
-    let platform = crate::platform::detect_platform_name(&full_path);
 
     // Generate a peer token (the browser will pass this to the worker)
     let peer_token: String = rand::thread_rng()
@@ -162,10 +144,41 @@ pub async fn start_play(
         .map(char::from)
         .collect();
 
+    // ── Check for existing worker ──
+    {
+        let sessions = state.sessions.lock().await;
+        if let Some(existing_url) = sessions.get(&game_id) {
+            let workers = state.workers.lock().await;
+            if workers.contains_key(existing_url) {
+                // Existing worker — assign next seat
+                let mut counters = state.seat_counters.lock().await;
+                let next = counters.entry(game_id.clone()).or_insert(1);
+                let seat = *next;
+                *next = seat.saturating_add(1);
+                drop(counters);
+
+                let role = if seat == 0 { "host" } else { "player" };
+                tracing::info!(
+                    "[LOCAL] joining existing game {rel_path} seat={seat} role={role}"
+                );
+                return Ok(Json(PlayResponse {
+                    worker_url: existing_url.clone(),
+                    peer_token,
+                    seat,
+                    role: role.to_string(),
+                }));
+            }
+        }
+    }
+
+    // ── First player: spawn worker ──
+    // Detect platform for core selection
+    let platform = crate::platform::detect_platform_name(&full_path);
+
     // Convert to owned String before passing across function call (#461)
     let content_path = full_path.display().to_string();
 
-    // Spawn the worker — reuses the existing spawn_worker function
+    // Spawn the worker
     let worker = crate::worker::spawn_worker(
         &game_id,
         state.worker_bin.as_deref(),
@@ -190,7 +203,12 @@ pub async fn start_play(
     }
     {
         let mut sessions = state.sessions.lock().await;
-        sessions.insert(game_id, worker_url.clone());
+        sessions.insert(game_id.clone(), worker_url.clone());
+    }
+    // First player: seed seat counter at 1 (next player gets seat 1)
+    {
+        let mut counters = state.seat_counters.lock().await;
+        counters.entry(game_id.clone()).or_insert(1);
     }
 
     tracing::info!(
@@ -201,6 +219,8 @@ pub async fn start_play(
     Ok(Json(PlayResponse {
         worker_url,
         peer_token,
+        seat: 0,
+        role: "host".to_string(),
     }))
 }
 

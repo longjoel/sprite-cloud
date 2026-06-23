@@ -414,8 +414,8 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
         url.port = url.port; // preserve worker port
         const params = new URLSearchParams({
           peer_token: data.peer_token,
-          role: 'host',
-          seat: '0',
+          role: data.role,
+          seat: String(data.seat),
         });
         window.location.href = url.origin + '/player?' + params.toString();
       } catch (e) {
