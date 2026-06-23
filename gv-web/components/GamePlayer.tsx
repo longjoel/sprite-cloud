@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useInterval } from "@/lib/poll";
 import { Badge, Button, Toast } from "@/components/ui";
 import RemapPanel from "./GamePlayerRemapPanel";
+import styles from "./GamePlayer.module.css";
 import {
   type StepState,
   PIPELINE_STEPS,
@@ -386,7 +387,7 @@ export default function GamePlayer({
   // ── Render ────────────────────────────────────────────────────────
 
   return (
-    <div style={styles.shell} onMouseMove={wakeControls} onKeyDown={wakeControls}>
+    <div className={styles.shell} onMouseMove={wakeControls} onKeyDown={wakeControls}>
       <style>{`
         @keyframes gv-pipeline-pulse {
           0%, 100% { opacity: 1; }
@@ -396,17 +397,17 @@ export default function GamePlayer({
 
       <Script src="/player/play.js" type="module" onLoad={() => setScriptReady(true)} />
 
-      <video ref={videoRef} autoPlay playsInline muted style={styles.video} />
+      <video ref={videoRef} autoPlay playsInline muted className={styles.video} />
 
       {/* Top bar */}
       <div
+        className={styles.topBar}
         style={{
-          ...styles.topBar,
           opacity: connected && controlsVisible ? 1 : 0,
           pointerEvents: connected && controlsVisible ? "auto" : "none",
         }}
       >
-        <span style={styles.gameTitle}>{gameName || gameId}</span>
+        <span className={styles.gameTitle}>{gameName || gameId}</span>
         {onClose && (
           <Button variant="secondary" size="md" onClick={onClose}>
             ← Back
@@ -416,13 +417,13 @@ export default function GamePlayer({
 
       {/* Bottom bar */}
       <div
+        className={styles.bottomBar}
         style={{
-          ...styles.bottomBar,
           opacity: connected && controlsVisible ? 1 : 0,
           pointerEvents: connected && controlsVisible ? "auto" : "none",
         }}
       >
-        <span style={styles.hint}>
+        <span className={styles.hint}>
           Arrows = Move &nbsp;|&nbsp; Z = A &nbsp;|&nbsp; X = B &nbsp;|&nbsp; Enter = Start
         </span>
         {route && (
@@ -430,7 +431,7 @@ export default function GamePlayer({
             {route}
           </Badge>
         )}
-        <div style={styles.bottomRight}>
+        <div className={styles.bottomRight}>
           <Button variant="secondary" size="sm" onClick={() => setShowRemap(!showRemap)}>
             🎮 Keys
           </Button>
@@ -448,18 +449,18 @@ export default function GamePlayer({
 
       {/* Pipeline loading */}
       {!connected && !showDisconnect && (
-        <div style={styles.centerMessage}>
-          <p style={styles.loadingText}>
+        <div className={styles.centerMessage}>
+          <p className={styles.loadingText}>
             {gameName ? `Starting ${gameName}` : "Starting game"}
           </p>
-          <div style={styles.pipeline}>
+          <div className={styles.pipeline}>
             {PIPELINE_STEPS.map((step) => {
               const state = pipeline[step.id] || "pending";
               return (
-                <div key={step.id} style={styles.stepRow}>
+                <div key={step.id} className={styles.stepRow}>
                   <span
+                    className={styles.stepDot}
                     style={{
-                      ...styles.stepDot,
                       background: dotColor(state),
                       animation:
                         state === "active"
@@ -469,12 +470,12 @@ export default function GamePlayer({
                   >
                     {dotChar(state)}
                   </span>
-                  <span style={{ ...styles.stepLabel, color: labelColor(state) }}>
+                  <span className={styles.stepLabel} style={{ color: labelColor(state) }}>
                     {step.label}
                   </span>
                   {state === "failed" && (
                     <button
-                      style={styles.retryBtn}
+                      className={styles.retryBtn}
                       onClick={() => retryStep(step.id)}
                       title="Retry"
                     >
@@ -486,8 +487,8 @@ export default function GamePlayer({
             })}
           </div>
           {error && (
-            <div style={styles.errorBox}>
-              <p style={styles.pipelineError}>{error}</p>
+            <div className={styles.errorBox}>
+              <p className={styles.pipelineError}>{error}</p>
               <Button variant="secondary" size="sm" onClick={() => window.location.reload()}>
                 Retry
               </Button>
@@ -498,17 +499,17 @@ export default function GamePlayer({
 
       {/* Disconnect overlay */}
       {showDisconnect && (
-        <div style={styles.overlay}>
-          <div style={styles.overlayPanel}>
+        <div className={styles.overlay}>
+          <div className={styles.overlayPanel}>
             {reconnectAttempt < 5 ? (
               <>
-                <p style={styles.overlayTitle}>Connection lost</p>
-                <p style={styles.overlaySub}>{reconnectMsg || "Reconnecting…"}</p>
+                <p className={styles.overlayTitle}>Connection lost</p>
+                <p className={styles.overlaySub}>{reconnectMsg || "Reconnecting…"}</p>
               </>
             ) : (
               <>
-                <p style={styles.overlayTitle}>Reconnection failed</p>
-                <p style={styles.overlaySub}>Refresh the page to try again</p>
+                <p className={styles.overlayTitle}>Reconnection failed</p>
+                <p className={styles.overlaySub}>Refresh the page to try again</p>
                 <Button variant="secondary" onClick={() => window.location.reload()}>
                   Refresh
                 </Button>
@@ -521,23 +522,23 @@ export default function GamePlayer({
       {/* Slots */}
       {showSlots && (
         <>
-          <div style={styles.backdrop} onClick={() => setShowSlots(false)} />
-          <div style={styles.slotPanel}>
-            <div style={styles.slotHeader}>
+          <div className={styles.backdrop} onClick={() => setShowSlots(false)} />
+          <div className={styles.slotPanel}>
+            <div className={styles.slotHeader}>
               <span>Save</span>
               <Button variant="ghost" onClick={() => setShowSlots(false)}>✕</Button>
             </div>
-            <div style={styles.slotRow}>
+            <div className={styles.slotRow}>
               {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
-                <button key={`save-${n}`} style={styles.slotBtn} onClick={() => handleSave(n)}>
+                <button key={`save-${n}`} className={styles.slotBtn} onClick={() => handleSave(n)}>
                   {n}
                 </button>
               ))}
             </div>
-            <div style={{ ...styles.slotHeader, marginTop: 12 }}>Load</div>
-            <div style={styles.slotRow}>
+            <div className={styles.slotHeader} style={{ marginTop: 12 }}>Load</div>
+            <div className={styles.slotRow}>
               {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
-                <button key={`load-${n}`} style={styles.slotBtn} onClick={() => handleLoad(n)}>
+                <button key={`load-${n}`} className={styles.slotBtn} onClick={() => handleLoad(n)}>
                   {n}
                 </button>
               ))}
@@ -549,7 +550,7 @@ export default function GamePlayer({
       {/* Key remap overlay */}
       {showRemap && (
         <>
-          <div style={styles.backdrop} onClick={() => { setShowRemap(false); setRemapWaiting(null); }} />
+          <div className={styles.backdrop} onClick={() => { setShowRemap(false); setRemapWaiting(null); }} />
           <RemapPanel
             playerRef={playerRef}
             waiting={remapWaiting}
@@ -562,13 +563,13 @@ export default function GamePlayer({
       {/* Room controls overlay */}
       {showRoomControls && (
         <>
-          <div style={styles.backdrop} onClick={() => setShowRoomControls(false)} />
-          <div style={styles.roomPanel}>
-            <div style={styles.slotHeader}>
+          <div className={styles.backdrop} onClick={() => setShowRoomControls(false)} />
+          <div className={styles.roomPanel}>
+            <div className={styles.slotHeader}>
               <span>Room</span>
               <Button variant="ghost" onClick={() => setShowRoomControls(false)}>✕</Button>
             </div>
-            <div style={styles.roomGrid}>
+            <div className={styles.roomGrid}>
               <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "reset" }); showToast("Reset", true); }}>
                 ↺ Reset
               </Button>
@@ -612,198 +613,3 @@ export default function GamePlayer({
     </div>
   );
 }
-
-// ── Styles ────────────────────────────────────────────────────────────
-
-const styles: Record<string, React.CSSProperties> = {
-  shell: {
-    position: "relative",
-    width: "100%",
-    height: "100%",
-    background: "#000",
-    overflow: "hidden",
-    fontFamily: "var(--font-mono)",
-    fontSize: "var(--font-size-md)",
-    color: "var(--color-cream)",
-  },
-  video: {
-    position: "absolute",
-    inset: 0,
-    width: "100%",
-    height: "100%",
-    objectFit: "contain",
-    imageRendering: "pixelated",
-    background: "#000",
-  },
-  topBar: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "var(--space-4) var(--space-6)",
-    background: "rgba(0,0,0,0.6)",
-    zIndex: 10,
-    transition: "opacity 0.3s",
-  },
-  gameTitle: {
-    fontSize: "var(--font-size-md)",
-    color: "var(--color-cream)",
-    fontFamily: "var(--font-mono)",
-  },
-  bottomBar: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "var(--space-3) var(--space-6)",
-    background: "rgba(0,0,0,0.6)",
-    zIndex: 10,
-    transition: "opacity 0.3s",
-    gap: "var(--space-4)",
-  },
-  hint: {
-    fontSize: "var(--font-size-sm)",
-    color: "var(--color-muted)",
-    fontFamily: "var(--font-mono)",
-  },
-  bottomRight: { display: "flex", gap: "var(--space-3)" },
-  centerMessage: {
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    transform: "translate(-50%, -50%)",
-    textAlign: "center" as const,
-    zIndex: 20,
-    maxWidth: "90vw",
-  },
-  loadingText: {
-    fontFamily: "var(--font-mono)",
-    color: "var(--color-cream)",
-    fontSize: "var(--font-size-lg)",
-    marginBottom: "var(--space-6)",
-  },
-  pipeline: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "var(--space-3)",
-    marginBottom: "var(--space-5)",
-  },
-  stepRow: { display: "flex", alignItems: "center", gap: "var(--space-3)" },
-  stepDot: {
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    width: 22,
-    height: 22,
-    borderRadius: "50%",
-    fontSize: 11,
-    fontFamily: "var(--font-mono)",
-    color: "#000",
-    fontWeight: 700,
-    flexShrink: 0,
-  },
-  stepLabel: { fontSize: "var(--font-size-sm)", fontFamily: "var(--font-mono)" },
-  retryBtn: {
-    marginLeft: "var(--space-2)",
-    background: "none",
-    border: "1px solid var(--color-bamboo)",
-    borderRadius: "var(--radius-sm)",
-    color: "var(--color-brass)",
-    cursor: "pointer",
-    fontSize: 14,
-    padding: "2px 6px",
-    fontFamily: "var(--font-mono)",
-    lineHeight: 1,
-  },
-  errorBox: {
-    marginTop: "var(--space-4)",
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "var(--space-3)",
-    alignItems: "center",
-  },
-  pipelineError: {
-    fontSize: "var(--font-size-sm)",
-    color: "var(--color-error)",
-    fontFamily: "var(--font-mono)",
-  },
-  overlay: {
-    position: "absolute",
-    inset: 0,
-    background: "rgba(0,0,0,0.85)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 30,
-  },
-  overlayPanel: { textAlign: "center" as const, padding: "var(--space-8)" },
-  overlayTitle: {
-    fontSize: "var(--font-size-h3)",
-    color: "var(--color-cream)",
-    fontFamily: "var(--font-mono)",
-    marginBottom: "var(--space-4)",
-  },
-  overlaySub: {
-    fontSize: "var(--font-size-sm)",
-    color: "var(--color-muted)",
-    fontFamily: "var(--font-mono)",
-    marginBottom: "var(--space-6)",
-  },
-  backdrop: { position: "absolute", inset: 0, zIndex: 25 },
-  slotPanel: {
-    position: "absolute",
-    bottom: "var(--space-16)",
-    left: "50%",
-    transform: "translateX(-50%)",
-    background: "rgba(0,0,0,0.9)",
-    border: "1px solid var(--color-bamboo)",
-    borderRadius: "var(--radius-md)",
-    padding: "var(--space-6)",
-    zIndex: 26,
-  },
-  slotHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "var(--space-4)",
-    fontFamily: "var(--font-mono)",
-    fontSize: "var(--font-size-sm)",
-    color: "var(--color-muted)",
-  },
-  slotRow: { display: "flex", gap: "var(--space-2)" },
-  slotBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: "var(--radius-sm)",
-    background: "var(--color-walnut)",
-    color: "var(--color-cream)",
-    border: "1px solid var(--color-bamboo)",
-    cursor: "pointer",
-    fontSize: "var(--font-size-sm)",
-    fontFamily: "var(--font-mono)",
-  },
-  roomPanel: {
-    position: "absolute",
-    top: "50%",
-    left: "50%",
-    transform: "translate(-50%, -50%)",
-    background: "rgba(0,0,0,0.95)",
-    border: "1px solid var(--color-bamboo)",
-    borderRadius: "var(--radius-md)",
-    padding: "var(--space-6)",
-    zIndex: 27,
-    minWidth: 220,
-  },
-  roomGrid: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: "var(--space-2)",
-    marginTop: "var(--space-3)",
-  },
-};
