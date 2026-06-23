@@ -210,6 +210,9 @@ export class GvPlayer {
      *  Override via options.gamepadMapping for non-standard controllers. */
     this._gamepadMapping = (options && options.gamepadMapping) || DEFAULT_GAMEPAD_MAPPING;
 
+    /** @type {boolean} Nintendo button layout (A↔B, X↔Y swapped). */
+    this._nintendoLayout = false;
+
     /** @type {RTCPeerConnection | null} */
     this._pc = null;
 
@@ -556,6 +559,8 @@ export class GvPlayer {
       this._playbackDeferred = true;
       this._video.play().then(() => {
         this._playbackDeferred = false;
+        this._video.muted = false;
+        console.log("[gv] audio unmuted");
       }).catch((e) => {
         console.debug("play() deferred — waiting for user gesture:", e.message || e);
       });
@@ -607,6 +612,7 @@ export class GvPlayer {
       if (!this._playbackDeferred) return;
       this._playbackDeferred = false;
       this._video.play().then(() => {
+        this._video.muted = false;
       }).catch((e) => {
         console.debug("deferred play() still blocked:", e.message || e);
       });
@@ -881,6 +887,15 @@ export class GvPlayer {
     this._bitMap = BIT_MAP;
     this._defaultBitMap = DEFAULT_BIT_MAP;
 
+    // Restore Nintendo layout preference
+    try {
+      const nintendo = localStorage.getItem("gv-nintendo-layout");
+      if (nintendo === "1") {
+        this._nintendoLayout = true;
+        this._applyNintendoLayout();
+      }
+    } catch (_) { /* ignore */ }
+
     /** @returns {Record<string, number>} current key→bit mapping */
 
     this._inputState = 0;
@@ -892,7 +907,8 @@ export class GvPlayer {
       }
       try {
         const s = this._inputState;
-        this._dc.send(new Uint8Array([this._seat, s & 0xFF, s >> 8]).buffer);
+        const arr = new Uint8Array([this._seat, s & 0xFF, s >> 8]);
+        this._dc.send(arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength));
         console.debug("[INPUT] sent mask port=%d state=0x%s", this._seat, s.toString(16).padStart(4, "0"));
       } catch (e) {
         console.warn("[INPUT] sendMask failed — DC may be closed:", e?.message || e);
@@ -1020,6 +1036,55 @@ export class GvPlayer {
     return this._bitMap;
   }
 
+  // ── Nintendo layout toggle ────────────────────────────────────
+
+  /** Toggle Nintendo button layout: swap A↔B, X↔Y.
+   *  Persists to localStorage under "gv-nintendo-layout".
+   *  @returns {boolean} new state (true = Nintendo layout active). */
+  toggleNintendoLayout() {
+    this._nintendoLayout = !this._nintendoLayout;
+    this._applyNintendoLayout();
+    try {
+      localStorage.setItem("gv-nintendo-layout", this._nintendoLayout ? "1" : "0");
+    } catch (_) { /* ignore */ }
+    this._updateControlsHint();
+    return this._nintendoLayout;
+  }
+
+  /** Apply Nintendo layout to BIT_MAP (called by toggle + setup). */
+  _applyNintendoLayout() {
+    if (this._nintendoLayout) {
+      // Nintendo: A bottom (Z), B right (X), X top (C), Y left (V)
+      this._bitMap.z = 8;  // A
+      this._bitMap.x = 0;  // B
+      this._bitMap.c = 1;  // Y
+      this._bitMap.v = 9;  // X
+    } else {
+      // SNES: B bottom (Z), A right (X), X top (C), Y left (V)
+      this._bitMap.z = 0;  // B
+      this._bitMap.x = 8;  // A
+      this._bitMap.c = 9;  // X
+      this._bitMap.v = 1;  // Y
+    }
+  }
+
+  /** Update the #controls-hint text and #nintendo-toggle button state. */
+  _updateControlsHint() {
+    const hint = document.getElementById("controls-hint");
+    const btn = document.getElementById("nintendo-toggle");
+    if (hint) {
+      if (this._nintendoLayout) {
+        hint.textContent = "Q=Start · W=Select · Arrows=Move · Z=A · X=B";
+      } else {
+        hint.textContent = "Q=Start · W=Select · Arrows=Move · Z=B · X=A";
+      }
+    }
+    if (btn) {
+      btn.textContent = this._nintendoLayout ? "🎮 NIN" : "🎮 SNES";
+      btn.classList.toggle("active", this._nintendoLayout);
+    }
+  }
+
   // ── Cleanup ──────────────────────────────────────────────────
 }
 
@@ -1053,6 +1118,19 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
 
       // Expose for debugging (console access)
       window.gvPlayer = player;
+
+      // Nintendo layout toggle button
+      const nintendoBtn = document.getElementById("nintendo-toggle");
+      if (nintendoBtn) {
+        nintendoBtn.addEventListener("click", () => {
+          player.toggleNintendoLayout();
+        });
+        // Sync initial button state after setup
+        if (player._nintendoLayout) {
+          nintendoBtn.textContent = "🎮 NIN";
+          nintendoBtn.classList.add("active");
+        }
+      }
     }
   }
 }
