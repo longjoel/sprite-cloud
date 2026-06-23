@@ -191,13 +191,20 @@ export const gameFiles = pgTable(
 // Each peer gets a unique token, seat, and role. The worker validates
 // tokens before accepting SDP offers.
 
-export const peerTokens = pgTable("peer_tokens", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  sessionId: uuid("session_id")
-    .references(() => sessions.id)
-    .notNull(),
-  token: text("token").notNull().unique(),       // 32-char hex
-  seat: integer("seat").notNull(),               // 0=host, 1..N=players/watchers
-  role: text("role").notNull().default("viewer"), // host | player | viewer
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+export const peerTokens = pgTable(
+  "peer_tokens",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sessionId: uuid("session_id")
+      .references(() => sessions.id)
+      .notNull(),
+    token: text("token").notNull().unique(),       // 32-char hex
+    seat: integer("seat").notNull(),               // 0=host, 1..N=players/watchers
+    role: text("role").notNull().default("viewer"), // host | player | viewer
+    clientId: text("client_id"),                   // stable browser-tab id for idempotent guest reconnects
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    sessionClient: unique("peer_tokens_session_client").on(table.sessionId, table.clientId),
+  }),
+);

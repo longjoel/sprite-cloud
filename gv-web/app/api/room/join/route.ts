@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { commands, peerTokens, sessions } from "@/lib/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import crypto from "crypto";
 
 // ── POST /api/room/join — guest resolves a room_token to session details
@@ -10,7 +10,7 @@ import crypto from "crypto";
 // Returns worker_url + game info + peer_token so the guest can connect.
 
 export async function POST(request: NextRequest) {
-  let body: { room_token: string };
+  let body: { room_token: string; client_id?: string };
   try {
     body = await request.json();
   } catch {
@@ -24,6 +24,10 @@ export async function POST(request: NextRequest) {
   if (body.room_token.length > 64) {
     return NextResponse.json({ error: "invalid room_token" }, { status: 400 });
   }
+
+  const clientId = typeof body.client_id === "string" && body.client_id.length <= 64
+    ? body.client_id
+    : undefined;
 
   const [session] = await db
     .select({
@@ -52,7 +56,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "session not ready" }, { status: 503 });
   }
 
-  // Count existing peers for this session to assign the next seat
+  if (clientId) {
+    const [existingPeer] = await db
+      .select({ token: peerTokens.token, seat: peerTokens.seat, role: peerTokens.role })
+      .from(peerTokens)
+      .where(and(eq(peerTokens.sessionId, session.id), eq(peerTokens.clientId, clientId)))
+      .limit(1);
+
+    if (existingPeer) {
+      return NextResponse.json({
+        worker_url: session.workerUrl,
+        game_id: session.gameId,
+        server_id: session.serverId,
+        max_seats: session.maxSeats,
+        worker_token: session.commandWorkerToken,
+        peer_token: existingPeer.token,
+        seat: existingPeer.seat,
+        role: existingPeer.role,
+      });
+    }
+  }
+
+  // Count existing peers for this session to assign the next seat.
+  // Reused client_id rows are returned above and do not consume another seat.
   const [countResult] = await db
     .select({ count: sql<number>`count(*)` })
     .from(peerTokens)
@@ -69,6 +95,7 @@ export async function POST(request: NextRequest) {
     token: guestPeerToken,
     seat,
     role,
+    clientId,
   });
 
   return NextResponse.json({
