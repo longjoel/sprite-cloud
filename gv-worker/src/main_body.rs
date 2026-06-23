@@ -493,18 +493,9 @@ async fn do_webrtc_handshake(
             ..Default::default()
         })
         .collect();
-    let force_relay_for_guest = peer_role != PeerRole::Host;
-    let ice_policy = if force_relay_for_guest {
-        // Guest/browser links are already relay-only to avoid Firefox mDNS host
-        // candidates. Keep the worker side symmetric so the answer does not
-        // advertise unreachable LAN/docker/srflx candidates that the browser
-        // will pair against its TURN allocation.
-        RTCIceTransportPolicy::Relay
-    } else {
-        match ice_cfg.transport_policy {
-            config::IceTransportPolicy::All => RTCIceTransportPolicy::All,
-            config::IceTransportPolicy::Relay => RTCIceTransportPolicy::Relay,
-        }
+    let ice_policy = match ice_cfg.transport_policy {
+        config::IceTransportPolicy::All => RTCIceTransportPolicy::All,
+        config::IceTransportPolicy::Relay => RTCIceTransportPolicy::Relay,
     };
 
     let pc = Arc::new(
