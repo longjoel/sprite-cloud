@@ -315,10 +315,11 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
     let sessions = {}; // game_id → worker_url
 
     // ── Load ──────────────────────────────────────────────────
-    async function load() {
+    async function load(searchTerm) {
       try {
+        const qs = searchTerm ? '?search=' + encodeURIComponent(searchTerm) : '';
         const [resp, sessResp] = await Promise.all([
-          fetch('/api/games'),
+          fetch('/api/games' + qs),
           fetch('/api/sessions'),
         ]);
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -332,6 +333,7 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
 
         if (sessResp.ok) {
           const sessList = await sessResp.json();
+          sessions = {}; // reset
           for (const s of sessList) sessions[s.game_id] = s.worker_url;
         }
 
@@ -431,7 +433,11 @@ const INDEX_HTML: &str = r##"<!DOCTYPE html>
     }
 
     // ── Search filter ─────────────────────────────────────────
-    search.addEventListener('input', render);
+    let searchTimer = null;
+    search.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => load(search.value), 200);
+    });
 
     // ── Boot ──────────────────────────────────────────────────
     await load();

@@ -8,12 +8,12 @@ use std::sync::Arc;
 
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rand::Rng;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::AppState;
 
@@ -53,14 +53,23 @@ pub struct SessionEntry {
     pub worker_url: String,
 }
 
+#[derive(Deserialize, Default)]
+pub struct SearchQuery {
+    /// Filter games by name or platform (case-insensitive substring).
+    pub search: Option<String>,
+}
+
 // ── Handlers ───────────────────────────────────────────────────────────
 
 /// List all discoverable ROM files across configured ROM roots.
+/// Accepts optional `?search=` query param to filter server-side.
 pub async fn list_games(
     State(state): State<Arc<AppState>>,
+    Query(q): Query<SearchQuery>,
 ) -> Json<GamesResponse> {
     let mut games = Vec::new();
     let mut warnings = Vec::new();
+    let term = q.search.as_ref().map(|s| s.to_lowercase());
 
     for root in &state.rom_roots {
         match crate::scan::discover_roms(std::path::Path::new(root)) {
@@ -69,13 +78,22 @@ pub async fn list_games(
                     let platform = f
                         .platform
                         .unwrap_or_else(|| "Unknown".into());
-                    // Determine directory for disambiguation
                     let directory = std::path::Path::new(&f.relative_path)
                         .parent()
                         .and_then(|p| p.file_name())
                         .and_then(|n| n.to_str())
                         .unwrap_or(root)
                         .to_string();
+
+                    // Server-side search filter
+                    if let Some(ref t) = term {
+                        let name_lower = f.file_name.to_lowercase();
+                        let plat_lower = platform.to_lowercase();
+                        if !name_lower.contains(t) && !plat_lower.contains(t) {
+                            continue;
+                        }
+                    }
+
                     games.push(GameEntry {
                         id: URL_SAFE_NO_PAD.encode(f.relative_path.as_bytes()),
                         name: f.file_name.clone(),
