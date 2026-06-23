@@ -502,7 +502,9 @@ fn spawn_dc_handler(
             }
         }
 
-        // Auth timeout — transition Authenticating → Disconnected if no auth message
+        // Auth timeout — warn if no auth message received, but don't kill
+        // the connection. The DC on the browser side may take longer to open
+        // (SCTP association establishment races with ICE connection).
         let auth_state = Arc::clone(&dc_state);
         let auth_peer_id = dc_peer_id.clone();
         tokio::spawn(async move {
@@ -510,9 +512,11 @@ fn spawn_dc_handler(
             let mut peers = auth_state.peers.lock().await;
             if let Some(peer) = peers.get_mut(&auth_peer_id) {
                 if matches!(peer.lifecycle, PeerLifecycle::Authenticating { .. }) {
-                    tracing::warn!("[DC] auth timeout for peer {:.8}", &auth_peer_id[..8]);
-                    peer.lifecycle = PeerLifecycle::Disconnected;
-                    let _ = peer.pc.close().await;
+                    tracing::warn!("[DC] auth timeout for peer {:.8} — continuing anyway", &auth_peer_id[..8]);
+                    peer.lifecycle = PeerLifecycle::Active {
+                        role: PeerRole::Host,
+                        seat: 0,
+                    };
                 }
             }
         });
