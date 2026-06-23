@@ -13,25 +13,28 @@ use std::time::Duration;
 
 use axum::{Router, routing::get, routing::post};
 use tokio::sync::Mutex;
+use tower_http::cors::CorsLayer;
 
 use crate::worker::SpawnedWorker;
 
 /// Shared server state.
 pub struct AppState {
     /// ROM root directories from `config.toml` `[rom]` section.
-    /// When no ROM roots are configured, the UI shows an empty state.
     pub rom_roots: Vec<String>,
     /// Active workers keyed by their URL. Used for idle cleanup.
     pub workers: Mutex<HashMap<String, SpawnedWorker>>,
+    /// Active game sessions: game_id → worker_url.
+    /// Prevents duplicate spawns and enables "currently playing" UI.
+    pub sessions: Mutex<HashMap<String, String>>,
     /// Path to the gv-worker binary (from config or auto-detected).
     pub worker_bin: Option<String>,
 }
 
 /// Start the local-play HTTP server.
-///
-/// Binds to `0.0.0.0:<port>` and serves the game browser UI and APIs.
-/// Returns when the server shuts down.
 pub async fn serve(port: u16) -> anyhow::Result<()> {
+    // Clean up orphaned workers from a previous crash.
+    crate::worker::reap_stale_workers();
+
     let config = crate::config::load().unwrap_or_else(|_| {
         tracing::warn!("[LOCAL] no config.toml found — no ROM roots configured");
         crate::config::Config {
@@ -53,6 +56,7 @@ pub async fn serve(port: u16) -> anyhow::Result<()> {
     let state = Arc::new(AppState {
         rom_roots,
         workers: Mutex::new(HashMap::new()),
+        sessions: Mutex::new(HashMap::new()),
         worker_bin,
     });
 
@@ -62,9 +66,13 @@ pub async fn serve(port: u16) -> anyhow::Result<()> {
         loop {
             tokio::time::sleep(Duration::from_secs(60)).await;
             let mut workers = state_clone.workers.lock().await;
+            let mut sessions = state_clone.sessions.lock().await;
             workers.retain(|url, worker| {
                 if worker.reap_if_exited() {
                     tracing::info!("[LOCAL] cleaned up exited worker {url}");
+                    // Clean up the session entry too
+                    let gid = worker.game_id().to_string();
+                    sessions.remove(&gid);
                     false
                 } else {
                     true
@@ -77,12 +85,16 @@ pub async fn serve(port: u16) -> anyhow::Result<()> {
         .route("/", get(ui::serve_index))
         .route("/api/games", get(api::list_games))
         .route("/api/games/:id/play", post(api::start_play))
+        .route("/api/sessions", get(api::list_sessions))
+        .layer(CorsLayer::permissive())
         .with_state(state);
 
     let addr = format!("0.0.0.0:{port}");
     tracing::info!("[LOCAL] serving at http://localhost:{port}");
     if let Ok(ip) = local_ip_address::local_ip() {
         tracing::info!("[LOCAL] LAN URL: http://{ip}:{port}");
+    } else {
+        tracing::warn!("[LOCAL] could not detect LAN IP — use localhost or set GV_WORKER_HOST");
     }
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
