@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
+import { NextRequest } from "next/server";
 
 const mockWebVersionEnv = {
   GV_WEB_VERSION: "0.1.0",
@@ -115,10 +116,10 @@ function jsonBodyWithCsrf(body: unknown, csrf = "csrf-test-token") {
 }
 
 /** Build a Request-like object with nextUrl for Next.js App Router handlers. */
-function mkReq(url: string, init?: RequestInit) {
+function mkReq(url: string, init?: RequestInit): NextRequest {
   const u = new URL(url);
   const req = new Request(url, init);
-  return Object.assign(req, { nextUrl: u });
+  return Object.assign(req, { nextUrl: u }) as unknown as NextRequest;
 }
 
 function resetAllMocks() {
@@ -149,13 +150,13 @@ describe("POST /api/auth/pair/generate", () => {
   it("returns 401 when not signed in", async () => {
     mockAuth.mockResolvedValueOnce(null);
     const { POST } = await import("@/app/api/auth/pair/generate/route");
-    const resp = await POST();
+    const resp = await POST(mkReq("http://localhost/api/auth/pair/generate"));
     expect(resp.status).toBe(401);
   });
 
   it("returns a pairing code when signed in", async () => {
     const { POST } = await import("@/app/api/auth/pair/generate/route");
-    const resp = await POST();
+    const resp = await POST(mkReq("http://localhost/api/auth/pair/generate"));
     expect(resp.status).toBe(200);
     const body = await resp.json();
     expect(body.code).toBe("ABCD-EFGH");

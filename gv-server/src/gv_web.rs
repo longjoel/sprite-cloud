@@ -84,7 +84,10 @@ pub struct Command {
     pub command_type: String,
     pub payload: serde_json::Value,
     pub lease_token: String,
+    /// Part of the API contract; parsed from JSON but not read server-side.
+    #[allow(dead_code)]
     pub lease_expires_at: String,
+    #[allow(dead_code)]
     pub attempt: u32,
 }
 
@@ -185,7 +188,7 @@ impl GvWebClient {
     async fn verify_inner(&self, metadata: Option<&ServerMetadata>) -> Result<VerifyResponse> {
         let url = format!("{}/api/auth/verify", self.base_url);
 
-        let mut req = self
+        let req = self
             .client
             .get(&url)
             .bearer_auth(&self.auth.api_key);

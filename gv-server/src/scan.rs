@@ -93,7 +93,7 @@ pub fn discover_roms(root: &Path) -> Result<Vec<DiscoveredFile>> {
         };
 
         // Only include known ROM extensions
-        if !crate::platform::by_extension(&ext).is_some() {
+        if crate::platform::by_extension(&ext).is_none() {
             continue;
         }
 

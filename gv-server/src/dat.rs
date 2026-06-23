@@ -37,9 +37,14 @@ const DAT_BASE_URL: &str =
 #[derive(Debug, Clone)]
 pub struct RomEntry {
     pub game_name: String,
+    /// Parsed from DAT but only used in tests / canonical naming.
+    /// Kept for completeness of the DAT format model.
+    #[allow(dead_code)]
     pub rom_name: String,
+    #[allow(dead_code)]
     pub size: u64,
     pub crc: String,
+    #[allow(dead_code)]
     pub md5: String,
     pub sha1: String,
     /// Stripped of region tags and version numbers.

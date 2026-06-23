@@ -193,6 +193,9 @@ pub async fn build_app() -> Result<Router, Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/", get(handlers::handle_root))
         .route("/player", get(handlers::handle_player))
+        .route("/player/{*path}", get(|axum::extract::Path(path): axum::extract::Path<String>| async move {
+            crate::player_assets::serve_player_file(&path)
+        }))
         .route("/sdp", post(handlers::handle_offer))
         .route("/state", get(handlers::handle_connection_state))
         .route("/health", get(handlers::handle_health))
