@@ -247,6 +247,93 @@ fn create_video_encoder(
     }
 }
 
+// ── Handshake pipeline: phase functions ─────────────────────────────────────
+
+/// Returned by load_core() — named fields instead of a 7-tuple.
+struct CoreHandle {
+    width: u32,
+    height: u32,
+    fps: f64,
+    cmd_tx: Option<std::sync::mpsc::SyncSender<CoreCommand>>,
+    frame_rx: Option<std::sync::mpsc::Receiver<CoreFrame>>,
+    response_rx: Option<std::sync::mpsc::Receiver<CoreResponse>>,
+    sample_rate: Option<f64>,
+    audio_channels: usize,
+}
+
+async fn load_core(state: &AppState) -> Result<CoreHandle, String> {
+    let _core_guard = state.core_spawning.lock().await;
+    match crate::core_bridge::spawn_core_thread() {
+        Some(handle) => {
+            tracing::info!(
+                "[STREAM] Core: {}×{} @ {:.1}fps {:.0}Hz",
+                handle.width, handle.height, handle.fps, handle.sample_rate
+            );
+            state.core_loaded.store(true, Ordering::Relaxed);
+            Ok(CoreHandle {
+                width: handle.width,
+                height: handle.height,
+                fps: handle.fps,
+                cmd_tx: Some(handle.cmd_tx),
+                frame_rx: Some(handle.frame_rx),
+                response_rx: Some(handle.response_rx),
+                sample_rate: Some(handle.sample_rate),
+                audio_channels: handle.audio_channels as usize,
+            })
+        }
+        None => Err("no libretro core available".into()),
+    }
+}
+
+struct EncoderSet {
+    video: Arc<tokio::sync::Mutex<GstVideoEncoder>>,
+    audio: Arc<tokio::sync::Mutex<Option<GstAudioEncoder>>>,
+    video_codec: VideoCodec,
+    core_fps: f64,
+}
+
+fn setup_encoders(core: &CoreHandle, offer_sdp: &str) -> Result<EncoderSet, String> {
+    let video_encoder = create_video_encoder(core.width, core.height, core.fps, offer_sdp)
+        .map_err(|e| format!("video encoder: {e}"))?;
+    let selected = video_encoder.codec();
+    let venc = Arc::new(tokio::sync::Mutex::new(video_encoder));
+
+    let aenc: Arc<tokio::sync::Mutex<Option<GstAudioEncoder>>> =
+        Arc::new(tokio::sync::Mutex::new(match core.sample_rate {
+            Some(rate) => match GstAudioEncoder::new(rate, core.audio_channels as u16) {
+                Ok(enc) => Some(enc),
+                Err(e) => {
+                    tracing::error!("[AUDIO] encoder failed: {e} — audio disabled");
+                    None
+                }
+            },
+            None => None,
+        }));
+
+    Ok(EncoderSet {
+        video: venc,
+        audio: aenc,
+        video_codec: selected,
+        core_fps: core.fps,
+    })
+}
+
+async fn reuse_encoders(state: &AppState) -> Result<EncoderSet, String> {
+    let venc = state.video_enc.lock().await.clone()
+        .ok_or("video encoder not available")?;
+    let aenc = state.audio_enc.lock().await.clone()
+        .ok_or("audio encoder not available")?;
+    let fps = *state.core_fps.lock().await;
+    let selected = venc.lock().await.codec();
+
+    Ok(EncoderSet {
+        video: venc,
+        audio: aenc,
+        video_codec: selected,
+        core_fps: fps,
+    })
+}
+
 // ── WebRTC handshake ────────────────────────────────────────────────────────
 
 pub(super) async fn do_webrtc_handshake(
@@ -259,82 +346,24 @@ pub(super) async fn do_webrtc_handshake(
     // Check if this is the first peer (needs to load core + spawn stream)
     let is_first_peer = !state.core_loaded.load(Ordering::Relaxed);
 
-    let (core_cmd_tx, selected_video_codec, _video_enc, _audio_enc, _core_fps) = if is_first_peer {
-        // ── First peer: load core + create encoders ──
-        let _core_guard = state.core_spawning.lock().await;
-        let (w, h, fps, frame_rx, cmd_tx, response_rx, sample_rate, audio_ch) =
-            match crate::core_bridge::spawn_core_thread() {
-                Some(handle) => {
-                    tracing::info!(
-                        "[STREAM] Core: {}×{} @ {:.1}fps {:.0}Hz",
-                        handle.width, handle.height, handle.fps, handle.sample_rate
-                    );
-                    state.core_loaded.store(true, Ordering::Relaxed);
-                    (
-                        handle.width,
-                        handle.height,
-                        handle.fps,
-                        Some(handle.frame_rx),
-                        Some(handle.cmd_tx),
-                        Some(handle.response_rx),
-                        Some(handle.sample_rate),
-                        handle.audio_channels as usize,
-                    )
-                }
-                None => {
-                    return Err("no libretro core available".into());
-                }
-            };
-
-        let video_encoder = create_video_encoder(w, h, fps, offer_sdp)
-            .map_err(|e| format!("video encoder: {e}"))?;
-        let selected = video_encoder.codec();
-        let venc = Arc::new(tokio::sync::Mutex::new(video_encoder));
-
-        let aenc: Arc<tokio::sync::Mutex<Option<GstAudioEncoder>>> =
-            Arc::new(tokio::sync::Mutex::new(match sample_rate {
-                Some(rate) => match GstAudioEncoder::new(rate, audio_ch as u16) {
-                    Ok(enc) => Some(enc),
-                    Err(e) => {
-                        tracing::error!("[AUDIO] encoder failed: {e} — audio disabled");
-                        None
-                    }
-                },
-                None => None,
-            }));
-
+    let (core_cmd_tx, encoders) = if is_first_peer {
+        let core = load_core(&state).await?;
+        let encoders = setup_encoders(&core, offer_sdp)?;
         // Store in AppState for subsequent peers
-        *state.core_width.lock().await = w;
-        *state.core_height.lock().await = h;
-        *state.core_fps.lock().await = fps;
-        *state.video_enc.lock().await = Some(venc.clone());
-        *state.audio_enc.lock().await = Some(aenc.clone());
-        *state.core_cmd_tx.lock().await = cmd_tx.clone();
-        *state.core_frame_rx.lock().await = frame_rx;
-        *state.core_response_rx.lock().await = response_rx;
+        *state.core_width.lock().await = core.width;
+        *state.core_height.lock().await = core.height;
+        *state.core_fps.lock().await = core.fps;
+        *state.video_enc.lock().await = Some(encoders.video.clone());
+        *state.audio_enc.lock().await = Some(encoders.audio.clone());
+        *state.core_cmd_tx.lock().await = core.cmd_tx.clone();
+        *state.core_frame_rx.lock().await = core.frame_rx;
+        *state.core_response_rx.lock().await = core.response_rx;
 
-        (cmd_tx, selected, venc, aenc, fps)
+        (core.cmd_tx, encoders)
     } else {
-        // ── Subsequent peer: reuse existing core + encoders ──
+        let encoders = reuse_encoders(&state).await?;
         let cmd_tx = state.core_cmd_tx.lock().await.clone();
-        let venc = state
-            .video_enc
-            .lock()
-            .await
-            .clone()
-            .ok_or("video encoder not available")?;
-        let aenc = state
-            .audio_enc
-            .lock()
-            .await
-            .clone()
-            .ok_or("audio encoder not available")?;
-        let fps = *state.core_fps.lock().await;
-
-        // Determine codec from what was created
-        let selected = venc.lock().await.codec();
-
-        (cmd_tx, selected, venc, aenc, fps)
+        (cmd_tx, encoders)
     };
 
     // Reconnect semantics: one live PeerConnection per peer_token.
@@ -421,14 +450,14 @@ pub(super) async fn do_webrtc_handshake(
     // Video track — codec selected during encoder creation
     let video_track = Arc::new(TrackLocalStaticSample::new(
         RTCRtpCodecCapability {
-            mime_type: match selected_video_codec {
+            mime_type: match encoders.video_codec {
                 VideoCodec::Vp8 => MIME_TYPE_VP8,
                 VideoCodec::H264 => MIME_TYPE_H264,
             }
             .to_owned(),
             clock_rate: VP8_CLOCK_RATE,
             channels: 0,
-            sdp_fmtp_line: match selected_video_codec {
+            sdp_fmtp_line: match encoders.video_codec {
                 VideoCodec::Vp8 => String::new(),
                 VideoCodec::H264 => {
                     "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
