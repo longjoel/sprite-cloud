@@ -594,6 +594,13 @@ pub async fn spawn_worker(
                     cmd.env("GV_AUDIO_CHANNELS", channels.to_string());
                 }
                 Err(e) => {
+                    // If a game is being loaded (content_path is set), core failure
+                    // means the worker can't play anything — don't spawn a useless worker.
+                    if content_path.is_some() {
+                        anyhow::bail!(
+                            "core '{core_file}' not available for platform '{plat}' — {e}"
+                        );
+                    }
                     tracing::warn!(
                         "[WORKER] core download failed for {core_file}: {e} — worker will use test pattern"
                     );
