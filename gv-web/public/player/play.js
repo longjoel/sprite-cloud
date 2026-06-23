@@ -221,7 +221,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
     }
 
     try {
-      if (joinToken || player._roomToken) {
+      if ((joinToken || player._roomToken) && !gameStarted) {
         // Guest join — use rotated room_token from SDP poll if available
         const rt = player._roomToken || joinToken;
         console.log("[gv] guest join — resolving room_token:", rt);
