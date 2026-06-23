@@ -334,6 +334,128 @@ async fn reuse_encoders(state: &AppState) -> Result<EncoderSet, String> {
     })
 }
 
+// ── WebRTC stack helpers ────────────────────────────────────────────────────
+
+struct WebRtcStack {
+    pc: Arc<RTCPeerConnection>,
+    video_track: Arc<TrackLocalStaticSample>,
+    audio_track: Arc<TrackLocalStaticSample>,
+}
+
+async fn build_webrtc_stack(video_codec: VideoCodec) -> Result<WebRtcStack, String> {
+    let mut media_engine = MediaEngine::default();
+    media_engine
+        .register_default_codecs()
+        .map_err(|e| format!("register codecs: {e}"))?;
+
+    let mut registry = webrtc::interceptor::registry::Registry::new();
+    registry = register_default_interceptors(registry, &mut media_engine)
+        .map_err(|e| format!("interceptors: {e}"))?;
+
+    let mut se = SettingEngine::default();
+    se.set_ip_filter(Box::new(|ip: IpAddr| ip.is_ipv4()));
+    se.set_network_types(vec![NetworkType::Udp4, NetworkType::Tcp4]);
+    se.set_ice_multicast_dns_mode(MulticastDnsMode::QueryOnly);
+
+    let api = APIBuilder::new()
+        .with_setting_engine(se)
+        .with_media_engine(media_engine)
+        .with_interceptor_registry(registry)
+        .build();
+
+    let ice_cfg = ice_config();
+    let ice_servers: Vec<RTCIceServer> = ice_cfg
+        .servers
+        .iter()
+        .map(|s| RTCIceServer {
+            urls: s.urls.clone(),
+            username: s.username.clone().unwrap_or_default(),
+            credential: s.credential.clone().unwrap_or_default(),
+            ..Default::default()
+        })
+        .collect();
+    let ice_policy = match ice_cfg.transport_policy {
+        config::IceTransportPolicy::All => RTCIceTransportPolicy::All,
+        config::IceTransportPolicy::Relay => RTCIceTransportPolicy::Relay,
+    };
+
+    let pc = Arc::new(
+        api.new_peer_connection(RTCConfiguration {
+            ice_servers,
+            ice_transport_policy: ice_policy,
+            ..Default::default()
+        })
+        .await
+        .map_err(|e| format!("peer connection: {e}"))?,
+    );
+
+    let video_track = Arc::new(TrackLocalStaticSample::new(
+        RTCRtpCodecCapability {
+            mime_type: match video_codec {
+                VideoCodec::Vp8 => MIME_TYPE_VP8,
+                VideoCodec::H264 => MIME_TYPE_H264,
+            }
+            .to_owned(),
+            clock_rate: VP8_CLOCK_RATE,
+            channels: 0,
+            sdp_fmtp_line: match video_codec {
+                VideoCodec::Vp8 => String::new(),
+                VideoCodec::H264 =>
+                    "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f".to_string(),
+            },
+            rtcp_feedback: vec![],
+        },
+        VIDEO_TRACK_ID.to_owned(),
+        STREAM_ID.to_owned(),
+    ));
+    pc.add_track(Arc::clone(&video_track) as Arc<dyn TrackLocal + Send + Sync>)
+        .await.map_err(|e| format!("add video track: {e}"))?;
+
+    let audio_track = Arc::new(TrackLocalStaticSample::new(
+        RTCRtpCodecCapability {
+            mime_type: MIME_TYPE_OPUS.to_owned(),
+            clock_rate: AUDIO_SAMPLE_RATE,
+            channels: AUDIO_CHANNELS,
+            sdp_fmtp_line: OPUS_SDP_FMTP.to_string(),
+            rtcp_feedback: vec![],
+        },
+        AUDIO_TRACK_ID.to_owned(),
+        STREAM_ID.to_owned(),
+    ));
+    pc.add_track(Arc::clone(&audio_track) as Arc<dyn TrackLocal + Send + Sync>)
+        .await.map_err(|e| format!("add audio track: {e}"))?;
+
+    Ok(WebRtcStack { pc, video_track, audio_track })
+}
+
+async fn exchange_sdp(
+    pc: &RTCPeerConnection,
+    offer_sdp: &str,
+    done_rx: &mut tokio::sync::mpsc::Receiver<()>,
+) -> Result<SdpAnswer, String> {
+    let offer_desc = RTCSessionDescription::offer(offer_sdp.to_string())
+        .map_err(|e| format!("parse offer: {e}"))?;
+    pc.set_remote_description(offer_desc)
+        .await.map_err(|e| format!("set remote: {e}"))?;
+    let answer = pc.create_answer(None)
+        .await.map_err(|e| format!("create answer: {e}"))?;
+    pc.set_local_description(answer)
+        .await.map_err(|e| format!("set local: {e}"))?;
+
+    tokio::time::timeout(
+        Duration::from_secs(ICE_GATHERING_TIMEOUT_SECS),
+        done_rx.recv(),
+    )
+    .await
+    .map_err(|_| "ICE gathering timed out".to_string())?
+    .ok_or("ICE cancelled".to_string())?;
+
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    let local_desc = pc.local_description().await.ok_or("no local desc")?;
+    Ok(SdpAnswer { sdp: local_desc.sdp })
+}
+
 // ── WebRTC handshake ────────────────────────────────────────────────────────
 
 pub(super) async fn do_webrtc_handshake(
@@ -380,60 +502,11 @@ pub(super) async fn do_webrtc_handshake(
         peers.retain(|_, p| !matches!(p.lifecycle, PeerLifecycle::Disconnected));
     }
 
-    // ── Build WebRTC stack (per-peer) ──
-    let mut media_engine = MediaEngine::default();
-    media_engine
-        .register_default_codecs()
-        .map_err(|e| format!("register codecs: {e}"))?;
+    // ── Build WebRTC stack + exchange SDP ──
+    let WebRtcStack { pc, video_track, audio_track } =
+        build_webrtc_stack(encoders.video_codec).await?;
 
-    let mut registry = webrtc::interceptor::registry::Registry::new();
-    registry = register_default_interceptors(registry, &mut media_engine)
-        .map_err(|e| format!("interceptors: {e}"))?;
-
-    let mut se = SettingEngine::default();
-    se.set_ip_filter(Box::new(|ip: IpAddr| ip.is_ipv4()));
-    se.set_network_types(vec![NetworkType::Udp4, NetworkType::Tcp4]);
-    // mDNS QueryOnly: worker sends REAL LAN IPs as host candidates (not .local),
-    // but still resolves remote .local candidates. This is critical for LAN guests
-    // in incognito/private windows: the browser can reach the worker's real IP,
-    // STUN binding request → worker discovers browser's real IP as prflx → connection.
-    // QueryAndGenerate (default) makes the worker send .local too, which the guest
-    // can't resolve → both sides send .local at each other → ICE fails.
-    se.set_ice_multicast_dns_mode(MulticastDnsMode::QueryOnly);
-
-    let api = APIBuilder::new()
-        .with_setting_engine(se)
-        .with_media_engine(media_engine)
-        .with_interceptor_registry(registry)
-        .build();
-
-    let ice_cfg = ice_config();
-    let ice_servers: Vec<RTCIceServer> = ice_cfg
-        .servers
-        .iter()
-        .map(|s| RTCIceServer {
-            urls: s.urls.clone(),
-            username: s.username.clone().unwrap_or_default(),
-            credential: s.credential.clone().unwrap_or_default(),
-            ..Default::default()
-        })
-        .collect();
-    let ice_policy = match ice_cfg.transport_policy {
-        config::IceTransportPolicy::All => RTCIceTransportPolicy::All,
-        config::IceTransportPolicy::Relay => RTCIceTransportPolicy::Relay,
-    };
-
-    let pc = Arc::new(
-        api.new_peer_connection(RTCConfiguration {
-            ice_servers,
-            ice_transport_policy: ice_policy,
-            ..Default::default()
-        })
-        .await
-        .map_err(|e| format!("peer connection: {e}"))?,
-    );
-
-    // ICE gathering
+    // ICE gathering callback (must be set before exchange_sdp)
     let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
     pc.on_ice_candidate(Box::new({
         let done_tx = done_tx.clone();
@@ -447,48 +520,6 @@ pub(super) async fn do_webrtc_handshake(
         }
     }));
 
-    // Video track — codec selected during encoder creation
-    let video_track = Arc::new(TrackLocalStaticSample::new(
-        RTCRtpCodecCapability {
-            mime_type: match encoders.video_codec {
-                VideoCodec::Vp8 => MIME_TYPE_VP8,
-                VideoCodec::H264 => MIME_TYPE_H264,
-            }
-            .to_owned(),
-            clock_rate: VP8_CLOCK_RATE,
-            channels: 0,
-            sdp_fmtp_line: match encoders.video_codec {
-                VideoCodec::Vp8 => String::new(),
-                VideoCodec::H264 => {
-                    "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
-                        .to_string()
-                }
-            },
-            rtcp_feedback: vec![],
-        },
-        VIDEO_TRACK_ID.to_owned(),
-        STREAM_ID.to_owned(),
-    ));
-    pc.add_track(Arc::clone(&video_track) as Arc<dyn TrackLocal + Send + Sync>)
-        .await
-        .map_err(|e| format!("add video track: {e}"))?;
-
-    // Audio track
-    let audio_track = Arc::new(TrackLocalStaticSample::new(
-        RTCRtpCodecCapability {
-            mime_type: MIME_TYPE_OPUS.to_owned(),
-            clock_rate: AUDIO_SAMPLE_RATE,
-            channels: AUDIO_CHANNELS,
-            sdp_fmtp_line: OPUS_SDP_FMTP.to_string(),
-            rtcp_feedback: vec![],
-        },
-        AUDIO_TRACK_ID.to_owned(),
-        STREAM_ID.to_owned(),
-    ));
-    pc.add_track(Arc::clone(&audio_track) as Arc<dyn TrackLocal + Send + Sync>)
-        .await
-        .map_err(|e| format!("add audio track: {e}"))?;
-
     // DataChannel receive
     let (dc_tx, mut dc_rx) =
         tokio::sync::mpsc::channel::<Arc<webrtc::data_channel::RTCDataChannel>>(1);
@@ -501,37 +532,7 @@ pub(super) async fn do_webrtc_handshake(
         },
     ));
 
-    // SDP exchange
-    let offer_desc = RTCSessionDescription::offer(offer_sdp.to_string())
-        .map_err(|e| format!("parse offer: {e}"))?;
-    pc.set_remote_description(offer_desc)
-        .await
-        .map_err(|e| format!("set remote: {e}"))?;
-    let answer = pc
-        .create_answer(None)
-        .await
-        .map_err(|e| format!("create answer: {e}"))?;
-    pc.set_local_description(answer)
-        .await
-        .map_err(|e| format!("set local: {e}"))?;
-
-    // Wait for ICE — gatherer sends None when "done", but relay candidates
-    // often arrive 0.5-2s after host/srflx. Wait an extra grace period so the
-    // SDP answer includes the relay candidate. Without it, relay↔relay pairs
-    // can't form and guest connections fail.
-    tokio::time::timeout(
-        Duration::from_secs(ICE_GATHERING_TIMEOUT_SECS),
-        done_rx.recv(),
-    )
-    .await
-    .map_err(|_| "ICE gathering timed out".to_string())?
-    .ok_or("ICE cancelled".to_string())?;
-
-    // Give late relay candidates time to populate
-    tokio::time::sleep(Duration::from_secs(3)).await;
-
-    let local_desc = pc.local_description().await.ok_or("no local desc")?;
-    let answer_sdp = SdpAnswer { sdp: local_desc.sdp };
+    let answer_sdp = exchange_sdp(&pc, offer_sdp, &mut done_rx).await?;
 
     // DataChannel auth — lifecycle-driven
     let dc_stream: Arc<tokio::sync::Mutex<Option<Arc<webrtc::data_channel::RTCDataChannel>>>> =
