@@ -46,9 +46,6 @@ pub(super) fn validate_peer_token(tokens: &[crate::config::PeerToken], offered: 
     })
 }
 
-pub(super) fn binary_input_allowed(role: Option<PeerRole>) -> bool {
-    matches!(role, Some(PeerRole::Host) | Some(PeerRole::Player))
-}
 
 pub(super) async fn handle_offer(
     headers: HeaderMap,
