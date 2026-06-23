@@ -348,7 +348,6 @@ var GvPlayer = class {
       console.log("[gv] track added, stream tracks:", this._mediaStream.getTracks().length);
       this._playbackDeferred = true;
       this._video.play().then(() => {
-        this._video.muted = false;
         this._playbackDeferred = false;
       }).catch((e) => {
         console.debug("play() deferred \u2014 waiting for user gesture:", e.message || e);
@@ -391,7 +390,6 @@ var GvPlayer = class {
       if (!this._playbackDeferred) return;
       this._playbackDeferred = false;
       this._video.play().then(() => {
-        this._video.muted = false;
       }).catch((e) => {
         console.debug("deferred play() still blocked:", e.message || e);
       });
@@ -407,6 +405,7 @@ var GvPlayer = class {
     document.addEventListener("touchstart", deferredPlay, true);
     document.addEventListener("keydown", deferredPlay, true);
     this._startPingInterval();
+    return this._pc;
   }
   /** @param {string} state */
   _setState(state, detail) {
@@ -816,10 +815,18 @@ var MODE = location.pathname.startsWith("/player") ? "direct" : "relay";
 console.log("[gv] mode:", MODE);
 var video = document.getElementById("video");
 var statusEl = document.getElementById("status");
+var routeEl = document.getElementById("route-indicator");
+var connectingOverlay = document.getElementById("connecting-overlay");
+var connectingDetail = document.getElementById("connecting-detail");
 function setStatus(msg, cls) {
   if (statusEl) {
     statusEl.textContent = msg;
     statusEl.className = cls || "";
+  }
+}
+function hideConnecting() {
+  if (connectingOverlay) {
+    connectingOverlay.classList.add("hidden");
   }
 }
 var ICE = [
@@ -837,22 +844,28 @@ async function directConnect() {
   player._seat = seat;
   player._role = role;
   player.onStateChange = (s, d) => {
-    if (s === State.CONNECTED) setStatus("connected", "ok");
-    else if (s === State.ERROR) setStatus(d || "error", "err");
+    if (s === State.CONNECTED) {
+      setStatus("connected", "ok");
+      hideConnecting();
+    } else if (s === State.ERROR) setStatus(d || "error", "err");
     else setStatus(s);
   };
   player._onRoute = (route, detail) => {
     console.log("[gv] route:", route, detail);
+    if (routeEl) {
+      const labels = { local: "LAN", direct: "Direct", relay: "Relay", failed: "Failed" };
+      routeEl.textContent = labels[route] || route;
+    }
   };
   setStatus("signaling\u2026");
   try {
     const pc = player._createPeerConnection();
-    const dc = pc.createDataChannel("diagnostics");
+    const dc = player._dc;
+    const prevOnOpen = dc.onopen;
     dc.onopen = () => {
+      if (prevOnOpen) prevOnOpen();
       if (player._sendMask) player._sendMask();
     };
-    player._dc = dc;
-    player._pc = pc;
     player._setState(State.CONNECTING);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -883,13 +896,17 @@ async function relayConnect() {
   const joinToken = q.get("join") || "";
   const player = new GvPlayer(video, { iceServers: ICE });
   player.onStateChange = (s, d) => {
-    if (s === State.CONNECTED) setStatus("connected", "ok");
-    else if (s === State.ERROR) setStatus(d || "error", "err");
+    if (s === State.CONNECTED) {
+      setStatus("connected", "ok");
+      hideConnecting();
+    } else if (s === State.ERROR) setStatus(d || "error", "err");
     else setStatus(s);
   };
   player._onRoute = (route, detail) => {
-    const el = document.getElementById("route-hint");
-    if (el) el.textContent = route + (detail ? ": " + detail : "");
+    if (routeEl) {
+      const labels = { local: "LAN", direct: "Direct", relay: "Relay", failed: "Failed" };
+      routeEl.textContent = labels[route] || route;
+    }
   };
   setStatus("connecting\u2026");
   try {

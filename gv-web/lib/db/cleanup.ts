@@ -7,9 +7,9 @@
 //   - Transitions stuck sessions to timed_out (>60s in spawning/ready/connected)
 
 import { db } from "@/lib/db";
-import { commands, sessions } from "@/lib/db/schema";
+import { commands, peerTokens, sessions } from "@/lib/db/schema";
 import { SESSION_STATE_TIMEOUT_MS, SESSION_SPAWNING, SESSION_READY, SESSION_CONNECTED } from "@/lib/constants";
-import { and, lt, ne, inArray } from "drizzle-orm";
+import { and, lt, ne, inArray, notInArray } from "drizzle-orm";
 
 const CLEANUP_INTERVAL_MS = 60_000;
 const COMMAND_RETENTION_MS = 3_600_000; // 1 hour
@@ -33,6 +33,18 @@ async function cleanupOnce() {
     // ── Delete old ended sessions ────────────────────────────────────
     const sessionCutoff = new Date(Date.now() - SESSION_RETENTION_MS);
     await db.delete(sessions).where(lt(sessions.endedAt, sessionCutoff));
+
+    // ── Delete orphaned peer tokens ─────────────────────────────────
+    // peer_tokens with no matching session (session was deleted above,
+    // or deleted by other means). Also clean up tokens for ended sessions
+    // that haven't been deleted yet — these stale rows inflate the seat
+    // count in room/join.
+    await db.delete(peerTokens).where(
+      notInArray(
+        peerTokens.sessionId,
+        db.select({ id: sessions.id }).from(sessions),
+      ),
+    );
 
     // ── Time out stuck sessions ─────────────────────────────────────
     const timeoutCutoff = new Date(Date.now() - SESSION_STATE_TIMEOUT_MS);

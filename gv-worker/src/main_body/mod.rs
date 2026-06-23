@@ -36,7 +36,7 @@ use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSampl
 use webrtc::track::track_local::TrackLocal;
 
 use crate::config::{
-    self, dc_auth_timeout_secs, ice_config, AUDIO_CHANNELS, AUDIO_SAMPLE_RATE, AUDIO_TRACK_ID,
+    self, ice_config, AUDIO_CHANNELS, AUDIO_SAMPLE_RATE, AUDIO_TRACK_ID,
     DC_RECEIVE_TIMEOUT_SECS, ICE_GATHERING_TIMEOUT_SECS, OPUS_SDP_FMTP, STATS_SEND_INTERVAL,
     STREAM_ID, VIDEO_TRACK_ID, VP8_CLOCK_RATE,
 };
@@ -184,7 +184,6 @@ pub(super) struct AppState {
 // ── HTTP handlers ───────────────────────────────────────────────────────────
 
 mod handlers;
-use handlers::validate_peer_token;
 
 // ── App builder ─────────────────────────────────────────────────────────────
 
@@ -233,7 +232,13 @@ pub async fn build_app() -> Result<Router, Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/", get(handlers::handle_root))
         .route("/player", get(handlers::handle_player))
-        .route("/player/player-bundle.js", get(|axum::extract::Path(_): axum::extract::Path<String>| async move {
+        .route("/player/index.js", get(|| async {
+            crate::player_assets::serve_player_file("index.js")
+        }))
+        .route("/player/player-entry.js", get(|| async {
+            crate::player_assets::serve_player_file("player-entry.js")
+        }))
+        .route("/player/player-bundle.js", get(|| async {
             crate::player_assets::serve_player_file("player-bundle.js")
         }))
         .route("/sdp", post(handlers::handle_offer))
@@ -511,7 +516,6 @@ fn spawn_dc_handler(
     let dc_stream_for_spawn = dc_stream.clone();
     let dc_state = Arc::clone(&state);
     let dc_peer_id = peer_token;
-    let dc_peer_tokens = state.peer_tokens.clone();
     let dc_core_cmd = core_cmd_tx;
     let dc_peer_role = peer_role;
     let dc_peer_seat = peer_seat;
@@ -535,34 +539,16 @@ fn spawn_dc_handler(
         };
         *dc_stream_for_spawn.lock().await = Some(dc.clone());
 
-        // Transition: Negotiating → Authenticating
+        // Transition: Negotiating → Active (no DC auth — SDP already validated)
         {
             let mut peers = dc_state.peers.lock().await;
             if let Some(peer) = peers.get_mut(&dc_peer_id) {
-                peer.lifecycle = PeerLifecycle::Authenticating {
-                    since: std::time::Instant::now(),
+                peer.lifecycle = PeerLifecycle::Active {
+                    role: dc_peer_role,
+                    seat: dc_peer_seat,
                 };
             }
         }
-
-        // Auth timeout — warn if no auth message received, but don't kill
-        // the connection. The DC on the browser side may take longer to open
-        // (SCTP association establishment races with ICE connection).
-        let auth_state = Arc::clone(&dc_state);
-        let auth_peer_id = dc_peer_id.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(dc_auth_timeout_secs())).await;
-            let mut peers = auth_state.peers.lock().await;
-            if let Some(peer) = peers.get_mut(&auth_peer_id) {
-                if matches!(peer.lifecycle, PeerLifecycle::Authenticating { .. }) {
-                    tracing::warn!("[DC] auth timeout for peer {:.8} — continuing anyway", &auth_peer_id[..8]);
-                    peer.lifecycle = PeerLifecycle::Active {
-                        role: dc_peer_role,
-                        seat: dc_peer_seat,
-                    };
-                }
-            }
-        });
 
         dc.on_message(Box::new({
             let dc_cmd = dc.clone();
@@ -571,7 +557,6 @@ fn spawn_dc_handler(
             move |msg| {
                 let dc = dc_cmd.clone();
                 let core_tx = dc_core_cmd.clone();
-                let peer_tokens = dc_peer_tokens.clone();
                 let seat = dc_peer_seat;
                 let state = Arc::clone(&dc_msg_state);
                 let pid = dc_msg_peer_id.clone();
@@ -616,24 +601,10 @@ fn spawn_dc_handler(
                     };
                     let cmd_type = cmd.get("cmd").and_then(|v| v.as_str()).unwrap_or("");
 
-                    // Auth — validate peer_token, transition to Active
+                    // Auth message — no-op. The SDP handshake already validated
+                    // this peer. The invite link is the auth. If you made it
+                    // here, you get audio/video.
                     if cmd_type == "auth" {
-                        if let Some(token) = cmd.get("peer_token").and_then(|v| v.as_str()) {
-                            let authorized = validate_peer_token(&peer_tokens, token).is_some();
-                            let mut peers = state.peers.lock().await;
-                            if let Some(peer) = peers.get_mut(&pid) {
-                                if !authorized {
-                                    tracing::warn!("[DC] auth failed — invalid peer_token");
-                                    peer.lifecycle = PeerLifecycle::Disconnected;
-                                    dc.close().await.ok();
-                                } else {
-                                    peer.lifecycle = PeerLifecycle::Active {
-                                        role: dc_peer_role,
-                                        seat: dc_peer_seat,
-                                    };
-                                }
-                            }
-                        }
                         return;
                     }
 

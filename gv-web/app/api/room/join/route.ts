@@ -77,15 +77,29 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Count existing peers for this session to assign the next seat.
-  // Reused client_id rows are returned above and do not consume another seat.
-  const [countResult] = await db
-    .select({ count: sql<number>`count(*)` })
+  // Without a client_id, this is a preview call (e.g. PlayPage resolving
+  // the session to show the UI). Don't create a peer_token — the actual
+  // join happens via play.js which always sends a client_id.
+  if (!clientId) {
+    return NextResponse.json({
+      worker_url: session.workerUrl,
+      game_id: session.gameId,
+      server_id: session.serverId,
+      max_seats: session.maxSeats,
+      worker_token: session.commandWorkerToken,
+    });
+  }
+
+  // Find the next available seat for this session.
+  // Use MAX(seat)+1 instead of COUNT(*) — COUNT(*) inflates when stale
+  // peer_tokens from disconnected guests linger in the DB without cleanup.
+  // host always occupies seat 0, so MAX(seat) is at least 0.
+  const [maxResult] = await db
+    .select({ max: sql<number>`coalesce(max(${peerTokens.seat}), 0)` })
     .from(peerTokens)
     .where(eq(peerTokens.sessionId, session.id));
 
-  const existingCount = countResult?.count ?? 0;
-  const seat = existingCount; // 0=host (already exists), 1=first guest, etc.
+  const seat = (maxResult?.max ?? 0) + 1; // 1=first guest, 2=second, etc.
   const role = seat < session.maxSeats ? "player" : "viewer";
 
   // Issue guest peer_token
