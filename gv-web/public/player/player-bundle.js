@@ -665,7 +665,8 @@ var GvPlayer = class {
       }
       try {
         const s = this._inputState;
-        this._dc.send(new Uint8Array([this._seat, s & 255, s >> 8]).buffer);
+        const buf = new Uint8Array([this._seat, s & 255, s >> 8]);
+        this._dc.send(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
         console.debug("[INPUT] sent mask port=%d state=0x%s", this._seat, s.toString(16).padStart(4, "0"));
       } catch (e) {
         console.warn("[INPUT] sendMask failed \u2014 DC may be closed:", e?.message || e);

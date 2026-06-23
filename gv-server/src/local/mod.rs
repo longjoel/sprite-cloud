@@ -26,6 +26,9 @@ pub struct AppState {
     /// Active game sessions: game_id → worker_url.
     /// Prevents duplicate spawns and enables "currently playing" UI.
     pub sessions: Mutex<HashMap<String, String>>,
+    /// Next available seat per game. First player gets seat 0 (host),
+    /// subsequent players get seats 1, 2, … (player role).
+    pub seat_counters: Mutex<HashMap<String, u32>>,
     /// Path to the gv-worker binary (from config or auto-detected).
     pub worker_bin: Option<String>,
 }
@@ -57,6 +60,7 @@ pub async fn serve(port: u16) -> anyhow::Result<()> {
         rom_roots,
         workers: Mutex::new(HashMap::new()),
         sessions: Mutex::new(HashMap::new()),
+        seat_counters: Mutex::new(HashMap::new()),
         worker_bin,
     });
 
@@ -67,12 +71,13 @@ pub async fn serve(port: u16) -> anyhow::Result<()> {
             tokio::time::sleep(Duration::from_secs(60)).await;
             let mut workers = state_clone.workers.lock().await;
             let mut sessions = state_clone.sessions.lock().await;
+            let mut counters = state_clone.seat_counters.lock().await;
             workers.retain(|url, worker| {
                 if worker.reap_if_exited() {
                     tracing::info!("[LOCAL] cleaned up exited worker {url}");
-                    // Clean up the session entry too
                     let gid = worker.game_id().to_string();
                     sessions.remove(&gid);
+                    counters.remove(&gid);
                     false
                 } else {
                     true
