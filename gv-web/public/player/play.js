@@ -196,6 +196,13 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
       if (iceConfig.iceTransportPolicy) {
         player._iceTransportPolicy = iceConfig.iceTransportPolicy;
       }
+      // Guest links are often opened from privacy-isolated/incognito contexts.
+      // Firefox advertises mDNS host candidates there, but webrtc-rs 0.17
+      // receives checks from the real LAN IP and rejects them as "no such remote".
+      // Force guests through TURN; hosts can still use direct/LAN paths.
+      if (joinToken) {
+        player._iceTransportPolicy = "relay";
+      }
       console.log("[gv] ICE config loaded:", iceConfig.iceServers.length, "server(s)");
     }
 
