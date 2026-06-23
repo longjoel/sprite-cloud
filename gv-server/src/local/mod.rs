@@ -6,6 +6,7 @@
 
 mod api;
 mod ui;
+mod poller;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -55,6 +56,8 @@ pub async fn serve(port: u16) -> anyhow::Result<()> {
 
     let rom_roots = config.rom.as_ref().map(|r| r.roots.clone()).unwrap_or_default();
     let worker_bin = config.gv_web.worker_bin.clone();
+    // Clone now before rom_roots moves into AppState — poller needs its own copy.
+    let poll_rom_roots = rom_roots.clone();
 
     let state = Arc::new(AppState {
         rom_roots,
@@ -85,6 +88,37 @@ pub async fn serve(port: u16) -> anyhow::Result<()> {
             });
         }
     });
+
+    // If gv_web config has valid auth, also relay web commands.
+    // gv-server local then serves double duty: LAN game browser + web relay.
+    if !config.auth.api_key.is_empty() && !config.auth.server_id.is_empty() {
+        let client = crate::gv_web::GvWebClient::new(
+            config.gv_web.url.clone(),
+            config.auth.clone(),
+        );
+        // Verify the API key
+        let metadata = crate::commands::collect_metadata(&config);
+        match client.verify_with_metadata(&metadata).await {
+            Ok(v) => {
+                tracing::info!(
+                    "[LOCAL] connected to gv-web as server {} (user: {})",
+                    v.server_id,
+                    v.user_id
+                );
+                let poll_state = Arc::clone(&state);
+                let roots = poll_rom_roots.clone();
+                tokio::spawn(async move {
+                    poller::run_poll_loop(poll_state, client, roots).await;
+                });
+                tracing::info!("[LOCAL] gv-web relay active — serving LAN + web");
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "[LOCAL] gv-web auth failed: {e:#} — web relay disabled"
+                );
+            }
+        }
+    }
 
     let app = Router::new()
         .route("/", get(ui::serve_index))
