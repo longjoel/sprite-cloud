@@ -272,8 +272,8 @@ pub fn reap_stale_workers() {
 
         // Verify the PID belongs to a worker process.
         //
-        // Standalone binary: comm = "gv-worker".
-        // Single-binary dispatch: comm = "gv-server", cmdline has "worker".
+        // Only gv-worker processes are valid — the worker is always
+        // a separate binary now (no more single-binary dispatch).
         // Zombies: can't verify via cmdline, but the process already exited.
         //   Just clean up the PID file and move on.
         let is_worker = if let Some(ref st) = state
@@ -284,20 +284,7 @@ pub fn reap_stale_workers() {
         } else {
             let comm_path = format!("/proc/{pid}/comm");
             if let Ok(comm) = std::fs::read_to_string(&comm_path) {
-                let comm = comm.trim();
-                if comm == "gv-worker" {
-                    true
-                } else if comm == "gv-server" {
-                    // Single-binary dispatch — verify cmdline has "worker"
-                    let cmdline_path = format!("/proc/{pid}/cmdline");
-                    if let Ok(cmdline) = std::fs::read(&cmdline_path) {
-                        cmdline.split(|&b| b == 0).any(|arg| arg == b"worker")
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
+                comm.trim() == "gv-worker"
             } else {
                 // /proc/<pid>/comm doesn't exist — process already dead
                 false
@@ -504,18 +491,13 @@ fn default_worker_bin() -> String {
 ///
 /// 1. `override` (from config.toml `gv_web.worker_bin`)
 /// 2. `GV_WORKER_BIN` env var
-/// 3. `current_exe` (single-binary deploy — dispatches as subcommand)
-/// 4. Auto-detect (`./target/release/gv-worker` → `./target/debug/gv-worker`)
+/// 3. Auto-detect (`./target/release/gv-worker` → `./target/debug/gv-worker`)
 pub fn resolve_worker_bin(override_: Option<&str>) -> String {
     if let Some(path) = override_ {
         return path.to_string();
     }
     if let Ok(path) = std::env::var("GV_WORKER_BIN") {
         return path;
-    }
-    // Single-binary: we ARE the worker
-    if let Ok(exe) = std::env::current_exe() {
-        return exe.to_string_lossy().to_string();
     }
     default_worker_bin()
 }
@@ -552,13 +534,7 @@ pub async fn spawn_worker(
 
     // Pass port 0 — gv-worker binds a random available port and prints it
     let mut cmd = Command::new(&bin);
-    // Single-binary: gv-server dispatches itself as a worker via subcommand.
-    // Standalone: gv-worker binary takes port as positional arg.
-    if bin == std::env::current_exe().map(|e| e.to_string_lossy().to_string()).unwrap_or_default() {
-        cmd.arg("worker").arg("0");
-    } else {
-        cmd.arg("0");
-    }
+    cmd.arg("0");
     cmd.stderr(std::process::Stdio::piped());
 
     // Bind to all interfaces so the health check and WebRTC media work
@@ -868,19 +844,15 @@ mod tests {
         unsafe { std::env::remove_var("GV_WORKER_BIN") };
     }
 
-    /// Auto-detect returns a valid path (dev build or current_exe for single-binary).
+    /// Auto-detect returns a valid path (dev build).
     #[test]
     fn auto_detect_returns_valid_path() {
         unsafe { std::env::remove_var("GV_WORKER_BIN") };
         let path = resolve_worker_bin(None);
-        let exe = std::env::current_exe()
-            .map(|e| e.to_string_lossy().to_string())
-            .unwrap_or_default();
         assert!(
             path == "./target/release/gv-worker"
-                || path == "./target/debug/gv-worker"
-                || path == exe,
-            "expected release/debug/current_exe path, got: {path}"
+                || path == "./target/debug/gv-worker",
+            "expected release/debug path, got: {path}"
         );
     }
 

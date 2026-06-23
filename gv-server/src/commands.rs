@@ -815,13 +815,13 @@ fn collect_component_versions(cfg: &config::Config) -> gv_web::VersionMetadata {
             artifacts.and_then(|a| a.gv_server.as_ref()),
         ),
         worker: component_version(
-            gv_worker::VERSION,
+            env!("CARGO_PKG_VERSION"),
             Some(normalize_binary_path(&worker_bin)),
             manifest_ref,
             artifacts.and_then(|a| a.gv_worker.as_ref()),
         ),
         runner: component_version(
-            gv_worker::LIBRETRO_RUNNER_VERSION,
+            libretro_runner::VERSION,
             None,
             manifest_ref,
             None,
