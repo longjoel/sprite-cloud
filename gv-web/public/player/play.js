@@ -54,6 +54,20 @@ function csrfHeaders() {
   return { "Content-Type": "application/json", "x-csrf-token": decodeURIComponent(token) };
 }
 
+function guestClientId() {
+  const key = "gv_guest_client_id";
+  try {
+    let id = sessionStorage.getItem(key);
+    if (!id) {
+      id = randomUUID();
+      sessionStorage.setItem(key, id);
+    }
+    return id;
+  } catch {
+    return randomUUID();
+  }
+}
+
 // ── Constants ───────────────────────────────────────────────────────
 
 const RECONNECT_DELAY_MS = 3_000;
@@ -194,7 +208,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
         const joinResp = await fetch("/api/room/join", {
           method: "POST",
           headers: csrfHeaders(),
-          body: JSON.stringify({ room_token: rt }),
+          body: JSON.stringify({ room_token: rt, client_id: guestClientId() }),
         });
         if (!joinResp.ok) {
           const errData = await joinResp.json().catch(() => ({}));
