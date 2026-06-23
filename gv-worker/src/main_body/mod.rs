@@ -117,6 +117,46 @@ struct PeerState {
     audio_track: Arc<TrackLocalStaticSample>,
 }
 
+/// Broadcast room state to all peers with an open DataChannel.
+async fn broadcast_room_state(state: &AppState) {
+    let peers = state.peers.lock().await;
+    let members: Vec<serde_json::Value> = peers
+        .iter()
+        .filter_map(|(id, p)| {
+            let (role, seat) = match &p.lifecycle {
+                PeerLifecycle::Active { role, seat } => (
+                    match role {
+                        PeerRole::Host => "host",
+                        PeerRole::Player => "player",
+                        PeerRole::Viewer => "viewer",
+                    },
+                    *seat,
+                ),
+                _ => return None, // skip Negotiating/Authenticating/Disconnected
+            };
+            Some(serde_json::json!({
+                "id": &id[..8.min(id.len())],
+                "seat": seat,
+                "role": role,
+            }))
+        })
+        .collect();
+
+    let msg = serde_json::json!({
+        "type": "room_state",
+        "members": members,
+    });
+    let msg_str = msg.to_string();
+
+    for (_, peer) in peers.iter() {
+        if let Some(dc) = peer.dc_stream.lock().await.as_ref() {
+            if dc.ready_state() == webrtc::data_channel::data_channel_state::RTCDataChannelState::Open {
+                let _ = dc.send_text(&msg_str).await;
+            }
+        }
+    }
+}
+
 pub(super) struct AppState {
     pub(super) cancel: Mutex<CancellationToken>,
     pub(super) stream_handle: Mutex<Option<JoinHandle<()>>>,
@@ -808,6 +848,9 @@ pub(super) async fn do_webrtc_handshake(
         peer_role
     );
 
+    // Broadcast updated room state to all connected peers
+    broadcast_room_state(&state).await;
+
     // Disconnect detection — tombstone as Disconnected (don't remove — reconnect semantics)
     let disconnect_state = Arc::clone(&state);
     let disconnect_peer_id = peer_id.clone();
@@ -825,6 +868,7 @@ pub(super) async fn do_webrtc_handshake(
                     if let Some(peer) = state.peers.lock().await.get_mut(&pid) {
                         peer.lifecycle = PeerLifecycle::Disconnected;
                     }
+                    broadcast_room_state(&state).await;
                 }
                 _ => {}
             }
