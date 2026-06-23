@@ -447,6 +447,21 @@ async fn do_webrtc_handshake(
         (cmd_tx, selected, venc, aenc, fps)
     };
 
+    // Reconnect semantics: one live PeerConnection per peer_token.
+    // Browser retries create a fresh ICE ufrag; keeping the old PC alive makes
+    // webrtc-rs reject the new checks as ErrMismatchUsername against the old
+    // remote ufrag. Close/remove stale attempts before accepting this offer.
+    let stale_peers = {
+        let mut peers = state.peers.lock().await;
+        peers
+            .extract_if(|id, _| id == peer_token || id.starts_with(&format!("{peer_token}-")))
+            .map(|(_, peer)| peer)
+            .collect::<Vec<_>>()
+    };
+    for peer in stale_peers {
+        let _ = peer.pc.close().await;
+    }
+
     // ── Build WebRTC stack (per-peer) ──
     let mut media_engine = MediaEngine::default();
     media_engine
@@ -772,15 +787,9 @@ async fn do_webrtc_handshake(
         }
     }
 
-    // Store peer in registry — use ACTUAL token as key (not hardcoded "host")
-    // Dedup: if same token connects twice (both browsers sending host_token), append suffix
-    let mut peer_id = peer_token.to_string();
-    {
-        let peers = state.peers.lock().await;
-        if peers.contains_key(&peer_id) {
-            peer_id = format!("{}-{}", peer_id, peers.len() + 1);
-        }
-    }
+    // Store peer in registry — use ACTUAL token as key (one live PC per token).
+    // Stale same-token peers are closed above before the new PC is created.
+    let peer_id = peer_token.to_string();
     state.peers.lock().await.insert(
         peer_id.clone(),
         PeerState {
