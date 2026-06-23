@@ -289,7 +289,6 @@ struct EncoderSet {
     video: Arc<tokio::sync::Mutex<GstVideoEncoder>>,
     audio: Arc<tokio::sync::Mutex<Option<GstAudioEncoder>>>,
     video_codec: VideoCodec,
-    core_fps: f64,
 }
 
 fn setup_encoders(core: &CoreHandle, offer_sdp: &str) -> Result<EncoderSet, String> {
@@ -314,7 +313,6 @@ fn setup_encoders(core: &CoreHandle, offer_sdp: &str) -> Result<EncoderSet, Stri
         video: venc,
         audio: aenc,
         video_codec: selected,
-        core_fps: core.fps,
     })
 }
 
@@ -323,14 +321,13 @@ async fn reuse_encoders(state: &AppState) -> Result<EncoderSet, String> {
         .ok_or("video encoder not available")?;
     let aenc = state.audio_enc.lock().await.clone()
         .ok_or("audio encoder not available")?;
-    let fps = *state.core_fps.lock().await;
+    let _fps = *state.core_fps.lock().await;
     let selected = venc.lock().await.codec();
 
     Ok(EncoderSet {
         video: venc,
         audio: aenc,
         video_codec: selected,
-        core_fps: fps,
     })
 }
 
@@ -743,7 +740,7 @@ pub(super) async fn do_webrtc_handshake(
     }));
 
     // DataChannel receive
-    let (dc_tx, mut dc_rx) =
+    let (dc_tx, dc_rx) =
         tokio::sync::mpsc::channel::<Arc<webrtc::data_channel::RTCDataChannel>>(1);
     pc.on_data_channel(Box::new(
         move |d: Arc<webrtc::data_channel::RTCDataChannel>| {
@@ -884,8 +881,8 @@ async fn probe_and_rebuild_encoder(
         let enc_w = enc.width();
         let enc_h = enc.height();
         let sf = enc.scale_factor();
-        let enc_core_w = if sf > 0 { enc_w / sf } else { enc_w };
-        let enc_core_h = if sf > 0 { enc_h / sf } else { enc_h };
+        let enc_core_w = enc_w.checked_div(sf).unwrap_or(enc_w);
+        let enc_core_h = enc_h.checked_div(sf).unwrap_or(enc_h);
         if frame_width != enc_core_w || frame_height != enc_core_h {
             tracing::info!(
                 "[STREAM] Resolution probe: encoder {ecw}×{ech}, actual {aw}×{ah} — rebuilding",
@@ -1068,7 +1065,7 @@ async fn send_stats(
     }
 }
 async fn stream_frames(ctx: StreamCtx) {
-    use webrtc::media::Sample;
+    
 
     let fps = *ctx.app_state.core_fps.lock().await;
     let frame_interval = Duration::from_secs_f64(1.0 / fps.max(1.0));
