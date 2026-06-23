@@ -180,8 +180,8 @@ pub(super) async fn handle_player(
     let html = format!(
         "{html}<script>\n\
 const JOIN=\"{join}\",ROOM=\"{room}\",WORKER=\"{worker}\";\n\
-const PEER_TOKEN=*** URLSearchParams(location.search).get(\"peer_token\")||\"\";\n\
-const WORKER_TOKEN=*** URLSearchParams(location.search).get(\"worker_token\")||\"\";\n\
+const PEER_TOKEN=new URLSearchParams(location.search).get(\"peer_token\")||\"\";\n\
+const WORKER_TOKEN=nuevo URLSearchParams(location.search).get(\"worker_token\")||\"\";\n\
 const SERVER_ID=new URLSearchParams(location.search).get(\"server_id\")||\"\";\n\
 const SEAT=parseInt(new URLSearchParams(location.search).get(\"seat\")||\"0\");\n\
 const ROLE=new URLSearchParams(location.search).get(\"role\")||\"player\";\n\
