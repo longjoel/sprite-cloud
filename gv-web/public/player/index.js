@@ -556,6 +556,8 @@ export class GvPlayer {
       this._playbackDeferred = true;
       this._video.play().then(() => {
         this._playbackDeferred = false;
+        this._video.muted = false;
+        console.log("[gv] audio unmuted");
       }).catch((e) => {
         console.debug("play() deferred — waiting for user gesture:", e.message || e);
       });
@@ -607,6 +609,7 @@ export class GvPlayer {
       if (!this._playbackDeferred) return;
       this._playbackDeferred = false;
       this._video.play().then(() => {
+        this._video.muted = false;
       }).catch((e) => {
         console.debug("deferred play() still blocked:", e.message || e);
       });
@@ -892,8 +895,7 @@ export class GvPlayer {
       }
       try {
         const s = this._inputState;
-        const buf = new Uint8Array([this._seat, s & 0xFF, s >> 8]);
-        this._dc.send(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+        this._dc.send(new Uint8Array([this._seat, s & 0xFF, s >> 8]).buffer);
         console.debug("[INPUT] sent mask port=%d state=0x%s", this._seat, s.toString(16).padStart(4, "0"));
       } catch (e) {
         console.warn("[INPUT] sendMask failed — DC may be closed:", e?.message || e);
