@@ -8,12 +8,8 @@ mod retry;
 mod scan;
 mod worker;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::time::Duration;
-use worker::SpawnedWorker;
 
 // ── CLI ───────────────────────────────────────────────────────────────
 
@@ -39,11 +35,6 @@ enum Command {
         /// gv-web base URL override (uses config value by default)
         #[arg(long)]
         gv_web_url: Option<String>,
-    },
-    /// Run as a gv-worker (internal — spawned by `gv-server start`)
-    Worker {
-        /// Port to bind (0 = random)
-        port: u16,
     },
     /// Start local HTTP server for LAN-only play (no pairing required)
     Local {
@@ -71,9 +62,6 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Pair { code, gv_web_url } => commands::cmd_pair(&code, &gv_web_url).await,
         Command::Start { gv_web_url } => commands::cmd_start(gv_web_url).await,
-        Command::Worker { port } => {
-            gv_worker::run_worker(port).await.map_err(|e| anyhow::anyhow!("{e}"))
-        }
         Command::Local { port } => local::serve(port).await,
     }
 }
