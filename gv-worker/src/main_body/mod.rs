@@ -554,8 +554,8 @@ fn spawn_dc_handler(
                 if matches!(peer.lifecycle, PeerLifecycle::Authenticating { .. }) {
                     tracing::warn!("[DC] auth timeout for peer {:.8} — continuing anyway", &auth_peer_id[..8]);
                     peer.lifecycle = PeerLifecycle::Active {
-                        role: PeerRole::Host,
-                        seat: 0,
+                        role: dc_peer_role,
+                        seat: dc_peer_seat,
                     };
                 }
             }

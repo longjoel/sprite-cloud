@@ -49,31 +49,72 @@
   <span id="hint">Q=Select W=Start | arrows=move | Z=B X=A</span>
 </div>
 <script>
-const q=new URLSearchParams(location.search);
-const PEER_TOKEN=q.get("peer_token")||"";
-const ROLE=q.get("role")||"player";
-const SEAT=parseInt(q.get("seat")||"0");
-const video=document.getElementById("video");
-const statusEl=document.getElementById("status");
+var q=new URLSearchParams(location.search);
+var PEER_TOKEN=q.get(...||"";
+var ROLE=q.get("role")||"player";
+var SEAT=parseInt(q.get("seat")||"0");
+var video=document.getElementById("video");
+var statusEl=document.getElementById("status");
 function setStatus(msg,cls){if(statusEl){statusEl.textContent=msg;statusEl.className=cls||""}}
-const ICE=[{urls:["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"]},{urls:"turn:lngnckr.tech:3478",username:"gv",credential:"43b908d07b1f25c97553d43d317ee5fb"}];
+var ICE=[{urls:["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"]},{urls:"turn:lngnckr.tech:3478",username:"gv",credential:"43b908d07b1f25c97553d43d317ee5fb"}];
+
+// RetroArch joypad bit mapping (NES subset)
+var KEY_MAP={
+  "ArrowUp":1,"ArrowDown":2,"ArrowLeft":4,"ArrowRight":8,
+  "z":64,"x":128,"Enter":16,"Shift":32,"w":32,"q":16,"a":64,"s":128,
+};
+var inputState=0;
+
+function sendInput(){
+  if(!dc||dc.readyState!=="open")return;
+  try{dc.send(new Uint8Array([SEAT,inputState&0xFF,inputState>>8]).buffer)}catch(e){}
+}
+
+var dc=null;
+
+document.addEventListener("keydown",function(e){
+  var bit=KEY_MAP[e.key.toLowerCase()]||KEY_MAP[e.key];
+  if(bit){inputState|=bit;sendInput();e.preventDefault()}
+});
+document.addEventListener("keyup",function(e){
+  var bit=KEY_MAP[e.key.toLowerCase()]||KEY_MAP[e.key];
+  if(bit){inputState&=~bit;sendInput();e.preventDefault()}
+});
+
 (async()=>{
 if(!video)return;
 try{
-const pc=new RTCPeerConnection({iceServers:ICE});
-pc.onconnectionstatechange=()=>{var cs=pc.connectionState;if(cs==="connected")setStatus("connected","ok");else if(cs==="disconnected"||cs==="failed")setStatus(cs,"err");else setStatus(cs)};
-pc.ontrack=e=>{if(!video.srcObject)video.srcObject=new MediaStream();video.srcObject.addTrack(e.track);video.play().catch(()=>{})};
+var pc=new RTCPeerConnection({iceServers:ICE});
+dc=pc.createDataChannel("diagnostics");
+dc.onopen=function(){sendInput()};
+
+pc.onconnectionstatechange=function(){
+  var cs=pc.connectionState;
+  if(cs==="connected")setStatus("connected","ok");
+  else if(cs==="disconnected"||cs==="failed")setStatus(cs,"err");
+  else setStatus(cs);
+};
+pc.ontrack=function(e){
+  if(!video.srcObject)video.srcObject=new MediaStream();
+  video.srcObject.addTrack(e.track);
+  video.play().catch(function(){});
+};
 pc.addTransceiver("video",{direction:"recvonly"});
 pc.addTransceiver("audio",{direction:"recvonly"});
 setStatus("signaling…");
 var offer=await pc.createOffer();
 await pc.setLocalDescription(offer);
-await new Promise(r=>{if(pc.iceGatheringState==="complete")r();else pc.addEventListener("icegatheringstatechange",()=>{if(pc.iceGatheringState==="complete")r()})});
+await new Promise(function(r){
+  if(pc.iceGatheringState==="complete")r();
+  else pc.addEventListener("icegatheringstatechange",function(){
+    if(pc.iceGatheringState==="complete")r();
+  });
+});
 setStatus("connecting…");
 var resp=await fetch("/sdp",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({sdp:pc.localDescription.sdp,peer_token:PEER_TOKEN,peer_role:ROLE,peer_seat:SEAT})});
 if(!resp.ok){setStatus("SDP failed: "+resp.status,"err");return}
 var answer=await resp.json();
-var clean=answer.sdp.split("\n").filter(l=>!l.trimStart().startsWith("a=extmap:")).join("\n");
+var clean=answer.sdp.split("\n").filter(function(l){return !l.trimStart().startsWith("a=extmap:")}).join("\n");
 await pc.setRemoteDescription({type:"answer",sdp:clean});
 console.log("[gv] WebRTC connected via direct SDP");
 }catch(e){setStatus(e.message,"err");console.error(e)}
