@@ -220,7 +220,7 @@ pub const VP8_CLOCK_RATE: u32 = 90_000;
 pub const STATS_SEND_INTERVAL: u64 = 5;
 pub const WORKER_IDLE_TIMEOUT_SECS: u64 = 30;
 pub const WORKER_STARTUP_TIMEOUT_SECS: u64 = 60;
-pub const ICE_GATHERING_TIMEOUT_SECS: u64 = 10;
+pub const ICE_GATHERING_TIMEOUT_SECS: u64 = 30;
 pub const DC_RECEIVE_TIMEOUT_SECS: u64 = 5;
 
 /// Auth timeout for DataChannel (seconds). GV_DC_AUTH_TIMEOUT_SECS, default 5.

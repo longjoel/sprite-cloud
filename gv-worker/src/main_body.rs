@@ -28,6 +28,7 @@ use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::APIBuilder;
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::ice::network_type::NetworkType;
+use webrtc::ice::mdns::MulticastDnsMode;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
 use webrtc::peer_connection::policy::ice_transport_policy::RTCIceTransportPolicy;
@@ -174,7 +175,13 @@ async fn handle_offer(
     State(state): State<Arc<AppState>>,
     Json(offer): Json<SdpOffer>,
 ) -> Result<Json<SdpAnswer>, (StatusCode, String)> {
-    require_control_token(&state, &headers).map_err(|s| (s, "unauthorized".into()))?;
+    // Allow control-token-less access when gv-web trusted fields (peer_role
+    // + peer_seat) are present — the inline player page gets these from the
+    // redirect URL which originated from gv-web's room/join (pre-validated).
+    let authenticated = offer.trusted_role_seat().is_some();
+    if !authenticated {
+        require_control_token(&state, &headers).map_err(|s| (s, "unauthorized".into()))?;
+    }
     if offer.sdp.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "empty SDP".into()));
     }
@@ -250,10 +257,66 @@ async fn handle_shutdown(
     Ok(StatusCode::OK)
 }
 
+// ── Inline player (LAN iframe) ──────────────────────────────────────────────
+// Chrome on HTTPS uses mDNS for host candidates. On HTTP it sends real IPs.
+// This handler serves a self-contained player page over HTTP so LAN guests
+// get real IP host candidates → prflx discovery → direct host↔host WebRTC.
+
 async fn handle_root() -> impl axum::response::IntoResponse {
     (
         StatusCode::OK,
         axum::response::Json(serde_json::json!({"status": "ok", "service": "gv-worker"})),
+    )
+}
+
+async fn handle_player(
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl axum::response::IntoResponse {
+    let join = params.get("join").cloned().unwrap_or_default();
+    let room = params.get("room").cloned().unwrap_or_default();
+    let worker = params.get("worker").cloned().unwrap_or_default();
+
+    let html = format!(
+        r#"<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GV Player</title>
+<style>body{{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden}}
+video{{max-width:100%;max-height:100%}}</style></head>
+<body><video id="v" autoplay playsinline muted></video>
+<script>
+const JOIN="{join}",ROOM="{room}",WORKER="{worker}";
+const PEER_TOKEN=new URLSearchParams(location.search).get("peer_token")||"";
+const WORKER_TOKEN=new URLSearchParams(location.search).get("worker_token")||"";
+const SERVER_ID=new URLSearchParams(location.search).get("server_id")||"";
+const SEAT=parseInt(new URLSearchParams(location.search).get("seat")||"0");
+const ROLE=new URLSearchParams(location.search).get("role")||"player";
+const ICE=[{{urls:["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"]}},{{urls:"turn:lngnckr.tech:3478",username:"gv",credential:"43b908d07b1f25c97553d43d317ee5fb"}}];
+(async()=>{{
+  const v=document.getElementById("v");
+  // Create PeerConnection — worker is the signaling server, so we post SDP directly
+  const pc=new RTCPeerConnection({{iceServers:ICE}});
+  pc.ontrack=e=>{{if(!v.srcObject)v.srcObject=new MediaStream();v.srcObject.addTrack(e.track);v.play().catch(()=>{{}})}};
+  pc.addTransceiver("video",{{direction:"recvonly"}});
+  pc.addTransceiver("audio",{{direction:"recvonly"}});
+  const offer=await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await new Promise(r=>{{if(pc.iceGatheringState==="complete")r();else pc.addEventListener("icegatheringstatechange",()=>{{if(pc.iceGatheringState==="complete")r()}})}});
+  // Post SDP directly to worker (we're ON the worker — no relay needed)
+  const sdpResp=await fetch("/sdp",{{method:"POST",headers:{{"Content-Type":"application/json"}},body:JSON.stringify({{sdp:pc.localDescription.sdp,peer_token:PEER_TOKEN,peer_role:ROLE,peer_seat:SEAT}})}});
+  if(!sdpResp.ok){{console.error("sdp failed",sdpResp.status);return}}
+  const answer=await sdpResp.json();
+  // Strip extmap to avoid webrtc-rs collision
+  const clean=answer.sdp.split("\\n").filter(l=>!l.trimStart().startsWith("a=extmap:")).join("\\n");
+  await pc.setRemoteDescription({{type:"answer",sdp:clean}});
+  console.log("[gv] WebRTC connected via direct SDP");
+}})();
+</script></body></html>"#
+    );
+
+    (
+        axum::http::StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        html,
     )
 }
 
@@ -303,6 +366,7 @@ pub async fn build_app() -> Result<Router, Box<dyn std::error::Error>> {
 
     let app = Router::new()
         .route("/", get(handle_root))
+        .route("/player", get(handle_player))
         .route("/sdp", post(handle_offer))
         .route("/state", get(handle_connection_state))
         .route("/health", get(handle_health))
@@ -475,6 +539,13 @@ async fn do_webrtc_handshake(
     let mut se = SettingEngine::default();
     se.set_ip_filter(Box::new(|ip: IpAddr| ip.is_ipv4()));
     se.set_network_types(vec![NetworkType::Udp4, NetworkType::Tcp4]);
+    // mDNS QueryOnly: worker sends REAL LAN IPs as host candidates (not .local),
+    // but still resolves remote .local candidates. This is critical for LAN guests
+    // in incognito/private windows: the browser can reach the worker's real IP,
+    // STUN binding request → worker discovers browser's real IP as prflx → connection.
+    // QueryAndGenerate (default) makes the worker send .local too, which the guest
+    // can't resolve → both sides send .local at each other → ICE fails.
+    se.set_ice_multicast_dns_mode(MulticastDnsMode::QueryOnly);
 
     let api = APIBuilder::new()
         .with_setting_engine(se)
@@ -590,7 +661,10 @@ async fn do_webrtc_handshake(
         .await
         .map_err(|e| format!("set local: {e}"))?;
 
-    // Wait for ICE
+    // Wait for ICE — gatherer sends None when "done", but relay candidates
+    // often arrive 0.5-2s after host/srflx. Wait an extra grace period so the
+    // SDP answer includes the relay candidate. Without it, relay↔relay pairs
+    // can't form and guest connections fail.
     tokio::time::timeout(
         Duration::from_secs(ICE_GATHERING_TIMEOUT_SECS),
         done_rx.recv(),
@@ -598,6 +672,9 @@ async fn do_webrtc_handshake(
     .await
     .map_err(|_| "ICE gathering timed out".to_string())?
     .ok_or("ICE cancelled".to_string())?;
+
+    // Give late relay candidates time to populate
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
     let local_desc = pc.local_description().await.ok_or("no local desc")?;
     let answer_sdp = SdpAnswer { sdp: local_desc.sdp };
