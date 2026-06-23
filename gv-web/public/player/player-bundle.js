@@ -108,6 +108,7 @@ var GvPlayer = class {
     this._iceTimeout = options && typeof options.iceTimeout === "number" ? options.iceTimeout : ICE_TIMEOUT_MS;
     this._disconnectedGrace = options && typeof options.disconnectedGrace === "number" ? options.disconnectedGrace : DISCONNECTED_GRACE_MS;
     this._gamepadMapping = options && options.gamepadMapping || DEFAULT_GAMEPAD_MAPPING;
+    this._nintendoLayout = false;
     this._pc = null;
     this._dc = null;
     this._state = State.IDLE;
@@ -349,6 +350,8 @@ var GvPlayer = class {
       this._playbackDeferred = true;
       this._video.play().then(() => {
         this._playbackDeferred = false;
+        this._video.muted = false;
+        console.log("[gv] audio unmuted");
       }).catch((e) => {
         console.debug("play() deferred \u2014 waiting for user gesture:", e.message || e);
       });
@@ -390,6 +393,7 @@ var GvPlayer = class {
       if (!this._playbackDeferred) return;
       this._playbackDeferred = false;
       this._video.play().then(() => {
+        this._video.muted = false;
       }).catch((e) => {
         console.debug("deferred play() still blocked:", e.message || e);
       });
@@ -657,6 +661,14 @@ var GvPlayer = class {
     }
     this._bitMap = BIT_MAP;
     this._defaultBitMap = DEFAULT_BIT_MAP;
+    try {
+      const nintendo = localStorage.getItem("gv-nintendo-layout");
+      if (nintendo === "1") {
+        this._nintendoLayout = true;
+        this._applyNintendoLayout();
+      }
+    } catch (_) {
+    }
     this._inputState = 0;
     const sendMask = () => {
       if (!this._dc || this._dc.readyState !== "open") {
@@ -780,6 +792,50 @@ var GvPlayer = class {
     }
     return this._bitMap;
   }
+  // ── Nintendo layout toggle ────────────────────────────────────
+  /** Toggle Nintendo button layout: swap A↔B, X↔Y.
+   *  Persists to localStorage under "gv-nintendo-layout".
+   *  @returns {boolean} new state (true = Nintendo layout active). */
+  toggleNintendoLayout() {
+    this._nintendoLayout = !this._nintendoLayout;
+    this._applyNintendoLayout();
+    try {
+      localStorage.setItem("gv-nintendo-layout", this._nintendoLayout ? "1" : "0");
+    } catch (_) {
+    }
+    this._updateControlsHint();
+    return this._nintendoLayout;
+  }
+  /** Apply Nintendo layout to BIT_MAP (called by toggle + setup). */
+  _applyNintendoLayout() {
+    if (this._nintendoLayout) {
+      this._bitMap.z = 8;
+      this._bitMap.x = 0;
+      this._bitMap.c = 1;
+      this._bitMap.v = 9;
+    } else {
+      this._bitMap.z = 0;
+      this._bitMap.x = 8;
+      this._bitMap.c = 9;
+      this._bitMap.v = 1;
+    }
+  }
+  /** Update the #controls-hint text and #nintendo-toggle button state. */
+  _updateControlsHint() {
+    const hint = document.getElementById("controls-hint");
+    const btn = document.getElementById("nintendo-toggle");
+    if (hint) {
+      if (this._nintendoLayout) {
+        hint.textContent = "Q=Start · W=Select · Arrows=Move · Z=A · X=B";
+      } else {
+        hint.textContent = "Q=Start · W=Select · Arrows=Move · Z=B · X=A";
+      }
+    }
+    if (btn) {
+      btn.textContent = this._nintendoLayout ? "🎮 NIN" : "🎮 SNES";
+      btn.classList.toggle("active", this._nintendoLayout);
+    }
+  }
   // ── Cleanup ──────────────────────────────────────────────────
 };
 if (typeof window !== "undefined" && typeof document !== "undefined") {
@@ -807,6 +863,18 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
         }
       });
       window.gvPlayer = player;
+
+      // Nintendo layout toggle button
+      const nintendoBtn = document.getElementById("nintendo-toggle");
+      if (nintendoBtn) {
+        nintendoBtn.addEventListener("click", () => {
+          player.toggleNintendoLayout();
+        });
+        if (player._nintendoLayout) {
+          nintendoBtn.textContent = "🎮 NIN";
+          nintendoBtn.classList.add("active");
+        }
+      }
     }
   }
 }
@@ -858,6 +926,14 @@ async function directConnect() {
       routeEl.textContent = labels[route] || route;
     }
   };
+  // Nintendo layout toggle
+  (() => {
+    const btn = document.getElementById("nintendo-toggle");
+    if (btn) {
+      btn.addEventListener("click", () => player.toggleNintendoLayout());
+      if (player._nintendoLayout) { btn.textContent = "🎮 NIN"; btn.classList.add("active"); }
+    }
+  })();
   setStatus("signaling\u2026");
   try {
     const pc = player._createPeerConnection();
@@ -909,6 +985,14 @@ async function relayConnect() {
       routeEl.textContent = labels[route] || route;
     }
   };
+  // Nintendo layout toggle
+  (() => {
+    const btn = document.getElementById("nintendo-toggle");
+    if (btn) {
+      btn.addEventListener("click", () => player.toggleNintendoLayout());
+      if (player._nintendoLayout) { btn.textContent = "🎮 NIN"; btn.classList.add("active"); }
+    }
+  })();
   setStatus("connecting\u2026");
   try {
     if (joinToken) {

@@ -112,6 +112,32 @@
     font-family: var(--font-mono);
   }
 
+  #nintendo-toggle {
+    font-size: var(--font-size-xs);
+    font-family: var(--font-mono);
+    background: transparent;
+    border: 1px solid var(--color-bamboo);
+    color: var(--color-muted);
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: 0.15s;
+    white-space: nowrap;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  #nintendo-toggle:hover {
+    color: var(--color-cream);
+    border-color: var(--color-brass);
+  }
+
+  #nintendo-toggle.active {
+    color: var(--color-lime);
+    border-color: var(--color-lime);
+    background: rgba(160,255,64,0.08);
+  }
+
   #status {
     font-size: var(--font-size-xs);
     color: var(--color-muted);
@@ -173,6 +199,7 @@
 
 <div id="bottom-bar">
   <span id="controls-hint">Q=Start · W=Select · Arrows=Move · Z=B · X=A</span>
+  <button id="nintendo-toggle" title="Nintendo layout — swap A↔B, X↔Y">🎮 SNES</button>
   <span id="status">connecting…</span>
 </div>
 
