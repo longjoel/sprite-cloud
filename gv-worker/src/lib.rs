@@ -14,11 +14,14 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const LIBRETRO_RUNNER_VERSION: &str = libretro_runner::VERSION;
 
 pub async fn run_worker(port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    // try_init so single-binary dispatch (gv-server worker) doesn't panic
+    // when the parent already initialized the global subscriber.
     tracing_subscriber::fmt()
         .json()
         .with_target(false)
         .with_current_span(false)
-        .init();
+        .try_init()
+        .ok();
 
     gstreamer::init().map_err(|e| format!("gst init: {e}"))?;
 

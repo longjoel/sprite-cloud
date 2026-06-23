@@ -2,6 +2,7 @@ mod config;
 mod commands;
 mod dat;
 mod gv_web;
+mod local;
 mod platform;
 mod retry;
 mod scan;
@@ -44,6 +45,12 @@ enum Command {
         /// Port to bind (0 = random)
         port: u16,
     },
+    /// Start local HTTP server for LAN-only play (no pairing required)
+    Local {
+        /// Port to listen on (default: 8090)
+        #[arg(long, default_value = "8090")]
+        port: u16,
+    },
 }
 
 // ── Entry point ───────────────────────────────────────────────────────
@@ -67,5 +74,6 @@ async fn main() -> Result<()> {
         Command::Worker { port } => {
             gv_worker::run_worker(port).await.map_err(|e| anyhow::anyhow!("{e}"))
         }
+        Command::Local { port } => local::serve(port).await,
     }
 }

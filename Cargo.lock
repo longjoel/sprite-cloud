@@ -1356,6 +1356,8 @@ name = "gv-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
+ "base64",
  "clap",
  "crc32fast",
  "dirs",
@@ -1373,6 +1375,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml 0.8.23",
+ "tower-http",
  "tracing",
  "tracing-subscriber",
  "url",
