@@ -12,10 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
-    extract::State,
-    http::{header, HeaderMap, StatusCode},
-    routing::{get, post},
-    Json, Router,
+    routing::{get, post}, Router,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -96,13 +93,26 @@ pub(super) enum PeerRole {
     Viewer,
 }
 
+/// Per-peer connection lifecycle state machine.
+/// Replaces ad-hoc Option<PeerRole> tracking with explicit states.
+#[derive(Debug, Clone)]
+enum PeerLifecycle {
+    /// WebRTC negotiation in progress (ICE gathering, SDP exchange, track setup)
+    Negotiating,
+    /// DataChannel received, waiting for auth message (with timeout)
+    Authenticating { since: std::time::Instant },
+    /// Fully connected and authorized — input, save/load, and commands allowed
+    Active { role: PeerRole, seat: u32 },
+    /// Connection failed, closed, or auth timed out — tombstone, swept on reconnect
+    Disconnected,
+}
+
 struct PeerState {
     pc: Arc<RTCPeerConnection>,
-    dc: Arc<tokio::sync::Mutex<Option<Arc<webrtc::data_channel::RTCDataChannel>>>>,
-    #[allow(dead_code)]
-    role: PeerRole,
-    #[allow(dead_code)]
-    seat: u32,
+    lifecycle: PeerLifecycle,
+    /// DataChannel send handle (for stats, core response forwarding).
+    /// Lifecycle enum tracks auth state; this is just the I/O pipe.
+    dc_stream: Arc<tokio::sync::Mutex<Option<Arc<webrtc::data_channel::RTCDataChannel>>>>,
     video_track: Arc<TrackLocalStaticSample>,
     audio_track: Arc<TrackLocalStaticSample>,
 }
@@ -134,7 +144,7 @@ pub(super) struct AppState {
 // ── HTTP handlers ───────────────────────────────────────────────────────────
 
 mod handlers;
-use handlers::{binary_input_allowed, validate_peer_token};
+use handlers::validate_peer_token;
 
 // ── App builder ─────────────────────────────────────────────────────────────
 
@@ -330,16 +340,15 @@ pub(super) async fn do_webrtc_handshake(
     // Reconnect semantics: one live PeerConnection per peer_token.
     // Browser retries create a fresh ICE ufrag; keeping the old PC alive makes
     // webrtc-rs reject the new checks as ErrMismatchUsername against the old
-    // remote ufrag. Close/remove stale attempts before accepting this offer.
-    let stale_peers = {
+    // remote ufrag. Close/sweep stale attempts before accepting this offer.
+    {
         let mut peers = state.peers.lock().await;
-        peers
-            .extract_if(|id, _| id == peer_token || id.starts_with(&format!("{peer_token}-")))
-            .map(|(_, peer)| peer)
-            .collect::<Vec<_>>()
-    };
-    for peer in stale_peers {
-        let _ = peer.pc.close().await;
+        // Close existing PC for this token (reconnect: close old, accept new)
+        if let Some(existing) = peers.get(peer_token) {
+            let _ = existing.pc.close().await;
+        }
+        // Sweep Disconnected tombstones (no live PC to close)
+        peers.retain(|_, p| !matches!(p.lifecycle, PeerLifecycle::Disconnected));
     }
 
     // ── Build WebRTC stack (per-peer) ──
@@ -495,12 +504,15 @@ pub(super) async fn do_webrtc_handshake(
     let local_desc = pc.local_description().await.ok_or("no local desc")?;
     let answer_sdp = SdpAnswer { sdp: local_desc.sdp };
 
-    // DataChannel auth
+    // DataChannel auth — lifecycle-driven
     let dc_stream: Arc<tokio::sync::Mutex<Option<Arc<webrtc::data_channel::RTCDataChannel>>>> =
         Arc::new(tokio::sync::Mutex::new(None));
     let dc_stream_for_spawn = dc_stream.clone();
+    let dc_state = Arc::clone(&state);
+    let dc_peer_id = peer_token.to_string();
     let dc_peer_tokens = state.peer_tokens.clone();
     let dc_core_cmd = core_cmd_tx.clone();
+    let dc_peer_role = peer_role;
     let dc_peer_seat = peer_seat;
 
     tokio::spawn(async move {
@@ -513,38 +525,68 @@ pub(super) async fn do_webrtc_handshake(
             Ok(Some(dc)) => dc,
             _ => {
                 tracing::info!("[DC] no DataChannel from browser");
+                // Transition to Disconnected — no DC means dead connection
+                if let Some(peer) = dc_state.peers.lock().await.get_mut(&dc_peer_id) {
+                    peer.lifecycle = PeerLifecycle::Disconnected;
+                }
                 return;
             }
         };
         *dc_stream_for_spawn.lock().await = Some(dc.clone());
 
-        let role: Arc<tokio::sync::Mutex<Option<PeerRole>>> =
-            Arc::new(tokio::sync::Mutex::new(Some(peer_role)));
+        // Transition: Negotiating → Authenticating
+        {
+            let mut peers = dc_state.peers.lock().await;
+            if let Some(peer) = peers.get_mut(&dc_peer_id) {
+                peer.lifecycle = PeerLifecycle::Authenticating {
+                    since: std::time::Instant::now(),
+                };
+            }
+        }
 
-        // Auth timeout
+        // Auth timeout — transition Authenticating → Disconnected if no auth message
+        let auth_state = Arc::clone(&dc_state);
+        let auth_peer_id = dc_peer_id.clone();
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(dc_auth_timeout_secs())).await;
+            let mut peers = auth_state.peers.lock().await;
+            if let Some(peer) = peers.get_mut(&auth_peer_id) {
+                if matches!(peer.lifecycle, PeerLifecycle::Authenticating { .. }) {
+                    tracing::warn!("[DC] auth timeout for peer {:.8}", &auth_peer_id[..8]);
+                    peer.lifecycle = PeerLifecycle::Disconnected;
+                    let _ = peer.pc.close().await;
+                }
+            }
         });
 
         dc.on_message(Box::new({
             let dc_cmd = dc.clone();
+            let dc_msg_state = Arc::clone(&dc_state);
+            let dc_msg_peer_id = dc_peer_id.clone();
             move |msg| {
                 let dc = dc_cmd.clone();
-                let role = role.clone();
                 let core_tx = dc_core_cmd.clone();
                 let peer_tokens = dc_peer_tokens.clone();
                 let seat = dc_peer_seat;
+                let state = Arc::clone(&dc_msg_state);
+                let pid = dc_msg_peer_id.clone();
                 Box::pin(async move {
                     // Binary input (3-byte RetroArch format) — SERVER-ASSIGNED seat
                     if msg.data.len() == 3 {
-                        if !binary_input_allowed(*role.lock().await) {
+                        let allowed = {
+                            let peers = state.peers.lock().await;
+                            peers.get(&pid)
+                                .map(|p| matches!(p.lifecycle, PeerLifecycle::Active { .. }))
+                                .unwrap_or(false)
+                        };
+                        if !allowed {
                             return;
                         }
-                        let state = u16::from_le_bytes([msg.data[1], msg.data[2]]);
+                        let input_state = u16::from_le_bytes([msg.data[1], msg.data[2]]);
                         if let Some(ref tx) = core_tx {
                             let _ = tx.try_send(CoreCommand::SetInput {
                                 port: seat,
-                                state,
+                                state: input_state,
                             });
                         }
                         return;
@@ -569,13 +611,22 @@ pub(super) async fn do_webrtc_handshake(
                     };
                     let cmd_type = cmd.get("cmd").and_then(|v| v.as_str()).unwrap_or("");
 
-                    // Auth — validate peer_token against authorized list
+                    // Auth — validate peer_token, transition to Active
                     if cmd_type == "auth" {
                         if let Some(token) = cmd.get("peer_token").and_then(|v| v.as_str()) {
                             let authorized = validate_peer_token(&peer_tokens, token).is_some();
-                            if !authorized {
-                                tracing::warn!("[DC] auth failed — invalid peer_token");
-                                dc.close().await.ok();
+                            let mut peers = state.peers.lock().await;
+                            if let Some(peer) = peers.get_mut(&pid) {
+                                if !authorized {
+                                    tracing::warn!("[DC] auth failed — invalid peer_token");
+                                    peer.lifecycle = PeerLifecycle::Disconnected;
+                                    dc.close().await.ok();
+                                } else {
+                                    peer.lifecycle = PeerLifecycle::Active {
+                                        role: dc_peer_role,
+                                        seat: dc_peer_seat,
+                                    };
+                                }
                             }
                         }
                         return;
@@ -594,13 +645,19 @@ pub(super) async fn do_webrtc_handshake(
                         return;
                     }
 
-                    // Role-gated: Host or Player can send input; only Host manages state
-                    let current_role = *role.lock().await;
-                    if current_role != Some(PeerRole::Host) && current_role != Some(PeerRole::Player)
-                    {
+                    // Role-gated: check lifecycle for permissions
+                    let (is_host, can_input) = {
+                        let peers = state.peers.lock().await;
+                        match peers.get(&pid).map(|p| &p.lifecycle) {
+                            Some(PeerLifecycle::Active { role, .. }) => {
+                                (*role == PeerRole::Host, *role == PeerRole::Host || *role == PeerRole::Player)
+                            }
+                            _ => (false, false),
+                        }
+                    };
+                    if !can_input {
                         return;
                     }
-                    let is_host = current_role == Some(PeerRole::Host);
                     match cmd_type {
                         "input" => {
                             if let (Some(key), Some(pressed)) = (
@@ -687,9 +744,8 @@ pub(super) async fn do_webrtc_handshake(
         peer_id.clone(),
         PeerState {
             pc: Arc::clone(&pc),
-            dc: dc_stream.clone(),
-            role: peer_role,
-            seat: peer_seat,
+            lifecycle: PeerLifecycle::Negotiating,
+            dc_stream: dc_stream.clone(),
             video_track: Arc::clone(&video_track),
             audio_track: Arc::clone(&audio_track),
         },
@@ -701,7 +757,7 @@ pub(super) async fn do_webrtc_handshake(
         peer_role
     );
 
-    // Disconnect detection — remove THIS peer only, do NOT cancel stream
+    // Disconnect detection — tombstone as Disconnected (don't remove — reconnect semantics)
     let disconnect_state = Arc::clone(&state);
     let disconnect_peer_id = peer_id.clone();
     pc.on_peer_connection_state_change(Box::new(move |s: RTCPeerConnectionState| {
@@ -715,7 +771,9 @@ pub(super) async fn do_webrtc_handshake(
                         &pid[..8.min(pid.len())],
                         s
                     );
-                    state.peers.lock().await.remove(&pid);
+                    if let Some(peer) = state.peers.lock().await.get_mut(&pid) {
+                        peer.lifecycle = PeerLifecycle::Disconnected;
+                    }
                 }
                 _ => {}
             }
@@ -984,7 +1042,7 @@ async fn stream_frames(ctx: StreamCtx) {
                     })) {
                         let peers = ctx.app_state.peers.lock().await;
                         for (_, peer) in peers.iter() {
-                            if let Some(dc) = peer.dc.lock().await.as_ref() {
+                            if let Some(dc) = peer.dc_stream.lock().await.as_ref() {
                                 let _ = dc.send_text(&stats).await;
                             }
                         }
