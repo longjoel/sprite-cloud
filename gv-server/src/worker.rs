@@ -260,25 +260,71 @@ pub fn reap_stale_workers() {
             }
         };
 
-        // Verify the PID still belongs to a gv-worker process.
-        // Between reading the PID file and sending a signal, the PID
-        // could have been recycled by the OS and reassigned to an
-        // unrelated process (e.g. a system daemon).
-        let comm_path = format!("/proc/{pid}/comm");
-        if let Ok(comm) = std::fs::read_to_string(&comm_path)
-            && comm.trim() != "gv-worker" {
-                tracing::warn!(
-                    "[REAPER] pid {pid} is not gv-worker (comm={}) — skipping",
-                    comm.trim()
-                );
-                let _ = std::fs::remove_file(&path);
-                continue;
+        // Check process state — zombies have empty cmdline/comm.
+        // We read /proc/<pid>/status for the State: field.
+        let state = std::fs::read_to_string(format!("/proc/{pid}/status"))
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find(|l| l.starts_with("State:"))
+                    .and_then(|l| l.split_whitespace().nth(1).map(|s| s.to_string()))
+            });
+
+        // Verify the PID belongs to a worker process.
+        //
+        // Standalone binary: comm = "gv-worker".
+        // Single-binary dispatch: comm = "gv-server", cmdline has "worker".
+        // Zombies: can't verify via cmdline, but the process already exited.
+        //   Just clean up the PID file and move on.
+        let is_worker = if let Some(ref st) = state
+            && st == "Z"
+        {
+            // Zombie process — already exited, identity was verified at spawn
+            true
+        } else {
+            let comm_path = format!("/proc/{pid}/comm");
+            if let Ok(comm) = std::fs::read_to_string(&comm_path) {
+                let comm = comm.trim();
+                if comm == "gv-worker" {
+                    true
+                } else if comm == "gv-server" {
+                    // Single-binary dispatch — verify cmdline has "worker"
+                    let cmdline_path = format!("/proc/{pid}/cmdline");
+                    if let Ok(cmdline) = std::fs::read(&cmdline_path) {
+                        cmdline.split(|&b| b == 0).any(|arg| arg == b"worker")
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                // /proc/<pid>/comm doesn't exist — process already dead
+                false
             }
-        // If /proc/<pid>/comm doesn't exist, the process is already dead.
-        // Clean up the PID file and move on.
+        };
+
+        if !is_worker {
+            tracing::warn!(
+                "[REAPER] pid {pid} is not a worker — removing stale PID file"
+            );
+            let _ = std::fs::remove_file(&path);
+            continue;
+        }
+
+        // Skip kill for zombies — they've already exited
+        if let Some(ref st) = state
+            && st == "Z"
+        {
+            tracing::info!(
+                "[REAPER] zombie worker pid {pid} — removing PID file"
+            );
+            let _ = std::fs::remove_file(&path);
+            continue;
+        }
 
         // SAFETY: libc::kill is async-signal-safe. SIGTERM requests graceful
-        // termination. We verified /proc/<pid>/comm matches gv-worker above.
+        // termination. We verified the process identity above.
         unsafe { libc::kill(pid as i32, libc::SIGTERM) };
 
         // Give it a moment, then SIGKILL if still alive
@@ -338,6 +384,11 @@ impl SpawnedWorker {
     /// The host token that owns this worker (set via GV_HOST_TOKEN).
     pub fn host_token(&self) -> Option<&str> {
         self.host_token.as_deref()
+    }
+
+    /// The game ID used in the PID filename.
+    pub fn game_id(&self) -> &str {
+        &self.game_id
     }
 
     /// Reap the child if it has exited.
