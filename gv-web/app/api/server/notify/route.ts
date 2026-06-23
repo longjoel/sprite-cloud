@@ -136,11 +136,12 @@ export async function POST(request: NextRequest) {
   // Determine target state
   const targetStatus = body.sdp_answer ? SESSION_CONNECTED : SESSION_READY;
 
-  // Generate room_token on notify (rotation on reconnect)
-  const roomToken = randomBytes(16).toString("hex");
+  let roomToken = byCmd?.roomToken || randomBytes(16).toString("hex");
 
   if (byCmd) {
-    // Found by command_id — update in place
+    // Found by command_id — update in place. Keep the existing room_token stable
+    // across SDP renegotiations; rotating it makes guest reconnects use stale
+    // share URLs and turns transient ICE failures into permanent 404 loops.
     await db
       .update(sessions)
       .set({
@@ -155,7 +156,7 @@ export async function POST(request: NextRequest) {
     // Not found by command_id (e.g. sdp_offer after start_game).
     // Find the most recent session for this game_id+server_id.
     const [byGame] = await db
-      .select({ id: sessions.id, hostToken: sessions.hostToken })
+      .select({ id: sessions.id, hostToken: sessions.hostToken, roomToken: sessions.roomToken })
       .from(sessions)
       .where(
         and(
@@ -167,6 +168,7 @@ export async function POST(request: NextRequest) {
       .limit(1);
 
     if (byGame) {
+      roomToken = byGame.roomToken || roomToken;
       await db
         .update(sessions)
         .set({
@@ -192,22 +194,6 @@ export async function POST(request: NextRequest) {
       });
     }
   }
-
-  // ── End stale duplicate sessions for this game_id+server_id ────────────
-  // Any session with a different room_token is a leftover from a prior
-  // connection — end it.
-  await db
-    .update(sessions)
-    .set({ status: SESSION_ENDED, endedAt: new Date(), roomToken: null })
-    .where(
-      and(
-        eq(sessions.gameId, body.game_id),
-        eq(sessions.serverId, server.id),
-        ne(sessions.roomToken, roomToken),
-        // only end sessions that aren't already ended
-        ne(sessions.status, SESSION_ENDED),
-      ),
-    );
 
   return NextResponse.json({ ok: true, room_token: roomToken });
 }
