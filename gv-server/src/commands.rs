@@ -833,7 +833,7 @@ fn collect_component_versions(cfg: &config::Config) -> gv_web::VersionMetadata {
 
 /// Collect non-secret server metadata for connectivity diagnostics.
 /// LAN addresses, ROM roots, ICE config summary — no credentials.
-fn collect_metadata(cfg: &config::Config) -> gv_web::ServerMetadata {
+pub(crate) fn collect_metadata(cfg: &config::Config) -> gv_web::ServerMetadata {
     let version = env!("CARGO_PKG_VERSION").to_string();
     let versions = collect_component_versions(cfg);
 
