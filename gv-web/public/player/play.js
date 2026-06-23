@@ -12,6 +12,20 @@ import { GvPlayer, State } from "./index.js";
 // crypto.randomUUID() is secure-context-only (HTTPS / localhost).
 // On plain HTTP we fall back to crypto.getRandomValues → Math.random.
 
+function isPrivateIP(host) {
+  // Check if an IP address is in a private/LAN range.
+  // Returns false for hostnames (not IPs), true for private IPs.
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!ipv4) return false;
+  const b1 = parseInt(ipv4[1], 10), b2 = parseInt(ipv4[2], 10);
+  return (
+    b1 === 10 ||                                    // 10.0.0.0/8
+    b1 === 127 ||                                   // 127.0.0.0/8 loopback
+    (b1 === 172 && b2 >= 16 && b2 <= 31) ||         // 172.16.0.0/12
+    (b1 === 192 && b2 === 168)                      // 192.168.0.0/16
+  );
+}
+
 function randomUUID() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -192,17 +206,17 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
     // Wait for ICE config, then apply to player
     const iceConfig = await iceConfigPromise;
     if (iceConfig && iceConfig.iceServers) {
+      console.log("[gv] applying ICE config:", iceConfig.iceServers.length, "servers, policy:", iceConfig.iceTransportPolicy);
       player._iceServers = iceConfig.iceServers;
       if (iceConfig.iceTransportPolicy) {
         player._iceTransportPolicy = iceConfig.iceTransportPolicy;
       }
-      // Guest links are often opened from privacy-isolated/incognito contexts.
-      // Firefox advertises mDNS host candidates there, but webrtc-rs 0.17
-      // receives checks from the real LAN IP and rejects them as "no such remote".
-      // Force guests through TURN; hosts can still use direct/LAN paths.
-      if (joinToken) {
-        player._iceTransportPolicy = "relay";
-      }
+      // Guest links: webrtc-rs 0.17.1 has a bug where relay↔relay candidate
+      // pairs fail to form (pingAllCandidates called with no candidate pairs).
+      // Forcing relay-only breaks guest connections completely.
+      // Let ICE use all candidate types; the srflx path will handle LAN guests.
+      // (mDNS host candidates in Firefox private windows are a separate issue —
+      //  they are resolvable only locally, not by the Rust ICE stack.)
       console.log("[gv] ICE config loaded:", iceConfig.iceServers.length, "server(s)");
     }
 
@@ -223,12 +237,34 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
         }
         const joinData = await joinResp.json();
         console.log("[gv] room/join response:", joinData);
-        // Use the issued peer_token as our auth token to the worker
         player._peerToken = joinData.peer_token;
         player._seat = joinData.seat;
         player._role = joinData.role;
-        // Use session's worker_token for polling (from start_game command)
         startGameToken = joinData.worker_token;
+
+        // LAN guest: redirect to worker's HTTP player page.
+        // Chrome on HTTP doesn't use mDNS → real IP host candidates →
+        // prflx discovery → direct host↔host WebRTC. No TURN needed.
+        // Redirect (not iframe) avoids CSP frame-src restrictions.
+        if (joinData.worker_url) {
+          try {
+            const workerHost = new URL(joinData.worker_url).hostname;
+            if (isPrivateIP(workerHost)) {
+              const redirectUrl = joinData.worker_url
+                + "/player?join=" + encodeURIComponent(rt)
+                + "&peer_token=" + encodeURIComponent(joinData.peer_token)
+                + "&worker_token=" + encodeURIComponent(joinData.worker_token || "")
+                + "&server_id=" + encodeURIComponent(joinData.server_id || "")
+                + "&seat=" + (joinData.seat ?? 0)
+                + "&role=" + encodeURIComponent(joinData.role || "player");
+              console.log("[gv] LAN worker detected (" + workerHost + "): redirecting to HTTP player →", redirectUrl);
+              window.location.href = redirectUrl;
+              return;
+            }
+          } catch (e) {
+            console.warn("[gv] LAN redirect setup failed:", e?.message || e);
+          }
+        }
       } else if (!gameStarted) {
         // Auto-start the game once. Reconnects should renegotiate against
         // the existing worker/session instead of recursively spawning a

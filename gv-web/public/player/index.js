@@ -117,6 +117,7 @@ function gvCsrfHeaders() {
 
 const SDP_ENDPOINT = "/sdp";
 const ICE_TIMEOUT_MS = 15_000;
+const ICE_CONNECT_TIMEOUT_MS = 60_000;
 const DISCONNECTED_GRACE_MS = 5_000;
 const PING_INTERVAL_MS = 2000;
 const MAX_PENDING_PINGS = 20;
@@ -332,10 +333,10 @@ export class GvPlayer {
 
     this._iceTimer = setTimeout(() => {
       if (this._state !== State.CONNECTED) {
-        this._setState(State.ERROR, "ICE gathering timed out");
+        this._setState(State.ERROR, "ICE connection timed out");
         this._cleanup();
       }
-    }, this._iceTimeout);
+    }, ICE_CONNECT_TIMEOUT_MS);
   }
 
   /**
@@ -408,8 +409,21 @@ export class GvPlayer {
     // Poll for the worker's SDP answer.
     // Use the start_game pollToken if available (ties to the session),
     // otherwise fall back to the sdp_offer's workerToken.
-    const answerSdp = await this._pollForAnswer(serverId, pollToken || workerToken);
+    let answerSdp = await this._pollForAnswer(serverId, pollToken || workerToken);
     console.log("[gv] SDP answer received, setting remote description");
+
+    // Normalize extmap: webrtc-rs 0.17.1 sometimes assigns different extmap IDs
+    // than the offer (e.g. video-timing at id=7 when offer used id=7 for TWCC).
+    // Chrome rejects setRemoteDescription on extmap ID collisions.
+    // Strip all a=extmap lines from the answer — Chrome falls back to the offer's
+    // extmap mappings, and the worker doesn't need RTP header extensions for
+    // basic video streaming.
+    answerSdp = answerSdp
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("a=extmap:"))
+      .join("\n");
+    const removed = (answerSdp.match(/a=extmap:/g) || []).length;
+    console.log("[gv] SDP extmap normalised, extmaps remaining:", removed);
 
     await this._pc.setRemoteDescription(
       new RTCSessionDescription({ type: "answer", sdp: answerSdp }),
@@ -420,10 +434,10 @@ export class GvPlayer {
 
     this._iceTimer = setTimeout(() => {
       if (this._state !== State.CONNECTED) {
-        this._setState(State.ERROR, "ICE gathering timed out");
+        this._setState(State.ERROR, "ICE connection timed out");
         this._cleanup();
       }
-    }, this._iceTimeout);
+    }, ICE_CONNECT_TIMEOUT_MS);
   }
 
   /** Tear down the peer connection. */
@@ -477,6 +491,12 @@ export class GvPlayer {
    * @private
    */
   _createPeerConnection() {
+    console.log("[gv] _createPeerConnection: iceServers=", this._iceServers?.length, "items, policy=", this._iceTransportPolicy);
+    if (this._iceServers?.length) {
+      this._iceServers.forEach((s, i) => {
+        console.log("[gv]   server[" + i + "]: urls=" + JSON.stringify(s.urls) + " user=" + (s.username || "none"));
+      });
+    }
     this._pc = new RTCPeerConnection({
       iceServers: this._iceServers,
       iceTransportPolicy: this._iceTransportPolicy,
@@ -639,6 +659,12 @@ export class GvPlayer {
       this._dc.close();
       this._dc = null;
     }
+    // Clean media stream — stale tracks poison reconnects.
+    if (this._mediaStream) {
+      this._mediaStream.getTracks().forEach(t => t.stop());
+      this._mediaStream = null;
+    }
+    this._video.srcObject = null;
     if (this._pc) {
       this._pc.onconnectionstatechange = null;
       this._pc.oniceconnectionstatechange = null;
@@ -663,24 +689,43 @@ export class GvPlayer {
   }
 
   async _waitForIceGatheringComplete() {
-    if (!this._pc || this._pc.iceGatheringState === "complete") return;
+    if (!this._pc) {
+      console.warn("[gv] _waitForIceGatheringComplete: no pc, returning");
+      return;
+    }
+    if (this._pc.iceGatheringState === "complete") {
+      console.log("[gv] _waitForIceGatheringComplete: already complete");
+      return;
+    }
 
-    await new Promise((resolve, reject) => {
-      const onStateChange = () => {
-        if (!this._pc || this._pc.iceGatheringState === "complete") finish(resolve);
-      };
-      const finish = (fn) => {
-        clearTimeout(timeout);
-        this._pc?.removeEventListener?.("icegatheringstatechange", onStateChange);
-        fn();
-      };
-      const timeout = setTimeout(() => {
-        finish(() => reject(new Error("Timed out waiting for local ICE candidates")));
-      }, this._iceTimeout);
+    const isRelayOnly = this._iceTransportPolicy === "relay";
+    const timeout = isRelayOnly ? 60_000 : this._iceTimeout;
 
-      this._pc.addEventListener?.("icegatheringstatechange", onStateChange);
-      onStateChange();
-    });
+    console.log("[gv] _waitForIceGatheringComplete: waiting (state=" + this._pc.iceGatheringState + ", timeout=" + timeout + "ms, relay=" + isRelayOnly + ")");
+
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      await new Promise((r) => setTimeout(r, 250));
+      if (!this._pc) {
+        console.warn("[gv] _waitForIceGatheringComplete: pc nulled during wait");
+        return;
+      }
+      const st = this._pc.iceGatheringState;
+      if (st === "complete") {
+        // For relay-only, also verify the SDP actually contains candidates.
+        // Chrome may report "complete" before adding relay candidates to the SDP.
+        if (isRelayOnly) {
+          const sdp = this._pc.localDescription?.sdp || "";
+          if (!sdp.includes("a=candidate:")) {
+            continue; // still waiting for relay candidate in SDP
+          }
+        }
+        console.log("[gv] _waitForIceGatheringComplete: complete after " + (Date.now() - start) + "ms");
+        return;
+      }
+    }
+
+    console.warn("[gv] _waitForIceGatheringComplete: timed out after " + timeout + "ms (state=" + (this._pc?.iceGatheringState || "null") + "), sending partial offer");
   }
 
   /**
