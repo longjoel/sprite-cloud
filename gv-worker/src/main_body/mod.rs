@@ -456,92 +456,23 @@ async fn exchange_sdp(
     Ok(SdpAnswer { sdp: local_desc.sdp })
 }
 
-// ── WebRTC handshake ────────────────────────────────────────────────────────
 
-pub(super) async fn do_webrtc_handshake(
+fn spawn_dc_handler(
     state: Arc<AppState>,
-    offer_sdp: &str,
-    peer_token: &str,
+    peer_token: String,
     peer_role: PeerRole,
     peer_seat: u32,
-) -> Result<SdpAnswer, String> {
-    // Check if this is the first peer (needs to load core + spawn stream)
-    let is_first_peer = !state.core_loaded.load(Ordering::Relaxed);
-
-    let (core_cmd_tx, encoders) = if is_first_peer {
-        let core = load_core(&state).await?;
-        let encoders = setup_encoders(&core, offer_sdp)?;
-        // Store in AppState for subsequent peers
-        *state.core_width.lock().await = core.width;
-        *state.core_height.lock().await = core.height;
-        *state.core_fps.lock().await = core.fps;
-        *state.video_enc.lock().await = Some(encoders.video.clone());
-        *state.audio_enc.lock().await = Some(encoders.audio.clone());
-        *state.core_cmd_tx.lock().await = core.cmd_tx.clone();
-        *state.core_frame_rx.lock().await = core.frame_rx;
-        *state.core_response_rx.lock().await = core.response_rx;
-
-        (core.cmd_tx, encoders)
-    } else {
-        let encoders = reuse_encoders(&state).await?;
-        let cmd_tx = state.core_cmd_tx.lock().await.clone();
-        (cmd_tx, encoders)
-    };
-
-    // Reconnect semantics: one live PeerConnection per peer_token.
-    // Browser retries create a fresh ICE ufrag; keeping the old PC alive makes
-    // webrtc-rs reject the new checks as ErrMismatchUsername against the old
-    // remote ufrag. Close/sweep stale attempts before accepting this offer.
-    {
-        let mut peers = state.peers.lock().await;
-        // Close existing PC for this token (reconnect: close old, accept new)
-        if let Some(existing) = peers.get(peer_token) {
-            let _ = existing.pc.close().await;
-        }
-        // Sweep Disconnected tombstones (no live PC to close)
-        peers.retain(|_, p| !matches!(p.lifecycle, PeerLifecycle::Disconnected));
-    }
-
-    // ── Build WebRTC stack + exchange SDP ──
-    let WebRtcStack { pc, video_track, audio_track } =
-        build_webrtc_stack(encoders.video_codec).await?;
-
-    // ICE gathering callback (must be set before exchange_sdp)
-    let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
-    pc.on_ice_candidate(Box::new({
-        let done_tx = done_tx.clone();
-        move |candidate: Option<webrtc::ice_transport::ice_candidate::RTCIceCandidate>| {
-            let done_tx = done_tx.clone();
-            Box::pin(async move {
-                if candidate.is_none() {
-                    let _ = done_tx.try_send(());
-                }
-            })
-        }
-    }));
-
-    // DataChannel receive
-    let (dc_tx, mut dc_rx) =
-        tokio::sync::mpsc::channel::<Arc<webrtc::data_channel::RTCDataChannel>>(1);
-    pc.on_data_channel(Box::new(
-        move |d: Arc<webrtc::data_channel::RTCDataChannel>| {
-            let tx = dc_tx.clone();
-            Box::pin(async move {
-                let _ = tx.send(d).await;
-            })
-        },
-    ));
-
-    let answer_sdp = exchange_sdp(&pc, offer_sdp, &mut done_rx).await?;
-
+    core_cmd_tx: Option<std::sync::mpsc::SyncSender<CoreCommand>>,
+    mut dc_rx: tokio::sync::mpsc::Receiver<Arc<webrtc::data_channel::RTCDataChannel>>,
+) -> Arc<tokio::sync::Mutex<Option<Arc<webrtc::data_channel::RTCDataChannel>>>> {
     // DataChannel auth — lifecycle-driven
     let dc_stream: Arc<tokio::sync::Mutex<Option<Arc<webrtc::data_channel::RTCDataChannel>>>> =
         Arc::new(tokio::sync::Mutex::new(None));
     let dc_stream_for_spawn = dc_stream.clone();
     let dc_state = Arc::clone(&state);
-    let dc_peer_id = peer_token.to_string();
+    let dc_peer_id = peer_token;
     let dc_peer_tokens = state.peer_tokens.clone();
-    let dc_core_cmd = core_cmd_tx.clone();
+    let dc_core_cmd = core_cmd_tx;
     let dc_peer_role = peer_role;
     let dc_peer_seat = peer_seat;
 
@@ -745,6 +676,95 @@ pub(super) async fn do_webrtc_handshake(
         }));
     });
 
+    dc_stream
+}
+// ── WebRTC handshake ────────────────────────────────────────────────────────
+
+pub(super) async fn do_webrtc_handshake(
+    state: Arc<AppState>,
+    offer_sdp: &str,
+    peer_token: &str,
+    peer_role: PeerRole,
+    peer_seat: u32,
+) -> Result<SdpAnswer, String> {
+    // Check if this is the first peer (needs to load core + spawn stream)
+    let is_first_peer = !state.core_loaded.load(Ordering::Relaxed);
+
+    let (core_cmd_tx, encoders) = if is_first_peer {
+        let core = load_core(&state).await?;
+        let encoders = setup_encoders(&core, offer_sdp)?;
+        // Store in AppState for subsequent peers
+        *state.core_width.lock().await = core.width;
+        *state.core_height.lock().await = core.height;
+        *state.core_fps.lock().await = core.fps;
+        *state.video_enc.lock().await = Some(encoders.video.clone());
+        *state.audio_enc.lock().await = Some(encoders.audio.clone());
+        *state.core_cmd_tx.lock().await = core.cmd_tx.clone();
+        *state.core_frame_rx.lock().await = core.frame_rx;
+        *state.core_response_rx.lock().await = core.response_rx;
+
+        (core.cmd_tx, encoders)
+    } else {
+        let encoders = reuse_encoders(&state).await?;
+        let cmd_tx = state.core_cmd_tx.lock().await.clone();
+        (cmd_tx, encoders)
+    };
+
+    // Reconnect semantics: one live PeerConnection per peer_token.
+    // Browser retries create a fresh ICE ufrag; keeping the old PC alive makes
+    // webrtc-rs reject the new checks as ErrMismatchUsername against the old
+    // remote ufrag. Close/sweep stale attempts before accepting this offer.
+    {
+        let mut peers = state.peers.lock().await;
+        // Close existing PC for this token (reconnect: close old, accept new)
+        if let Some(existing) = peers.get(peer_token) {
+            let _ = existing.pc.close().await;
+        }
+        // Sweep Disconnected tombstones (no live PC to close)
+        peers.retain(|_, p| !matches!(p.lifecycle, PeerLifecycle::Disconnected));
+    }
+
+    // ── Build WebRTC stack + exchange SDP ──
+    let WebRtcStack { pc, video_track, audio_track } =
+        build_webrtc_stack(encoders.video_codec).await?;
+
+    // ICE gathering callback (must be set before exchange_sdp)
+    let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
+    pc.on_ice_candidate(Box::new({
+        let done_tx = done_tx.clone();
+        move |candidate: Option<webrtc::ice_transport::ice_candidate::RTCIceCandidate>| {
+            let done_tx = done_tx.clone();
+            Box::pin(async move {
+                if candidate.is_none() {
+                    let _ = done_tx.try_send(());
+                }
+            })
+        }
+    }));
+
+    // DataChannel receive
+    let (dc_tx, mut dc_rx) =
+        tokio::sync::mpsc::channel::<Arc<webrtc::data_channel::RTCDataChannel>>(1);
+    pc.on_data_channel(Box::new(
+        move |d: Arc<webrtc::data_channel::RTCDataChannel>| {
+            let tx = dc_tx.clone();
+            Box::pin(async move {
+                let _ = tx.send(d).await;
+            })
+        },
+    ));
+
+    let answer_sdp = exchange_sdp(&pc, offer_sdp, &mut done_rx).await?;
+
+    // DataChannel auth — lifecycle-driven
+    let dc_stream = spawn_dc_handler(
+        Arc::clone(&state),
+        peer_token.to_string(),
+        peer_role,
+        peer_seat,
+        core_cmd_tx,
+        dc_rx,
+    );
     // Core response drain (first peer only — response_rx is single-consumer)
     if is_first_peer {
         if let Some(core_response_rx) = state.core_response_rx.lock().await.take() {
