@@ -279,7 +279,7 @@ pub fn by_extension(ext: &str) -> Option<&'static PlatformManifest> {
 /// to test pattern.
 pub fn core_for_platform(name: &str) -> Option<&'static str> {
     // Env var override takes priority
-    let override_key = name.replace(' ', "_").replace('-', "_");
+    let override_key = name.replace([' ', '-'], "_");
     let env_key = format!("GV_CORE_OVERRIDE_{override_key}");
     if let Ok(custom) = std::env::var(&env_key) {
         // Leak is intentional — the override string lives for the
@@ -325,17 +325,6 @@ pub fn dat_system_name(ext: &str) -> Option<&'static str> {
         .iter()
         .find(|p| p.extensions.contains(&ext))
         .and_then(|p| p.aliases.first().copied())
-}
-
-/// All known ROM extensions (flat list, deduplicated).
-pub fn all_extensions() -> Vec<&'static str> {
-    let mut exts: Vec<&str> = PLATFORMS
-        .iter()
-        .flat_map(|p| p.extensions.iter().copied())
-        .collect();
-    exts.sort_unstable();
-    exts.dedup();
-    exts
 }
 
 /// Detect a platform name from a file path.

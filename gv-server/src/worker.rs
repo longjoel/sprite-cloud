@@ -11,7 +11,6 @@
 //! kills orphaned processes.
 
 use anyhow::{Context, Result};
-use libc;
 use rand::{Rng, distributions::Alphanumeric};
 use std::path::PathBuf;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -76,22 +75,27 @@ async fn ensure_core(core_filename: &str, client: &reqwest::Client) -> Result<Pa
     }
 
     // Serialize downloads of the same core
-    {
+    let already_downloading = {
         let mut inflight = DOWNLOADING
             .lock()
             .map_err(|e| format!("lock poisoned: {e}"))?;
         if inflight.contains(core_filename) {
-            drop(inflight);
-            // Another task is downloading — poll until the file appears
-            for _ in 0..60 {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                if core_path.exists() {
-                    return Ok(core_path);
-                }
-            }
-            return Err("timed out waiting for concurrent core download".into());
+            true
+        } else {
+            inflight.insert(core_filename.to_string());
+            false
         }
-        inflight.insert(core_filename.to_string());
+    };
+
+    if already_downloading {
+        // Another task is downloading — poll until the file appears
+        for _ in 0..60 {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            if core_path.exists() {
+                return Ok(core_path);
+            }
+        }
+        return Err("timed out waiting for concurrent core download".into());
     }
 
     // Download + extract
@@ -182,6 +186,7 @@ async fn download_and_extract(
 
 /// Test-only entry point for `ensure_core`.
 #[doc(hidden)]
+#[allow(dead_code)]
 pub async fn ensure_core_for_test(
     core_filename: &str,
     client: &reqwest::Client,
@@ -211,6 +216,14 @@ fn worker_host() -> String {
 /// Path to the PID file for a given game_id.
 fn pid_path(game_id: &str) -> PathBuf {
     PathBuf::from(WORKER_PID_DIR).join(format!("{game_id}.pid"))
+}
+
+fn write_pid_file(game_id: &str, pid: u32) {
+    if let Err(e) = std::fs::create_dir_all(WORKER_PID_DIR) {
+        tracing::warn!("[WORKER] create pid dir failed (non-fatal): {e}");
+    } else if let Err(e) = std::fs::write(pid_path(game_id), pid.to_string()) {
+        tracing::warn!("[WORKER] write pid file failed (non-fatal): {e}");
+    }
 }
 
 // ── Reaper — kill stale workers from previous runs ────────────────────
@@ -252,8 +265,8 @@ pub fn reap_stale_workers() {
         // could have been recycled by the OS and reassigned to an
         // unrelated process (e.g. a system daemon).
         let comm_path = format!("/proc/{pid}/comm");
-        if let Ok(comm) = std::fs::read_to_string(&comm_path) {
-            if comm.trim() != "gv-worker" {
+        if let Ok(comm) = std::fs::read_to_string(&comm_path)
+            && comm.trim() != "gv-worker" {
                 tracing::warn!(
                     "[REAPER] pid {pid} is not gv-worker (comm={}) — skipping",
                     comm.trim()
@@ -261,7 +274,6 @@ pub fn reap_stale_workers() {
                 let _ = std::fs::remove_file(&path);
                 continue;
             }
-        }
         // If /proc/<pid>/comm doesn't exist, the process is already dead.
         // Clean up the PID file and move on.
 
@@ -406,17 +418,19 @@ impl SpawnedWorker {
 
 impl Drop for SpawnedWorker {
     fn drop(&mut self) {
-        if let Some(mut child) = self.child.take() {
+        if let Some(child) = self.child.take() {
             let pid = child.id().unwrap_or(0);
+            // Drop the tokio handle so the inner std Child's fd is closed,
+            // but the process lives on (we haven't waited yet).
+            drop(child);
             if pid > 0 {
                 // SAFETY: SIGKILL is async-signal-safe. The child is
                 // a gv-worker process we spawned.
                 unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+                // SAFETY: waitpid reaps the zombie. WNOHANG=0 blocks until
+                // the process exits (which it will immediately — we SIGKILL'd it).
+                unsafe { libc::waitpid(pid as i32, std::ptr::null_mut(), 0) };
             }
-            // Blocking wait is acceptable in Drop — the process was
-            // just SIGKILL'd and should exit immediately. Without
-            // this, the child becomes a zombie.
-            let _ = child.wait();
         }
         let _ = std::fs::remove_file(pid_path(&self.game_id));
     }
@@ -528,8 +542,8 @@ pub async fn spawn_worker(
     }
 
     // Map platform to a libretro core — download if missing
-    if let Some(plat) = platform {
-        if let Some(core_file) = core_for_platform(plat) {
+    if let Some(plat) = platform
+        && let Some(core_file) = core_for_platform(plat) {
             // Build an HTTP client for core downloads
             let dl_client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(120))
@@ -559,7 +573,6 @@ pub async fn spawn_worker(
                 }
             }
         }
-    }
 
     // Forward ICE (STUN/TURN) configuration to the worker for WebRTC.
     for key in &[
@@ -582,11 +595,7 @@ pub async fn spawn_worker(
     let pid = child
         .id()
         .context("child process has no PID (already exited?)")?;
-    if let Err(e) = std::fs::create_dir_all(WORKER_PID_DIR) {
-        tracing::warn!("[WORKER] create pid dir failed (non-fatal): {e}");
-    } else if let Err(e) = std::fs::write(pid_path(game_id), pid.to_string()) {
-        tracing::warn!("[WORKER] write pid file failed (non-fatal): {e}");
-    }
+    write_pid_file(game_id, pid);
 
     let stderr = child.stderr.take().context("no stderr pipe")?;
     let mut reader = BufReader::new(stderr).lines();
@@ -682,8 +691,7 @@ mod tests {
         let pid = child.id().expect("child has pid");
 
         // Write a PID file manually (simulating what spawn_worker does)
-        std::fs::create_dir_all(WORKER_PID_DIR).unwrap();
-        std::fs::write(pid_path(game_id), pid.to_string()).unwrap();
+        write_pid_file(game_id, pid);
 
         let worker = SpawnedWorker {
             url: "http://localhost:9999".into(),
@@ -719,8 +727,7 @@ mod tests {
 
         let pid = child.id().expect("child has pid");
 
-        std::fs::create_dir_all(WORKER_PID_DIR).unwrap();
-        std::fs::write(pid_path(game_id), pid.to_string()).unwrap();
+        write_pid_file(game_id, pid);
 
         // Drop the child handle — we're simulating a crash where the handle is lost.
         drop(child);
@@ -745,8 +752,7 @@ mod tests {
         let game_id = "test-reap-dead";
         let pid = 99999; // almost certainly not running
 
-        std::fs::create_dir_all(WORKER_PID_DIR).unwrap();
-        std::fs::write(pid_path(game_id), pid.to_string()).unwrap();
+        write_pid_file(game_id, pid);
 
         reap_stale_workers();
 
@@ -768,8 +774,7 @@ mod tests {
 
         let pid = child.id().expect("child has pid");
 
-        std::fs::create_dir_all(WORKER_PID_DIR).unwrap();
-        std::fs::write(pid_path(game_id), pid.to_string()).unwrap();
+        write_pid_file(game_id, pid);
 
         let worker = SpawnedWorker {
             url: "http://localhost:9999".into(),
