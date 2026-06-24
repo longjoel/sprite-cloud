@@ -210,7 +210,6 @@ async fn build_webrtc_stack(video_codec: VideoCodec) -> Result<WebRtcStack, Stri
             urls: s.urls.clone(),
             username: s.username.clone().unwrap_or_default(),
             credential: s.credential.clone().unwrap_or_default(),
-            ..Default::default()
         })
         .collect();
     let ice_policy = match ice_cfg.transport_policy {

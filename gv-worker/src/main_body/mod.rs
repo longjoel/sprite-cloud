@@ -80,15 +80,13 @@ pub(super) enum PeerRole {
 enum PeerLifecycle {
     /// WebRTC negotiation in progress (ICE gathering, SDP exchange, track setup)
     Negotiating,
-    /// DataChannel received, waiting for auth message (with timeout)
-    Authenticating { since: std::time::Instant },
     /// Fully connected and authorized — input, save/load, and commands allowed
     Active { role: PeerRole, seat: u32 },
     /// Connection failed, closed, or auth timed out — tombstone, swept on reconnect
     Disconnected,
 }
 
-struct PeerState {
+pub(super) struct PeerState {
     pc: Arc<RTCPeerConnection>,
     lifecycle: PeerLifecycle,
     /// DataChannel send handle (for stats, core response forwarding).
