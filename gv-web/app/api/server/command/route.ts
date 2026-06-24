@@ -284,6 +284,18 @@ export async function POST(request: NextRequest) {
     detail: { command_type: body.type },
   });
 
+  // For sdp_offer commands, also record the offer sent event
+  if (body.type === CMD_SDP_OFFER) {
+    await recordLaunchEvent({
+      commandId: cmd.id,
+      serverId,
+      gameId: typeof enrichedPayload.game_id === "string" ? enrichedPayload.game_id : null,
+      source: "gv-web",
+      event: "sdp_offer_sent",
+      detail: {},
+    });
+  }
+
   // ── Session lifecycle ────────────────────────────────────────────
 
   let hostPeerToken: string | undefined;

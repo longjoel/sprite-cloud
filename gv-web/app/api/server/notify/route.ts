@@ -6,6 +6,7 @@ import { and, eq, ne, desc } from "drizzle-orm";
 import { STATUS_COMPLETED, STATUS_LEASED, SESSION_READY, SESSION_CONNECTED, SESSION_ENDED } from "@/lib/constants";
 import { applyRateLimit } from "@/lib/rate-limit";
 import { randomBytes } from "crypto";
+import { recordLaunchEvent } from "@/lib/launch-events";
 
 const NOTIFY_RATE_LIMIT = 60; // requests per minute per IP (server-to-server)
 
@@ -265,6 +266,29 @@ export async function POST(request: NextRequest) {
         stateEnteredAt: new Date(),
       });
     }
+  }
+
+  // ── Record launch timeline event ────────────────────────────────────
+  if (body.sdp_answer) {
+    await recordLaunchEvent({
+      commandId: body.command_id,
+      serverId: server.id,
+      gameId: body.game_id,
+      sessionId: body.session_id ?? null,
+      source: "gv-web",
+      event: "sdp_answer_returned",
+      detail: {},
+    });
+  } else {
+    await recordLaunchEvent({
+      commandId: body.command_id,
+      serverId: server.id,
+      gameId: body.game_id,
+      sessionId: body.session_id ?? null,
+      source: "gv-web",
+      event: "worker_http_ready",
+      detail: { worker_url: body.worker_url },
+    });
   }
 
   return NextResponse.json({ ok: true, room_token: roomToken });
