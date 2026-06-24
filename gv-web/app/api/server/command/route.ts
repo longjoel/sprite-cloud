@@ -5,6 +5,7 @@ import { commands, gameFiles, games, peerTokens, serverMembers, servers, session
 import { ACTIVE_SESSION_STATES, CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, CMD_BROWSE_FILES, CMD_SCAN_PATHS } from "@/lib/constants";
 import { and, eq } from "drizzle-orm";
 import { applyRateLimit } from "@/lib/rate-limit";
+import { recordLaunchEvent } from "@/lib/launch-events";
 import crypto from "crypto";
 
 const COMMAND_RATE_LIMIT = 30; // requests per minute per IP
@@ -273,6 +274,15 @@ export async function POST(request: NextRequest) {
       workerToken,
     })
     .returning({ id: commands.id });
+
+  await recordLaunchEvent({
+    commandId: cmd.id,
+    serverId,
+    gameId: typeof enrichedPayload.game_id === "string" ? enrichedPayload.game_id : null,
+    source: "gv-web",
+    event: "command_inserted",
+    detail: { command_type: body.type },
+  });
 
   // ── Session lifecycle ────────────────────────────────────────────
 
