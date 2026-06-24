@@ -11,6 +11,7 @@ import {
   COMMAND_LEASE_MS,
 } from "@/lib/constants";
 import { eq, and, inArray, or, lt, sql } from "drizzle-orm";
+import { recordLaunchEvent } from "@/lib/launch-events";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -106,6 +107,22 @@ export async function GET(request: Request): Promise<NextResponse<PollResponse>>
       attempt: (row.attempts ?? 0) + 1,
     }));
   });
+
+  await Promise.all(
+    leased.map((cmd) => {
+      const payload = cmd.payload && typeof cmd.payload === "object" && !Array.isArray(cmd.payload)
+        ? cmd.payload as Record<string, unknown>
+        : {};
+      return recordLaunchEvent({
+        commandId: cmd.id,
+        serverId: server.id,
+        gameId: typeof payload.game_id === "string" ? payload.game_id : null,
+        source: "gv-web",
+        event: "command_leased",
+        detail: { command_type: cmd.type, attempt: cmd.attempt },
+      });
+    }),
+  );
 
   return NextResponse.json({
     commands: leased,

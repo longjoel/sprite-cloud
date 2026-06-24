@@ -412,6 +412,9 @@ describe("GET /api/server/poll", () => {
     expect(updateSet?.leaseToken).toBe(body.commands[0].lease_token);
     expect(updateSet?.leaseExpiresAt).toBeInstanceOf(Date);
     expect(body.next_poll_ms).toBe(250); // fast poll when commands leased
+
+    const { launchEvents } = await import("@/lib/db/schema");
+    expect(mockDb.insert).toHaveBeenCalledWith(launchEvents);
   });
 
   it("prioritizes signaling commands before slower control work", async () => {
