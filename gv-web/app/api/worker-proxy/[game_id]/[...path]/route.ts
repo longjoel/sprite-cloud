@@ -196,10 +196,28 @@ export async function GET(
       // Guest: poll existing session for worker URL
       workerUrl = await pollSessionWorkerUrl(access.sessionId);
     } else {
-      // Admin: start a new game + poll for worker URL
-      const start = await startGame(game_id, access.serverId);
-      if (start) {
-        workerUrl = await pollSessionWorkerUrl(start.sessionId);
+      // Admin: check for existing active session first
+      const [existing] = await db
+        .select({ workerUrl: sessions.workerUrl, id: sessions.id })
+        .from(sessions)
+        .where(
+          and(
+            eq(sessions.gameId, game_id),
+            eq(sessions.serverId, access.serverId),
+          ),
+        )
+        .orderBy(desc(sessions.createdAt))
+        .limit(1);
+
+      if (existing?.workerUrl) {
+        workerUrl = existing.workerUrl;
+        workerCache.set(game_id, { workerUrl, serverId: access.serverId });
+      } else {
+        // Start a new game + poll for worker URL
+        const start = await startGame(game_id, access.serverId);
+        if (start) {
+          workerUrl = await pollSessionWorkerUrl(start.sessionId);
+        }
       }
     }
 
