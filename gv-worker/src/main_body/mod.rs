@@ -145,10 +145,14 @@ pub(super) struct AppState {
     pub(super) exit_signal: CancellationToken,
     pub(super) destruct_timer: Mutex<Option<JoinHandle<()>>>,
     pub(super) core_loaded: AtomicBool,
+    pub(super) core_loading: AtomicBool,
+    /// Signalled when background core load completes (ready or error).
+    pub(super) core_ready_notify: tokio::sync::Notify,
     pub(super) frames_encoded: AtomicU64,
     // ── Shared session state (extracted from do_webrtc_handshake) ──
     #[allow(dead_code)]
     session_active: AtomicBool,
+    #[allow(dead_code)]
     pub(super) core_spawning: Mutex<()>,  // serialize core loads — libretro not reentrant
     pub(super) core_error: Mutex<Option<String>>,  // set when core fails to load ROM
     pub(super) core_cmd_tx: Mutex<Option<std::sync::mpsc::SyncSender<CoreCommand>>>,
@@ -186,6 +190,8 @@ pub async fn build_app() -> Result<Router, Box<dyn std::error::Error>> {
         exit_signal: CancellationToken::new(),
         destruct_timer: Mutex::new(None),
         core_loaded: AtomicBool::new(false),
+        core_loading: AtomicBool::new(false),
+        core_ready_notify: tokio::sync::Notify::new(),
         frames_encoded: AtomicU64::new(0),
         session_active: AtomicBool::new(false),
         core_spawning: Mutex::new(()),
