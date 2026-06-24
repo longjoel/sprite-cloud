@@ -354,7 +354,7 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
 
                                     // Find the worker for this game and relay the SDP.
                                     if let Some(worker) = workers.get(game_id) {
-                                        let internal_url = internal_worker_url(&worker.url);
+                                        let internal_url = worker::internal_worker_url(&worker.url);
                                         tracing::info!(
                                             "[SDP] forwarding to worker at {internal_url}"
                                         );
@@ -732,17 +732,6 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
 
     tracing::info!("[SHUTDOWN] done");
     Ok(())
-}
-fn internal_worker_url(public_url: &str) -> String {
-    // Extract port from public URL like "http://192.168.86.126:3060"
-    // and rewrite to "http://127.0.0.1:{port}"
-    if let Some(colon) = public_url.rfind(':')
-        && let Ok(port) = public_url[colon + 1..].parse::<u16>()
-    {
-        return format!("http://127.0.0.1:{port}");
-    }
-    // Fallback — shouldn't happen with well-formed worker URLs
-    public_url.to_string()
 }
 
 // ── Release metadata collection ───────────────────────────────────────

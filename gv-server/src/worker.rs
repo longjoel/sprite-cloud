@@ -213,6 +213,18 @@ fn worker_host() -> String {
     })
 }
 
+/// Rewrite a worker's public URL to a loopback URL that works from the server host.
+/// Extracts the port from URLs like `http://192.168.86.126:3060`
+/// and returns `http://127.0.0.1:{port}`.
+pub(crate) fn internal_worker_url(public_url: &str) -> String {
+    if let Some(colon) = public_url.rfind(':')
+        && let Ok(port) = public_url[colon + 1..].parse::<u16>()
+    {
+        return format!("http://127.0.0.1:{port}");
+    }
+    public_url.to_string()
+}
+
 /// Path to the PID file for a given game_id.
 fn pid_path(game_id: &str) -> PathBuf {
     PathBuf::from(WORKER_PID_DIR).join(format!("{game_id}.pid"))
