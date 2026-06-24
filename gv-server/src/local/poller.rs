@@ -224,7 +224,28 @@ pub async fn run_poll_loop(
                                 }
                             });
 
-                            if let Some(worker) = gv_web_workers.get(game_id) {
+                            // Find the worker — retry if it's still spawning.
+                            // start_game may be blocked on core download (20–30 s)
+                            // or worker init; SDP offers arrive in the meantime.
+                            let started = std::time::Instant::now();
+                            let max_wait = std::time::Duration::from_secs(25);
+                            let poll_interval = std::time::Duration::from_millis(250);
+
+                            let worker = loop {
+                                if let Some(w) = gv_web_workers.get(game_id) {
+                                    break Some(w);
+                                }
+                                if started.elapsed() >= max_wait {
+                                    break None;
+                                }
+                                tracing::debug!(
+                                    "[POLL] waiting for worker for sdp_offer game {game_id} ({:?} elapsed)",
+                                    started.elapsed()
+                                );
+                                tokio::time::sleep(poll_interval).await;
+                            };
+
+                            if let Some(worker) = worker {
                                 let internal_url = worker::internal_worker_url(&worker.url);
                                 tracing::info!("[POLL] relaying SDP to {internal_url}");
 
@@ -261,9 +282,9 @@ pub async fn run_poll_loop(
                                                             &worker.url, game_id, answer_sdp,
                                                         )
                                                         .await
-                                                    {
-                                                        tracing::error!("[POLL] notify_sdp failed: {e:#}");
-                                                    }
+                                                {
+                                                    tracing::error!("[POLL] notify_sdp failed: {e:#}");
+                                                }
                                             }
                                             Err(e) => {
                                                 tracing::error!("[POLL] failed to parse SDP answer: {e}");
@@ -299,10 +320,14 @@ pub async fn run_poll_loop(
                                     }
                                 }
                             } else {
-                                tracing::warn!("[POLL] no worker for sdp_offer game {game_id}");
+                                tracing::warn!(
+                                    "[POLL] no worker for sdp_offer game {game_id} after {:?}",
+                                    started.elapsed()
+                                );
                                 let _ = client
                                     .command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({
-                                        "error": "worker_not_running"
+                                        "error": "worker_not_running",
+                                        "message": "Worker didn't start within 25s"
                                     }))
                                     .await;
                             }

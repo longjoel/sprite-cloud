@@ -353,8 +353,28 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         continue;
                                     }
 
-                                    // Find the worker for this game and relay the SDP.
-                                    if let Some(worker) = workers.get(game_id) {
+                                    // Find the worker — retry if it's still spawning.
+                                    // start_game may be blocked on core download (20–30 s)
+                                    // or worker init; SDP offers arrive in the meantime.
+                                    let started = std::time::Instant::now();
+                                    let max_wait = std::time::Duration::from_secs(25);
+                                    let poll_interval = std::time::Duration::from_millis(250);
+
+                                    let worker = loop {
+                                        if let Some(w) = workers.get(game_id) {
+                                            break Some(w);
+                                        }
+                                        if started.elapsed() >= max_wait {
+                                            break None;
+                                        }
+                                        tracing::debug!(
+                                            "[SDP] waiting for worker for game {game_id} ({:?} elapsed)",
+                                            started.elapsed()
+                                        );
+                                        tokio::time::sleep(poll_interval).await;
+                                    };
+
+                                    if let Some(worker) = worker {
                                         let internal_url = worker::internal_worker_url(&worker.url);
                                         tracing::info!(
                                             "[SDP] forwarding to worker at {internal_url}"
@@ -501,7 +521,8 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                         }
                                     } else {
                                         tracing::warn!(
-                                            "[SDP] no worker running for game {game_id} — completing sdp_offer with error"
+                                            "[SDP] no worker for game {game_id} after {:?}",
+                                            started.elapsed()
                                         );
                                         if let Err(e) = client
                                             .command_result(
@@ -509,7 +530,7 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                                 &cmd.lease_token,
                                                 &serde_json::json!({
                                                     "error": "worker_not_running",
-                                                    "message": "No worker is running for this game"
+                                                    "message": "Worker didn't start within 25s"
                                                 }),
                                             )
                                             .await
