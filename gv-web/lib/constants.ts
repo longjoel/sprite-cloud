@@ -4,7 +4,7 @@
 export const POLL_FAST_MS = 250;
 
 /** Poll interval when idle (no pending commands). */
-export const POLL_IDLE_MS = 2000;
+export const POLL_IDLE_MS = 500;
 
 /** How long to stay in fast-poll mode after delivering commands. */
 export const POLL_FAST_DURATION_MS = 5000;
