@@ -326,8 +326,16 @@ export async function POST(request: NextRequest) {
       commandId: cmd.id,
       hostToken: hostToken ?? null,
       status: "spawning",
+      generation: 1, // first generation for this session
       stateEnteredAt: new Date(),
     }).returning({ id: sessions.id });
+
+    // Include session_id in enriched payload so gv-server can echo it
+    // back in notify calls (generation-scoped routing).
+    enrichedPayload = {
+      ...enrichedPayload,
+      session_id: newSession.id,
+    };
 
     // Issue host peer_token — seat 0, role host
     hostPeerToken = crypto.randomBytes(16).toString("hex");

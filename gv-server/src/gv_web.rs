@@ -111,6 +111,8 @@ struct NotifyBody {
     action: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     lease_token: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    session_id: Option<String>,
 }
 
 // ── Client ────────────────────────────────────────────────────────────
@@ -253,11 +255,11 @@ impl GvWebClient {
     ///
     /// Retries up to 3 times with exponential backoff for transient
     /// network failures.
-    pub async fn notify(&self, command_id: &str, lease_token: &str, worker_url: &str, game_id: &str) -> Result<()> {
+    pub async fn notify(&self, command_id: &str, lease_token: &str, worker_url: &str, game_id: &str, session_id: Option<&str>) -> Result<()> {
         crate::retry::with_retry(
             3,
             std::time::Duration::from_secs(1),
-            || self.notify_once(command_id, lease_token, worker_url, game_id, None),
+            || self.notify_once(command_id, lease_token, worker_url, game_id, None, session_id),
         )
         .await
     }
@@ -273,6 +275,7 @@ impl GvWebClient {
         worker_url: &str,
         game_id: &str,
         sdp_answer: &str,
+        session_id: Option<&str>,
     ) -> Result<()> {
         crate::retry::with_retry(
             3,
@@ -284,6 +287,7 @@ impl GvWebClient {
                     worker_url,
                     game_id,
                     Some(sdp_answer.to_string()),
+                    session_id,
                 )
             },
         )
@@ -299,6 +303,7 @@ impl GvWebClient {
         worker_url: &str,
         game_id: &str,
         sdp_answer: Option<String>,
+        session_id: Option<&str>,
     ) -> Result<()> {
         let url = format!("{}/api/server/notify", self.base_url);
 
@@ -309,6 +314,7 @@ impl GvWebClient {
             sdp_answer,
             action: None,
             lease_token: Some(lease_token.to_string()),
+            session_id: session_id.map(|s| s.to_string()),
         };
 
         let resp = self
@@ -333,11 +339,11 @@ impl GvWebClient {
     ///
     /// Tells gv-web to mark the session as ended so the browser stops
     /// polling for a worker URL.
-    pub async fn notify_stop(&self, command_id: &str, lease_token: &str, game_id: &str) -> Result<()> {
+    pub async fn notify_stop(&self, command_id: &str, lease_token: &str, game_id: &str, session_id: Option<&str>) -> Result<()> {
         crate::retry::with_retry(
             3,
             std::time::Duration::from_secs(1),
-            || self.notify_stop_once(command_id, lease_token, game_id),
+            || self.notify_stop_once(command_id, lease_token, game_id, session_id),
         )
         .await
     }
@@ -345,7 +351,7 @@ impl GvWebClient {
     /// Notify gv-web that a worker died unexpectedly (crash, OOM, etc.).
     /// Sends a stop action with an empty command_id — the notify endpoint
     /// handles stop actions without command validation.
-    pub async fn notify_worker_dead(&self, game_id: &str) -> Result<()> {
+    pub async fn notify_worker_dead(&self, game_id: &str, session_id: Option<&str>) -> Result<()> {
         let url = format!("{}/api/server/notify", self.base_url);
 
         let resp = self
@@ -359,6 +365,7 @@ impl GvWebClient {
                 sdp_answer: None,
                 action: Some("stop".to_string()),
                 lease_token: None,
+                session_id: session_id.map(|s| s.to_string()),
             })
             .send()
             .await
@@ -373,7 +380,7 @@ impl GvWebClient {
         Ok(())
     }
 
-    async fn notify_stop_once(&self, command_id: &str, lease_token: &str, game_id: &str) -> Result<()> {
+    async fn notify_stop_once(&self, command_id: &str, lease_token: &str, game_id: &str, session_id: Option<&str>) -> Result<()> {
         let url = format!("{}/api/server/notify", self.base_url);
 
         let resp = self
@@ -387,6 +394,7 @@ impl GvWebClient {
                 sdp_answer: None,
                 action: Some("stop".to_string()),
                 lease_token: Some(lease_token.to_string()),
+                session_id: session_id.map(|s| s.to_string()),
             })
             .send()
             .await

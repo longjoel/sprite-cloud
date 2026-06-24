@@ -259,8 +259,9 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                             }
 
                                             // Notify gv-web
+                                            let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
                                             if let Err(e) = client
-                                                .notify(&cmd.id, &cmd.lease_token, &url, game_id)
+                                                .notify(&cmd.id, &cmd.lease_token, &url, game_id, session_id)
                                                 .await
                                             {
                                                 tracing::error!(
@@ -290,8 +291,9 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                             "[WORKER] stopping worker for game {game_id}"
                                         );
                                         worker.kill().await;
+                                        let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
                                         if let Err(e) = client
-                                            .notify_stop(&cmd.id, &cmd.lease_token, game_id)
+                                            .notify_stop(&cmd.id, &cmd.lease_token, game_id, session_id)
                                             .await
                                         {
                                             tracing::error!(
@@ -418,6 +420,7 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                                                 "[SDP] got answer from worker ({} chars)",
                                                                 answer_sdp.len()
                                                             );
+                                                            let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
                                                             if let Err(e) = client
                                                                 .notify_sdp(
                                                                     &cmd.id,
@@ -425,6 +428,7 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                                                     &worker.url,
                                                                     game_id,
                                                                     answer_sdp,
+                                                                    session_id,
                                                                 )
                                                                 .await
                                                             {
@@ -726,7 +730,7 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                             // Best-effort — if gv-web is unreachable, the session
                             // will be cleaned up on next gv-server startup by
                             // reap_stale_workers + the upsert invariant.
-                            if let Err(e) = client.notify_worker_dead(game_id).await {
+                            if let Err(e) = client.notify_worker_dead(game_id, None).await {
                                 tracing::error!(
                                     "[WORKER] failed to notify death for {game_id}: {e:#}"
                                 );
