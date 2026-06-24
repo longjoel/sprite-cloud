@@ -6,7 +6,8 @@ Games Vault now has a single release path. No more mystery deploys.
 
 - `scripts/build-release.sh` — builds Rust release binaries and gv-web production bundle
 - `scripts/deploy-vault.sh` — installs `gv-server` + `gv-worker`, writes release markers, restarts systemd, runs worker smoke test
-- `scripts/deploy-vps-web.sh` — builds `gv-web-prod`, ships it to the VPS, writes release markers, restarts the service, verifies public health
+- `scripts/deploy-gv-web.sh` — **blessed gv-web deploy**. Builds gv-web, packs standalone+static+public into a tar, extracts into the running VPS container, stamps runtime version, restarts, and verifies the deployed SHA via `/api/health`. Prefer this over `deploy-vps-web.sh` for routine deploys — it avoids a full Docker image rebuild.
+- `scripts/deploy-vps-web.sh` — (legacy) rebuilds the `gv-web-prod` Docker image and ships it to the VPS. Still useful for image-level changes (Dockerfile, entrypoint).
 - `scripts/smoke-test.sh` — checks local and remote release markers plus health endpoints
 - `scripts/promote-main.sh` — optional stable-branch promotion after deploy + smoke
 - `ops/vault/*` — repo-tracked host config templates
@@ -48,6 +49,10 @@ ssh root@lngnckr.tech 'cat /docker/gv-web/RELEASE_COMMIT'
 ### 3. Deploy the VPS web app
 
 ```bash
+# Preferred (tar-based, no Docker image rebuild):
+./scripts/deploy-gv-web.sh
+
+# Legacy (full Docker image rebuild):
 ./scripts/deploy-vps-web.sh
 ```
 
@@ -76,6 +81,19 @@ ssh root@lngnckr.tech 'cat /docker/gv-web/RELEASE_COMMIT'
 5. Any emergency rollback gets both a branch and a dated `known-good-*` tag for traceability.
 
 6. Repo-tracked templates under `ops/` are the source of truth for service wiring — if a box diverges from `ops/`, the box is wrong.
+
+## Runtime version verification
+
+The deploy script stamps `gv-web/.next/runtime-version.json` with the git SHA, branch, and build timestamp. The `/api/health` endpoint reads this file (preferring it over Docker env vars) and reports the live version:
+
+```bash
+# Check deployed SHA
+curl -s https://lngnckr.tech/api/health | python3 -c "import json,sys; print(json.load(sys.stdin)['versions']['web']['git_sha'])"
+
+# The deploy script also verifies this automatically after restart
+```
+
+This means the first debugging question is answerable in one command: "what code is actually running on the VPS?"
 
 ## CI gate
 

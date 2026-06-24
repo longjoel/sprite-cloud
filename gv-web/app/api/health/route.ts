@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { sql } from "drizzle-orm";
 import { servers, sessions } from "@/lib/db/schema";
 import { desc } from "drizzle-orm";
+import { readFileSync } from "fs";
+import { join } from "path";
 
 interface VersionInfo {
   package_version: string;
@@ -46,7 +48,38 @@ interface HealthResponse {
 
 // ── Version reporting ───────────────────────────────────────────────────
 
+const RUNTIME_VERSION_PATH = join(process.cwd(), ".next/runtime-version.json");
+
+interface RuntimeVersion {
+  git_sha?: string;
+  git_short_sha?: string;
+  git_branch?: string;
+  built_at_utc?: string;
+  package_version?: string;
+}
+
+function readRuntimeVersion(): RuntimeVersion | null {
+  try {
+    const raw = readFileSync(RUNTIME_VERSION_PATH, "utf-8");
+    return JSON.parse(raw) as RuntimeVersion;
+  } catch {
+    return null;
+  }
+}
+
 function getWebVersion(): VersionInfo {
+  // Prefer the stamped runtime-version.json (set by deploy-gv-web.sh) over env vars.
+  // Env vars are only set when rebuilding the Docker image; runtime-version.json
+  // survives tar-based deploys.
+  const runtime = readRuntimeVersion();
+  if (runtime) {
+    return {
+      package_version: runtime.package_version || process.env.GV_WEB_VERSION || "unknown",
+      git_sha: runtime.git_sha || process.env.GV_WEB_GIT_SHA || undefined,
+      released_at_utc: runtime.built_at_utc || process.env.GV_WEB_RELEASED_AT_UTC || undefined,
+    };
+  }
+
   return {
     package_version: process.env.GV_WEB_VERSION || "unknown",
     git_sha: process.env.GV_WEB_GIT_SHA || undefined,
