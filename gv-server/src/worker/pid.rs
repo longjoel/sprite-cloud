@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 // ── Constants (no magic values) ───────────────────────────────────────
@@ -46,16 +47,23 @@ pub(crate) fn write_pid_file(game_id: &str, pid: u32) {
 
 // ── Reaper — kill stale workers from previous runs ────────────────────
 
-/// Scan the PID directory for stale worker PID files, kill those
-/// processes, and remove the files.
+/// Scan for stale gv-worker processes, kill them, and remove PID files.
 ///
-/// Called once at server startup to clean up orphans from a crash.
+/// Called once at server startup to clean up orphans from a crash. PID files
+/// remain the primary inventory, but the live failure mode also left gv-worker
+/// processes without PID files. Startup cleanup therefore scans `/proc` for
+/// orphan `gv-worker` processes after processing the PID directory.
 pub(crate) fn reap_stale_workers() {
-    let dir = match std::fs::read_dir(WORKER_PID_DIR) {
-        Ok(d) => d,
-        Err(_) => return, // directory doesn't exist yet — nothing to reap
-    };
+    let mut pid_file_pids = HashSet::new();
 
+    if let Ok(dir) = std::fs::read_dir(WORKER_PID_DIR) {
+        reap_pid_file_workers(dir, &mut pid_file_pids);
+    }
+
+    reap_orphan_worker_processes(&pid_file_pids);
+}
+
+fn reap_pid_file_workers(dir: std::fs::ReadDir, pid_file_pids: &mut HashSet<u32>) {
     for entry in dir.flatten() {
         let path = entry.path();
         if path.extension().is_none_or(|e| e != "pid") {
@@ -77,37 +85,10 @@ pub(crate) fn reap_stale_workers() {
                 continue;
             }
         };
+        pid_file_pids.insert(pid);
 
-        // Check process state — zombies have empty cmdline/comm.
-        // We read /proc/<pid>/status for the State: field.
-        let state = std::fs::read_to_string(format!("/proc/{pid}/status"))
-            .ok()
-            .and_then(|s| {
-                s.lines()
-                    .find(|l| l.starts_with("State:"))
-                    .and_then(|l| l.split_whitespace().nth(1).map(|s| s.to_string()))
-            });
-
-        // Verify the PID belongs to a worker process.
-        //
-        // Only gv-worker processes are valid — the worker is always
-        // a separate binary now (no more single-binary dispatch).
-        // Zombies: can't verify via cmdline, but the process already exited.
-        //   Just clean up the PID file and move on.
-        let is_worker = if let Some(ref st) = state
-            && st == "Z"
-        {
-            // Zombie process — already exited, identity was verified at spawn
-            true
-        } else {
-            let comm_path = format!("/proc/{pid}/comm");
-            if let Ok(comm) = std::fs::read_to_string(&comm_path) {
-                comm.trim() == "gv-worker"
-            } else {
-                // /proc/<pid>/comm doesn't exist — process already dead
-                false
-            }
-        };
+        let state = process_state(pid);
+        let is_worker = is_gv_worker_pid(pid, state.as_deref());
 
         if !is_worker {
             tracing::warn!(
@@ -117,10 +98,10 @@ pub(crate) fn reap_stale_workers() {
             continue;
         }
 
-        // Skip kill for zombies — they've already exited
-        if let Some(ref st) = state
-            && st == "Z"
-        {
+        // Skip kill for zombies — they've already exited. A non-child zombie
+        // cannot be reaped by this process; removing the PID file prevents
+        // future stale routing through this inventory entry.
+        if matches!(state.as_deref(), Some("Z")) {
             tracing::info!(
                 "[REAPER] zombie worker pid {pid} — removing PID file"
             );
@@ -128,18 +109,7 @@ pub(crate) fn reap_stale_workers() {
             continue;
         }
 
-        // SAFETY: libc::kill is async-signal-safe. SIGTERM requests graceful
-        // termination. We verified the process identity above.
-        unsafe { libc::kill(pid as i32, libc::SIGTERM) };
-
-        // Give it a moment, then SIGKILL if still alive
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        // SAFETY: kill(pid, 0) is the POSIX way to check if a process exists.
-        // We verified the comm matches gv-worker before sending signals.
-        if unsafe { libc::kill(pid as i32, 0) } == 0 {
-            // SAFETY: SIGKILL is async-signal-safe. Process identity was
-            // verified before the first signal was sent.
-            unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+        if kill_stale_worker(pid) {
             tracing::warn!(
                 "[REAPER] force-killed stale worker pid {} ({})",
                 pid,
@@ -153,5 +123,83 @@ pub(crate) fn reap_stale_workers() {
         }
 
         let _ = std::fs::remove_file(&path);
+    }
+}
+
+fn reap_orphan_worker_processes(pid_file_pids: &HashSet<u32>) {
+    let proc_dir = match std::fs::read_dir("/proc") {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!("[REAPER] cannot scan /proc for orphan workers: {e}");
+            return;
+        }
+    };
+
+    for entry in proc_dir.flatten() {
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        let Ok(pid) = name.parse::<u32>() else {
+            continue;
+        };
+        if pid_file_pids.contains(&pid) {
+            continue;
+        }
+
+        let state = process_state(pid);
+        if !is_gv_worker_pid(pid, state.as_deref()) {
+            continue;
+        }
+
+        if matches!(state.as_deref(), Some("Z")) {
+            tracing::warn!(
+                "[REAPER] orphan zombie gv-worker pid {pid} has no PID file; cannot reap non-child zombie"
+            );
+            continue;
+        }
+
+        if kill_stale_worker(pid) {
+            tracing::warn!("[REAPER] force-killed orphan gv-worker pid {pid} without PID file");
+        } else {
+            tracing::info!("[REAPER] terminated orphan gv-worker pid {pid} without PID file");
+        }
+    }
+}
+
+fn process_state(pid: u32) -> Option<String> {
+    std::fs::read_to_string(format!("/proc/{pid}/status"))
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find(|line| line.starts_with("State:"))
+                .and_then(|line| line.split_whitespace().nth(1).map(str::to_string))
+        })
+}
+
+fn is_gv_worker_pid(pid: u32, state: Option<&str>) -> bool {
+    if matches!(state, Some("Z")) {
+        return true;
+    }
+
+    std::fs::read_to_string(format!("/proc/{pid}/comm"))
+        .map(|comm| comm.trim() == "gv-worker")
+        .unwrap_or(false)
+}
+
+fn kill_stale_worker(pid: u32) -> bool {
+    // SAFETY: libc::kill is async-signal-safe. SIGTERM requests graceful
+    // termination. Callers verify the PID belongs to gv-worker first.
+    unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+
+    // Give it a moment, then SIGKILL if still alive.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    // SAFETY: kill(pid, 0) is the POSIX way to check if a process exists.
+    if unsafe { libc::kill(pid as i32, 0) } == 0 {
+        // SAFETY: SIGKILL is async-signal-safe. Process identity was verified
+        // by the caller immediately before this function was invoked.
+        unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+        true
+    } else {
+        false
     }
 }
