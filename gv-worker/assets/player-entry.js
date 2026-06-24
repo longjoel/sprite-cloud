@@ -1,7 +1,12 @@
 // ── player-entry.js — mode detection + connection glue ────────────
 import { GvPlayer, State, classifyRoute, inspectRoute } from './index.js';
 
-const MODE = location.pathname.startsWith('/player') ? 'direct' : 'relay';
+// Direct-origin: worker serves /sdp directly.
+// Proxy-origin: gv-web forwards /sdp through the worker-proxy route.
+// Both have /sdp on the current origin, so always use direct mode.
+const MODE = location.pathname.startsWith('/player')
+  || location.pathname.includes('/api/worker-proxy')
+  ? 'direct' : 'relay';
 console.log('[gv] mode:', MODE);
 
 const video = document.getElementById('video');
