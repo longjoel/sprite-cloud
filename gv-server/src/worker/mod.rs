@@ -119,6 +119,33 @@ mod tests {
         );
     }
 
+    /// Startup cleanup must also kill gv-worker processes that lost their PID file.
+    #[tokio::test]
+    async fn reap_kills_orphan_worker_without_pid_file() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let fake_worker = tmp.path().join("gv-worker");
+        std::os::unix::fs::symlink("/bin/sleep", &fake_worker).expect("symlink fake gv-worker");
+        let child = Command::new(&fake_worker)
+            .arg("60")
+            .spawn()
+            .expect("spawn orphan fake gv-worker");
+
+        let pid = child.id().expect("child has pid");
+
+        // Drop the child handle and intentionally do NOT write a PID file.
+        // This simulates the live failure mode where gv-worker survived
+        // outside gv-server's in-memory map and /tmp/gv-workers inventory.
+        drop(child);
+
+        reap_stale_workers();
+
+        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+        assert!(
+            !is_process_alive(pid),
+            "orphan gv-worker without PID file should be killed by startup reaper"
+        );
+    }
+
     /// Dropping a SpawnedWorker is a last-ditch cleanup path: it force-kills
     /// the child and removes the PID file if callers forgot `kill()`.
     #[tokio::test]
