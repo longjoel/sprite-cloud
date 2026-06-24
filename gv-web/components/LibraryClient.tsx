@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { Badge, Button, Card, Modal } from "@/components/ui";
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -81,7 +80,6 @@ function csrfHeaders(): Record<string, string> {
 // ── Component ─────────────────────────────────────────────────────────
 
 export default function LibraryClient({ games, serverIds, session }: LibraryClientProps) {
-  const router = useRouter();
 
   // Host picker state
   const [hostPickerGame, setHostPickerGame] = useState<string | null>(null);
@@ -135,7 +133,7 @@ export default function LibraryClient({ games, serverIds, session }: LibraryClie
         // Auto-select single host — redirect to worker proxy
         const sid = withGame[0].server_id;
         setPreferredServer(gameId, sid);
-        router.push(`/api/worker-proxy/${encodeURIComponent(gameId)}/?server_id=${encodeURIComponent(sid)}`);
+        window.location.href = `/api/worker-proxy/${encodeURIComponent(gameId)}/?server_id=${encodeURIComponent(sid)}`;
         return;
       }
 
@@ -149,7 +147,7 @@ export default function LibraryClient({ games, serverIds, session }: LibraryClie
   const selectHost = (gameId: string, serverId: string, _serverName: string) => {
     setHostPickerGame(null);
     setPreferredServer(gameId, serverId);
-    router.push(`/api/worker-proxy/${encodeURIComponent(gameId)}/?server_id=${encodeURIComponent(serverId)}`);
+    window.location.href = `/api/worker-proxy/${encodeURIComponent(gameId)}/?server_id=${encodeURIComponent(serverId)}`;
   };
 
   const startRename = useCallback((game: Game) => {
