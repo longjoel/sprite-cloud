@@ -9,7 +9,6 @@ use std::collections::HashMap;
 use crate::config;
 use crate::dat;
 use crate::gv_web;
-use crate::platform;
 use crate::scan;
 use crate::worker;
 use crate::worker::SpawnedWorker;

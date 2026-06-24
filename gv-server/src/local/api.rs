@@ -256,11 +256,10 @@ pub async fn start_play(
 fn find_in_roots(rel_path: &str, roots: &[String]) -> Option<std::path::PathBuf> {
     for root in roots {
         let candidate = std::path::Path::new(root).join(rel_path);
-        if let Ok(resolved) = crate::scan::resolve_within_roots(&candidate, roots) {
-            if resolved.is_file() {
+        if let Ok(resolved) = crate::scan::resolve_within_roots(&candidate, roots)
+            && resolved.is_file() {
                 return Some(resolved);
             }
-        }
     }
     None
 }
