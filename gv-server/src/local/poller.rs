@@ -254,8 +254,7 @@ pub async fn run_poll_loop(
                                             Ok(answer) => {
                                                 if let Some(answer_sdp) =
                                                     answer.get("sdp").and_then(|v| v.as_str())
-                                                {
-                                                    if let Err(e) = client
+                                                    && let Err(e) = client
                                                         .notify_sdp(
                                                             &cmd.id, &cmd.lease_token,
                                                             &worker.url, game_id, answer_sdp,
@@ -264,7 +263,6 @@ pub async fn run_poll_loop(
                                                     {
                                                         tracing::error!("[POLL] notify_sdp failed: {e:#}");
                                                     }
-                                                }
                                             }
                                             Err(e) => {
                                                 tracing::error!("[POLL] failed to parse SDP answer: {e}");
@@ -352,10 +350,9 @@ pub async fn run_poll_loop(
 }
 
 fn internal_worker_url(public_url: &str) -> String {
-    if let Some(colon) = public_url.rfind(':') {
-        if let Ok(port) = public_url[colon + 1..].parse::<u16>() {
+    if let Some(colon) = public_url.rfind(':')
+        && let Ok(port) = public_url[colon + 1..].parse::<u16>() {
             return format!("http://127.0.0.1:{port}");
         }
-    }
     public_url.to_string()
 }
