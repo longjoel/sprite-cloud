@@ -84,10 +84,11 @@ function guestClientId() {
 
 // ── Constants ───────────────────────────────────────────────────────
 
-const RECONNECT_DELAY_MS = 3_000;
+const RECONNECT_DELAY_MS = 1_500;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const GAME_START_POLL_MS = 500;
-const GAME_START_TIMEOUT_MS = 60_000;
+const GAME_START_TIMEOUT_MS = 30_000;
+const WORKER_READY_DELAY_MS = 1_000; // Let worker fully init WebRTC stack after startGame
 
 // ── startGame helper ────────────────────────────────────────────────
 
@@ -274,6 +275,9 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
         startGameToken = sgResult.workerToken;
         gameStarted = true;
         console.log("[gv] startGame complete");
+        // Give the worker a moment to fully initialize its WebRTC stack
+        // before we send the SDP offer — avoids first-attempt timeout.
+        await new Promise(r => setTimeout(r, WORKER_READY_DELAY_MS));
       } else {
         console.log("[gv] reconnect — reusing existing game session");
       }
