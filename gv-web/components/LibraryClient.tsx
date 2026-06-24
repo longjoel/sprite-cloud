@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import GamePlayer from "@/components/GamePlayer";
 import { Badge, Button, Card, Modal } from "@/components/ui";
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -80,6 +81,8 @@ function csrfHeaders(): Record<string, string> {
 // ── Component ─────────────────────────────────────────────────────────
 
 export default function LibraryClient({ games, serverIds, session }: LibraryClientProps) {
+  const [activeGame, setActiveGame] = useState<{ id: string; name: string } | null>(null);
+  const [selectedServerId, setSelectedServerId] = useState<string>("");
 
   // Host picker state
   const [hostPickerGame, setHostPickerGame] = useState<string | null>(null);
@@ -130,10 +133,11 @@ export default function LibraryClient({ games, serverIds, session }: LibraryClie
       }
 
       if (withGame.length === 1) {
-        // Auto-select single host — redirect to worker proxy
-        const sid = withGame[0].server_id;
-        setPreferredServer(gameId, sid);
-        window.location.href = `/api/worker-proxy/${encodeURIComponent(gameId)}/?server_id=${encodeURIComponent(sid)}`;
+        // Auto-select single host
+        setSelectedServerId(withGame[0].server_id);
+        const name = hosts.find((h) => h.server_id === withGame[0].server_id)?.name || "";
+        setPreferredServer(gameId, withGame[0].server_id);
+        setActiveGame({ id: gameId, name });
         return;
       }
 
@@ -144,10 +148,11 @@ export default function LibraryClient({ games, serverIds, session }: LibraryClie
     }
   };
 
-  const selectHost = (gameId: string, serverId: string, _serverName: string) => {
+  const selectHost = (gameId: string, serverId: string, serverName: string) => {
+    setSelectedServerId(serverId);
     setHostPickerGame(null);
     setPreferredServer(gameId, serverId);
-    window.location.href = `/api/worker-proxy/${encodeURIComponent(gameId)}/?server_id=${encodeURIComponent(serverId)}`;
+    setActiveGame({ id: gameId, name: serverName });
   };
 
   const startRename = useCallback((game: Game) => {
@@ -334,6 +339,19 @@ export default function LibraryClient({ games, serverIds, session }: LibraryClie
         </section>
       )}
 
+      {/* ── Game modal — no backdrop close, only explicit button ─── */}
+      {activeGame && selectedServerId && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalContent}>
+            <GamePlayer
+              gameId={activeGame.id}
+              gameName={activeGame.name}
+              serverId={selectedServerId}
+              onClose={() => setActiveGame(null)}
+            />
+          </div>
+        </div>
+      )}
     </main>
   );
 }
