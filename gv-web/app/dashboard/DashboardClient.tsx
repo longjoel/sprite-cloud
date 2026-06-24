@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Badge, Button } from "@/components/ui";
+import { Button } from "@/components/ui";
 import ServerPanel from "./ServerPanel";
+import DevTools from "./DevTools";
+import { serverStatus, timeAgo, NUMERIC_UUID_RE, csrfHeaders } from "./dashboard-utils";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -19,48 +21,6 @@ interface Props {
   memberships: Membership[];
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────
-
-function serverStatus(
-  lastSeenAt: string | null,
-): { label: string; color: string } {
-  if (!lastSeenAt) return { label: "offline", color: "var(--color-error)" };
-  const age = Date.now() - new Date(lastSeenAt).getTime();
-  if (age < 120_000)
-    return { label: "online", color: "var(--color-success)" };
-  return { label: "stale", color: "var(--color-warning)" };
-}
-
-function timeAgo(ts: string | null): string {
-  if (!ts) return "never";
-  const s = Math.round((Date.now() - new Date(ts).getTime()) / 1000);
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-  return `${Math.round(s / 86400)}d ago`;
-}
-
-const NUMERIC_UUID_RE = /^[0-9a-f-]{36}$/;
-
-function csrfHeaders(): Record<string, string> {
-  let token = document.cookie
-    .split(";")
-    .map((p) => p.trim())
-    .find((p) => p.startsWith("gv_csrf_token="))
-    ?.split("=")
-    .slice(1)
-    .join("=");
-  if (!token) {
-    token = crypto.randomUUID();
-    document.cookie = `gv_csrf_token=${encodeURIComponent(
-      token,
-    )}; Path=/; SameSite=Lax`;
-  }
-  return {
-    "Content-Type": "application/json",
-    "x-csrf-token": decodeURIComponent(token),
-  };
-}
 
 // ── Component ──────────────────────────────────────────────────────────
 
@@ -74,17 +34,7 @@ export default function DashboardClient({ memberships }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [pairingError, setPairingError] = useState<string | null>(null);
-
-  // Dev tools state
   const [showDevTools, setShowDevTools] = useState(false);
-  const [cmdServerId, setCmdServerId] = useState("");
-  const [cmdType, setCmdType] = useState("start_game");
-  const [cmdPayload, setCmdPayload] = useState('{"game_id":"smw"}');
-  const [cmdResult, setCmdResult] = useState("");
-  const [playServerId, setPlayServerId] = useState("");
-  const [playGameId, setPlayGameId] = useState("smw");
-  const [playStatus, setPlayStatus] = useState("");
-  const [workerUrl, setWorkerUrl] = useState<string | null>(null);
 
   function toggle(id: string) {
     setExpanded((prev) => {
@@ -157,85 +107,6 @@ export default function DashboardClient({ memberships }: Props) {
     } catch (e: unknown) {
       setPairingError(
         e instanceof Error ? e.message : "Generate failed",
-      );
-    }
-  }
-
-  async function queueCommand() {
-    if (!NUMERIC_UUID_RE.test(cmdServerId)) {
-      setCmdResult("Invalid server_id format (must be UUID)");
-      return;
-    }
-    let payload: unknown;
-    try {
-      payload = JSON.parse(cmdPayload);
-    } catch {
-      setCmdResult("Invalid JSON payload");
-      return;
-    }
-    try {
-      const r = await fetch("/api/server/command", {
-        method: "POST",
-        headers: csrfHeaders(),
-        body: JSON.stringify({
-          server_id: cmdServerId,
-          type: cmdType,
-          payload,
-        }),
-      });
-      const data = await r.json();
-      setCmdResult(`HTTP ${r.status}: ${JSON.stringify(data)}`);
-    } catch (e) {
-      setCmdResult(`Network error: ${e}`);
-    }
-  }
-
-  async function playGame() {
-    setWorkerUrl(null);
-    setPlayStatus("");
-
-    if (!NUMERIC_UUID_RE.test(playServerId)) {
-      setPlayStatus("Invalid server_id (must be UUID)");
-      return;
-    }
-
-    setPlayStatus("Queueing…");
-    try {
-      const qr = await fetch("/api/server/command", {
-        method: "POST",
-        headers: csrfHeaders(),
-        body: JSON.stringify({
-          server_id: playServerId,
-          type: "start_game",
-          payload: { game_id: playGameId },
-        }),
-      });
-      if (!qr.ok) {
-        const err = await qr.json().catch(() => ({}));
-        throw new Error(err.error || `HTTP ${qr.status}`);
-      }
-      const cmd = await qr.json();
-
-      // Poll for worker URL
-      setPlayStatus("Waiting for worker…");
-      for (let i = 0; i < 60; i++) {
-        await new Promise((r) => setTimeout(r, 500));
-        const nr = await fetch(
-          `/api/server/notify?server_id=${playServerId}`,
-        );
-        if (nr.ok) {
-          const data = await nr.json();
-          if (data.worker_url) {
-            setWorkerUrl(data.worker_url);
-            setPlayStatus("Ready!");
-            return;
-          }
-        }
-      }
-      setPlayStatus("Timeout — worker did not report URL");
-    } catch (e: unknown) {
-      setPlayStatus(
-        e instanceof Error ? e.message : "Play failed",
       );
     }
   }
