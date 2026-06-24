@@ -39,7 +39,7 @@ where
 
     // SAFETY: last_err is always Some when the loop exits because
     // max_attempts >= 1 and the Err branch always sets it.
-    Err(last_err.unwrap())
+    Err(last_err.expect("last_err always Some after retry loop"))
 }
 
 #[cfg(test)]
