@@ -30,7 +30,7 @@ use crate::config::{
     DC_RECEIVE_TIMEOUT_SECS, ICE_GATHERING_TIMEOUT_SECS, OPUS_SDP_FMTP, STREAM_ID,
     VIDEO_TRACK_ID, VP8_CLOCK_RATE,
 };
-use crate::core_bridge::{CoreCommand, CoreFrame, CoreResponse};
+use crate::core_bridge::CoreCommand;
 use crate::gst_audio::GstAudioEncoder;
 use crate::gst_video::{GstVideoEncoder, VideoCodec};
 
@@ -85,77 +85,158 @@ fn create_video_encoder(
     }
 }
 
-// ── Handshake pipeline: phase functions ─────────────────────────────────────
+// ── Default encoders for fast SDP (before core is loaded) ──────────────────
 
-/// Returned by load_core() — named fields instead of a 7-tuple.
-struct CoreHandle {
-    width: u32,
-    height: u32,
-    fps: f64,
-    cmd_tx: Option<std::sync::mpsc::SyncSender<CoreCommand>>,
-    frame_rx: Option<std::sync::mpsc::Receiver<CoreFrame>>,
-    response_rx: Option<std::sync::mpsc::Receiver<CoreResponse>>,
-    sample_rate: Option<f64>,
-    audio_channels: usize,
-}
+/// Default dimensions used when answering SDP before the core has loaded.
+const DEFAULT_WIDTH: u32 = 640;
+const DEFAULT_HEIGHT: u32 = 480;
+const DEFAULT_FPS: f64 = 60.0;
 
-async fn load_core(state: &AppState) -> Result<CoreHandle, String> {
-    let _core_guard = state.core_spawning.lock().await;
-    match crate::core_bridge::spawn_core_thread() {
-        Some(handle) => {
-            tracing::info!(
-                "[STREAM] Core: {}×{} @ {:.1}fps {:.0}Hz",
-                handle.width, handle.height, handle.fps, handle.sample_rate
-            );
-            state.core_loaded.store(true, Ordering::Relaxed);
-            Ok(CoreHandle {
-                width: handle.width,
-                height: handle.height,
-                fps: handle.fps,
-                cmd_tx: Some(handle.cmd_tx),
-                frame_rx: Some(handle.frame_rx),
-                response_rx: Some(handle.response_rx),
-                sample_rate: Some(handle.sample_rate),
-                audio_channels: handle.audio_channels as usize,
-            })
-        }
-        None => {
-            let msg = "no libretro core available — the ROM may be corrupt or unsupported".to_string();
-            *state.core_error.lock().await = Some(msg.clone());
-            Err(msg)
-        }
-    }
-}
-
-struct EncoderSet {
-    video: Arc<tokio::sync::Mutex<GstVideoEncoder>>,
-    audio: Arc<tokio::sync::Mutex<Option<GstAudioEncoder>>>,
-    video_codec: VideoCodec,
-}
-
-fn setup_encoders(core: &CoreHandle, offer_sdp: &str) -> Result<EncoderSet, String> {
-    let video_encoder = create_video_encoder(core.width, core.height, core.fps, offer_sdp)
-        .map_err(|e| format!("video encoder: {e}"))?;
+fn setup_default_encoders(offer_sdp: &str) -> Result<EncoderSet, String> {
+    let video_encoder = create_video_encoder(DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_FPS, offer_sdp)
+        .map_err(|e| format!("default video encoder: {e}"))?;
     let selected = video_encoder.codec();
     let venc = Arc::new(tokio::sync::Mutex::new(video_encoder));
 
+    // No audio encoder for loading state — silence
     let aenc: Arc<tokio::sync::Mutex<Option<GstAudioEncoder>>> =
-        Arc::new(tokio::sync::Mutex::new(match core.sample_rate {
-            Some(rate) => match GstAudioEncoder::new(rate, core.audio_channels as u16) {
-                Ok(enc) => Some(enc),
-                Err(e) => {
-                    tracing::error!("[AUDIO] encoder failed: {e} — audio disabled");
-                    None
-                }
-            },
-            None => None,
-        }));
+        Arc::new(tokio::sync::Mutex::new(None));
 
     Ok(EncoderSet {
         video: venc,
         audio: aenc,
         video_codec: selected,
     })
+}
+
+/// Spawn a background task that loads the core and updates AppState.
+/// When the core finishes (success or failure), signals `core_ready_notify`.
+fn spawn_core_loader(state: &Arc<AppState>, offer_sdp: String) {
+    let state = Arc::clone(state);
+    state.core_loading.store(true, Ordering::Relaxed);
+
+    tokio::task::spawn(async move {
+        // load_core is CPU-bound (libretro init) — run on blocking thread
+        let result = tokio::task::spawn_blocking(move || {
+            // Note: load_core expects &AppState, but we need to call it
+            // from the blocking thread. The _core_guard lock serializes.
+            // We call spawn_core_thread() directly here.
+            crate::core_bridge::spawn_core_thread()
+        })
+        .await
+        .map_err(|e| format!("spawn_blocking join: {e}"));
+
+        match result {
+            Ok(Some(handle)) => {
+                tracing::info!(
+                    "[CORE_LOADER] Core ready: {}×{} @ {:.1}fps {:.0}Hz",
+                    handle.width, handle.height, handle.fps, handle.sample_rate
+                );
+
+                // Rebuild encoder with real core dimensions
+                let new_enc = match create_video_encoder(
+                    handle.width,
+                    handle.height,
+                    handle.fps,
+                    &offer_sdp,
+                ) {
+                    Ok(enc) => enc,
+                    Err(e) => {
+                        tracing::error!("[CORE_LOADER] encoder rebuild failed: {e}");
+                        *state.core_error.lock().await = Some(e);
+                        state.core_loading.store(false, Ordering::Relaxed);
+                        state.core_ready_notify.notify_one();
+                        return;
+                    }
+                };
+
+                let _selected = new_enc.codec();
+
+                // Build audio encoder
+                let aenc: Arc<tokio::sync::Mutex<Option<GstAudioEncoder>>> =
+                    Arc::new(tokio::sync::Mutex::new(
+                        match handle.sample_rate {
+                            s if s > 0.0 => match GstAudioEncoder::new(
+                                s,
+                                handle.audio_channels,
+                            ) {
+                                Ok(enc) => Some(enc),
+                                Err(e) => {
+                                    tracing::error!("[CORE_LOADER] audio encoder failed: {e}");
+                                    None
+                                }
+                            },
+                            _ => None,
+                        },
+                    ));
+
+                // Store in AppState
+                *state.core_width.lock().await = handle.width;
+                *state.core_height.lock().await = handle.height;
+                *state.core_fps.lock().await = handle.fps;
+                *state.video_enc.lock().await =
+                    Some(Arc::new(tokio::sync::Mutex::new(new_enc)));
+                *state.audio_enc.lock().await = Some(aenc);
+                *state.core_cmd_tx.lock().await = Some(handle.cmd_tx);
+                *state.core_frame_rx.lock().await = Some(handle.frame_rx);
+                *state.core_response_rx.lock().await = Some(handle.response_rx);
+
+                // Spawn core response drain (save/load state results → DC)
+                {
+                    let drain_state = Arc::clone(&state);
+                    tokio::spawn(async move {
+                        // Wait briefly for peers to connect, then drain
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        let response_rx = drain_state.core_response_rx.lock().await.take();
+                        if let Some(rx) = response_rx {
+                            while let Ok(resp) = rx.recv() {
+                                let json = match resp {
+                                    crate::core_bridge::CoreResponse::SaveStateResult { slot, ok, data } => {
+                                        serde_json::json!({"type":"save_state_result","slot":slot,"ok":ok,"bytes":data.len()})
+                                    }
+                                    crate::core_bridge::CoreResponse::LoadStateResult { slot, ok } => {
+                                        serde_json::json!({"type":"load_state_result","slot":slot,"ok":ok})
+                                    }
+                                };
+                                let peers = drain_state.peers.lock().await;
+                                for (_, peer) in peers.iter() {
+                                    if let Some(dc) = peer.dc_stream.lock().await.as_ref() {
+                                        if dc.ready_state() == webrtc::data_channel::data_channel_state::RTCDataChannelState::Open {
+                                            let _ = dc.send_text(&json.to_string()).await;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+
+                state.core_loaded.store(true, Ordering::Relaxed);
+            }
+            Ok(None) => {
+                let msg = "no libretro core available — the ROM may be corrupt or unsupported"
+                    .to_string();
+                tracing::error!("[CORE_LOADER] {msg}");
+                *state.core_error.lock().await = Some(msg);
+            }
+            Err(e) => {
+                tracing::error!("[CORE_LOADER] spawn_blocking failed: {e}");
+                *state.core_error.lock().await =
+                    Some(format!("core loader failed: {e}"));
+            }
+        }
+
+        state.core_loading.store(false, Ordering::Relaxed);
+        state.core_ready_notify.notify_one();
+    });
+}
+
+// ── WebRTC stack helpers ────────────────────────────────────────────────────
+
+struct EncoderSet {
+    video: Arc<tokio::sync::Mutex<GstVideoEncoder>>,
+    audio: Arc<tokio::sync::Mutex<Option<GstAudioEncoder>>>,
+    video_codec: VideoCodec,
 }
 
 async fn reuse_encoders(state: &AppState) -> Result<EncoderSet, String> {
@@ -300,7 +381,6 @@ fn spawn_dc_handler(
     peer_token: String,
     peer_role: PeerRole,
     peer_seat: u32,
-    core_cmd_tx: Option<std::sync::mpsc::SyncSender<CoreCommand>>,
     mut dc_rx: tokio::sync::mpsc::Receiver<Arc<webrtc::data_channel::RTCDataChannel>>,
 ) -> Arc<tokio::sync::Mutex<Option<Arc<webrtc::data_channel::RTCDataChannel>>>> {
     // DataChannel auth — lifecycle-driven
@@ -309,7 +389,6 @@ fn spawn_dc_handler(
     let dc_stream_for_spawn = dc_stream.clone();
     let dc_state = Arc::clone(&state);
     let dc_peer_id = peer_token;
-    let dc_core_cmd = core_cmd_tx;
     let dc_peer_role = peer_role;
     let dc_peer_seat = peer_seat;
 
@@ -349,11 +428,11 @@ fn spawn_dc_handler(
             let dc_msg_peer_id = dc_peer_id.clone();
             move |msg| {
                 let dc = dc_cmd.clone();
-                let core_tx = dc_core_cmd.clone();
                 let seat = dc_peer_seat;
                 let state = Arc::clone(&dc_msg_state);
                 let pid = dc_msg_peer_id.clone();
                 Box::pin(async move {
+                    // Helper: read core_cmd_tx from AppState (lazy — core may load later)
                     // Binary input (3-byte RetroArch format) — SERVER-ASSIGNED seat
                     if msg.data.len() == 3 {
                         let allowed = {
@@ -366,11 +445,14 @@ fn spawn_dc_handler(
                             return;
                         }
                         let input_state = u16::from_le_bytes([msg.data[1], msg.data[2]]);
-                        if let Some(ref tx) = core_tx {
-                            let _ = tx.try_send(CoreCommand::SetInput {
-                                port: seat,
-                                state: input_state,
-                            });
+                        {
+                            let tx_guard = state.core_cmd_tx.lock().await;
+                            if let Some(ref tx) = *tx_guard {
+                                let _ = tx.try_send(CoreCommand::SetInput {
+                                    port: seat,
+                                    state: input_state,
+                                });
+                            }
                         }
                         return;
                     }
@@ -434,13 +516,14 @@ fn spawn_dc_handler(
                                 cmd.get("pressed").and_then(|v| v.as_bool()),
                             ) {
                                 if let Some(button) = map_key_to_joypad(key) {
-                                    let _ = core_tx.as_ref().map(|tx| {
-                                        tx.try_send(CoreCommand::SetJoypad {
+                                    let tx_guard = state.core_cmd_tx.lock().await;
+                                    if let Some(ref tx) = *tx_guard {
+                                        let _ = tx.try_send(CoreCommand::SetJoypad {
                                             port: seat,
                                             button,
                                             pressed,
-                                        })
-                                    });
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -456,26 +539,35 @@ fn spawn_dc_handler(
                                     } else {
                                         CoreCommand::LoadState { slot }
                                     };
-                                    let _ = core_tx.as_ref().map(|tx| tx.try_send(cmd));
+                                    let tx_guard = state.core_cmd_tx.lock().await;
+                                    if let Some(ref tx) = *tx_guard {
+                                        let _ = tx.try_send(cmd);
+                                    }
                                 }
                             }
                         }
                         "reset" if is_host => {
                             tracing::info!("[DC] reset requested");
-                            let _ = core_tx.as_ref().map(|tx| tx.try_send(CoreCommand::Reset));
+                            let tx_guard = state.core_cmd_tx.lock().await;
+                            if let Some(ref tx) = *tx_guard {
+                                let _ = tx.try_send(CoreCommand::Reset);
+                            }
                         }
                         "disk_eject" if is_host => {
                             tracing::info!("[DC] disk_eject requested");
-                            let _ =
-                                core_tx.as_ref().map(|tx| tx.try_send(CoreCommand::DiskEject));
+                            let tx_guard = state.core_cmd_tx.lock().await;
+                            if let Some(ref tx) = *tx_guard {
+                                let _ = tx.try_send(CoreCommand::DiskEject);
+                            }
                         }
                         "disk_insert" if is_host => {
                             let index =
                                 cmd.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                             tracing::info!("[DC] disk_insert index={}", index);
-                            let _ = core_tx
-                                .as_ref()
-                                .map(|tx| tx.try_send(CoreCommand::DiskInsert { index }));
+                            let tx_guard = state.core_cmd_tx.lock().await;
+                            if let Some(ref tx) = *tx_guard {
+                                let _ = tx.try_send(CoreCommand::DiskInsert { index });
+                            }
                         }
                         _ => {}
                     }
@@ -498,24 +590,22 @@ pub(crate) async fn do_webrtc_handshake(
     // Check if this is the first peer (needs to load core + spawn stream)
     let is_first_peer = !state.core_loaded.load(Ordering::Relaxed);
 
-    let (core_cmd_tx, encoders) = if is_first_peer {
-        let core = load_core(&state).await?;
-        let encoders = setup_encoders(&core, offer_sdp)?;
-        // Store in AppState for subsequent peers
-        *state.core_width.lock().await = core.width;
-        *state.core_height.lock().await = core.height;
-        *state.core_fps.lock().await = core.fps;
+    let encoders = if is_first_peer {
+        // Answer SDP immediately with default/test encoders, load core in background
+        let encoders = setup_default_encoders(offer_sdp)?;
+        // Store default dimensions in AppState
+        *state.core_width.lock().await = DEFAULT_WIDTH;
+        *state.core_height.lock().await = DEFAULT_HEIGHT;
+        *state.core_fps.lock().await = DEFAULT_FPS;
         *state.video_enc.lock().await = Some(encoders.video.clone());
         *state.audio_enc.lock().await = Some(encoders.audio.clone());
-        *state.core_cmd_tx.lock().await = core.cmd_tx.clone();
-        *state.core_frame_rx.lock().await = core.frame_rx;
-        *state.core_response_rx.lock().await = core.response_rx;
 
-        (core.cmd_tx, encoders)
+        // Core loads in background — streaming loop will hot-swap when ready
+        spawn_core_loader(&state, offer_sdp.to_string());
+
+        encoders
     } else {
-        let encoders = reuse_encoders(&state).await?;
-        let cmd_tx = state.core_cmd_tx.lock().await.clone();
-        (cmd_tx, encoders)
+        reuse_encoders(&state).await?
     };
 
     // Reconnect semantics: one live PeerConnection per peer_token.
@@ -570,11 +660,11 @@ pub(crate) async fn do_webrtc_handshake(
         peer_token.to_string(),
         peer_role,
         peer_seat,
-        core_cmd_tx,
         dc_rx,
     );
-    // Core response drain (first peer only — response_rx is single-consumer)
-    if is_first_peer {
+    // Core response drain — handled by spawn_core_loader for first peer;
+    // subsequent peers don't need it (response_rx is single-consumer, already taken).
+    if !is_first_peer {
         if let Some(core_response_rx) = state.core_response_rx.lock().await.take() {
             let dc_for_resp = dc_stream.clone();
             tokio::spawn(async move {

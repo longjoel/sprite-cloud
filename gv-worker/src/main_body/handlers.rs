@@ -115,6 +115,7 @@ pub(super) async fn handle_health(State(state): State<Arc<AppState>>) -> Json<se
     Json(serde_json::json!({
         "status": "ok",
         "core": state.core_loaded.load(std::sync::atomic::Ordering::Relaxed),
+        "core_loading": state.core_loading.load(std::sync::atomic::Ordering::Relaxed),
         "frames": state.frames_encoded.load(std::sync::atomic::Ordering::Relaxed),
         "peers": peer_count,
     }))

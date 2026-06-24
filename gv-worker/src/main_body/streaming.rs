@@ -20,6 +20,23 @@ pub(super) struct StreamCtx {
     pub(super) app_state: Arc<AppState>,
 }
 
+// ── Test pattern generator (loading state before core is ready) ─────────────
+
+/// Generate a solid-color test frame at the given dimensions.
+/// Uses the GV mahogany background (#1a1410) so the loading screen
+/// matches the site aesthetic.
+fn generate_test_frame(width: u32, height: u32) -> Vec<u8> {
+    let pixel_count = (width * height) as usize;
+    let mut pixels = Vec::with_capacity(pixel_count * 3);
+    // Mahogany dark: RGB(26, 20, 16)
+    for _ in 0..pixel_count {
+        pixels.push(26);  // R
+        pixels.push(20);  // G
+        pixels.push(16);  // B
+    }
+    pixels
+}
+
 // ── Encoder management ──────────────────────────────────────────────────────
 
 /// Probe the first frame's resolution against the current encoder.
@@ -251,7 +268,7 @@ pub(super) async fn stream_frames(ctx: StreamCtx) {
                 break;
             }
             _ = tick.tick() => {
-                // ── Drain core frames ─────────────────────────
+                // ── Drain core frames (or generate test pattern) ─────────
                 let mut video_data: Option<(Vec<u8>, u32, u32)> = None;
                 let mut audio_data: Vec<i16> = Vec::new();
 
@@ -287,7 +304,16 @@ pub(super) async fn stream_frames(ctx: StreamCtx) {
                                 audio_data = f.audio;
                             }
                             None => {
-                                continue;
+                                // No core frame available — generate test pattern if core is loading
+                                let core_loading = ctx.app_state.core_loading.load(Ordering::Relaxed);
+                                let core_loaded = ctx.app_state.core_loaded.load(Ordering::Relaxed);
+                                if core_loading || !core_loaded {
+                                    let w = *ctx.app_state.core_width.lock().await;
+                                    let h = *ctx.app_state.core_height.lock().await;
+                                    if w > 0 && h > 0 {
+                                        video_data = Some((generate_test_frame(w, h), w, h));
+                                    }
+                                }
                             }
                         }
                     }
