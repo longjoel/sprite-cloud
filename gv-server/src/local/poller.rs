@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::gv_web::GvWebClient;
+use crate::worker;
 use crate::worker::SpawnedWorker;
 
 use super::AppState;
@@ -224,7 +225,7 @@ pub async fn run_poll_loop(
                             });
 
                             if let Some(worker) = gv_web_workers.get(game_id) {
-                                let internal_url = internal_worker_url(&worker.url);
+                                let internal_url = worker::internal_worker_url(&worker.url);
                                 tracing::info!("[POLL] relaying SDP to {internal_url}");
 
                                 let mut sdp_body = serde_json::json!({ "sdp": sdp });
@@ -347,12 +348,4 @@ pub async fn run_poll_loop(
             }
         }
     }
-}
-
-fn internal_worker_url(public_url: &str) -> String {
-    if let Some(colon) = public_url.rfind(':')
-        && let Ok(port) = public_url[colon + 1..].parse::<u16>() {
-            return format!("http://127.0.0.1:{port}");
-        }
-    public_url.to_string()
 }
