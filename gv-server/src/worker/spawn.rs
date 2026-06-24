@@ -315,7 +315,7 @@ pub(crate) async fn spawn_worker(
                     match reader.next_line().await {
                         Ok(Some(line)) => {
                             tracing::info!("[WORKER] {line}");
-                            lines_seen.lock().unwrap().push(line.clone());
+                            lines_seen.lock().expect("lines_seen mutex poisoned").push(line.clone());
                             if let Some(rest) = line.strip_prefix("WORKER_READY port=") {
                                 return rest.trim().parse().ok();
                             }
@@ -330,7 +330,7 @@ pub(crate) async fn spawn_worker(
         .flatten()
         .unwrap_or_else(|| {
             // Timeout — dump what we saw for debugging
-            let seen: Vec<_> = lines_seen.lock().unwrap().drain(..).collect();
+            let seen: Vec<_> = lines_seen.lock().expect("lines_seen mutex poisoned").drain(..).collect();
             if seen.is_empty() {
                 tracing::error!(
                     "[WORKER] timeout after {PORT_READ_TIMEOUT_SECS}s — no stderr output from worker"

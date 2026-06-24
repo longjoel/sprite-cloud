@@ -181,7 +181,7 @@ pub(super) async fn handle_player(
             .status(StatusCode::SERVICE_UNAVAILABLE)
             .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
             .body(axum::body::Body::from(html))
-            .unwrap();
+            .expect("failed to build error response");
     }
     drop(core_error);
 

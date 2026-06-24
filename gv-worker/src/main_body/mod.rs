@@ -204,7 +204,7 @@ pub async fn build_app() -> Result<Router, Box<dyn std::error::Error>> {
         .allow_origin(
             config::allowed_origins()
                 .into_iter()
-                .map(|o| o.parse::<axum::http::HeaderValue>().unwrap())
+                .map(|o| o.parse::<axum::http::HeaderValue>().expect("invalid allowed_origin"))
                 .collect::<Vec<_>>(),
         )
         .allow_methods(tower_http::cors::Any)

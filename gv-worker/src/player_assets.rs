@@ -28,7 +28,7 @@ pub fn serve_player_file(path: &str) -> Response<Body> {
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
             .body(Body::from("not found"))
-            .unwrap();
+            .expect("failed to build 404 response");
     };
 
     let mime = match file_path.rsplit('.').next() {
@@ -44,5 +44,5 @@ pub fn serve_player_file(path: &str) -> Response<Body> {
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, mime)
         .body(Body::from(file.data))
-        .unwrap()
+        .expect("failed to build player asset response")
 }
