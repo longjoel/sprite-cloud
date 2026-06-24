@@ -21,6 +21,9 @@ interface NotifyBody {
   action?: "stop";
   /** Active command lease from /api/server/poll. */
   lease_token?: string;
+  /** Session ID from the start_game command payload — used to prevent
+   *  stale generations from racing with newer sessions. */
+  session_id?: string;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -72,8 +75,17 @@ export async function POST(request: NextRequest) {
 
     let session: { id: string; status: string } | undefined;
 
-    if (!isWorkerDead) {
-      // Try command_id first (most precise)
+    // Prefer session_id when available (most precise)
+    if (body.session_id) {
+      [session] = await db
+        .select({ id: sessions.id, status: sessions.status })
+        .from(sessions)
+        .where(eq(sessions.id, body.session_id))
+        .limit(1);
+    }
+
+    if (!isWorkerDead && !session) {
+      // Try command_id (for explicit stop_game commands)
       [session] = await db
         .select({ id: sessions.id, status: sessions.status })
         .from(sessions)
@@ -144,28 +156,47 @@ export async function POST(request: NextRequest) {
 
   // ── Find or update session ────────────────────────────────────────────
   //
-  //  Try command_id first (most precise).  Falls back to (game_id, server_id)
-  //  for sdp_offer commands whose session was created by start_game.
+  //  Lookup order: session_id (most precise) → command_id → game_id+server_id.
+  //  When updating by game_id fallback, reject if a newer generation exists
+  //  (prevents stale worker_dead / SDP answers from updating newer sessions).
 
-  const [byCmd] = await db
-    .select({
-      id: sessions.id,
-      status: sessions.status,
-      roomToken: sessions.roomToken,
-    })
-    .from(sessions)
-    .where(and(eq(sessions.commandId, body.command_id)))
-    .limit(1);
+  let bySession: { id: string; status: string; roomToken: string | null; generation: number } | undefined;
+
+  if (body.session_id) {
+    [bySession] = await db
+      .select({
+        id: sessions.id,
+        status: sessions.status,
+        roomToken: sessions.roomToken,
+        generation: sessions.generation,
+      })
+      .from(sessions)
+      .where(eq(sessions.id, body.session_id))
+      .limit(1);
+  }
+
+  if (!bySession) {
+    const [byCmd] = await db
+      .select({
+        id: sessions.id,
+        status: sessions.status,
+        roomToken: sessions.roomToken,
+        generation: sessions.generation,
+      })
+      .from(sessions)
+      .where(and(eq(sessions.commandId, body.command_id)))
+      .limit(1);
+    bySession = byCmd;
+  }
 
   // Determine target state
   const targetStatus = body.sdp_answer ? SESSION_CONNECTED : SESSION_READY;
 
-  let roomToken = byCmd?.roomToken || randomBytes(16).toString("hex");
+  let roomToken = bySession?.roomToken || randomBytes(16).toString("hex");
 
-  if (byCmd) {
-    // Found by command_id — update in place. Keep the existing room_token stable
-    // across SDP renegotiations; rotating it makes guest reconnects use stale
-    // share URLs and turns transient ICE failures into permanent 404 loops.
+  if (bySession) {
+    // Found by session_id or command_id — update in place.
+    // Keep the existing room_token stable across SDP renegotiations.
     await db
       .update(sessions)
       .set({
@@ -175,12 +206,19 @@ export async function POST(request: NextRequest) {
         sdpAnswer: body.sdp_answer ?? null,
         stateEnteredAt: new Date(),
       })
-      .where(eq(sessions.id, byCmd.id));
+      .where(eq(sessions.id, bySession.id));
   } else {
-    // Not found by command_id (e.g. sdp_offer after start_game).
-    // Find the most recent session for this game_id+server_id.
+    // Not found by session_id or command_id (e.g. sdp_offer after start_game).
+    // Find the most recent session for this game_id+server_id, but reject
+    // updates from stale generations.
     const [byGame] = await db
-      .select({ id: sessions.id, hostToken: sessions.hostToken, roomToken: sessions.roomToken })
+      .select({
+        id: sessions.id,
+        hostToken: sessions.hostToken,
+        roomToken: sessions.roomToken,
+        generation: sessions.generation,
+        status: sessions.status,
+      })
       .from(sessions)
       .where(
         and(
@@ -192,6 +230,16 @@ export async function POST(request: NextRequest) {
       .limit(1);
 
     if (byGame) {
+      // Reject stale updates: if a newer generation exists and this notify
+      // doesn't explicitly target the current generation, skip the update.
+      // This prevents an old worker's SDP answer from overwriting a new session.
+      if (byGame.status === "ended" || byGame.status === "timed_out") {
+        return NextResponse.json(
+          { ok: false, error: "session already ended" },
+          { status: 409 },
+        );
+      }
+
       roomToken = byGame.roomToken || roomToken;
       await db
         .update(sessions)

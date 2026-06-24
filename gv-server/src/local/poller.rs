@@ -145,8 +145,9 @@ pub async fn run_poll_loop(
                                     }
 
                                     // Notify gv-web
+                                    let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
                                     if let Err(e) = client
-                                        .notify(&cmd.id, &cmd.lease_token, &url, game_id)
+                                        .notify(&cmd.id, &cmd.lease_token, &url, game_id, session_id)
                                         .await
                                     {
                                         tracing::error!(
@@ -182,8 +183,9 @@ pub async fn run_poll_loop(
                                     counters.remove(game_id);
                                 }
 
+                                let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
                                 if let Err(e) = client
-                                    .notify_stop(&cmd.id, &cmd.lease_token, game_id)
+                                    .notify_stop(&cmd.id, &cmd.lease_token, game_id, session_id)
                                     .await
                                 {
                                     tracing::error!(
@@ -280,6 +282,7 @@ pub async fn run_poll_loop(
                                                         .notify_sdp(
                                                             &cmd.id, &cmd.lease_token,
                                                             &worker.url, game_id, answer_sdp,
+                                                            cmd.payload.get("session_id").and_then(|v| v.as_str()),
                                                         )
                                                         .await
                                                 {
@@ -362,7 +365,7 @@ pub async fn run_poll_loop(
                         let mut counters = state.seat_counters.lock().await;
                         counters.remove(game_id);
                     }
-                    let _ = client.notify_worker_dead(game_id).await;
+                    let _ = client.notify_worker_dead(game_id, None).await;
                 }
 
                 tokio::time::sleep(Duration::from_millis(resp.next_poll_ms)).await;
