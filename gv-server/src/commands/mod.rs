@@ -239,6 +239,15 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                             let url = worker.url.clone();
                                             tracing::info!("[WORKER] spawned at {url}");
 
+                                            let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
+                                            client.launch_event(
+                                                "worker_process_started",
+                                                Some(&cmd.id),
+                                                Some(game_id),
+                                                session_id,
+                                                Some(serde_json::json!({"worker_url": url})),
+                                            ).await;
+
                                             // Probe health before notifying gv-web
                                             let health_url = format!("{url}/health");
                                             match client

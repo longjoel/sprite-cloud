@@ -117,7 +117,16 @@ pub async fn run_poll_loop(
                             {
                                 Ok(worker) => {
                                     let url = worker.url.clone();
-                                    tracing::info!("[POLL] spawned worker at {url}");
+                                    tracing::info!("[POLL] worker spawned at {url}");
+
+                                    let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
+                                    client.launch_event(
+                                        "worker_process_started",
+                                        Some(&cmd.id),
+                                        Some(game_id),
+                                        session_id,
+                                        Some(serde_json::json!({"worker_url": url})),
+                                    ).await;
 
                                     // Health check
                                     let health_url = format!("{url}/health");

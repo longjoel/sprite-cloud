@@ -437,4 +437,45 @@ impl GvWebClient {
 
         Ok(())
     }
+
+    /// POST /api/server/launch-event — record a timeline milestone.
+    ///
+    /// Best-effort; failure is logged but not returned as an error
+    /// (telemetry must not break gameplay).
+    pub async fn launch_event(
+        &self,
+        event: &str,
+        command_id: Option<&str>,
+        game_id: Option<&str>,
+        session_id: Option<&str>,
+        detail: Option<serde_json::Value>,
+    ) {
+        let url = format!("{}/api/server/launch-event", self.base_url);
+
+        let mut body = serde_json::json!({
+            "event": event,
+        });
+        if let Some(cid) = command_id { body["command_id"] = serde_json::Value::String(cid.to_string()); }
+        if let Some(gid) = game_id { body["game_id"] = serde_json::Value::String(gid.to_string()); }
+        if let Some(sid) = session_id { body["session_id"] = serde_json::Value::String(sid.to_string()); }
+        if let Some(d) = detail { body["detail"] = d; }
+
+        match self
+            .client
+            .post(&url)
+            .bearer_auth(&self.auth.api_key)
+            .json(&body)
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => {}
+            other => {
+                tracing::debug!(
+                    "[launch-event] failed to record '{}': {:?}",
+                    event,
+                    other.err().map(|e| e.to_string())
+                );
+            }
+        }
+    }
 }
