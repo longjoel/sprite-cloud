@@ -341,6 +341,9 @@ describe("POST /api/server/command", () => {
     const body = await resp.json();
     expect(body.worker_token).toBeTruthy();
     expect(body.worker_token.length).toBe(32); // 16 bytes hex = 32 chars
+
+    const { launchEvents } = await import("@/lib/db/schema");
+    expect(mockDb.insert).toHaveBeenCalledWith(launchEvents);
   });
 });
 

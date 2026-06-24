@@ -125,6 +125,31 @@ export const sessions = pgTable("sessions", {
   endedAt: timestamp("ended_at", { withTimezone: true }),
 });
 
+// ── Launch timeline events ────────────────────────────────────────────
+//
+// One row per observable launch/connect milestone. These rows are for
+// diagnostics only: never store credentials, bearer tokens, SDP blobs, or
+// other sensitive payloads in `detail`.
+
+export const launchEvents = pgTable(
+  "launch_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    sessionId: uuid("session_id").references(() => sessions.id),
+    commandId: uuid("command_id").references(() => commands.id),
+    serverId: uuid("server_id").references(() => servers.id),
+    gameId: text("game_id"),
+    source: text("source").notNull(),
+    event: text("event").notNull(),
+    detail: jsonb("detail").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    idxSessionCreated: index("idx_launch_events_session_created").on(table.sessionId, table.createdAt),
+    idxCommandCreated: index("idx_launch_events_command_created").on(table.commandId, table.createdAt),
+  }),
+);
+
 // ── Server ROM roots (directories gv-server scans for game files) ─────
 //
 // Reported by gv-server during pairing. gv-web uses these to discover
