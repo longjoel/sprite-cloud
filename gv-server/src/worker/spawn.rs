@@ -276,6 +276,10 @@ pub(crate) async fn spawn_worker(
             }
         }
 
+    // GStreamer encoder tuning — keep thread count low on weak hardware
+    // to avoid starving the tokio runtime. Default is 4; N100 needs 1-2.
+    cmd.env("GV_GST_VIDEO_THREADS", "1");
+
     // Forward ICE (STUN/TURN) configuration to the worker for WebRTC.
     for key in &[
         "GV_ICE_STUN_URLS",
