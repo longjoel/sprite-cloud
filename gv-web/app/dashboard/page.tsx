@@ -19,6 +19,9 @@ import {
   webVersion,
 } from "./version-utils";
 
+const OPEN_SESSION_STATUSES = ["spawning", "ready", "connected", "playing"] as const;
+const DASHBOARD_FRESH_SESSION_MS = 5 * 60 * 1000;
+
 // ── Dashboard — admin-only operational view ─────────────────────────
 
 export default async function DashboardPage() {
@@ -114,6 +117,7 @@ export default async function DashboardPage() {
       workerUrl: sessions.workerUrl,
       status: sessions.status,
       createdAt: sessions.createdAt,
+      stateEnteredAt: sessions.stateEnteredAt,
     })
     .from(sessions)
     .where(
@@ -122,11 +126,44 @@ export default async function DashboardPage() {
           serverIds.map((id) => sql`${id}::uuid`),
           sql`, `,
         )}]::uuid[])`,
-        sql`${sessions.status} IN ('ready','connected','playing','spawning')`,
+        sql`${sessions.status} IN ('spawning','ready','connected','playing')`,
       ),
     )
     .orderBy(desc(sessions.createdAt))
-    .limit(10);
+    .limit(20);
+
+  const dashboardNow = Date.now();
+  const staleOpenSessionCutoff = new Date(dashboardNow - DASHBOARD_FRESH_SESSION_MS);
+  const [freshOpenRow] = await db
+    .select({ count: count(sessions.id) })
+    .from(sessions)
+    .where(
+      and(
+        sql`${sessions.serverId} = ANY(ARRAY[${sql.join(
+          serverIds.map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )}]::uuid[])`,
+        sql`${sessions.status} IN ('spawning','ready','connected','playing')`,
+        sql`${sessions.stateEnteredAt} >= ${staleOpenSessionCutoff}`,
+      ),
+    );
+
+  const [staleOpenRow] = await db
+    .select({ count: count(sessions.id) })
+    .from(sessions)
+    .where(
+      and(
+        sql`${sessions.serverId} = ANY(ARRAY[${sql.join(
+          serverIds.map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )}]::uuid[])`,
+        sql`${sessions.status} IN ('spawning','ready','connected','playing')`,
+        sql`${sessions.stateEnteredAt} < ${staleOpenSessionCutoff}`,
+      ),
+    );
+
+  const freshOpenCount = freshOpenRow?.count ?? 0;
+  const staleOpenCount = staleOpenRow?.count ?? 0;
 
   // Stuck spawning — >60s old
   const stuckSpawning = activeSessions.filter(
@@ -153,7 +190,7 @@ export default async function DashboardPage() {
   );
 
   // Helpers
-  const now = Date.now();
+  const now = dashboardNow;
   // Fetch ROM roots for each admin server
   const romRootsByServer: Record<string, string[]> = {};
   for (const srv of adminServers) {
@@ -215,14 +252,16 @@ export default async function DashboardPage() {
               ok={lastSeenSecs !== null && lastSeenSecs < 300}
             />
             <HealthCard
-              label="workers"
-              value={String(
-                activeSessions.filter((s) =>
-                  ["ready", "connected", "playing"].includes(s.status),
-                ).length,
-              )}
-              ok={stuckSpawning.length === 0}
-              warn={stuckSpawning.length > 0 ? `${stuckSpawning.length} stuck` : undefined}
+              label="fresh sessions"
+              value={String(freshOpenCount)}
+              ok={stuckSpawning.length === 0 && staleOpenCount === 0}
+              warn={
+                staleOpenCount > 0
+                  ? `${staleOpenCount} stale open rows`
+                  : stuckSpawning.length > 0
+                    ? `${stuckSpawning.length} stuck`
+                    : undefined
+              }
             />
           </div>
         </div>
@@ -325,7 +364,7 @@ export default async function DashboardPage() {
         <h2 style={S.h2}>Sessions</h2>
         <div style={S.card}>
           <div style={S.stats}>
-            {(["spawning", "ready", "connected", "playing", "ended"] as const).map(
+            {[...OPEN_SESSION_STATUSES, "ended"].map(
               (st) => (
                 <div key={st} style={S.stat}>
                   <span style={S.statCount}>{sessionMap[st] ?? 0}</span>
@@ -333,6 +372,10 @@ export default async function DashboardPage() {
                 </div>
               ),
             )}
+            <div style={S.stat}>
+              <span style={S.statCount}>{staleOpenCount}</span>
+              <span style={S.statLabel}>stale open</span>
+            </div>
           </div>
           {activeSessions.length > 0 && (
             <div style={S.tableWrap}>
@@ -342,16 +385,18 @@ export default async function DashboardPage() {
                     <th style={S.th}>Status</th>
                     <th style={S.th}>Game</th>
                     <th style={S.th}>Worker</th>
-                    <th style={S.th}>Age</th>
+                    <th style={S.th}>State age</th>
                   </tr>
                 </thead>
                 <tbody>
                   {activeSessions.map((s) => {
-                    const ageSecs = s.createdAt
+                    const stateAt = s.stateEnteredAt ?? s.createdAt;
+                    const ageSecs = stateAt
                       ? Math.round(
-                          (now - new Date(s.createdAt).getTime()) / 1000,
+                          (now - new Date(stateAt).getTime()) / 1000,
                         )
                       : null;
+                    const isStale = ageSecs !== null && ageSecs > DASHBOARD_FRESH_SESSION_MS / 1000;
                     return (
                       <tr key={s.id}>
                         <td style={S.td}>
@@ -369,6 +414,7 @@ export default async function DashboardPage() {
                             }}
                           />{" "}
                           {s.status}
+                          {isStale && <span style={S.warn}> stale</span>}
                         </td>
                         <td style={S.td}>
                           <code style={S.code}>
