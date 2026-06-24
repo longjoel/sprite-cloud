@@ -97,7 +97,7 @@ pub async fn serve(port: u16) -> anyhow::Result<()> {
             config.auth.clone(),
         );
         // Verify the API key
-        let metadata = crate::commands::collect_metadata(&config);
+        let metadata = crate::commands::version::collect_metadata(&config);
         match client.verify_with_metadata(&metadata).await {
             Ok(v) => {
                 tracing::info!(
