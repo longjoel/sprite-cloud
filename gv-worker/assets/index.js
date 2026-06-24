@@ -125,7 +125,7 @@ const MAX_PENDING_PINGS = 20;
 /** Poll interval when waiting for relay SDP answer (ms). */
 const RELAY_POLL_MS = 500;
 /** Max time to wait for relay SDP answer (ms). */
-const RELAY_TIMEOUT_MS = 30_000;
+const RELAY_TIMEOUT_MS = 10_000;
 
 /** Bits in the RetroArch mask that the gamepad can set.
  *  Keyboard and gamepad share the same mask; gamepad-owned bits
