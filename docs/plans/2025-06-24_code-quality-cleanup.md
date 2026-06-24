@@ -1,5 +1,7 @@
 # Games Vault — Code Quality Cleanup Plan
 
+> **⚠️ OBSOLETE — 2026-06-24:** This plan from 2025 contains stale dead-code claims about gv-server commands that are live from the binary target (only flagged by `cargo clippy --lib`, not `--bin`). Replaced by the project-roast remediation plan (`docs/plans/2026-06-24-project-roast-remediation.md`) and issue #486. Do not use this plan for implementation without cross-checking every dead-code claim with both `cargo clippy --lib` AND `cargo clippy --bin`.
+
 > **For Hermes:** Execute task-by-task. Each task is self-contained with exact paths and commands.
 
 **Goal:** Make the codebase pretty, small, and easy to comprehend — remove dead code, split god files, fix clippy warnings, and reduce unwrap() usage across Rust + TypeScript.
