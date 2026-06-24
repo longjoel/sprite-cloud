@@ -6,6 +6,7 @@ Games Vault now has a single release path. No more mystery deploys.
 
 - `scripts/build-release.sh` — builds Rust release binaries and gv-web production bundle
 - `scripts/deploy-vault.sh` — installs `gv-server` + `gv-worker`, writes release markers, restarts systemd, runs worker smoke test
+- `scripts/apply-gv-web-migration.sh` — applies a single Drizzle SQL migration to production Postgres with `ON_ERROR_STOP=1`. Run before deploy when schema changes exist.
 - `scripts/deploy-gv-web.sh` — **blessed gv-web deploy**. Builds gv-web, packs standalone+static+public into a tar, extracts into the running VPS container, stamps runtime version, restarts, and verifies the deployed SHA via `/api/health`. Prefer this over `deploy-vps-web.sh` for routine deploys — it avoids a full Docker image rebuild.
 - `scripts/deploy-vps-web.sh` — (legacy) rebuilds the `gv-web-prod` Docker image and ships it to the VPS. Still useful for image-level changes (Dockerfile, entrypoint).
 - `scripts/smoke-test.sh` — checks local and remote release markers plus health endpoints
@@ -94,6 +95,39 @@ curl -s https://lngnckr.tech/api/health | python3 -c "import json,sys; print(jso
 ```
 
 This means the first debugging question is answerable in one command: "what code is actually running on the VPS?"
+
+## Migration workflow
+
+Schema changes must be applied explicitly before deploying new code. Production startup never runs interactive schema push (`GV_WEB_SCHEMA_PUSH_ON_START=0` in `entrypoint.prod.sh`).
+
+### Generating a migration
+
+```bash
+cd gv-web
+npx drizzle-kit generate
+# → writes to gv-web/drizzle/0012_<name>.sql
+```
+
+### Applying a migration (before deploy)
+
+```bash
+# Review the generated SQL first
+cat gv-web/drizzle/0012_<name>.sql
+
+# Apply to production Postgres (fails on SQL error)
+./scripts/apply-gv-web-migration.sh gv-web/drizzle/0012_<name>.sql
+
+# Then deploy the new code
+./scripts/deploy-gv-web.sh
+```
+
+### Order
+
+1. Generate migration → `npx drizzle-kit generate`
+2. Review the SQL → `cat gv-web/drizzle/0012_<name>.sql`
+3. Apply to Postgres → `./scripts/apply-gv-web-migration.sh ...`
+4. Deploy gv-web → `./scripts/deploy-gv-web.sh`
+5. Verify → `curl -s https://lngnckr.tech/api/health`
 
 ## CI gate
 
