@@ -88,7 +88,7 @@ const RECONNECT_DELAY_MS = 1_500;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const GAME_START_POLL_MS = 500;
 const GAME_START_TIMEOUT_MS = 30_000;
-const WORKER_READY_DELAY_MS = 1_000; // Let worker fully init WebRTC stack after startGame
+const WORKER_READY_DELAY_MS = 0; // Worker already confirmed ready — no extra wait needed
 
 // ── startGame helper ────────────────────────────────────────────────
 
