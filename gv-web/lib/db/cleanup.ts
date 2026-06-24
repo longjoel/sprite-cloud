@@ -17,7 +17,7 @@ const SESSION_RETENTION_MS = 3_600_000; // 1 hour
 
 const STUCK_STATES = [SESSION_SPAWNING, SESSION_READY, SESSION_CONNECTED];
 
-async function cleanupOnce() {
+export async function cleanupOnce() {
   try {
     const now = Date.now();
 
@@ -94,6 +94,5 @@ export function startCleanup() {
   setInterval(cleanupOnce, CLEANUP_INTERVAL_MS);
 }
 
-// Auto-start when the module is first imported (server startup).
-// Guarded above to skip during build.
-startCleanup();
+// Export startCleanup for explicit scheduling (cron, systemd timer, or
+// Docker sidecar). Importing this module does NOT start a cleanup loop.
