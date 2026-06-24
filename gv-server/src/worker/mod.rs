@@ -15,14 +15,10 @@ use tokio::process::Command;
 
 // ── Core mapping ──────────────────────────────────────────────────────
 
-// Core mapping is now in `platform.rs` — aliased here for convenience.
-pub use crate::platform::core_for_platform;
-
 mod core;
 mod pid;
 mod spawn;
 
-pub use core::ensure_core_for_test;
 pub(crate) use pid::{internal_worker_url, reap_stale_workers};
 #[cfg(test)]
 pub(crate) use pid::{pid_path, write_pid_file};

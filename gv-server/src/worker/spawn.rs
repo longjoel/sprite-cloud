@@ -23,7 +23,7 @@ fn generate_worker_control_token() -> String {
 /// Call `kill()` before dropping to terminate the child and remove the
 /// PID file.  Dropping without `kill()` leaves both the process and the
 /// PID file behind (recovered by `reap_stale_workers()` on next startup).
-pub(crate) struct SpawnedWorker {
+pub struct SpawnedWorker {
     pub url: String,
     pub(super) control_token: String,
     pub(super) game_id: String,
