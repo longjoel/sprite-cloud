@@ -57,7 +57,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
 
-  const missing = body.action === "stop"
+  // Guard: __worker_dead__ is a sentinel — MUST be handled before any DB
+  // query that uses command_id as a UUID. Treat it as a stop action even
+  // if the caller didn't explicitly set action="stop".
+  const isWorkerDead = body.command_id === "__worker_dead__";
+  const effectiveAction = isWorkerDead ? "stop" : body.action;
+
+  const missing = effectiveAction === "stop"
     ? !body.command_id || !body.game_id
     : !body.command_id || !body.worker_url || !body.game_id;
   if (missing) {
@@ -68,11 +74,7 @@ export async function POST(request: NextRequest) {
   }
 
   // ── Stop action: transition session to ended ──────────────────────────
-  if (body.action === "stop") {
-    // Find the most recent active session for this game+server.
-    // __worker_dead__ is a sentinel for unexpected worker exits (OOM, crash)
-    // — there's no real command_id to match, so use game+server.
-    const isWorkerDead = body.command_id === "__worker_dead__";
+  if (effectiveAction === "stop") {
 
     let session: { id: string; status: string } | undefined;
 
