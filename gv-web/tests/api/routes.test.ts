@@ -410,6 +410,39 @@ describe("GET /api/server/poll", () => {
     expect(updateSet?.leaseExpiresAt).toBeInstanceOf(Date);
     expect(body.next_poll_ms).toBe(250); // fast poll when commands leased
   });
+
+  it("prioritizes signaling commands before slower control work", async () => {
+    const rows = [
+      { id: "cmd-1", type: "sdp_offer", payload: { game_id: "smw" }, attempts: 0 },
+    ];
+    const builder = mockQueryBuilder(rows);
+    mockDb.transaction.mockImplementation(async (fn: any) => {
+      const tx = {
+        select: vi.fn(() => builder),
+        update: vi.fn(() => ({
+          set: vi.fn(() => ({ where: vi.fn(() => Promise.resolve(undefined)) })),
+        })),
+      };
+      return fn(tx);
+    });
+
+    const { GET } = await import("@/app/api/server/poll/route");
+    const req = mkReq("http://localhost/api/server/poll", {
+      headers: authHeader(),
+    });
+    const resp = await GET(req);
+    expect(resp.status).toBe(200);
+
+    expect(builder.orderBy).toHaveBeenCalledTimes(1);
+    const orderArgs = builder.orderBy.mock.calls[0];
+    expect(orderArgs.length).toBeGreaterThanOrEqual(2);
+    const prioritySql = (orderArgs[0] as { queryChunks?: Array<{ value?: string[] }> }).queryChunks
+      ?.flatMap((chunk) => chunk.value ?? [])
+      .join(" ") ?? "";
+    expect(prioritySql).toContain("sdp_offer");
+    expect(prioritySql).toContain("stop_game");
+    expect(prioritySql).toContain("start_game");
+  });
 });
 
 // ── /api/server/notify ─────────────────────────────────────────────────

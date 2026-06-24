@@ -70,7 +70,15 @@ export async function GET(request: Request): Promise<NextResponse<PollResponse>>
           ),
         ),
       )
-      .orderBy(commands.createdAt)
+      .orderBy(
+        sql`case ${commands.type}
+          when 'sdp_offer' then 0
+          when 'stop_game' then 1
+          when 'start_game' then 2
+          else 3
+        end`,
+        commands.createdAt,
+      )
       .limit(25)
       .for("update");
 
