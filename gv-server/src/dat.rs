@@ -324,8 +324,7 @@ fn find_matching_paren(bytes: &[u8], open_pos: usize) -> Result<usize> {
     let mut depth = 0;
     let mut in_quotes = false;
 
-    for i in (open_pos + 1)..bytes.len() {
-        let b = bytes[i];
+    for (i, &b) in bytes.iter().enumerate().skip(open_pos + 1) {
         if b == b'"' {
             in_quotes = !in_quotes;
             continue;
@@ -354,10 +353,10 @@ fn extract_clrmamepro_value(block: &str, key: &str) -> Option<String> {
     if let Some(pos) = block.find(&search) {
         let rest = &block[pos + search.len()..];
         let rest = rest.trim_start();
-        if rest.starts_with('"') {
+        if let Some(stripped) = rest.strip_prefix('"') {
             // Quoted value
-            let end = rest[1..].find('"')?;
-            Some(rest[1..=end].to_string())
+            let end = stripped.find('"')?;
+            Some(stripped[..end].to_string())
         } else {
             // Bare token (e.g., size 262160)
             let end = rest
