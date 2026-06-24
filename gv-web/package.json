@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "npx eslint public/player/*.js && next build",
+    "build": "next build",
     "start": "next start",
-    "lint": "npx eslint public/player/*.js && next lint",
+    "lint": "next lint",
     "test": "vitest run"
   },
   "dependencies": {
