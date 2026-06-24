@@ -78,6 +78,13 @@
       "when": 1782147630547,
       "tag": "0010_smooth_goliath",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1782333235400,
+      "tag": "0011_swift_overlord",
+      "breakpoints": true
     }
   ]
 }

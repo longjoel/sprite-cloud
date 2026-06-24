@@ -234,15 +234,9 @@ export async function GET(
   }
 
   // ── Forward to worker ──
-  // pathStr is the URL path after game_id. The worker serves:
-  //   /player         → HTML page (when pathStr is "" or "player" from redirect)
-  //   /player/xxx.js  → JS assets (when pathStr is e.g. "player-bundle.js")
-  let targetPath: string;
-  if (pathStr === "" || pathStr === "player") {
-    targetPath = "/player";
-  } else {
-    targetPath = `/player/${pathStr}`;
-  }
+  // pathStr already contains the worker path prefix (e.g. "player" for the
+  // HTML page, "player/player-bundle.js" for JS assets).  Prepend "/" only.
+  const targetPath = "/" + pathStr;
   const targetUrl = `${workerUrl.replace(/\/$/, "")}${targetPath}`;
 
   let resp: Response;
