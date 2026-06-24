@@ -15,6 +15,7 @@ pub(crate) mod version;
 
 // ── pair subcommand ───────────────────────────────────────────────────
 
+#[allow(dead_code)] // Used by the gv-server binary; lib tests build this module standalone.
 pub(crate) async fn cmd_pair(code: &str, gv_web_url: &str) -> Result<()> {
     tracing::info!("Pairing with {} ...", gv_web_url);
 
@@ -72,6 +73,7 @@ pub(crate) async fn cmd_pair(code: &str, gv_web_url: &str) -> Result<()> {
 
 // ── start subcommand ──────────────────────────────────────────────────
 
+#[allow(dead_code)] // Used by the gv-server binary; lib tests build this module standalone.
 pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
     let mut cfg = config::load().context("load config (run 'gv-server pair' first)")?;
 
@@ -758,6 +760,7 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
 /// Validate that the server's prerequisites are met before entering
 /// the poll loop.  Failures here are fatal — the server exits with
 /// a clear error message instead of starting in a broken state.
+#[allow(dead_code)] // Used by cmd_start; lib tests build this module without the binary entrypoint.
 fn validate_prerequisites(cfg: &config::Config, worker_bin: Option<&str>) {
     let mut ok = true;
 
@@ -826,6 +829,7 @@ fn validate_prerequisites(cfg: &config::Config, worker_bin: Option<&str>) {
 
 /// Returns when the process receives SIGINT (Ctrl+C) or SIGTERM.
 #[cfg(unix)]
+#[allow(dead_code)] // Used by cmd_start; lib tests build this module without the binary entrypoint.
 async fn shutdown_signal() {
     use tokio::signal::unix::{SignalKind, signal};
 
@@ -839,6 +843,7 @@ async fn shutdown_signal() {
 }
 
 #[cfg(not(unix))]
+#[allow(dead_code)] // Used by cmd_start; lib tests build this module without the binary entrypoint.
 async fn shutdown_signal() {
     tokio::signal::ctrl_c()
         .await
