@@ -14,6 +14,11 @@ const CSP = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // ESLint is intentionally disabled during builds. TypeScript (npx tsc --noEmit)
+  // is the enforcement gate for code quality. ESLint would require configuring a
+  // full rule set for this project, and the recurring "ESLint must be installed"
+  // warning trained maintainers to ignore build output — the opposite of its intent.
+  eslint: { ignoreDuringBuilds: true },
   async headers() {
     return [
       {
