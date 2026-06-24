@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import GamePlayer from "@/components/GamePlayer";
+import { useRouter } from "next/navigation";
 import { Badge, Button, Card, Modal } from "@/components/ui";
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -81,8 +81,7 @@ function csrfHeaders(): Record<string, string> {
 // ── Component ─────────────────────────────────────────────────────────
 
 export default function LibraryClient({ games, serverIds, session }: LibraryClientProps) {
-  const [activeGame, setActiveGame] = useState<{ id: string; name: string } | null>(null);
-  const [selectedServerId, setSelectedServerId] = useState<string>("");
+  const router = useRouter();
 
   // Host picker state
   const [hostPickerGame, setHostPickerGame] = useState<string | null>(null);
@@ -133,11 +132,10 @@ export default function LibraryClient({ games, serverIds, session }: LibraryClie
       }
 
       if (withGame.length === 1) {
-        // Auto-select single host
-        setSelectedServerId(withGame[0].server_id);
-        const name = hosts.find((h) => h.server_id === withGame[0].server_id)?.name || "";
-        setPreferredServer(gameId, withGame[0].server_id);
-        setActiveGame({ id: gameId, name });
+        // Auto-select single host — redirect to worker proxy
+        const sid = withGame[0].server_id;
+        setPreferredServer(gameId, sid);
+        router.push(`/api/worker-proxy/${encodeURIComponent(gameId)}/?server_id=${encodeURIComponent(sid)}`);
         return;
       }
 
@@ -148,11 +146,10 @@ export default function LibraryClient({ games, serverIds, session }: LibraryClie
     }
   };
 
-  const selectHost = (gameId: string, serverId: string, serverName: string) => {
-    setSelectedServerId(serverId);
+  const selectHost = (gameId: string, serverId: string, _serverName: string) => {
     setHostPickerGame(null);
     setPreferredServer(gameId, serverId);
-    setActiveGame({ id: gameId, name: serverName });
+    router.push(`/api/worker-proxy/${encodeURIComponent(gameId)}/?server_id=${encodeURIComponent(serverId)}`);
   };
 
   const startRename = useCallback((game: Game) => {
@@ -339,19 +336,6 @@ export default function LibraryClient({ games, serverIds, session }: LibraryClie
         </section>
       )}
 
-      {/* ── Game modal — no backdrop close, only explicit button ─── */}
-      {activeGame && selectedServerId && (
-        <div style={styles.modalOverlay}>
-          <div style={styles.modalContent}>
-            <GamePlayer
-              gameId={activeGame.id}
-              gameName={activeGame.name}
-              serverId={selectedServerId}
-              onClose={() => setActiveGame(null)}
-            />
-          </div>
-        </div>
-      )}
     </main>
   );
 }
