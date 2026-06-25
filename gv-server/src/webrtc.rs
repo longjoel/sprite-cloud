@@ -6,9 +6,12 @@
 //! Provides a single `handle_sdp_offer()` entry point that takes a browser
 //! SDP offer and returns the answer SDP + peer connection + tracks.
 
+use std::collections::VecDeque;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Duration;
+
+use tokio::sync::Mutex as AsyncMutex;
 
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_H264, MIME_TYPE_OPUS, MIME_TYPE_VP8};
@@ -316,6 +319,7 @@ pub(crate) struct InternalWebRtcStack {
 // ── Public API ───────────────────────────────────────────────────────────────
 
 /// Result of building a WebRTC stack (without SDP exchange).
+#[derive(Debug)]
 pub struct WebRtcStack {
     pub pc: Arc<RTCPeerConnection>,
     pub video_track: Arc<TrackLocalStaticSample>,
@@ -467,4 +471,126 @@ pub async fn prewarm_ice_agent() {
         "[PREWARM] done in {:?} — TURN allocations held for first peer",
         start.elapsed()
     );
+}
+
+// ── PC Pool ──────────────────────────────────────────────────────────────────
+
+/// Pool of pre-built WebRTC stacks for zero-build-time session creation.
+///
+/// Instead of calling `build_session_pc()` on every `start_game` (200-400ms),
+/// we pre-build 2-3 stacks at startup and pop them from a queue. A background
+/// task replenishes the pool asynchronously.
+pub struct PcPool {
+    queue: Arc<AsyncMutex<VecDeque<WebRtcStack>>>,
+    notify: Arc<tokio::sync::Notify>,
+    pool_size: usize,
+}
+
+impl PcPool {
+    /// Create and pre-fill a pool of `size` WebRTC stacks.
+    pub async fn new(size: usize) -> Self {
+        let queue = Arc::new(AsyncMutex::new(VecDeque::with_capacity(size)));
+        let notify = Arc::new(tokio::sync::Notify::new());
+        let pool = Self {
+            queue,
+            notify,
+            pool_size: size,
+        };
+
+        // Pre-fill concurrently
+        let mut handles = Vec::with_capacity(size);
+        for _ in 0..size {
+            handles.push(tokio::spawn(build_session_pc()));
+        }
+        let mut stacks = Vec::with_capacity(size);
+        for h in handles {
+            match h.await {
+                Ok(Ok(stack)) => stacks.push(stack),
+                Ok(Err(e)) => tracing::warn!("[POOL] pre-build failed: {e}"),
+                Err(e) => tracing::warn!("[POOL] pre-build panic: {e}"),
+            }
+        }
+
+        {
+            let mut q = pool.queue.lock().await;
+            for s in stacks {
+                q.push_back(s);
+            }
+        }
+
+        tracing::info!(
+            "[POOL] initialized with {} pre-built stacks (target {size})",
+            pool.queue.lock().await.len()
+        );
+
+        pool
+    }
+
+    /// Acquire a pre-built stack from the pool.
+    ///
+    /// Returns immediately if a stack is available. If the pool is empty,
+    /// waits (with a 10-second timeout) for the background replenishment
+    /// task to push a new one.
+    pub async fn acquire(&self) -> Result<WebRtcStack, String> {
+        // Fast path — pop from queue
+        {
+            let mut q = self.queue.lock().await;
+            if let Some(stack) = q.pop_front() {
+                let remaining = q.len();
+                drop(q);
+
+                // Replenish in the background
+                self.replenish_background();
+
+                tracing::info!("[POOL] acquired stack ({remaining} remaining, replenishing)");
+                return Ok(stack);
+            }
+        }
+
+        // Slow path — wait for replenishment
+        tracing::info!("[POOL] empty — waiting for replenishment...");
+        tokio::select! {
+            _ = self.notify.notified() => {
+                let mut q = self.queue.lock().await;
+                if let Some(stack) = q.pop_front() {
+                    let remaining = q.len();
+                    drop(q);
+                    self.replenish_background();
+                    tracing::info!("[POOL] acquired stack after wait ({remaining} remaining)");
+                    return Ok(stack);
+                }
+                Err("pool notified but still empty — this is a bug".to_string())
+            }
+            _ = tokio::time::sleep(Duration::from_secs(10)) => {
+                Err("pool acquisition timed out (10s)".to_string())
+            }
+        }
+    }
+
+    /// Spawn a background task to build and push one new stack.
+    fn replenish_background(&self) {
+        let queue = Arc::clone(&self.queue);
+        let notify = Arc::clone(&self.notify);
+        let size = self.pool_size;
+
+        tokio::spawn(async move {
+            // Don't over-fill
+            let current = queue.lock().await.len();
+            if current >= size {
+                tracing::debug!("[POOL] replenish skipped — pool at {current}/{size}");
+                return;
+            }
+
+            match build_session_pc().await {
+                Ok(stack) => {
+                    queue.lock().await.push_back(stack);
+                    notify.notify_one();
+                    tracing::info!("[POOL] replenished (now {}/{})", queue.lock().await.len(), size);
+                }
+                Err(e) => {
+                    tracing::warn!("[POOL] replenish build failed: {e}");
+                }
+            }
+        });
+    }
 }
