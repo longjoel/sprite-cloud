@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 use gv_shm::{ShmRing, frame_type};
 
+use crate::core_bridge::{CoreCommand, CoreFrame, CoreResponse};
 use crate::gst_audio::GstAudioEncoder;
 use crate::gst_video::{GstVideoEncoder, VideoCodec};
 
@@ -20,6 +21,8 @@ pub struct StreamCtx {
     pub cancel: CancellationToken,
     pub app_state: Arc<AppState>,
     pub shm: Arc<ShmRing>,
+    /// Optional input shm ring for keyboard/gamepad commands (gv-server → worker).
+    pub input_shm: Option<Arc<ShmRing>>,
 }
 
 // ── Test pattern generator (loading state before core is ready) ─────────────
@@ -235,6 +238,29 @@ pub async fn stream_frames(ctx: StreamCtx) {
                 break;
             }
             _ = tick.tick() => {
+                // ── Drain input commands from gv-server ────────
+                if let Some(ref input_shm) = ctx.input_shm {
+                    while let Some((frame_type, data, _ts)) = input_shm.read_frame() {
+                        if frame_type == gv_shm::frame_type::INPUT {
+                            // Forward to core command channel
+                            let cmd_tx_guard = ctx.app_state.core_cmd_tx.lock().await;
+                            if let Some(ref tx) = *cmd_tx_guard {
+                                if let Ok(cmd) = serde_json::from_slice::<serde_json::Value>(&data) {
+                                    if let (Some(port), Some(state)) = (
+                                        cmd.get("port").and_then(|v| v.as_u64()),
+                                        cmd.get("state").and_then(|v| v.as_u64()),
+                                    ) {
+                                        let _ = tx.try_send(CoreCommand::SetInput {
+                                            port: port as u32,
+                                            state: state as u16,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // ── Drain core frames (or generate test pattern) ─────────
                 let mut video_data: Option<(Vec<u8>, u32, u32)> = None;
                 let mut audio_data: Vec<i16> = Vec::new();

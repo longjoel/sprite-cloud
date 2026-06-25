@@ -33,8 +33,10 @@ pub struct SpawnedWorker {
     pub(super) game_id: String,
     pub(super) host_token: Option<String>,
     pub(super) child: Option<Child>,
-    /// Shared-memory ring buffer for frame IPC from the worker.
+    /// Shared-memory ring buffer for frame IPC from the worker (video + audio).
     pub shm: Arc<ShmRing>,
+    /// Shared-memory ring buffer for input IPC to the worker (keyboard/gamepad).
+    pub input_shm: Arc<ShmRing>,
     /// Cancel token signalled when the worker is killed — fan-out tasks
     /// and health monitors use child tokens to shut down cleanly.
     pub cancel_token: CancellationToken,
@@ -225,6 +227,14 @@ pub(crate) async fn spawn_worker(
     );
     tracing::info!("[WORKER] created shm ring '{shm_name}'");
 
+    // Create input shm ring for keyboard/gamepad input (direction: gv-server → worker)
+    let input_shm_name = format!("gv-input-{game_id}");
+    let input_shm = Arc::new(
+        gv_shm::ShmRing::create(&input_shm_name, 64)
+            .with_context(|| format!("create input shm ring '{input_shm_name}'"))?,
+    );
+    tracing::info!("[WORKER] created input shm ring '{input_shm_name}'");
+
     let cancel_token = CancellationToken::new();
 
     // Pass port 0 — gv-worker binds a random available port and prints it
@@ -232,6 +242,8 @@ pub(crate) async fn spawn_worker(
     cmd.arg("0");
     cmd.arg("--shm");
     cmd.arg(&shm_name);
+    cmd.arg("--input-shm");
+    cmd.arg(&input_shm_name);
     cmd.stderr(std::process::Stdio::piped());
 
     // Bind to all interfaces so the health check and WebRTC media work
@@ -403,6 +415,7 @@ pub(crate) async fn spawn_worker(
         host_token: host_token.map(|s| s.to_string()),
         child: Some(child),
         shm,
+        input_shm,
         cancel_token,
     })
 }
