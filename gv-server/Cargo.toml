@@ -38,6 +38,10 @@ walkdir = "2"
 base64 = "0.22"
 axum = "0.7"
 tower-http = { version = "0.6", features = ["cors"] }
+webrtc = { version = "0.17", features = ["pem"] }
+webrtc-ice = "0.17"
+webrtc-sctp = "0.11"
+tokio-util = "0.7"
 
 [dev-dependencies]
 tempfile = "3"
