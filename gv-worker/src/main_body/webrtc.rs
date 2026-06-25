@@ -18,6 +18,7 @@ use webrtc::ice::network_type::NetworkType;
 use webrtc::ice::mdns::MulticastDnsMode;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
+use webrtc::ice_transport::ice_gatherer_state::RTCIceGathererState;
 use webrtc::peer_connection::policy::ice_transport_policy::RTCIceTransportPolicy;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::peer_connection::RTCPeerConnection;
@@ -345,6 +346,110 @@ async fn build_webrtc_stack(video_codec: VideoCodec) -> Result<WebRtcStack, Stri
         .await.map_err(|e| format!("add audio track: {e}"))?;
 
     Ok(WebRtcStack { pc, video_track, audio_track })
+}
+
+/// Pre-warm the ICE agent at worker startup so the first peer doesn't pay
+/// the full ICE gathering penalty.  Creates a dummy PeerConnection, triggers
+/// ICE gathering, waits for candidates, then closes it.  TURN allocations
+/// and STUN bindings are cached by the kernel — subsequent PCs gather in
+/// < 1s instead of 25-30s.
+pub(crate) async fn prewarm_ice_agent() {
+    tracing::info!("[PREWARM] starting ICE pre-warm...");
+    let start = std::time::Instant::now();
+
+    let pc = match build_ice_prewarm_pc().await {
+        Ok(pc) => pc,
+        Err(e) => {
+            tracing::warn!("[PREWARM] failed to build PC: {e}");
+            return;
+        }
+    };
+
+    let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
+    pc.on_ice_gathering_state_change(Box::new({
+        let done_tx = done_tx.clone();
+        move |state: RTCIceGathererState| {
+            let done_tx = done_tx.clone();
+            Box::pin(async move {
+                if state == RTCIceGathererState::Complete {
+                    let _ = done_tx.try_send(());
+                }
+            })
+        }
+    }));
+
+    // Create a dummy offer to trigger ICE gathering
+    let offer = match pc.create_offer(None).await {
+        Ok(o) => o,
+        Err(e) => {
+            tracing::warn!("[PREWARM] create_offer failed: {e}");
+            let _ = pc.close().await;
+            return;
+        }
+    };
+    if let Err(e) = pc.set_local_description(offer).await {
+        tracing::warn!("[PREWARM] set_local_description failed: {e}");
+        let _ = pc.close().await;
+        return;
+    }
+
+    // Wait up to 15s for gathering (generous; usually 2-5s)
+    match tokio::time::timeout(Duration::from_secs(15), done_rx.recv()).await {
+        Ok(Some(())) => {
+            tracing::info!(
+                "[PREWARM] ICE gathering complete in {:?}",
+                start.elapsed()
+            );
+        }
+        Ok(None) => {
+            tracing::warn!("[PREWARM] gathering channel closed");
+        }
+        Err(_) => {
+            tracing::warn!("[PREWARM] ICE gathering timed out after 15s");
+        }
+    }
+
+    let _ = pc.close().await;
+    tracing::info!("[PREWARM] done — subsequent PCs will gather instantly");
+}
+
+/// Build a minimal PeerConnection for ICE pre-warming (no tracks).
+async fn build_ice_prewarm_pc() -> Result<RTCPeerConnection, String> {
+    let mut media_engine = MediaEngine::default();
+    media_engine
+        .register_default_codecs()
+        .map_err(|e| format!("register codecs: {e}"))?;
+
+    let mut registry = webrtc::interceptor::registry::Registry::new();
+    registry = register_default_interceptors(registry, &mut media_engine)
+        .map_err(|e| format!("interceptors: {e}"))?;
+
+    let mut se = SettingEngine::default();
+    se.set_ip_filter(Box::new(|ip: IpAddr| ip.is_ipv4()));
+    se.set_network_types(vec![NetworkType::Udp4, NetworkType::Tcp4]);
+    se.set_ice_multicast_dns_mode(MulticastDnsMode::QueryOnly);
+
+    let api = APIBuilder::new()
+        .with_setting_engine(se)
+        .with_media_engine(media_engine)
+        .with_interceptor_registry(registry)
+        .build();
+
+    let ice_cfg = ice_config();
+    let ice_servers: Vec<RTCIceServer> = ice_cfg
+        .servers
+        .iter()
+        .map(|s| RTCIceServer {
+            urls: s.urls.clone(),
+            username: s.username.clone().unwrap_or_default(),
+            credential: s.credential.clone().unwrap_or_default(),
+        })
+        .collect();
+
+    Ok(api.new_peer_connection(RTCConfiguration {
+        ice_servers,
+        ..Default::default()
+    }).await.map_err(|e| format!("peer connection: {e}"))?)
 }
 
 async fn exchange_sdp(
