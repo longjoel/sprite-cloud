@@ -2,7 +2,7 @@
 name = "gv-server"
 version = "0.3.0"
 edition = "2024"
-description = "Games Vault server — runs on user's computer, manages gv-worker processes"
+description = "Games Vault server — in-process game streaming with GStreamer + WebRTC"
 
 [lib]
 name = "gv_server"
@@ -44,10 +44,6 @@ webrtc-sctp = "0.11"
 tokio-util = "0.7"
 gstreamer = "0.23"
 gstreamer-app = "0.23"
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
-futures-util = "0.3"
-rust-embed = { version = "8", features = ["mime-guess"] }
-mime_guess = "2"
 
 [dev-dependencies]
 tempfile = "3"

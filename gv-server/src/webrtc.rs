@@ -320,15 +320,6 @@ pub struct WebRtcStack {
     pub audio_track: Arc<TrackLocalStaticSample>,
 }
 
-/// Result of a successful SDP handshake.
-pub struct WebRtcSession {
-    pub answer_sdp: String,
-    pub pc: Arc<RTCPeerConnection>,
-    pub video_track: Arc<TrackLocalStaticSample>,
-    pub audio_track: Arc<TrackLocalStaticSample>,
-    pub dc: Arc<webrtc::data_channel::RTCDataChannel>,
-}
-
 /// Build a WebRTC stack (PC + tracks) without DataChannel — we accept the
 /// browser-created DC via ondatachannel instead of creating a negotiated one.
 /// Used when starting a game session — the PC is created eagerly so it's
@@ -368,47 +359,6 @@ pub async fn exchange_sdp_on_pc(pc: &RTCPeerConnection, offer_sdp: &str) -> Resu
     }));
 
     exchange_sdp(pc, offer_sdp, &mut done_rx).await
-}
-
-/// Handle an incoming SDP offer from a browser (one-shot: build + exchange).
-/// Legacy API — prefer build_session_pc() + exchange_sdp_on_pc() separately.
-pub async fn handle_sdp_offer(offer_sdp: &str) -> Result<WebRtcSession, String> {
-    let InternalWebRtcStack {
-        pc,
-        video_track,
-        audio_track,
-    } = build_webrtc_stack(VideoCodec::H264).await?;
-
-    let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
-    pc.on_ice_candidate(Box::new({
-        let done_tx = done_tx.clone();
-        move |candidate: Option<webrtc::ice_transport::ice_candidate::RTCIceCandidate>| {
-            let done_tx = done_tx.clone();
-            Box::pin(async move {
-                if candidate.is_none() {
-                    let _ = done_tx.try_send(());
-                }
-            })
-        }
-    }));
-
-    let answer_sdp = exchange_sdp(&pc, offer_sdp, &mut done_rx).await?;
-
-    let dc = pc.create_data_channel("input", Some(webrtc::data_channel::data_channel_init::RTCDataChannelInit {
-            negotiated: Some(0),
-            ordered: Some(true),
-            ..Default::default()
-        }))
-        .await
-        .map_err(|e| format!("create data channel: {e}"))?;
-
-    Ok(WebRtcSession {
-        answer_sdp,
-        pc,
-        video_track,
-        audio_track,
-        dc,
-    })
 }
 
 // ── ICE pre-warming ──────────────────────────────────────────────────────────
