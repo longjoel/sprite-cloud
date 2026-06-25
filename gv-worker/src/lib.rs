@@ -27,7 +27,8 @@ pub const LIBRETRO_RUNNER_VERSION: &str = libretro_runner::VERSION;
 
 /// Run the worker as a pure media engine — opens shared memory, loads core,
 /// starts GStreamer pipelines, and writes encoded frames to the shm ring.
-pub async fn run_worker(shm_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+/// If `input_shm_name` is provided, polls it for keyboard/gamepad input.
+pub async fn run_worker(shm_name: &str, input_shm_name: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .json()
         .with_target(false)
@@ -68,10 +69,19 @@ pub async fn run_worker(shm_name: &str) -> Result<(), Box<dyn std::error::Error>
     }
 
     // Spawn the streaming loop (handles core frame drain + GStreamer + shm writes)
+    let input_shm: Option<Arc<ShmRing>> = match input_shm_name {
+        Some(name) => {
+            let ishm = Arc::new(ShmRing::open(name)?);
+            tracing::info!("[WORKER] opened input shm ring '{}' ({} frames)", name, ishm.frame_count());
+            Some(ishm)
+        }
+        None => None,
+    };
     let stream_ctx = StreamCtx {
         cancel: cancel.clone(),
         app_state: Arc::clone(&state),
         shm: Arc::clone(&shm),
+        input_shm,
     };
 
     let stream_handle = tokio::spawn(async move {

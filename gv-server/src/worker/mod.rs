@@ -64,6 +64,10 @@ mod tests {
                 gv_shm::ShmRing::create(&format!("test-shm-{game_id}"), 4)
                     .expect("create test shm"),
             ),
+            input_shm: Arc::new(
+                gv_shm::ShmRing::create(&format!("test-input-shm-{game_id}"), 4)
+                    .expect("create test input shm"),
+            ),
             cancel_token: CancellationToken::new(),
         };
 
@@ -178,6 +182,10 @@ mod tests {
             shm: Arc::new(
                 gv_shm::ShmRing::create(&format!("test-shm-{game_id}"), 4)
                     .expect("create test shm"),
+            ),
+            input_shm: Arc::new(
+                gv_shm::ShmRing::create(&format!("test-input-shm-{game_id}"), 4)
+                    .expect("create test input shm"),
             ),
             cancel_token: CancellationToken::new(),
         };

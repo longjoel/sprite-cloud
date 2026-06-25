@@ -425,6 +425,20 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                                     .await;
                                                 });
 
+                                                // Wire DataChannel input → input shm ring
+                                                let input_shm = Arc::clone(&worker.input_shm);
+                                                let dc = Arc::clone(&session.dc);
+                                                dc.on_message(Box::new(move |msg| {
+                                                    let input_shm = Arc::clone(&input_shm);
+                                                    Box::pin(async move {
+                                                        let _ = input_shm.write_frame(
+                                                            gv_shm::frame_type::INPUT,
+                                                            &msg.data,
+                                                            0,
+                                                        );
+                                                    })
+                                                }));
+
                                                 let session_id = cmd
                                                     .payload
                                                     .get("session_id")

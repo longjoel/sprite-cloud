@@ -319,6 +319,8 @@ pub struct WebRtcSession {
     pub pc: Arc<RTCPeerConnection>,
     pub video_track: Arc<TrackLocalStaticSample>,
     pub audio_track: Arc<TrackLocalStaticSample>,
+    /// Negotiated DataChannel for input (keyboard/gamepad).
+    pub dc: Arc<webrtc::data_channel::RTCDataChannel>,
 }
 
 /// Handle an incoming SDP offer from a browser.
@@ -352,11 +354,22 @@ pub async fn handle_sdp_offer(offer_sdp: &str) -> Result<WebRtcSession, String> 
 
     let answer_sdp = exchange_sdp(&pc, offer_sdp, &mut done_rx).await?;
 
+    // Create negotiated DataChannel for input (keyboard/gamepad).
+    // The browser creates a negotiated DC with id=0 — we must match.
+    let dc = pc.create_data_channel("input", Some(webrtc::data_channel::data_channel_init::RTCDataChannelInit {
+            negotiated: Some(0), // Match browser's id=0
+            ordered: Some(true),
+            ..Default::default()
+        }))
+        .await
+        .map_err(|e| format!("create data channel: {e}"))?;
+
     Ok(WebRtcSession {
         answer_sdp,
         pc,
         video_track,
         audio_track,
+        dc,
     })
 }
 
