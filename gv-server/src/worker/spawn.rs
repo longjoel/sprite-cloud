@@ -395,7 +395,7 @@ pub(crate) async fn spawn_worker(
 
     // Worker has no HTTP server in shm architecture — provide a placeholder
     // URL for gv-web readiness signaling (player polls until worker_url is set).
-    let url = format!("shm://gv-worker/{game_id}");
+    let url = format!("http://gv-worker.local/{game_id}");
     Ok(SpawnedWorker {
         url,
         control_token,
