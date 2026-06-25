@@ -6,6 +6,7 @@ import { ACTIVE_SESSION_STATES, CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, CM
 import { and, eq } from "drizzle-orm";
 import { applyRateLimit } from "@/lib/rate-limit";
 import { recordLaunchEvent } from "@/lib/launch-events";
+import { waitForSdpAnswer } from "@/lib/pending-sdp";
 import crypto from "crypto";
 
 const COMMAND_RATE_LIMIT = 30; // requests per minute per IP
@@ -51,9 +52,10 @@ function validatePayload(type: string, payload: unknown): { ok: true; payload: R
 
   switch (type) {
     case CMD_START_GAME: {
-      if (!hasOnlyKeys(payload, ["game_id", "host_token"])) return { ok: false, error: "payload has unexpected fields" };
+      if (!hasOnlyKeys(payload, ["game_id", "host_token", "sdp"])) return { ok: false, error: "payload has unexpected fields" };
       if (typeof payload.game_id !== "string" || payload.game_id.length === 0) return { ok: false, error: "payload.game_id required" };
       if (payload.host_token !== undefined && typeof payload.host_token !== "string") return { ok: false, error: "payload.host_token must be string" };
+      if (payload.sdp !== undefined && typeof payload.sdp !== "string") return { ok: false, error: "payload.sdp must be string" };
       return { ok: true, payload };
     }
     case CMD_STOP_GAME: {
@@ -383,6 +385,34 @@ export async function POST(request: NextRequest) {
           eq(sessions.status, "ready"),
         ),
       );
+  }
+
+  // ── Long-poll: if this is a start_game with SDP, hold the response
+  //     open until gv-server processes the command and sends the answer
+  //     back via the notify endpoint.  Eliminates browser-side polling.
+  if (body.type === CMD_START_GAME && enrichedPayload.sdp) {
+    try {
+      const sdpAnswer = await waitForSdpAnswer(cmd.id);
+      return NextResponse.json(
+        {
+          id: cmd.id,
+          worker_token: workerToken,
+          host_peer_token: hostPeerToken,
+          sdp_answer: sdpAnswer,
+        },
+        { status: 201 },
+      );
+    } catch (err: any) {
+      return NextResponse.json(
+        {
+          id: cmd.id,
+          worker_token: workerToken,
+          host_peer_token: hostPeerToken,
+          error: err?.message || "SDP answer timed out",
+        },
+        { status: 202 },
+      );
+    }
   }
 
   return NextResponse.json(

@@ -212,8 +212,9 @@ async fn handle_start_game(
     let host_token = cmd.payload.get("host_token").and_then(|v| v.as_str());
     let platform = cmd.payload.get("platform").and_then(|v| v.as_str());
     let rom_path = cmd.payload.get("rom_path").and_then(|v| v.as_str());
+    let sdp_offer = cmd.payload.get("sdp").and_then(|v| v.as_str());
 
-    tracing::info!("[POLL] start_game game={game_id} session={session_id}");
+    tracing::info!("[POLL] start_game game={game_id} session={session_id} sdp={}", sdp_offer.is_some());
 
     // Kill existing session for this game_id
     if let Some(old) = sessions.remove(game_id) {
@@ -365,17 +366,42 @@ async fn handle_start_game(
         streaming::run_stream(stream_session).await;
     });
 
-    // Store session
-    sessions.insert(game_id.to_string(), session);
+    // Store session (clone before moving into HashMap)
+    sessions.insert(game_id.to_string(), Arc::clone(&session));
 
-    // Notify gv-web
-    if let Err(e) = client
-        .notify(&cmd.id, &cmd.lease_token, &worker_url, game_id, Some(session_id))
-        .await
-    {
-        tracing::error!("[NOTIFY] failed: {e:#}");
+    // Notify gv-web — include SDP answer if offer was provided
+    if let Some(offer) = sdp_offer {
+        let pc = Arc::clone(&session.pc);
+        match webrtc::exchange_sdp_on_pc(&pc, offer).await {
+            Ok(answer_sdp) => {
+                tracing::info!("[SESSION] SDP exchange done ({} chars)", answer_sdp.len());
+                if let Err(e) = client
+                    .notify_sdp(&cmd.id, &cmd.lease_token, &worker_url, game_id, &answer_sdp, Some(session_id))
+                    .await
+                {
+                    tracing::error!("[NOTIFY] notify_sdp failed: {e:#}");
+                } else {
+                    tracing::info!("[SESSION] game ready with SDP: {game_id}");
+                }
+            }
+            Err(e) => {
+                tracing::error!("[SESSION] SDP exchange failed: {e}");
+                let _ = client.command_result(
+                    &cmd.id, &cmd.lease_token,
+                    &serde_json::json!({"error": "sdp_handshake_failed", "message": e}),
+                ).await;
+                return;
+            }
+        }
     } else {
-        tracing::info!("[SESSION] game ready: {game_id}");
+        if let Err(e) = client
+            .notify(&cmd.id, &cmd.lease_token, &worker_url, game_id, Some(session_id))
+            .await
+        {
+            tracing::error!("[NOTIFY] failed: {e:#}");
+        } else {
+            tracing::info!("[SESSION] game ready: {game_id}");
+        }
     }
 }
 

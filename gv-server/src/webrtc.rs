@@ -297,7 +297,9 @@ async fn exchange_sdp(
     .map_err(|_| "ICE gathering timed out".to_string())?
     .ok_or("ICE cancelled".to_string())?;
 
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    // Brief settle — let candidates propagate into the SDP answer.
+    // Without this, the local description SDP may be missing relay candidates.
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     let local_desc = pc.local_description().await.ok_or("no local desc")?;
     Ok(local_desc.sdp)
@@ -320,10 +322,41 @@ pub struct WebRtcStack {
     pub audio_track: Arc<TrackLocalStaticSample>,
 }
 
-/// Build a WebRTC stack (PC + tracks) without DataChannel — we accept the
-/// browser-created DC via ondatachannel instead of creating a negotiated one.
-/// Used when starting a game session — the PC is created eagerly so it's
-/// ready when the SDP offer arrives.
+/// Build a WebRTC stack (PC + tracks) and pre-gather ICE candidates.
+/// Without pre-gathering, set_remote_description during SDP exchange triggers
+/// ICE pairing before local candidates are ready, causing slow connections.
+pub async fn build_session_pc_gathered() -> Result<WebRtcStack, String> {
+    let stack = build_session_pc().await?;
+
+    // Trigger ICE gathering on the session PC so local candidates are
+    // ready before the SDP exchange pairs them with remote candidates.
+    let dummy_offer = stack.pc.create_offer(None).await
+        .map_err(|e| format!("pre-gather create_offer: {e}"))?;
+    stack.pc.set_local_description(dummy_offer).await
+        .map_err(|e| format!("pre-gather set_local: {e}"))?;
+
+    let (gtx, mut grx) = tokio::sync::mpsc::channel::<()>(1);
+    stack.pc.on_ice_gathering_state_change(Box::new({
+        let gtx = gtx.clone();
+        move |state: RTCIceGathererState| {
+            let gtx = gtx.clone();
+            Box::pin(async move {
+                if state == RTCIceGathererState::Complete {
+                    let _ = gtx.try_send(());
+                }
+            })
+        }
+    }));
+
+    let start = std::time::Instant::now();
+    let _ = tokio::time::timeout(Duration::from_secs(10), grx.recv()).await;
+    tracing::info!("[SESSION] ICE pre-gather done in {:?}", start.elapsed());
+
+    Ok(stack)
+}
+
+/// Build a WebRTC stack (PC + tracks) without pre-gathering.
+/// Use `build_session_pc_gathered` for the hot path.
 pub async fn build_session_pc() -> Result<WebRtcStack, String> {
     let InternalWebRtcStack {
         pc,
