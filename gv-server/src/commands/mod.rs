@@ -1,4 +1,7 @@
 //! CLI subcommand implementations: `pair` and `start`.
+//!
+//! `start` polls gv-web via HTTP (same as before), but game sessions now
+//! run in-process — no gv-worker binary, no shm IPC, no cross-process spawn.
 
 use anyhow::{Context, Result};
 use std::collections::HashMap;
@@ -6,22 +9,21 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::config;
+use crate::core_bridge;
 use crate::dat;
 use crate::gv_web;
 use crate::scan;
-use crate::worker;
-use crate::worker::SpawnedWorker;
+use crate::session::GameSession;
+use crate::streaming;
+use crate::webrtc;
 pub(crate) use version::collect_metadata;
 pub(crate) mod version;
 
-// ── pair subcommand ───────────────────────────────────────────────────
+// ── pair subcommand ─────────────────────────────────────────────────
 
-#[allow(dead_code)] // Used by the gv-server binary; lib tests build this module standalone.
 pub(crate) async fn cmd_pair(code: &str, gv_web_url: &str) -> Result<()> {
     tracing::info!("Pairing with {} ...", gv_web_url);
 
-    // Collect ROM root paths from env var or existing config.
-    // GV_ROM_ROOTS is a comma-separated list of directories.
     let rom_roots: Vec<String> = std::env::var("GV_ROM_ROOTS")
         .ok()
         .map(|s| {
@@ -45,7 +47,6 @@ pub(crate) async fn cmd_pair(code: &str, gv_web_url: &str) -> Result<()> {
     let cfg = config::Config {
         gv_web: config::GvWeb {
             url: gv_web_url.to_string(),
-            // Persist the GV_WORKER_BIN env var if set at pairing time
             worker_bin: std::env::var("GV_WORKER_BIN").ok(),
         },
         auth: config::Auth {
@@ -63,18 +64,14 @@ pub(crate) async fn cmd_pair(code: &str, gv_web_url: &str) -> Result<()> {
 
     tracing::info!("Paired!");
     tracing::info!("  server_id: {}", resp.server_id);
-    tracing::info!(
-        "  api_key:   {}",
-        &resp.api_key[..8.min(resp.api_key.len())]
-    );
+    tracing::info!("  api_key:   {}", &resp.api_key[..8.min(resp.api_key.len())]);
     tracing::info!("  config saved");
 
     Ok(())
 }
 
-// ── start subcommand ──────────────────────────────────────────────────
+// ── start subcommand (HTTP polling, in-process sessions) ────────────
 
-#[allow(dead_code)] // Used by the gv-server binary; lib tests build this module standalone.
 pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
     let mut cfg = config::load().context("load config (run 'gv-server pair' first)")?;
 
@@ -84,26 +81,14 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
 
     let client = gv_web::GvWebClient::new(cfg.gv_web.url.clone(), cfg.auth.clone());
 
-    // Extract optional worker_bin override before cfg is consumed
-    let worker_bin = cfg.gv_web.worker_bin.clone();
-
-    // Verify the API key is still valid — also report server metadata
+    // Verify API key
     let metadata = collect_metadata(&cfg);
     let verify = match client.verify_with_metadata(&metadata).await {
         Ok(v) => v,
         Err(e) => {
             let msg = format!("{e:#}");
             if msg.contains("401") || msg.contains("unauthorized") {
-                tracing::error!(
-                    "[AUTH] API key rejected — server must re-pair.\n\
-                     The gv-web database may have been recreated, or this server's\n\
-                     API key was revoked. Run:\n\n  \
-                     gv-server pair <CODE>\n\n\
-                     Get a pairing code from the gv-web Settings page.\n\
-                     This container will now exit and NOT restart — re-pair first."
-                );
-                // Exit cleanly (not a crash) so Docker restart policy can be
-                // set to on-failure without looping. Exit code 2 = config error.
+                tracing::error!("[AUTH] API key rejected — re-pair with: gv-server pair <CODE>");
                 std::process::exit(2);
             }
             return Err(e);
@@ -115,40 +100,37 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
         verify.user_id
     );
 
-    // Validate prerequisites before entering the poll loop.
-    // Failures here are fatal — don't start with broken prerequisites.
-    validate_prerequisites(&cfg, worker_bin.as_deref());
+    // GStreamer init (only once at startup)
+    gstreamer::init().expect("GStreamer init failed");
+    tracing::info!("GStreamer initialized");
 
-    tracing::info!("gv-server running — polling for commands...");
-
-    // Kill any workers orphaned by a previous crash
-    worker::reap_stale_workers();
-
-    const POLL_ERROR_BACKOFF_MS: u64 = 5_000;
-
-    // Track spawned workers so we can kill them on shutdown.
-    // Key is the game_id from the start_game command.
-    let mut workers: HashMap<String, SpawnedWorker> = HashMap::new();
-
-    // Scan serialization — one concurrent scan per server
-    let scan_lock: std::sync::Arc<tokio::sync::Mutex<()>> =
-        std::sync::Arc::new(tokio::sync::Mutex::new(()));
-
-    // DAT index — loaded lazily on first scan
-    let dat_index: std::sync::Arc<tokio::sync::RwLock<Option<dat::DatIndex>>> =
-        std::sync::Arc::new(tokio::sync::RwLock::new(None));
-
-    // ROM roots — configured via GV_ROM_ROOTS env var or config.toml
+    // ROM roots
     let rom_roots: Vec<String> = cfg
         .rom
         .as_ref()
         .map(|r| r.roots.clone())
         .unwrap_or_default();
 
+    // Pre-warm ICE
+    webrtc::prewarm_ice_agent().await;
+
+    tracing::info!("gv-server running — polling for commands...");
+
+    const POLL_ERROR_BACKOFF_MS: u64 = 5_000;
+    let mut sessions: HashMap<String, Arc<GameSession>> = HashMap::new();
+
+    let scan_lock: Arc<tokio::sync::Mutex<()>> = Arc::new(tokio::sync::Mutex::new(()));
+    let dat_index: Arc<tokio::sync::RwLock<Option<dat::DatIndex>>> =
+        Arc::new(tokio::sync::RwLock::new(None));
+
     loop {
         tokio::select! {
             _ = shutdown_signal() => {
-                tracing::info!("[SHUTDOWN] received signal, stopping workers...");
+                tracing::info!("[SHUTDOWN] stopping all sessions...");
+                for (gid, s) in &sessions {
+                    s.cancel.cancel();
+                    tracing::info!("[SHUTDOWN] cancelled session {gid}");
+                }
                 break;
             }
             _ = async {
@@ -164,542 +146,43 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                 );
 
                                 if cmd.command_type == "start_game" {
-                                    let game_id = cmd
-                                        .payload
-                                        .get("game_id")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("unknown");
-                                    let host_token = cmd
-                                        .payload
-                                        .get("host_token")
-                                        .and_then(|v| v.as_str());
-                                    let rom_path = cmd
-                                        .payload
-                                        .get("rom_path")
-                                        .and_then(|v| v.as_str())
-                                        .and_then(|rel| {
-                                            // Resolve relative path against ROM roots
-                                            for root in &rom_roots {
-                                                let full = std::path::Path::new(root).join(rel);
-                                                if full.exists() {
-                                                    return Some(
-                                                        full.to_string_lossy().to_string(),
-                                                    );
-                                                }
-                                            }
-                                            tracing::warn!(
-                                                "[POLL] rom_path not found in any ROM root: {rel}"
-                                            );
-                                            None
-                                        });
-                                    let platform = cmd
-                                        .payload
-                                        .get("platform")
-                                        .and_then(|v| v.as_str());
-                                    let peer_tokens_json = cmd
-                                        .payload
-                                        .get("peer_tokens")
-                                        .and_then(|v| serde_json::to_string(v).ok());
-                                    tracing::info!(
-                                        "[POLL] start_game command {} (game: {})",
-                                        cmd.id, game_id
-                                    );
-
-                                    // Kill previous worker for THIS game_id — a user
-                                    // restarting their game should kill the old worker, but
-                                    // other users' workers must keep running.
-                                    if let Some(old) = workers.remove(game_id) {
-                                        tracing::info!(
-                                            "[WORKER] killing previous worker for game {game_id}"
-                                        );
-                                        old.kill().await;
-                                    }
-
-                                    // Kill ALL workers owned by this host_token — when a user
-                                    // starts a new game, any existing sessions they own are
-                                    // terminated. This prevents worker leak on game switch.
-                                    if let Some(ht) = host_token {
-                                        let mut victim_ids: Vec<String> = Vec::new();
-                                        for (gid, w) in workers.iter() {
-                                            if w.host_token() == Some(ht) {
-                                                victim_ids.push(gid.clone());
-                                            }
-                                        }
-                                        for gid in &victim_ids {
-                                            if let Some(old) = workers.remove(gid) {
-                                                tracing::info!(
-                                                    "[WORKER] killing worker for game {gid} (same host_token, user switched games)"
-                                                );
-                                                old.kill().await;
-                                            }
-                                        }
-                                    }
-
-                                    match worker::spawn_worker(game_id, worker_bin.as_deref(), host_token, rom_path.as_deref(), platform, peer_tokens_json.as_deref()).await {
-                                        Ok(worker) => {
-                                            let url = worker.url.clone();
-                                            tracing::info!("[WORKER] spawned at {url}");
-
-                                            let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
-                                            client.launch_event(
-                                                "worker_process_started",
-                                                Some(&cmd.id),
-                                                Some(game_id),
-                                                session_id,
-                                                Some(serde_json::json!({"worker_url": url})),
-                                            ).await;
-
-                                            // Quick liveness probe — don't block worker insertion
-                                            // on a hung HTTP server. 5s timeout prevents the
-                                            // health check from stalling the entire poll loop.
-                                            let health_url = format!("{url}/health");
-                                            match tokio::time::timeout(
-                                                std::time::Duration::from_secs(5),
-                                                client.http_client().get(&health_url).send(),
-                                            )
-                                            .await
-                                            {
-                                                Ok(Ok(resp)) if resp.status().is_success() => {
-                                                    tracing::info!("[WORKER] health check passed for {url}");
-                                                }
-                                                Ok(Err(e)) => {
-                                                    tracing::warn!(
-                                                        "[WORKER] health check failed for {url}: {e}"
-                                                    );
-                                                }
-                                                Err(_timeout) => {
-                                                    tracing::warn!(
-                                                        "[WORKER] health check timed out for {url}"
-                                                    );
-                                                }
-                                                _ => {
-                                                    tracing::warn!(
-                                                        "[WORKER] health check returned non-200 for {url}"
-                                                    );
-                                                }
-                                            }
-
-                                            // Notify gv-web
-                                            let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
-                                            if let Err(e) = client
-                                                .notify(&cmd.id, &cmd.lease_token, &url, game_id, session_id)
-                                                .await
-                                            {
-                                                tracing::error!(
-                                                    "[NOTIFY] failed after retries — worker is at {url}\n\
-                                                     [NOTIFY]     connect manually or retry from /dev\n\
-                                                     [NOTIFY]     error: {e:#}"
-                                                );
-                                            }
-
-                                            workers.insert(game_id.to_string(), worker);
-                                        }
-                                        Err(e) => tracing::error!("[WORKER] spawn failed: {e:#}"),
-                                    }
-                                } else if cmd.command_type == "stop_game" {
-                                    let game_id = cmd
-                                        .payload
-                                        .get("game_id")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("unknown");
-                                    tracing::info!(
-                                        "[POLL] stop_game command {} (game: {})",
-                                        cmd.id, game_id
-                                    );
-
-                                    if let Some(worker) = workers.remove(game_id) {
-                                        tracing::info!(
-                                            "[WORKER] stopping worker for game {game_id}"
-                                        );
-                                        worker.kill().await;
-                                        let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
-                                        if let Err(e) = client
-                                            .notify_stop(&cmd.id, &cmd.lease_token, game_id, session_id)
-                                            .await
-                                        {
-                                            tracing::error!(
-                                                "[NOTIFY] stop notification failed for game {game_id}: {e:#}"
-                                            );
-                                        }
-                                    } else {
-                                        tracing::warn!(
-                                            "[WORKER] stop_game for unknown game {game_id} — ignoring"
-                                        );
-                                    }
-                                } else if cmd.command_type == "sdp_offer" {
-                                    let sdp = cmd
-                                        .payload
-                                        .get("sdp")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("");
-                                    let game_id = cmd
-                                        .payload
-                                        .get("game_id")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("unknown");
-
-                                    if sdp.is_empty() {
-                                        tracing::warn!("[SDP] sdp_offer with empty SDP — ignoring");
-                                        continue;
-                                    }
-
-                                    tracing::info!(
-                                        "[SDP] relay offer for game {game_id} ({} chars)",
-                                        sdp.len()
-                                    );
-
-                                    // Guest SDP offers are now supported — the worker has multi-peer
-                                    // infrastructure (singleton core, PeerRegistry, fan-out).
-
-                                    // Reap exited workers before relaying SDP.  A zombie
-                                    // child still has a PID, so signal-0 liveness checks are
-                                    // insufficient; `reap_if_exited()` uses Child::try_wait().
-                                    if workers
-                                        .get_mut(game_id)
-                                        .map(|worker| worker.reap_if_exited())
-                                        .unwrap_or(false)
-                                    {
-                                        workers.remove(game_id);
-                                        if let Err(e) = client
-                                            .command_result(
-                                                &cmd.id,
-                                                &cmd.lease_token,
-                                                &serde_json::json!({
-                                                    "error": "worker_exited",
-                                                    "message": "Worker exited before SDP could be relayed"
-                                                }),
-                                            )
-                                            .await
-                                        {
-                                            tracing::error!(
-                                                "[SDP] command_result failed for exited worker: {e:#}"
-                                            );
-                                        }
-                                        continue;
-                                    }
-
-                                    // Find the worker — retry if it's still spawning.
-                                    // start_game may be blocked on core download (20–30 s)
-                                    // or worker init; SDP offers arrive in the meantime.
-                                    let started = std::time::Instant::now();
-                                    let max_wait = std::time::Duration::from_secs(25);
-                                    let poll_interval = std::time::Duration::from_millis(250);
-
-                                    let worker = loop {
-                                        if let Some(w) = workers.get(game_id) {
-                                            break Some(w);
-                                        }
-                                        if started.elapsed() >= max_wait {
-                                            break None;
-                                        }
-                                        tracing::debug!(
-                                            "[SDP] waiting for worker for game {game_id} ({:?} elapsed)",
-                                            started.elapsed()
-                                        );
-                                        tokio::time::sleep(poll_interval).await;
-                                    };
-
-                                    if let Some(worker) = worker {
-                                        // Handle SDP offer in-process via the local WebRTC stack
-                                        // instead of forwarding to the worker over HTTP.
-                                        match crate::webrtc::handle_sdp_offer(sdp).await {
-                                            Ok(session) => {
-                                                tracing::info!(
-                                                    "[SDP] handshake complete for game {game_id} ({} chars)",
-                                                    session.answer_sdp.len()
-                                                );
-
-                                                // Spawn frame fan-out: read encoded frames from shm
-                                                // and write them into the WebRTC video/audio tracks.
-                                                let shm = Arc::clone(&worker.shm);
-                                                let video_track = Arc::clone(&session.video_track);
-                                                let audio_track = Arc::clone(&session.audio_track);
-                                                let cancel = worker.cancel_token.clone();
-                                                tokio::spawn(async move {
-                                                    crate::streaming::fan_out_frames(
-                                                        shm,
-                                                        video_track,
-                                                        audio_track,
-                                                        cancel,
-                                                    )
-                                                    .await;
-                                                });
-
-                                                // Wire DataChannel input → input shm ring
-                                                let input_shm = Arc::clone(&worker.input_shm);
-                                                let dc = Arc::clone(&session.dc);
-                                                dc.on_message(Box::new(move |msg| {
-                                                    let input_shm = Arc::clone(&input_shm);
-                                                    Box::pin(async move {
-                                                        let _ = input_shm.write_frame(
-                                                            gv_shm::frame_type::INPUT,
-                                                            &msg.data,
-                                                            0,
-                                                        );
-                                                    })
-                                                }));
-
-                                                let session_id = cmd
-                                                    .payload
-                                                    .get("session_id")
-                                                    .and_then(|v| v.as_str());
-                                                if let Err(e) = client
-                                                    .notify_sdp(
-                                                        &cmd.id,
-                                                        &cmd.lease_token,
-                                                        &worker.url,
-                                                        game_id,
-                                                        &session.answer_sdp,
-                                                        session_id,
-                                                    )
-                                                    .await
-                                                {
-                                                    tracing::error!(
-                                                        "[SDP] notify_sdp failed: {e:#}"
-                                                    );
-                                                }
-                                            }
-                                            Err(e) => {
-                                                tracing::error!(
-                                                    "[SDP] handle_sdp_offer failed: {e}"
-                                                );
-                                                if let Err(err) = client
-                                                    .command_result(
-                                                        &cmd.id,
-                                                        &cmd.lease_token,
-                                                        &serde_json::json!({
-                                                            "error": "sdp_handshake_failed",
-                                                            "message": e
-                                                        }),
-                                                    )
-                                                    .await
-                                                {
-                                                    tracing::error!(
-                                                        "[SDP] command_result failed: {err:#}"
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        tracing::warn!(
-                                            "[SDP] no worker for game {game_id} after {:?}",
-                                            started.elapsed()
-                                        );
-                                        if let Err(e) = client
-                                            .command_result(
-                                                &cmd.id,
-                                                &cmd.lease_token,
-                                                &serde_json::json!({
-                                                    "error": "worker_not_running",
-                                                    "message": "Worker didn't start within 25s"
-                                                }),
-                                            )
-                                            .await
-                                        {
-                                            tracing::error!(
-                                                "[SDP] command_result failed for no-worker: {e:#}"
-                                            );
-                                        }
-                                    }
-                                } else if cmd.command_type == "browse_files" {
-                                    let path = cmd
-                                        .payload
-                                        .get("path")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("");
-
-                                    let tree = match scan::resolve_within_roots(
-                                        std::path::Path::new(path),
+                                    handle_start_game(
+                                        cmd, &client, &mut sessions,
                                         &rom_roots,
-                                    ) {
-                                        Ok(resolved) => scan::browse_path(&resolved),
-                                        Err(e) => {
-                                            tracing::warn!("[BROWSE] path rejected: {e:#}");
-                                            scan::TreeNode {
-                                                name: format!("Error: {e}"),
-                                                node_type: "error".into(),
-                                                children: vec![],
-                                            }
-                                        }
-                                    };
-
-                                    let result = serde_json::json!({ "tree": tree });
-                                    if let Err(e) = client
-                                        .command_result(&cmd.id, &cmd.lease_token, &result)
-                                        .await
-                                    {
-                                        tracing::error!(
-                                            "[BROWSE] failed to report result: {e:#}"
-                                        );
-                                    }
+                                    ).await;
+                                } else if cmd.command_type == "stop_game" {
+                                    handle_stop_game(cmd, &client, &mut sessions).await;
+                                } else if cmd.command_type == "sdp_offer" {
+                                    handle_sdp_offer(
+                                        cmd, &client, &sessions,
+                                    ).await;
+                                } else if cmd.command_type == "browse_files" {
+                                    handle_browse_files(cmd, &client, &rom_roots).await;
                                 } else if cmd.command_type == "scan_paths" {
-                                    let paths: Vec<String> = cmd
-                                        .payload
-                                        .get("paths")
-                                        .and_then(|v| v.as_array())
-                                        .map(|arr| {
-                                            arr.iter()
-                                                .filter_map(|v| {
-                                                    v.as_str().map(String::from)
-                                                })
-                                                .collect()
-                                        })
-                                        .unwrap_or_default();
-
-                                    // DoS guard — one scan at a time
-                                    if scan_lock.try_lock().is_err() {
-                                        tracing::warn!(
-                                            "[SCAN] rejected — scan already in progress"
-                                        );
-                                        let result = serde_json::json!({
-                                            "error": "A scan is already in progress."
-                                        });
-                                        let _ = client
-                                            .command_result(&cmd.id, &cmd.lease_token, &result)
-                                            .await;
-                                        continue;
-                                    }
-
-                                    // Lock held until this block exits (dropped
-                                    // after result is reported).
-                                    let _guard = scan_lock.lock().await;
-
-                                    let mut all_files = Vec::new();
-                                    for p in &paths {
-                                        let resolved = match scan::resolve_within_roots(
-                                            std::path::Path::new(p),
-                                            &rom_roots,
-                                        ) {
-                                            Ok(r) => r,
-                                            Err(e) => {
-                                                tracing::warn!(
-                                                    "[SCAN] path rejected: {e:#}"
-                                                );
-                                                continue;
-                                            }
-                                        };
-
-                                        let mut files =
-                                            scan::discover_roms(&resolved)
-                                                .unwrap_or_default();
-                                        scan::hash_files(&mut files, &resolved);
-                                        all_files.extend(files);
-                                    }
-
-                                    // Match against DAT index (loaded lazily per extension)
-                                    let mut dat_lock = dat_index.write().await;
-                                    if dat_lock.is_none() {
-                                        let mut combined: Option<crate::dat::DatIndex> = None;
-                                        let mut seen_exts = std::collections::HashSet::new();
-                                        for file in &all_files {
-                                            if let Some(ext) = file
-                                                .relative_path
-                                                .rsplit('.')
-                                                .next()
-                                            {
-                                                let ext_lower = ext.to_lowercase();
-                                                if seen_exts.contains(&ext_lower) {
-                                                    continue;
-                                                }
-                                                seen_exts.insert(ext_lower.clone());
-                                                if let Some(index) = crate::dat::load_for_extension(
-                                                    &ext_lower,
-                                                    &dirs::cache_dir()
-                                                        .unwrap_or_default()
-                                                        .join("games-vault")
-                                                        .join("dat"),
-                                                )
-                                                .await
-                                                {
-                                                    match &mut combined {
-                                                        Some(c) => c.merge(index),
-                                                        None => combined = Some(index),
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        *dat_lock = combined;
-                                    }
-
-                                    let mut matches = Vec::new();
-                                    for file in &all_files {
-                                        let dat_match = if let (
-                                            Some(crc),
-                                            Some(sha),
-                                        ) = (&file.crc, &file.sha256)
-                                        {
-                                            dat_lock
-                                                .as_ref()
-                                                .and_then(|idx| {
-                                                    crate::dat::match_entry(
-                                                        idx, crc, sha,
-                                                    )
-                                                })
-                                                .map(|e| {
-                                                    serde_json::json!({
-                                                        "name": e.canonical_name,
-                                                        "game_name": e.game_name,
-                                                    })
-                                                })
-                                        } else {
-                                            None
-                                        };
-
-                                        matches.push(serde_json::json!({
-                                            "file": file,
-                                            "match": dat_match,
-                                        }));
-                                    }
-
-                                    drop(dat_lock);
-
-                                    let result =
-                                        serde_json::json!({ "matches": matches });
-                                    if let Err(e) = client
-                                        .command_result(&cmd.id, &cmd.lease_token, &result)
-                                        .await
-                                    {
-                                        tracing::error!(
-                                            "[SCAN] failed to report result: {e:#}"
-                                        );
-                                    }
+                                    handle_scan_paths(
+                                        cmd, &client, &rom_roots,
+                                        &scan_lock, &dat_index,
+                                    ).await;
                                 }
                             }
                         }
 
-                        // ── Dead worker cleanup ──────────────────────────────
-                        // Check if any spawned workers have died unexpectedly
-                        // (crash, OOM, SIGKILL from outside).  If so, remove
-                        // from the map and tell gv-web to end the session.
+                        // Dead session cleanup
                         let mut dead: Vec<String> = Vec::new();
-                        for (game_id, worker) in workers.iter_mut() {
-                            if worker.reap_if_exited() {
-                                tracing::warn!(
-                                    "[WORKER] worker for game {game_id} died — notifying gv-web"
-                                );
-                                dead.push(game_id.clone());
+                        for (gid, s) in sessions.iter() {
+                            if s.cancel.is_cancelled() {
+                                dead.push(gid.clone());
                             }
                         }
-                        for game_id in &dead {
-                            workers.remove(game_id);
-                            // Best-effort — if gv-web is unreachable, the session
-                            // will be cleaned up on next gv-server startup by
-                            // reap_stale_workers + the upsert invariant.
-                            if let Err(e) = client.notify_worker_dead(game_id, None).await {
-                                tracing::error!(
-                                    "[WORKER] failed to notify death for {game_id}: {e:#}"
-                                );
-                            }
+                        for gid in &dead {
+                            sessions.remove(gid);
+                            let _ = client.notify_worker_dead(gid, None).await;
                         }
 
                         tokio::time::sleep(Duration::from_millis(resp.next_poll_ms)).await;
                     }
                     Err(e) => {
                         tracing::error!("[POLL] error: {:#}", e);
-                        tracing::warn!(
-                            "[POLL] backing off {}s before retry...",
-                            POLL_ERROR_BACKOFF_MS / 1000
-                        );
                         tokio::time::sleep(Duration::from_millis(POLL_ERROR_BACKOFF_MS)).await;
                     }
                 }
@@ -707,94 +190,376 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
         }
     }
 
-    // Drain workers — kill each one and wait for it to exit
-    for (game_id, worker) in workers {
-        tracing::info!("[SHUTDOWN] stopping worker for game {game_id}");
-        worker.kill().await;
+    for (gid, s) in &sessions {
+        s.cancel.cancel();
+        tracing::info!("[SHUTDOWN] cancelled session {gid}");
     }
 
     tracing::info!("[SHUTDOWN] done");
     Ok(())
 }
-/// Validate that the server's prerequisites are met before entering
-/// the poll loop.  Failures here are fatal — the server exits with
-/// a clear error message instead of starting in a broken state.
-#[allow(dead_code)] // Used by cmd_start; lib tests build this module without the binary entrypoint.
-fn validate_prerequisites(cfg: &config::Config, worker_bin: Option<&str>) {
-    let mut ok = true;
 
-    // 1. ROM roots exist, are directories, and are readable.
-    if let Some(rom) = &cfg.rom {
-        for root in &rom.roots {
-            match std::fs::metadata(root) {
+// ── Command handlers ────────────────────────────────────────────────
+
+async fn handle_start_game(
+    cmd: &gv_web::Command,
+    client: &gv_web::GvWebClient,
+    sessions: &mut HashMap<String, Arc<GameSession>>,
+    rom_roots: &[String],
+) {
+    let game_id = cmd.payload.get("game_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+    let host_token = cmd.payload.get("host_token").and_then(|v| v.as_str());
+    let platform = cmd.payload.get("platform").and_then(|v| v.as_str());
+    let rom_path = cmd.payload.get("rom_path").and_then(|v| v.as_str());
+
+    tracing::info!("[POLL] start_game game={game_id} session={session_id}");
+
+    // Kill existing session for this game_id
+    if let Some(old) = sessions.remove(game_id) {
+        tracing::info!("[SESSION] killing previous session for {game_id}");
+        old.cancel.cancel();
+    }
+
+    // Resolve ROM path
+    let content_path = rom_path.and_then(|rel| {
+        for root in rom_roots {
+            let full = std::path::Path::new(root).join(rel);
+            if full.exists() {
+                return Some(full.to_string_lossy().to_string());
+            }
+        }
+        tracing::warn!("[SESSION] rom_path not found: {rel}");
+        None
+    });
+
+    // Resolve (and download if needed) core from platform
+    let core_path = match platform
+        .and_then(|p| crate::platform::core_for_platform(p))
+    {
+        Some(core_file) => {
+            match core_bridge::ensure_core(core_file, client.http_client()).await {
+                Ok(path) => {
+                    tracing::info!("[SESSION] core resolved: {}", path.display());
+                    Some(path)
+                }
                 Err(e) => {
-                    tracing::error!(
-                        "ROM root not found: {root} ({e})"
-                    );
-                    ok = false;
-                }
-                Ok(meta) if !meta.is_dir() => {
-                    tracing::error!(
-                        "ROM root is not a directory: {root}"
-                    );
-                    ok = false;
-                }
-                Ok(_) => {
-                    tracing::info!("ROM root ok: {root}");
+                    tracing::warn!("[SESSION] core download failed for {core_file}: {e} — will use test pattern");
+                    None
                 }
             }
         }
-    } else {
-        tracing::warn!("No ROM roots configured — library will be empty");
-    }
+        None => None,
+    };
 
-    // 2. Worker binary exists and is executable.
-    let resolved = worker::resolve_worker_bin(worker_bin);
-    match std::fs::metadata(&resolved) {
+    // Build WebRTC stack
+    let stack = match webrtc::build_session_pc().await {
+        Ok(s) => s,
         Err(e) => {
-            tracing::error!(
-                "Worker binary not found: {resolved} ({e})"
-            );
-            tracing::error!(
-                "Build: cargo build --release -p gv-server"
-            );
-            ok = false;
+            tracing::error!("[SESSION] build_session_pc failed: {e}");
+            let _ = client.command_result(
+                &cmd.id, &cmd.lease_token,
+                &serde_json::json!({"error": "webrtc_build_failed", "message": e}),
+            ).await;
+            return;
         }
-        Ok(meta) => {
-            // On Unix, check the executable bit.
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                if meta.permissions().mode() & 0o111 == 0 {
-                    tracing::error!(
-                        "Worker binary is not executable: {resolved}"
-                    );
-                    ok = false;
-                }
-            }
-            if ok {
-                tracing::info!("Worker binary ok: {resolved}");
-            }
-        }
+    };
+
+    // Create session
+    let session = Arc::new(GameSession {
+        game_id: game_id.to_string(),
+        session_id: session_id.to_string(),
+        cancel: tokio_util::sync::CancellationToken::new(),
+        pc: stack.pc,
+        video_track: stack.video_track,
+        audio_track: stack.audio_track,
+        core_loaded: std::sync::atomic::AtomicBool::new(false),
+        core_loading: std::sync::atomic::AtomicBool::new(false),
+        core_ready_notify: tokio::sync::Notify::new(),
+        core_cmd_tx: tokio::sync::Mutex::new(None),
+        core_frame_rx: tokio::sync::Mutex::new(None),
+        core_response_rx: tokio::sync::Mutex::new(None),
+        video_enc: tokio::sync::Mutex::new(None),
+        audio_enc: tokio::sync::Mutex::new(None),
+        core_width: tokio::sync::Mutex::new(0),
+        core_height: tokio::sync::Mutex::new(0),
+        core_fps: tokio::sync::Mutex::new(0.0),
+        frames_encoded: std::sync::atomic::AtomicU64::new(0),
+    });
+
+    // Load libretro core
+    core_bridge::load_core_into_session(
+        &session,
+        core_path.as_deref(),
+        content_path.as_deref(),
+        platform,
+    ).await;
+
+    let worker_url = format!("http://gv-worker.local/{game_id}");
+
+    // Wire browser DC (non-negotiated, created by browser as "diagnostics")
+    // → core commands. Uses on_data_channel on the PC.
+    {
+        let session = Arc::clone(&session);
+        let pc = Arc::clone(&session.pc);
+        pc.on_data_channel(Box::new(move |dc: Arc<_>| {
+            let session = Arc::clone(&session);
+            Box::pin(async move {
+                tracing::info!("[DC] browser data channel received: {}", dc.label());
+
+                // Clone Arc before setting up handlers (each handler needs its own ref)
+                let dc_for_open = Arc::clone(&dc);
+                let dc_for_msg = Arc::clone(&dc);
+                let session_for_msg = Arc::clone(&session);
+
+                dc_for_open.on_open(Box::new(move || {
+                    tracing::info!("[DC] browser channel opened");
+                    Box::pin(async {})
+                }));
+
+                let dc_for_move = Arc::clone(&dc_for_msg);
+                dc_for_msg.on_message(Box::new(move |msg| {
+                    let session = Arc::clone(&session_for_msg);
+                    let dc = Arc::clone(&dc_for_move);
+                    Box::pin(async move {
+                        let data = if msg.is_string {
+                            String::from_utf8_lossy(&msg.data).into_owned().into_bytes()
+                        } else {
+                            msg.data.to_vec()
+                        };
+                        tracing::info!("[DC] browser msg: {} bytes is_string={}", data.len(), msg.is_string);
+
+                        // Try JSON (auth handshake first)
+                        if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&data) {
+                            if val.get("cmd").and_then(|v| v.as_str()) == Some("auth") {
+                                tracing::info!("[DC] auth received, sending ack");
+                                // Send auth response so browser can start sending input
+                                let ack = serde_json::json!({"cmd": "auth_ok"});
+                                let _ = dc.send_text(ack.to_string()).await;
+                                return;
+                            }
+                        }
+
+                        // Binary input: [seat, state_lo, state_hi]
+                        if data.len() >= 3 {
+                            let seat = data[0] as u32;
+                            let state = data[1] as u16 | ((data[2] as u16) << 8);
+                            let guard = session.core_cmd_tx.lock().await;
+                            if let Some(ref tx) = *guard {
+                                let _ = tx.try_send(core_bridge::CoreCommand::SetInput {
+                                    port: seat,
+                                    state,
+                                });
+                            }
+                        }
+                    })
+                }));
+            })
+        }));
     }
 
-    if !ok {
-        tracing::error!("Prerequisite validation failed — exiting.");
-        std::process::exit(1);
+    // Spawn streaming loop
+    let stream_session = Arc::clone(&session);
+    let stream_cancel = session.cancel.clone();
+    tokio::spawn(async move {
+        streaming::run_stream(stream_session).await;
+    });
+
+    // Store session
+    sessions.insert(game_id.to_string(), session);
+
+    // Notify gv-web
+    if let Err(e) = client
+        .notify(&cmd.id, &cmd.lease_token, &worker_url, game_id, Some(session_id))
+        .await
+    {
+        tracing::error!("[NOTIFY] failed: {e:#}");
+    } else {
+        tracing::info!("[SESSION] game ready: {game_id}");
     }
 }
 
-// ── Shutdown signal ───────────────────────────────────────────────────
+async fn handle_stop_game(
+    cmd: &gv_web::Command,
+    client: &gv_web::GvWebClient,
+    sessions: &mut HashMap<String, Arc<GameSession>>,
+) {
+    let game_id = cmd.payload.get("game_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+    tracing::info!("[POLL] stop_game game={game_id}");
 
-/// Returns when the process receives SIGINT (Ctrl+C) or SIGTERM.
+    if let Some(session) = sessions.remove(game_id) {
+        session.cancel.cancel();
+        let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
+        let _ = client.notify_stop(&cmd.id, &cmd.lease_token, game_id, session_id).await;
+    }
+}
+
+async fn handle_sdp_offer(
+    cmd: &gv_web::Command,
+    client: &gv_web::GvWebClient,
+    sessions: &HashMap<String, Arc<GameSession>>,
+) {
+    let sdp = cmd.payload.get("sdp").and_then(|v| v.as_str()).unwrap_or("");
+    let game_id = cmd.payload.get("game_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+
+    if sdp.is_empty() {
+        tracing::warn!("[SDP] empty offer — ignoring");
+        return;
+    }
+
+    tracing::info!("[SDP] offer for game {game_id} ({} chars)", sdp.len());
+
+    // Wait for session to appear (core loading may take a moment)
+    let started = std::time::Instant::now();
+    let max_wait = Duration::from_secs(30);
+    loop {
+        if let Some(session) = sessions.get(game_id) {
+            let pc = Arc::clone(&session.pc);
+            match webrtc::exchange_sdp_on_pc(&pc, sdp).await {
+                Ok(answer_sdp) => {
+                    let worker_url = format!("http://gv-worker.local/{game_id}");
+                    let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
+                    if let Err(e) = client
+                        .notify_sdp(&cmd.id, &cmd.lease_token, &worker_url, game_id, &answer_sdp, session_id)
+                        .await
+                    {
+                        tracing::error!("[SDP] notify_sdp failed: {e:#}");
+                    } else {
+                        tracing::info!("[SDP] answer sent ({}) chars", answer_sdp.len());
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("[SDP] exchange failed: {e}");
+                    let _ = client.command_result(
+                        &cmd.id, &cmd.lease_token,
+                        &serde_json::json!({"error": "sdp_handshake_failed", "message": e}),
+                    ).await;
+                }
+            }
+            return;
+        }
+
+        if started.elapsed() >= max_wait {
+            tracing::warn!("[SDP] no session for game {game_id} after {:?}", started.elapsed());
+            let _ = client.command_result(
+                &cmd.id, &cmd.lease_token,
+                &serde_json::json!({"error": "session_not_ready", "message": "session not ready"}),
+            ).await;
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+async fn handle_browse_files(
+    cmd: &gv_web::Command,
+    client: &gv_web::GvWebClient,
+    rom_roots: &[String],
+) {
+    let path = cmd.payload.get("path").and_then(|v| v.as_str()).unwrap_or("");
+
+    let tree = match scan::resolve_within_roots(std::path::Path::new(path), rom_roots) {
+        Ok(resolved) => scan::browse_path(&resolved),
+        Err(e) => scan::TreeNode {
+            name: format!("Error: {e}"),
+            node_type: "error".into(),
+            children: vec![],
+        },
+    };
+
+    let _ = client.command_result(
+        &cmd.id, &cmd.lease_token,
+        &serde_json::json!({"tree": tree}),
+    ).await;
+}
+
+async fn handle_scan_paths(
+    cmd: &gv_web::Command,
+    client: &gv_web::GvWebClient,
+    rom_roots: &[String],
+    scan_lock: &Arc<tokio::sync::Mutex<()>>,
+    dat_index: &Arc<tokio::sync::RwLock<Option<dat::DatIndex>>>,
+) {
+    let paths: Vec<String> = cmd.payload
+        .get("paths")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+
+    if scan_lock.try_lock().is_err() {
+        let _ = client.command_result(
+            &cmd.id, &cmd.lease_token,
+            &serde_json::json!({"error": "A scan is already in progress."}),
+        ).await;
+        return;
+    }
+
+    let _guard = scan_lock.lock().await;
+
+    let mut all_files = Vec::new();
+    for p in &paths {
+        let resolved = match scan::resolve_within_roots(std::path::Path::new(p), rom_roots) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("[SCAN] path rejected: {e:#}");
+                continue;
+            }
+        };
+        let mut files = scan::discover_roms(&resolved).unwrap_or_default();
+        scan::hash_files(&mut files, &resolved);
+        all_files.extend(files);
+    }
+
+    let mut dat_lock = dat_index.write().await;
+    if dat_lock.is_none() {
+        let mut combined: Option<dat::DatIndex> = None;
+        let mut seen_exts = std::collections::HashSet::new();
+        for file in &all_files {
+            if let Some(ext) = file.relative_path.rsplit('.').next() {
+                let ext_lower = ext.to_lowercase();
+                if seen_exts.contains(&ext_lower) { continue; }
+                seen_exts.insert(ext_lower.clone());
+                if let Some(index) = dat::load_for_extension(
+                    &ext_lower,
+                    &dirs::cache_dir()
+                        .unwrap_or_default()
+                        .join("games-vault")
+                        .join("dat"),
+                ).await {
+                    match &mut combined {
+                        Some(c) => c.merge(index),
+                        None => combined = Some(index),
+                    }
+                }
+            }
+        }
+        *dat_lock = combined;
+    }
+
+    let mut matches = Vec::new();
+    for file in &all_files {
+        let dat_match = if let (Some(crc), Some(sha)) = (&file.crc, &file.sha256) {
+            dat_lock.as_ref().and_then(|idx| dat::match_entry(idx, crc, sha))
+                .map(|e| serde_json::json!({"name": e.canonical_name, "game_name": e.game_name}))
+        } else { None };
+
+        matches.push(serde_json::json!({"file": file, "match": dat_match}));
+    }
+    drop(dat_lock);
+
+    let _ = client.command_result(
+        &cmd.id, &cmd.lease_token,
+        &serde_json::json!({"matches": matches}),
+    ).await;
+}
+
+// ── Shutdown signal ─────────────────────────────────────────────────
+
 #[cfg(unix)]
-#[allow(dead_code)] // Used by cmd_start; lib tests build this module without the binary entrypoint.
 async fn shutdown_signal() {
     use tokio::signal::unix::{SignalKind, signal};
-
     let mut sigint = signal(SignalKind::interrupt()).expect("register SIGINT handler");
     let mut sigterm = signal(SignalKind::terminate()).expect("register SIGTERM handler");
-
     tokio::select! {
         _ = sigint.recv() => {},
         _ = sigterm.recv() => {},
@@ -802,9 +567,6 @@ async fn shutdown_signal() {
 }
 
 #[cfg(not(unix))]
-#[allow(dead_code)] // Used by cmd_start; lib tests build this module without the binary entrypoint.
 async fn shutdown_signal() {
-    tokio::signal::ctrl_c()
-        .await
-        .expect("register Ctrl+C handler");
+    tokio::signal::ctrl_c().await.expect("register Ctrl+C handler");
 }

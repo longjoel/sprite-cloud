@@ -78,20 +78,90 @@ pub fn save(config: &Config) -> Result<()> {
 /// Default HTTP request timeout for gv-web API calls (seconds).
 const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 30;
 
+fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
+
 /// HTTP request timeout for gv-web API calls.
-///
-/// Read from `GV_WEB_TIMEOUT_SECS` env var at runtime, defaulting to 30.
-/// Increase if gv-web is on a high-latency connection, decrease for faster
-/// failure detection on a LAN.
 pub fn http_timeout() -> Duration {
     use std::sync::LazyLock;
     static TIMEOUT: LazyLock<Duration> = LazyLock::new(|| {
-        let secs = std::env::var("GV_WEB_TIMEOUT_SECS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .filter(|&v| v > 0)
-            .unwrap_or(DEFAULT_HTTP_TIMEOUT_SECS);
+        let secs = env_or("GV_WEB_TIMEOUT_SECS", DEFAULT_HTTP_TIMEOUT_SECS)
+            .max(1);
         Duration::from_secs(secs)
     });
     *TIMEOUT
+}
+
+// ── GStreamer encoder config (from gv-worker) ────────────────────────
+
+/// Target bitrate in kbps. GV_GST_VIDEO_BITRATE_KBPS, default 2000.
+pub fn gst_video_bitrate_kbps() -> u32 {
+    use std::sync::LazyLock;
+    static V: LazyLock<u32> = LazyLock::new(|| env_or("GV_GST_VIDEO_BITRATE_KBPS", 2000));
+    *V
+}
+
+/// VP8 cpu-used: 0 (best quality) … 16 (fastest).
+pub fn gst_video_cpu_used() -> i32 {
+    use std::sync::LazyLock;
+    static V: LazyLock<i32> = LazyLock::new(|| env_or("GV_GST_VIDEO_CPU_USED", 4));
+    *V
+}
+
+/// VP8 encoder threads. GV_GST_VIDEO_THREADS, default 4.
+pub fn gst_video_threads() -> u32 {
+    use std::sync::LazyLock;
+    static V: LazyLock<u32> = LazyLock::new(|| env_or("GV_GST_VIDEO_THREADS", 4));
+    *V
+}
+
+/// Encoder deadline: 0 (best) or 1 (realtime). GV_GST_VIDEO_DEADLINE, default 1.
+pub fn gst_video_deadline() -> u32 {
+    use std::sync::LazyLock;
+    static V: LazyLock<u32> = LazyLock::new(|| env_or("GV_GST_VIDEO_DEADLINE", 1));
+    *V
+}
+
+/// Keyframe max distance in frames. GV_GST_VIDEO_KEYFRAME_MAX_DIST, default 150.
+pub fn gst_video_keyframe_max_dist() -> u32 {
+    use std::sync::LazyLock;
+    static V: LazyLock<u32> = LazyLock::new(|| env_or("GV_GST_VIDEO_KEYFRAME_MAX_DIST", 150));
+    *V
+}
+
+/// Target height for integer scaling. GV_GST_VIDEO_SCALE_HEIGHT, default 0.
+pub fn gst_video_scale_height() -> u32 {
+    use std::sync::LazyLock;
+    static V: LazyLock<u32> = LazyLock::new(|| env_or("GV_GST_VIDEO_SCALE_HEIGHT", 0));
+    *V
+}
+
+/// Maximum integer scale factor. GV_GST_VIDEO_MAX_SCALE, default 4.
+pub fn gst_video_max_scale() -> u32 {
+    use std::sync::LazyLock;
+    static V: LazyLock<u32> = LazyLock::new(|| env_or("GV_GST_VIDEO_MAX_SCALE", 4));
+    *V
+}
+
+/// H.264 GStreamer encoder factory. GV_GST_VIDEO_H264_ENCODER, default auto.
+pub fn gst_video_h264_encoder() -> String {
+    use std::sync::LazyLock;
+    static V: LazyLock<String> = LazyLock::new(|| {
+        std::env::var("GV_GST_VIDEO_H264_ENCODER")
+            .unwrap_or_else(|_| "auto".into())
+            .trim()
+            .to_string()
+    });
+    V.clone()
+}
+
+/// Opus bitrate in bps. GV_GST_AUDIO_BITRATE, default 64000.
+pub fn gst_audio_bitrate() -> u32 {
+    use std::sync::LazyLock;
+    static V: LazyLock<u32> = LazyLock::new(|| env_or("GV_GST_AUDIO_BITRATE", 64000));
+    *V
 }

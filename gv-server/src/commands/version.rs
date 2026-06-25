@@ -8,7 +8,9 @@ use std::path::PathBuf;
 
 use crate::config;
 use crate::gv_web;
-use crate::worker;
+
+// The gv-worker binary is now merged into gv-server.
+// Version reporting no longer needs to resolve a separate binary.
 
 // ── Release metadata collection ───────────────────────────────────────
 
@@ -69,7 +71,10 @@ fn collect_component_versions(cfg: &config::Config) -> gv_web::VersionMetadata {
     let manifest = load_release_manifest();
     let manifest_ref = manifest.as_ref();
     let artifacts = manifest_ref.and_then(|m| m.artifacts.as_ref());
-    let worker_bin = worker::resolve_worker_bin(cfg.gv_web.worker_bin.as_deref());
+    let worker_bin = std::env::current_exe()
+        .ok()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "gv-server (merged worker)".to_string());
 
     gv_web::VersionMetadata {
         server: component_version(
