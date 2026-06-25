@@ -603,6 +603,26 @@ pub(crate) async fn do_webrtc_handshake(
         // Core loads in background — streaming loop will hot-swap when ready
         spawn_core_loader(&state, offer_sdp.to_string());
 
+        // ── Spawn frame loop BEFORE ICE gathering (was after exchange_sdp) ──
+        // exchange_sdp blocks on ICE gathering (up to 30s).  If the HTTP
+        // client times out before exchange_sdp returns, the handler never
+        // reaches the spawn site and the frame loop is never started.
+        // Subsequent SDP offers on this worker see core_loaded=true and
+        // skip the spawn — leaving the pipeline running with zero frames.
+        // Spawn early so the loop runs regardless of exchange_sdp timing.
+        {
+            let stream_cancel = CancellationToken::new();
+            let stream_ctx = StreamCtx {
+                cancel: stream_cancel.clone(),
+                app_state: Arc::clone(&state),
+            };
+            let handle = tokio::spawn(async move {
+                super::streaming::stream_frames(stream_ctx).await;
+            });
+            *state.stream_handle.lock().await = Some(handle);
+            *state.cancel.lock().await = stream_cancel;
+        }
+
         encoders
     } else {
         reuse_encoders(&state).await?
@@ -731,24 +751,6 @@ pub(crate) async fn do_webrtc_handshake(
             }
         })
     }));
-
-    // Spawn streaming loop on first peer only
-    if is_first_peer {
-        let stream_cancel = CancellationToken::new();
-        let stream_ctx = StreamCtx {
-            cancel: stream_cancel.clone(),
-            app_state: Arc::clone(&state),
-        };
-
-        let handle = tokio::spawn(async move {
-            super::streaming::stream_frames(stream_ctx).await;
-        });
-
-        {
-            *state.stream_handle.lock().await = Some(handle);
-            *state.cancel.lock().await = stream_cancel;
-        }
-    }
 
     // Clear destruct timer (stream is active)
     {
