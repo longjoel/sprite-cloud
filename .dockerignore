@@ -3,7 +3,11 @@ target/
 .release/
 
 # Next.js build cache (regenerated in Docker)
-gv-web/.next/
+gv-web/.next/cache/
+gv-web/.next/server/
+gv-web/.next/types/
+gv-web/.next/diagnostics/
+gv-web/.next/*.json
 
 # Dependencies (copied from builder stage)
 node_modules/
