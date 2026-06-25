@@ -1,23 +1,24 @@
-//! GStreamer-powered streaming loop: frame encoding, fan-out, and stats.
+//! GStreamer-powered streaming loop: frame encoding and shared-memory output.
 //!
 //! Extracted from main_body/mod.rs.
 
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 
-use crate::config::{STATS_SEND_INTERVAL, VP8_CLOCK_RATE};
+use gv_shm::{ShmRing, frame_type};
+
 use crate::gst_video::GstVideoEncoder;
 
 use super::AppState;
 
 // ── Streaming context ───────────────────────────────────────────────────────
 
-pub(super) struct StreamCtx {
-    pub(super) cancel: CancellationToken,
-    pub(super) app_state: Arc<AppState>,
+pub struct StreamCtx {
+    pub cancel: CancellationToken,
+    pub app_state: Arc<AppState>,
+    pub shm: Arc<ShmRing>,
 }
 
 // ── Test pattern generator (loading state before core is ready) ─────────────
@@ -112,62 +113,41 @@ async fn push_audio(
     }
 }
 
-async fn fan_out_video(
+/// Drain encoded H.264 video from the GStreamer encoder and write to shared memory.
+async fn drain_to_shm_video(
     state: &AppState,
-    frame_num: u64,
-    fps: f64,
-    frame_interval: Duration,
+    shm: &ShmRing,
+    timestamp_us: u32,
 ) {
-    use webrtc::media::Sample;
     loop {
-        let sample = {
+        let data = {
             let enc_guard = state.video_enc.lock().await;
             match enc_guard.as_ref() {
-                Some(enc_arc) => enc_arc.lock().await.try_pull().map(|data| Sample {
-                        data: data.into(),
-                        duration: frame_interval,
-                        packet_timestamp: frame_num
-                            .wrapping_sub(1)
-                            .saturating_mul((VP8_CLOCK_RATE as f64 / fps.max(1.0)).round() as u64)
-                            as u32,
-                        ..Default::default()
-                    }),
+                Some(enc_arc) => enc_arc.lock().await.try_pull(),
                 None => None,
             }
         };
 
-        match sample {
-            Some(ref sample) => {
-                let mut dead: Vec<String> = Vec::new();
-                {
-                    let peers = state.peers.lock().await;
-                    for (peer_id, peer) in peers.iter() {
-                        if let Err(e) = peer.video_track.write_sample(sample).await {
-                            tracing::warn!(
-                                "[STREAM] peer {:.8} video write error: {e}",
-                                peer_id
-                            );
-                            dead.push(peer_id.clone());
-                        }
+        match data {
+            Some(data) => {
+                if let Err(e) = shm.write_frame(frame_type::VIDEO, &data, timestamp_us) {
+                    if e.kind() != std::io::ErrorKind::WouldBlock {
+                        tracing::warn!("[STREAM] shm video write error: {e}");
                     }
                 }
-                for id in &dead {
-                    state.peers.lock().await.remove(id);
-                    tracing::info!("[STREAM] removed dead peer {:.8}", id);
-                }
-                state.frames_encoded.fetch_add(1, Ordering::Relaxed);
             }
             None => break,
         }
     }
 }
 
-async fn fan_out_audio(
+/// Drain encoded Opus audio from the GStreamer encoder and write to shared memory.
+async fn drain_to_shm_audio(
     state: &AppState,
+    shm: &ShmRing,
     mut audio_ts: u32,
     audio_write_errs: &mut u64,
 ) -> u32 {
-    use webrtc::media::Sample;
     let aenc_guard = state.audio_enc.lock().await;
     if let Some(ref aenc_arc) = *aenc_guard {
         loop {
@@ -180,23 +160,13 @@ async fn fan_out_audio(
             };
             match opus_data {
                 Some(opus_data) => {
-                    let sample = Sample {
-                        data: opus_data.into(),
-                        duration: Duration::from_millis(20),
-                        packet_timestamp: audio_ts,
-                        ..Default::default()
-                    };
-                    audio_ts = audio_ts.wrapping_add(960);
-                    let peers = state.peers.lock().await;
-                    for (peer_id, peer) in peers.iter() {
-                        if let Err(e) = peer.audio_track.write_sample(&sample).await {
-                            tracing::warn!(
-                                "[STREAM] peer {:.8} audio write error: {e}",
-                                peer_id
-                            );
+                    if let Err(e) = shm.write_frame(frame_type::AUDIO, &opus_data, audio_ts) {
+                        if e.kind() != std::io::ErrorKind::WouldBlock {
+                            tracing::warn!("[STREAM] shm audio write error: {e}");
                             *audio_write_errs = audio_write_errs.wrapping_add(1);
                         }
                     }
+                    audio_ts = audio_ts.wrapping_add(960);
                 }
                 None => break,
             }
@@ -205,42 +175,7 @@ async fn fan_out_audio(
     audio_ts
 }
 
-async fn send_stats(
-    state: &AppState,
-    frame_num: u64,
-    audio_write_errs: u64,
-    start_instant: std::time::Instant,
-) {
-    if !frame_num.is_multiple_of(STATS_SEND_INTERVAL) {
-        return;
-    }
-    let (pushed, pulled) = {
-        let enc_guard = state.video_enc.lock().await;
-        match enc_guard.as_ref() {
-            Some(enc) => enc.lock().await.stats(),
-            None => (0, 0),
-        }
-    };
-    if let Ok(stats) = serde_json::to_string(&serde_json::json!({
-        "type": "stats",
-        "frame": frame_num,
-        "pipeline": {
-            "video_pushed": pushed,
-            "video_pulled": pulled,
-            "video_pending": pushed.saturating_sub(pulled),
-            "audio_write_errs": audio_write_errs,
-            "uptime_sec": start_instant.elapsed().as_secs()
-        }
-    })) {
-        let peers = state.peers.lock().await;
-        for (_, peer) in peers.iter() {
-            if let Some(dc) = peer.dc_stream.lock().await.as_ref() {
-                let _ = dc.send_text(&stats).await;
-            }
-        }
-    }
-}
-pub(super) async fn stream_frames(ctx: StreamCtx) {
+pub async fn stream_frames(ctx: StreamCtx) {
     
 
     let fps = *ctx.app_state.core_fps.lock().await;
@@ -305,8 +240,8 @@ pub(super) async fn stream_frames(ctx: StreamCtx) {
                             }
                             None => {
                                 // No core frame available — generate test pattern if core is loading
-                                let core_loading = ctx.app_state.core_loading.load(Ordering::Relaxed);
-                                let core_loaded = ctx.app_state.core_loaded.load(Ordering::Relaxed);
+                                let core_loading = ctx.app_state.core_loading.load(std::sync::atomic::Ordering::Relaxed);
+                                let core_loaded = ctx.app_state.core_loaded.load(std::sync::atomic::Ordering::Relaxed);
                                 if core_loading || !core_loaded {
                                     let w = *ctx.app_state.core_width.lock().await;
                                     let h = *ctx.app_state.core_height.lock().await;
@@ -334,42 +269,15 @@ pub(super) async fn stream_frames(ctx: StreamCtx) {
                     push_audio(&ctx.app_state, &audio_data, &mut audio_acc).await;
                 }
 
-                // ── Drain encoded video → fan-out to ALL peers ──
-                fan_out_video(&ctx.app_state, frame_num, fps, frame_interval).await;
+                // ── Drain encoded video → shared memory ──
+                let timestamp_us = start_instant.elapsed().as_micros().min(u32::MAX as u128) as u32;
+                drain_to_shm_video(&ctx.app_state, &ctx.shm, timestamp_us).await;
 
-                // ── Drain encoded audio → fan-out to ALL peers ──
-                audio_ts = fan_out_audio(&ctx.app_state, audio_ts, &mut audio_write_errs).await;
-
-                // ── Stats to all peer DataChannels ──
-                send_stats(
-                    &ctx.app_state,
-                    frame_num,
-                    audio_write_errs,
-                    start_instant,
-                )
-                .await;
+                // ── Drain encoded audio → shared memory ──
+                audio_ts = drain_to_shm_audio(&ctx.app_state, &ctx.shm, audio_ts, &mut audio_write_errs).await;
             }
         }
     }
 
     tracing::info!("[STREAM] Loop exited");
-
-    // Close all peer connections
-    {
-        let mut peers = ctx.app_state.peers.lock().await;
-        for (_, peer) in peers.drain() {
-            let _ = peer.pc.close().await;
-        }
-    }
-
-    // Self-destruct timer
-    {
-        let exit = ctx.app_state.exit_signal.clone();
-        let handle = tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(crate::config::WORKER_IDLE_TIMEOUT_SECS)).await;
-            tracing::warn!("[SELF-DESTRUCT] idle timeout — shutting down");
-            exit.cancel();
-        });
-        *ctx.app_state.destruct_timer.lock().await = Some(handle);
-    }
 }

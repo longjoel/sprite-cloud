@@ -7,15 +7,19 @@ pub mod saves;
 pub mod player_assets;
 pub mod main_body;
 
-use std::net::SocketAddr;
-use tokio::net::TcpListener;
+use std::sync::Arc;
+
+use gv_shm::ShmRing;
+use tokio_util::sync::CancellationToken;
+
+use main_body::{AppState, StreamCtx, stream_frames};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const LIBRETRO_RUNNER_VERSION: &str = libretro_runner::VERSION;
 
-pub async fn run_worker(port: u16) -> Result<(), Box<dyn std::error::Error>> {
-    // try_init so single-binary dispatch (gv-server worker) doesn't panic
-    // when the parent already initialized the global subscriber.
+/// Run the worker as a pure media engine — opens shared memory, loads core,
+/// starts GStreamer pipelines, and writes encoded frames to the shm ring.
+pub async fn run_worker(shm_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .json()
         .with_target(false)
@@ -25,46 +29,38 @@ pub async fn run_worker(port: u16) -> Result<(), Box<dyn std::error::Error>> {
 
     gstreamer::init().map_err(|e| format!("gst init: {e}"))?;
 
-    let app = main_body::build_app().await?;
-    let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    let listener = std::net::TcpListener::bind(addr)?;
-    listener.set_nonblocking(true)?;
-    let bound_port = listener.local_addr()?.port();
-    let tcp_listener = TcpListener::from_std(listener)?;
+    let shm = Arc::new(ShmRing::open(shm_name)?);
+    tracing::info!("[WORKER] opened shm ring '{}' ({} frames)", shm_name, shm.frame_count());
 
-    tracing::info!("gv-worker listening on port {bound_port}");
-    eprintln!("WORKER_READY port={bound_port}");
-    tracing::info!("open http://localhost:{bound_port}");
+    let state = Arc::new(AppState::new());
+    let cancel = CancellationToken::new();
+    *state.cancel.lock().await = cancel.clone();
 
-    // ── Run the HTTP server on a DEDICATED tokio runtime on its own OS thread ──
-    // GStreamer appsrc (16 threads) + WebRTC ICE saturation can starve
-    // the main runtime of worker threads, leaving axum unable to process
-    // incoming HTTP requests.  By running HTTP on a separate OS thread
-    // with its own tokio runtime, the SDP endpoint always has capacity.
-    //
-    // We cannot call block_on from within #[tokio::main] (tokio panics:
-    // "Cannot start a runtime from within a runtime").  Spawn a fresh
-    // OS thread instead.
-    let server_thread = std::thread::Builder::new()
-        .name("http-server".into())
-        .spawn(move || {
-            let http_rt = tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(2)
-                .enable_all()
-                .build()
-                .expect("http runtime");
+    // Spawn the streaming loop (handles core loading + GStreamer + shm writes)
+    let stream_ctx = StreamCtx {
+        cancel: cancel.clone(),
+        app_state: Arc::clone(&state),
+        shm: Arc::clone(&shm),
+    };
 
-            http_rt.block_on(async move {
-                axum::serve(tcp_listener, app)
-                    .with_graceful_shutdown(async move {
-                        tokio::signal::ctrl_c().await.ok();
-                    })
-                    .await
-                    .map_err(|e| eprintln!("http server error: {e}"))
-                    .ok();
-            })
-        })?;
+    let stream_handle = tokio::spawn(async move {
+        stream_frames(stream_ctx).await;
+    });
 
-    server_thread.join().unwrap();
+    // Signal readiness to parent (gv-server polls for this)
+    eprintln!("WORKER_READY");
+
+    // Run until cancelled or streaming exits
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("[WORKER] SIGINT — shutting down");
+        }
+        _ = stream_handle => {
+            tracing::info!("[WORKER] streaming loop exited");
+        }
+    }
+
+    cancel.cancel();
+    tracing::info!("[WORKER] done");
     Ok(())
 }

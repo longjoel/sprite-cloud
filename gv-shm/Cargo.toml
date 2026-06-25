@@ -1,0 +1,8 @@
+[package]
+name = "gv-shm"
+version = "0.1.0"
+edition = "2024"
+description = "Games Vault shared-memory ring buffer for IPC between gv-server and gv-worker"
+
+[dependencies]
+libc = "0.2"
