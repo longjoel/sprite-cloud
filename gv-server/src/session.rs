@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::Mutex as StdMutex;
 use tokio::sync::Mutex;
 
 use webrtc::peer_connection::RTCPeerConnection;
@@ -24,9 +25,9 @@ pub struct GameSession {
     pub cancel: tokio_util::sync::CancellationToken,
 
     // ── WebRTC ──────────────────────────────────────────────────────
-    pub pc: Arc<RTCPeerConnection>,
-    pub video_track: Arc<TrackLocalStaticSample>,
-    pub audio_track: Arc<TrackLocalStaticSample>,
+    pub pc: StdMutex<Arc<RTCPeerConnection>>,
+    pub video_track: StdMutex<Arc<TrackLocalStaticSample>>,
+    pub audio_track: StdMutex<Arc<TrackLocalStaticSample>>,
 
     // ── Core (libretro) ─────────────────────────────────────────────
     pub core_loaded: AtomicBool,
