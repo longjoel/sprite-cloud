@@ -7,7 +7,7 @@
 // This eliminates the browser-side polling loop — the answer comes directly
 // in the POST response.
 
-const SDP_TIMEOUT_MS = 30_000; // how long to wait for the answer
+const SDP_TIMEOUT_MS = 60_000; // how long to wait for the answer (accommodates SDP retry)
 
 interface PendingEntry {
   resolve: (sdpAnswer: string) => void;
