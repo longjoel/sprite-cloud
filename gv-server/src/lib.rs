@@ -6,4 +6,6 @@ pub mod local;
 pub mod platform;
 pub mod retry;
 pub mod scan;
+pub mod shm;
+pub mod webrtc;
 pub mod worker;
