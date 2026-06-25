@@ -1,0 +1,8 @@
+[package]
+name = "gv-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libretro-runner = { path = "../libretro-runner" }
+memmap2 = "0.9"
