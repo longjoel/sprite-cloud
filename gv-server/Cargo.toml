@@ -1,6 +1,6 @@
 [package]
 name = "gv-server"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2024"
 description = "Games Vault server — runs on user's computer, manages gv-worker processes"
 
@@ -29,7 +29,6 @@ url = "2"
 local-ip-address = "0.6.13"
 libc = "0.2"
 libretro-runner = { path = "../libretro-runner" }
-gv-shm = { path = "../gv-shm" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "time"] }
 quick-xml = "0.37"
@@ -43,6 +42,12 @@ webrtc = { version = "0.17", features = ["pem"] }
 webrtc-ice = "0.17"
 webrtc-sctp = "0.11"
 tokio-util = "0.7"
+gstreamer = "0.23"
+gstreamer-app = "0.23"
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+futures-util = "0.3"
+rust-embed = { version = "8", features = ["mime-guess"] }
+mime_guess = "2"
 
 [dev-dependencies]
 tempfile = "3"

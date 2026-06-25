@@ -135,7 +135,7 @@ fn ice_config() -> IceConfig {
 // ── Internal helpers ─────────────────────────────────────────────────────────
 
 /// Build a fully-configured RTCPeerConnection with video + audio tracks.
-async fn build_webrtc_stack(video_codec: VideoCodec) -> Result<WebRtcStack, String> {
+async fn build_webrtc_stack(video_codec: VideoCodec) -> Result<InternalWebRtcStack, String> {
     let mut media_engine = MediaEngine::default();
     media_engine
         .register_default_codecs()
@@ -221,7 +221,7 @@ async fn build_webrtc_stack(video_codec: VideoCodec) -> Result<WebRtcStack, Stri
         .await
         .map_err(|e| format!("add audio track: {e}"))?;
 
-    Ok(WebRtcStack {
+    Ok(InternalWebRtcStack {
         pc,
         video_track,
         audio_track,
@@ -305,13 +305,20 @@ async fn exchange_sdp(
 
 // ── Internal stack types ─────────────────────────────────────────────────────
 
-struct WebRtcStack {
-    pc: Arc<RTCPeerConnection>,
-    video_track: Arc<TrackLocalStaticSample>,
-    audio_track: Arc<TrackLocalStaticSample>,
+pub(crate) struct InternalWebRtcStack {
+    pub pc: Arc<RTCPeerConnection>,
+    pub video_track: Arc<TrackLocalStaticSample>,
+    pub audio_track: Arc<TrackLocalStaticSample>,
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
+
+/// Result of building a WebRTC stack (without SDP exchange).
+pub struct WebRtcStack {
+    pub pc: Arc<RTCPeerConnection>,
+    pub video_track: Arc<TrackLocalStaticSample>,
+    pub audio_track: Arc<TrackLocalStaticSample>,
+}
 
 /// Result of a successful SDP handshake.
 pub struct WebRtcSession {
@@ -319,26 +326,59 @@ pub struct WebRtcSession {
     pub pc: Arc<RTCPeerConnection>,
     pub video_track: Arc<TrackLocalStaticSample>,
     pub audio_track: Arc<TrackLocalStaticSample>,
-    /// Negotiated DataChannel for input (keyboard/gamepad).
     pub dc: Arc<webrtc::data_channel::RTCDataChannel>,
 }
 
-/// Handle an incoming SDP offer from a browser.
-///
-/// Builds a full WebRTC stack (PeerConnection + video/audio tracks),
-/// performs the SDP exchange, and waits for ICE gathering to complete.
-/// Returns the answer SDP and all track handles for the caller to feed
-/// frames into.
-///
-/// Uses H.264 video by default.
-pub async fn handle_sdp_offer(offer_sdp: &str) -> Result<WebRtcSession, String> {
-    let WebRtcStack {
+/// Build a WebRTC stack (PC + tracks) without DataChannel — we accept the
+/// browser-created DC via ondatachannel instead of creating a negotiated one.
+/// Used when starting a game session — the PC is created eagerly so it's
+/// ready when the SDP offer arrives.
+pub async fn build_session_pc() -> Result<WebRtcStack, String> {
+    let InternalWebRtcStack {
         pc,
         video_track,
         audio_track,
     } = build_webrtc_stack(VideoCodec::H264).await?;
 
-    // ICE gathering callback (must be set before exchange_sdp)
+    // DC is created by browser as "diagnostics" (non-negotiated).
+    // We receive it via ondatachannel — handled by the caller.
+
+    Ok(WebRtcStack {
+        pc,
+        video_track,
+        audio_track,
+    })
+}
+
+/// Exchange SDP on an existing PeerConnection.
+/// Takes a browser SDP offer, sets it as remote description, creates answer,
+/// and waits for ICE gathering to complete. Returns the answer SDP.
+pub async fn exchange_sdp_on_pc(pc: &RTCPeerConnection, offer_sdp: &str) -> Result<String, String> {
+    let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
+    pc.on_ice_candidate(Box::new({
+        let done_tx = done_tx.clone();
+        move |candidate: Option<webrtc::ice_transport::ice_candidate::RTCIceCandidate>| {
+            let done_tx = done_tx.clone();
+            Box::pin(async move {
+                if candidate.is_none() {
+                    let _ = done_tx.try_send(());
+                }
+            })
+        }
+    }));
+
+    exchange_sdp(pc, offer_sdp, &mut done_rx).await
+}
+
+/// Handle an incoming SDP offer from a browser (one-shot: build + exchange).
+/// Legacy API — prefer build_session_pc() + exchange_sdp_on_pc() separately.
+pub async fn handle_sdp_offer(offer_sdp: &str) -> Result<WebRtcSession, String> {
+    let InternalWebRtcStack {
+        pc,
+        video_track,
+        audio_track,
+    } = build_webrtc_stack(VideoCodec::H264).await?;
+
     let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
     pc.on_ice_candidate(Box::new({
         let done_tx = done_tx.clone();
@@ -354,10 +394,8 @@ pub async fn handle_sdp_offer(offer_sdp: &str) -> Result<WebRtcSession, String> 
 
     let answer_sdp = exchange_sdp(&pc, offer_sdp, &mut done_rx).await?;
 
-    // Create negotiated DataChannel for input (keyboard/gamepad).
-    // The browser creates a negotiated DC with id=0 — we must match.
     let dc = pc.create_data_channel("input", Some(webrtc::data_channel::data_channel_init::RTCDataChannelInit {
-            negotiated: Some(0), // Match browser's id=0
+            negotiated: Some(0),
             ordered: Some(true),
             ..Default::default()
         }))
