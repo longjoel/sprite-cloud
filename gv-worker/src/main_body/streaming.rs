@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 use gv_shm::{ShmRing, frame_type};
 
+use crate::gst_audio::GstAudioEncoder;
 use crate::gst_video::GstVideoEncoder;
 
 use super::AppState;
@@ -53,24 +54,55 @@ async fn probe_and_rebuild_encoder(
         return Ok(());
     }
     let enc_guard = state.video_enc.lock().await;
-    if let Some(ref enc_arc) = *enc_guard {
+    let needs_create = enc_guard.is_none();
+    let needs_rebuild = if let Some(ref enc_arc) = *enc_guard {
         let enc = enc_arc.lock().await;
         let enc_w = enc.width();
         let enc_h = enc.height();
         let sf = enc.scale_factor();
         let enc_core_w = enc_w.checked_div(sf).unwrap_or(enc_w);
         let enc_core_h = enc_h.checked_div(sf).unwrap_or(enc_h);
-        if frame_width != enc_core_w || frame_height != enc_core_h {
+        frame_width != enc_core_w || frame_height != enc_core_h
+    } else {
+        false
+    };
+
+    if needs_create || needs_rebuild {
+        if needs_rebuild {
             tracing::info!(
-                "[STREAM] Resolution probe: encoder {ecw}×{ech}, actual {aw}×{ah} — rebuilding",
-                ecw = enc_core_w, ech = enc_core_h, aw = frame_width, ah = frame_height,
+                "[STREAM] Resolution probe: actual {aw}×{ah} — rebuilding encoder",
+                aw = frame_width, ah = frame_height,
             );
-            drop(enc);
-            drop(enc_guard);
-            let new_enc = GstVideoEncoder::new(frame_width, frame_height, fps)
-                .map_err(|e| format!("encoder rebuild failed: {e}"))?;
-            *state.video_enc.lock().await =
-                Some(Arc::new(tokio::sync::Mutex::new(new_enc)));
+        } else {
+            tracing::info!(
+                "[STREAM] Creating video encoder: {w}×{h} @ {fps:.1}fps",
+                w = frame_width, h = frame_height, fps = fps
+            );
+        }
+        drop(enc_guard);
+        let new_enc = GstVideoEncoder::new(frame_width, frame_height, fps)
+            .map_err(|e| format!("encoder create/rebuild failed: {e}"))?;
+        *state.video_enc.lock().await =
+            Some(Arc::new(tokio::sync::Mutex::new(new_enc)));
+
+        // Also create audio encoder on first video encoder init
+        if needs_create {
+            let sample_rate: f64 = 48000.0;
+            if sample_rate > 0.0 {
+                match GstAudioEncoder::new(sample_rate, 2) {
+                    Ok(aenc) => {
+                        *state.audio_enc.lock().await =
+                            Some(Arc::new(tokio::sync::Mutex::new(Some(aenc))));
+                        tracing::info!(
+                            "[STREAM] Audio encoder created: {:.0}Hz {}ch",
+                            sample_rate, 2
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!("[STREAM] Audio encoder creation failed: {e}");
+                    }
+                }
+            }
         }
     }
     Ok(())
