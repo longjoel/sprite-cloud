@@ -216,6 +216,9 @@ export class GvPlayer {
     /** @type {RTCDataChannel | null} */
     this._dc = null;
 
+    /** @private @type {number} timestamp of connectViaRelay start */
+    this._connectStart = 0;
+
     /** @type {string} */
     this._state = State.IDLE;
 
@@ -270,6 +273,24 @@ export class GvPlayer {
     this._playbackDeferred = false;
     /** @private @type {Function | null} bound gesture handler */
     this._gestureHandler = null;
+  }
+
+  /**
+   * Log a connection phase with elapsed time since connectViaRelay start.
+   * Format: [gv] +1234ms phase:state key=value ...
+   * @param {string} phase  — e.g. "gather", "relay", "remote", "conn", "media"
+   * @param {string} state  — e.g. "done", "answer", "set", "connected", "video"
+   * @param {object} [extra] — additional key=value pairs
+   */
+  _phaseLog(phase, state, extra) {
+    const elapsed = Date.now() - (this._connectStart || Date.now());
+    const parts = [`[gv] +${String(elapsed).padStart(4)}ms ${phase}:${state}`];
+    if (extra) {
+      for (const [k, v] of Object.entries(extra)) {
+        parts.push(`${k}=${v}`);
+      }
+    }
+    console.log(parts.join(" "));
   }
 
   /** Current connection state (one of State.*). */
@@ -355,17 +376,18 @@ export class GvPlayer {
    * @param {string} [peerToken]— peer auth token
    */
   async connectViaRelay(serverId, gameId, hostToken, pollToken, roomToken, peerToken) {
-     console.log("[gv] connectViaRelay starting", { serverId, gameId, roomToken: !!roomToken, pollToken: !!pollToken, peerToken: !!peerToken });
+    this._connectStart = Date.now();
+    this._phaseLog("relay", "connecting", { gameId: gameId.slice(0,8) });
 
-     if (this._state !== State.IDLE) {
-       this.disconnect();
-     }
+    if (this._state !== State.IDLE) {
+      this.disconnect();
+    }
 
-     this._setState(State.CONNECTING);
+    this._setState(State.CONNECTING);
 
-     // Store tokens for DataChannel auth and SDP payload
-     this._hostToken = hostToken || null;
-     this._peerToken = peerToken || null;
+    // Store tokens for DataChannel auth and SDP payload
+    this._hostToken = hostToken || null;
+    this._peerToken = peerToken || null;
 
     this._createPeerConnection();
 
@@ -373,7 +395,9 @@ export class GvPlayer {
 
     const offer = await this._pc.createOffer();
     await this._pc.setLocalDescription(offer);
+    const gatherStart = Date.now();
     await this._waitForIceGatheringComplete();
+    this._phaseLog("gather", "done", { ms: Date.now() - gatherStart });
 
     // POST sdp_offer command — returns a worker_token we use to poll
     const cmdBody = {
@@ -409,8 +433,9 @@ export class GvPlayer {
     // Poll for the worker's SDP answer.
     // Use the start_game pollToken if available (ties to the session),
     // otherwise fall back to the sdp_offer's workerToken.
+    const pollStart = Date.now();
     let answerSdp = await this._pollForAnswer(serverId, pollToken || workerToken);
-    console.log("[gv] SDP answer received, setting remote description");
+    this._phaseLog("relay", "answer", { ms: Date.now() - pollStart, chars: answerSdp.length });
 
     // Normalize extmap: webrtc-rs 0.17.1 sometimes assigns different extmap IDs
     // than the offer (e.g. video-timing at id=7 when offer used id=7 for TWCC).
@@ -422,13 +447,11 @@ export class GvPlayer {
       .split("\n")
       .filter((line) => !line.trimStart().startsWith("a=extmap:"))
       .join("\n");
-    const removed = (answerSdp.match(/a=extmap:/g) || []).length;
-    console.log("[gv] SDP extmap normalised, extmaps remaining:", removed);
 
     await this._pc.setRemoteDescription(
       new RTCSessionDescription({ type: "answer", sdp: answerSdp }),
     );
-    console.log("[gv] remote description set, waiting for ICE...");
+    this._phaseLog("remote", "set", { ms: Date.now() - this._connectStart });
 
     // ── ICE timeout watchdog ───────────────────────────────────
 
@@ -508,7 +531,7 @@ export class GvPlayer {
 
     this._pc.onconnectionstatechange = () => {
       const s = this._pc.connectionState;
-      console.log("[gv] connectionState →", s);
+      this._phaseLog("conn", s, { ms: Date.now() - (this._connectStart || Date.now()) });
       if (s === "connected") {
         this._setState(State.CONNECTED);
         this._clearIceTimer();
@@ -541,14 +564,12 @@ export class GvPlayer {
     };
 
     this._pc.ontrack = (event) => {
-      console.log("[gv] ontrack fired", { kind: event.track?.kind, id: event.track?.id, readyState: event.track?.readyState });
+      this._phaseLog("media", event.track?.kind || "track", { ms: Date.now() - (this._connectStart || Date.now()) });
       if (!this._mediaStream) {
         this._mediaStream = new MediaStream();
         this._video.srcObject = this._mediaStream;
-        console.log("[gv] MediaStream attached to video");
       }
       this._mediaStream.addTrack(event.track);
-      console.log("[gv] track added, stream tracks:", this._mediaStream.getTracks().length);
 
       // Defer play until a user gesture (required by Safari iOS).
       // On desktop, play() succeeds immediately; on iOS it fails
@@ -890,13 +911,12 @@ export class GvPlayer {
 
     const sendMask = () => {
       if (!this._dc || this._dc.readyState !== "open") {
-        console.debug("[INPUT] sendMask skipped — dc readyState=%s", this._dc?.readyState ?? "null");
+        // DC not open yet — silently skip (this fires every frame during connect)
         return;
       }
       try {
         const s = this._inputState;
         this._dc.send(new Uint8Array([this._seat, s & 0xFF, s >> 8]).buffer);
-        console.debug("[INPUT] sent mask port=%d state=0x%s", this._seat, s.toString(16).padStart(4, "0"));
       } catch (e) {
         console.warn("[INPUT] sendMask failed — DC may be closed:", e?.message || e);
         // Close the DC so the reconnect flow picks up the failure
@@ -915,10 +935,6 @@ export class GvPlayer {
       } else {
         this._inputState &= ~(1 << bit);
       }
-      console.debug("[INPUT] key=%s type=%s bit=%d state=0x%s dc=%s",
-        e.key, e.type, bit,
-        this._inputState.toString(16).padStart(4, "0"),
-        this._dc?.readyState ?? "none");
       sendMask();
     };
 

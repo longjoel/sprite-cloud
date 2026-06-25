@@ -1,4 +1,4 @@
-// index.js
+// public/player/index.js
 function classifyRoute(pair, connectionState) {
   if (connectionState === "failed") {
     return { route: "failed", detail: "ICE failed" };
@@ -95,11 +95,11 @@ var State = Object.freeze({
 var GvPlayer = class {
   /** @param {HTMLVideoElement} video — must be a <video> element
    *  @param {{ iceServers?: Array<{urls: string|string[], username?: string, credential?: string}>, seat?: number, iceTimeout?: number, disconnectedGrace?: number, gamepadMapping?: import('./index.js').GamepadMapping }} [options] */
-  constructor(video2, options) {
-    if (!video2 || !video2.tagName || video2.tagName !== "VIDEO") {
+  constructor(video, options) {
+    if (!video || !video.tagName || video.tagName !== "VIDEO") {
       throw new TypeError("GvPlayer requires a <video> element");
     }
-    this._video = video2;
+    this._video = video;
     this._video.autoplay = true;
     this._video.playsinline = true;
     this._iceServers = options && options.iceServers || [];
@@ -108,9 +108,9 @@ var GvPlayer = class {
     this._iceTimeout = options && typeof options.iceTimeout === "number" ? options.iceTimeout : ICE_TIMEOUT_MS;
     this._disconnectedGrace = options && typeof options.disconnectedGrace === "number" ? options.disconnectedGrace : DISCONNECTED_GRACE_MS;
     this._gamepadMapping = options && options.gamepadMapping || DEFAULT_GAMEPAD_MAPPING;
-    this._nintendoLayout = false;
     this._pc = null;
     this._dc = null;
+    this._connectStart = 0;
     this._state = State.IDLE;
     this.onStateChange = null;
     this.onTrack = null;
@@ -130,6 +130,23 @@ var GvPlayer = class {
     this._gamepadRAF = null;
     this._playbackDeferred = false;
     this._gestureHandler = null;
+  }
+  /**
+   * Log a connection phase with elapsed time since connectViaRelay start.
+   * Format: [gv] +1234ms phase:state key=value ...
+   * @param {string} phase  — e.g. "gather", "relay", "remote", "conn", "media"
+   * @param {string} state  — e.g. "done", "answer", "set", "connected", "video"
+   * @param {object} [extra] — additional key=value pairs
+   */
+  _phaseLog(phase, state, extra) {
+    const elapsed = Date.now() - (this._connectStart || Date.now());
+    const parts = [`[gv] +${String(elapsed).padStart(4)}ms ${phase}:${state}`];
+    if (extra) {
+      for (const [k, v] of Object.entries(extra)) {
+        parts.push(`${k}=${v}`);
+      }
+    }
+    console.log(parts.join(" "));
   }
   /** Current connection state (one of State.*). */
   get state() {
@@ -197,7 +214,8 @@ var GvPlayer = class {
    * @param {string} [peerToken]— peer auth token
    */
   async connectViaRelay(serverId, gameId, hostToken, pollToken, roomToken, peerToken) {
-    console.log("[gv] connectViaRelay starting", { serverId, gameId, roomToken: !!roomToken, pollToken: !!pollToken, peerToken: !!peerToken });
+    this._connectStart = Date.now();
+    this._phaseLog("relay", "connecting", { gameId: gameId.slice(0, 8) });
     if (this._state !== State.IDLE) {
       this.disconnect();
     }
@@ -207,7 +225,9 @@ var GvPlayer = class {
     this._createPeerConnection();
     const offer = await this._pc.createOffer();
     await this._pc.setLocalDescription(offer);
+    const gatherStart = Date.now();
     await this._waitForIceGatheringComplete();
+    this._phaseLog("gather", "done", { ms: Date.now() - gatherStart });
     const cmdBody = {
       server_id: serverId,
       type: "sdp_offer",
@@ -235,15 +255,14 @@ var GvPlayer = class {
     if (!workerToken) {
       throw new Error("sdp_offer response missing worker_token");
     }
+    const pollStart = Date.now();
     let answerSdp = await this._pollForAnswer(serverId, pollToken || workerToken);
-    console.log("[gv] SDP answer received, setting remote description");
+    this._phaseLog("relay", "answer", { ms: Date.now() - pollStart, chars: answerSdp.length });
     answerSdp = answerSdp.split("\n").filter((line) => !line.trimStart().startsWith("a=extmap:")).join("\n");
-    const removed = (answerSdp.match(/a=extmap:/g) || []).length;
-    console.log("[gv] SDP extmap normalised, extmaps remaining:", removed);
     await this._pc.setRemoteDescription(
       new RTCSessionDescription({ type: "answer", sdp: answerSdp })
     );
-    console.log("[gv] remote description set, waiting for ICE...");
+    this._phaseLog("remote", "set", { ms: Date.now() - this._connectStart });
     this._iceTimer = setTimeout(() => {
       if (this._state !== State.CONNECTED) {
         this._setState(State.ERROR, "ICE connection timed out");
@@ -311,7 +330,7 @@ var GvPlayer = class {
     };
     this._pc.onconnectionstatechange = () => {
       const s = this._pc.connectionState;
-      console.log("[gv] connectionState \u2192", s);
+      this._phaseLog("conn", s, { ms: Date.now() - (this._connectStart || Date.now()) });
       if (s === "connected") {
         this._setState(State.CONNECTED);
         this._clearIceTimer();
@@ -339,14 +358,12 @@ var GvPlayer = class {
       }
     };
     this._pc.ontrack = (event) => {
-      console.log("[gv] ontrack fired", { kind: event.track?.kind, id: event.track?.id, readyState: event.track?.readyState });
+      this._phaseLog("media", event.track?.kind || "track", { ms: Date.now() - (this._connectStart || Date.now()) });
       if (!this._mediaStream) {
         this._mediaStream = new MediaStream();
         this._video.srcObject = this._mediaStream;
-        console.log("[gv] MediaStream attached to video");
       }
       this._mediaStream.addTrack(event.track);
-      console.log("[gv] track added, stream tracks:", this._mediaStream.getTracks().length);
       this._playbackDeferred = true;
       this._video.play().then(() => {
         this._playbackDeferred = false;
@@ -661,25 +678,14 @@ var GvPlayer = class {
     }
     this._bitMap = BIT_MAP;
     this._defaultBitMap = DEFAULT_BIT_MAP;
-    try {
-      const nintendo = localStorage.getItem("gv-nintendo-layout");
-      if (nintendo === "1") {
-        this._nintendoLayout = true;
-        this._applyNintendoLayout();
-      }
-    } catch (_) {
-    }
     this._inputState = 0;
     const sendMask = () => {
       if (!this._dc || this._dc.readyState !== "open") {
-        console.debug("[INPUT] sendMask skipped \u2014 dc readyState=%s", this._dc?.readyState ?? "null");
         return;
       }
       try {
         const s = this._inputState;
-        const buf = new Uint8Array([this._seat, s & 255, s >> 8]);
-        this._dc.send(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
-        console.debug("[INPUT] sent mask port=%d state=0x%s", this._seat, s.toString(16).padStart(4, "0"));
+        this._dc.send(new Uint8Array([this._seat, s & 255, s >> 8]).buffer);
       } catch (e) {
         console.warn("[INPUT] sendMask failed \u2014 DC may be closed:", e?.message || e);
         if (this._dc) this._dc.close();
@@ -695,14 +701,6 @@ var GvPlayer = class {
       } else {
         this._inputState &= ~(1 << bit);
       }
-      console.debug(
-        "[INPUT] key=%s type=%s bit=%d state=0x%s dc=%s",
-        e.key,
-        e.type,
-        bit,
-        this._inputState.toString(16).padStart(4, "0"),
-        this._dc?.readyState ?? "none"
-      );
       sendMask();
     };
     this._keyHandler = handler;
@@ -792,230 +790,39 @@ var GvPlayer = class {
     }
     return this._bitMap;
   }
-  // ── Nintendo layout toggle ────────────────────────────────────
-  /** Toggle Nintendo button layout: swap A↔B, X↔Y.
-   *  Persists to localStorage under "gv-nintendo-layout".
-   *  @returns {boolean} new state (true = Nintendo layout active). */
-  toggleNintendoLayout() {
-    this._nintendoLayout = !this._nintendoLayout;
-    this._applyNintendoLayout();
-    try {
-      localStorage.setItem("gv-nintendo-layout", this._nintendoLayout ? "1" : "0");
-    } catch (_) {
-    }
-    this._updateControlsHint();
-    return this._nintendoLayout;
-  }
-  /** Apply Nintendo layout to BIT_MAP (called by toggle + setup). */
-  _applyNintendoLayout() {
-    if (this._nintendoLayout) {
-      this._bitMap.z = 8;
-      this._bitMap.x = 0;
-      this._bitMap.c = 1;
-      this._bitMap.v = 9;
-    } else {
-      this._bitMap.z = 0;
-      this._bitMap.x = 8;
-      this._bitMap.c = 9;
-      this._bitMap.v = 1;
-    }
-  }
-  /** Update the #controls-hint text and #nintendo-toggle button state. */
-  _updateControlsHint() {
-    const hint = document.getElementById("controls-hint");
-    const btn = document.getElementById("nintendo-toggle");
-    if (hint) {
-      if (this._nintendoLayout) {
-        hint.textContent = "Q=Start · W=Select · Arrows=Move · Z=A · X=B";
-      } else {
-        hint.textContent = "Q=Start · W=Select · Arrows=Move · Z=B · X=A";
-      }
-    }
-    if (btn) {
-      btn.textContent = this._nintendoLayout ? "🎮 NIN" : "🎮 SNES";
-      btn.classList.toggle("active", this._nintendoLayout);
-    }
-  }
   // ── Cleanup ──────────────────────────────────────────────────
 };
 if (typeof window !== "undefined" && typeof document !== "undefined") {
   const params = new URLSearchParams(location.search);
   const workerParam = params.get("worker");
   if (workerParam) {
-    const video2 = (
+    const video = (
       /** @type {HTMLVideoElement} */
       document.getElementById("video")
     );
-    if (video2) {
-      const player = new GvPlayer(video2);
-      const statusEl2 = document.getElementById("status");
+    if (video) {
+      const player = new GvPlayer(video);
+      const statusEl = document.getElementById("status");
       player.onStateChange = (state, detail) => {
-        if (statusEl2) {
-          statusEl2.textContent = state + (detail ? `: ${detail}` : "");
-          if (state === State.ERROR) statusEl2.classList.add("error");
+        if (statusEl) {
+          statusEl.textContent = state + (detail ? `: ${detail}` : "");
+          if (state === State.ERROR) statusEl.classList.add("error");
         }
       };
       player.connect(workerParam).catch((err) => {
         console.error("[gv] auto-connect failed:", err?.message || err, err?.stack);
-        if (statusEl2) {
-          statusEl2.textContent = `error: ${err.message || err}`;
-          statusEl2.classList.add("error");
+        if (statusEl) {
+          statusEl.textContent = `error: ${err.message || err}`;
+          statusEl.classList.add("error");
         }
       });
       window.gvPlayer = player;
-
-      // Nintendo layout toggle button
-      const nintendoBtn = document.getElementById("nintendo-toggle");
-      if (nintendoBtn) {
-        nintendoBtn.addEventListener("click", () => {
-          player.toggleNintendoLayout();
-        });
-        if (player._nintendoLayout) {
-          nintendoBtn.textContent = "🎮 NIN";
-          nintendoBtn.classList.add("active");
-        }
-      }
     }
   }
 }
-
-// player-entry.js
-var MODE = location.pathname.startsWith("/player") ? "direct" : "relay";
-console.log("[gv] mode:", MODE);
-var video = document.getElementById("video");
-var statusEl = document.getElementById("status");
-var routeEl = document.getElementById("route-indicator");
-var connectingOverlay = document.getElementById("connecting-overlay");
-var connectingDetail = document.getElementById("connecting-detail");
-function setStatus(msg, cls) {
-  if (statusEl) {
-    statusEl.textContent = msg;
-    statusEl.className = cls || "";
-  }
-}
-function hideConnecting() {
-  if (connectingOverlay) {
-    connectingOverlay.classList.add("hidden");
-  }
-}
-var ICE = [
-  { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
-  { urls: "turn:lngnckr.tech:3478", username: "gv", credential: "43b908d07b1f25c97553d43d317ee5fb" }
-];
-async function directConnect() {
-  const q = new URLSearchParams(location.search);
-  const peerToken = q.get("peer_token") || "";
-  const role = q.get("role") || "player";
-  const seat = parseInt(q.get("seat") || "0");
-  const playerOptions = { seat, iceServers: ICE };
-  const player = new GvPlayer(video, playerOptions);
-  player._peerToken = peerToken;
-  player._seat = seat;
-  player._role = role;
-  player.onStateChange = (s, d) => {
-    if (s === State.CONNECTED) {
-      setStatus("connected", "ok");
-      hideConnecting();
-    } else if (s === State.ERROR) setStatus(d || "error", "err");
-    else setStatus(s);
-  };
-  player._onRoute = (route, detail) => {
-    console.log("[gv] route:", route, detail);
-    if (routeEl) {
-      const labels = { local: "LAN", direct: "Direct", relay: "Relay", failed: "Failed" };
-      routeEl.textContent = labels[route] || route;
-    }
-  };
-  // Nintendo layout toggle
-  (() => {
-    const btn = document.getElementById("nintendo-toggle");
-    if (btn) {
-      btn.addEventListener("click", () => player.toggleNintendoLayout());
-      if (player._nintendoLayout) { btn.textContent = "🎮 NIN"; btn.classList.add("active"); }
-    }
-  })();
-  setStatus("signaling\u2026");
-  try {
-    const pc = player._createPeerConnection();
-    const dc = player._dc;
-    const prevOnOpen = dc.onopen;
-    dc.onopen = () => {
-      if (prevOnOpen) prevOnOpen();
-      if (player._sendMask) player._sendMask();
-    };
-    player._setState(State.CONNECTING);
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    await player._waitForIceGatheringComplete();
-    setStatus("connecting\u2026");
-    const resp = await fetch("/sdp", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sdp: pc.localDescription.sdp, peer_token: peerToken, peer_role: role, peer_seat: seat })
-    });
-    if (!resp.ok) {
-      setStatus("SDP failed: " + resp.status, "err");
-      return;
-    }
-    const answer = await resp.json();
-    const clean = answer.sdp.split("\n").filter((l) => !l.trimStart().startsWith("a=extmap:")).join("\n");
-    await pc.setRemoteDescription({ type: "answer", sdp: clean });
-    console.log("[gv] WebRTC connected via direct SDP");
-  } catch (e) {
-    setStatus(e.message, "err");
-    console.error(e);
-  }
-}
-async function relayConnect() {
-  const q = new URLSearchParams(location.search);
-  const serverId = q.get("server_id") || "";
-  const gameId = location.pathname.split("/").pop();
-  const joinToken = q.get("join") || "";
-  const player = new GvPlayer(video, { iceServers: ICE });
-  player.onStateChange = (s, d) => {
-    if (s === State.CONNECTED) {
-      setStatus("connected", "ok");
-      hideConnecting();
-    } else if (s === State.ERROR) setStatus(d || "error", "err");
-    else setStatus(s);
-  };
-  player._onRoute = (route, detail) => {
-    if (routeEl) {
-      const labels = { local: "LAN", direct: "Direct", relay: "Relay", failed: "Failed" };
-      routeEl.textContent = labels[route] || route;
-    }
-  };
-  // Nintendo layout toggle
-  (() => {
-    const btn = document.getElementById("nintendo-toggle");
-    if (btn) {
-      btn.addEventListener("click", () => player.toggleNintendoLayout());
-      if (player._nintendoLayout) { btn.textContent = "🎮 NIN"; btn.classList.add("active"); }
-    }
-  })();
-  setStatus("connecting\u2026");
-  try {
-    if (joinToken) {
-      const joinResp = await fetch("/api/room/join", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ room_token: joinToken })
-      });
-      const joinData = await joinResp.json();
-      if (!joinResp.ok) throw new Error(joinData.error || "Join failed");
-      player._peerToken = joinData.peer_token;
-      player._seat = joinData.seat;
-      player._role = joinData.role;
-    }
-    setStatus("signaling\u2026");
-    await player.connectViaRelay(serverId, gameId, crypto.randomUUID(), null, joinToken, player._peerToken);
-  } catch (e) {
-    setStatus(e.message, "err");
-    console.error(e);
-  }
-}
-(async () => {
-  if (!video) return;
-  if (MODE === "direct") await directConnect();
-  else await relayConnect();
-})();
+export {
+  GvPlayer,
+  State,
+  classifyRoute,
+  inspectRoute
+};
