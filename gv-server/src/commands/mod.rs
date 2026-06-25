@@ -248,21 +248,32 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                                 Some(serde_json::json!({"worker_url": url})),
                                             ).await;
 
-                                            // Probe health before notifying gv-web
+                                            // Quick liveness probe — don't block worker insertion
+                                            // on a hung HTTP server. 5s timeout prevents the
+                                            // health check from stalling the entire poll loop.
                                             let health_url = format!("{url}/health");
-                                            match client
-                                                .http_client()
-                                                .get(&health_url)
-                                                .send()
-                                                .await
+                                            match tokio::time::timeout(
+                                                std::time::Duration::from_secs(5),
+                                                client.http_client().get(&health_url).send(),
+                                            )
+                                            .await
                                             {
-                                                Ok(resp) if resp.status().is_success() => {
+                                                Ok(Ok(resp)) if resp.status().is_success() => {
                                                     tracing::info!("[WORKER] health check passed for {url}");
                                                 }
-                                                other => {
+                                                Ok(Err(e)) => {
                                                     tracing::warn!(
-                                                        "[WORKER] health check failed for {url}: {:?}",
-                                                        other.err().map(|e| e.to_string())
+                                                        "[WORKER] health check failed for {url}: {e}"
+                                                    );
+                                                }
+                                                Err(_timeout) => {
+                                                    tracing::warn!(
+                                                        "[WORKER] health check timed out for {url}"
+                                                    );
+                                                }
+                                                _ => {
+                                                    tracing::warn!(
+                                                        "[WORKER] health check returned non-200 for {url}"
                                                     );
                                                 }
                                             }
