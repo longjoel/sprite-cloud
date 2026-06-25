@@ -1,11 +1,19 @@
+//! gv-worker binary library entry point.
+//!
+//! Shared-memory media engine — loads a libretro core, runs GStreamer
+//! pipelines, and writes encoded H.264/Opus frames to a shared-memory
+//! ring buffer. No networking, no HTTP server, no WebRTC.
+//!
+//! WebRTC and SDP are handled by gv-server in-process.
+
 pub mod config;
-pub mod encoder_probe;
-pub mod gst_video;
-pub mod gst_audio;
 pub mod core_bridge;
+pub mod encoder_probe;
+pub mod gst_audio;
+pub mod gst_video;
+pub mod main_body;
 pub mod saves;
 pub mod player_assets;
-pub mod main_body;
 
 use std::sync::Arc;
 
@@ -23,7 +31,7 @@ pub async fn run_worker(shm_name: &str) -> Result<(), Box<dyn std::error::Error>
     tracing_subscriber::fmt()
         .json()
         .with_target(false)
-        .with_current_span(false)
+        .with_timer(tracing_subscriber::fmt::time::UtcTime::rfc_3339())
         .try_init()
         .ok();
 
@@ -36,7 +44,30 @@ pub async fn run_worker(shm_name: &str) -> Result<(), Box<dyn std::error::Error>
     let cancel = CancellationToken::new();
     *state.cancel.lock().await = cancel.clone();
 
-    // Spawn the streaming loop (handles core loading + GStreamer + shm writes)
+    // ── Load the libretro core ──────────────────────────────────────────
+    // Reads GV_CORE_PATH and GV_CONTENT_PATH from env vars (set by gv-server).
+    // If core loading fails, the worker falls back to a test pattern in the
+    // streaming loop (core_loading / core_loaded flags remain false).
+    // Load the libretro core.  Must be done here (not in a spawned task) so
+    // the AppState fields are populated before the streaming loop starts.
+    let core_handle = core_bridge::spawn_core_thread();
+    if let Some(handle) = core_handle {
+        tracing::info!(
+            "[WORKER] core loaded: {}×{} @ {:.1}fps",
+            handle.width, handle.height, handle.fps
+        );
+        *state.core_width.lock().await = handle.width;
+        *state.core_height.lock().await = handle.height;
+        *state.core_fps.lock().await = handle.fps;
+        *state.core_frame_rx.lock().await = Some(handle.frame_rx);
+        *state.core_cmd_tx.lock().await = Some(handle.cmd_tx);
+        *state.core_response_rx.lock().await = Some(handle.response_rx);
+        state.core_loaded.store(true, std::sync::atomic::Ordering::Relaxed);
+    } else {
+        tracing::warn!("[WORKER] core failed to load — test pattern will be used");
+    }
+
+    // Spawn the streaming loop (handles core frame drain + GStreamer + shm writes)
     let stream_ctx = StreamCtx {
         cancel: cancel.clone(),
         app_state: Arc::clone(&state),
@@ -50,17 +81,16 @@ pub async fn run_worker(shm_name: &str) -> Result<(), Box<dyn std::error::Error>
     // Signal readiness to parent (gv-server polls for this)
     eprintln!("WORKER_READY");
 
-    // Run until cancelled or streaming exits
+    // Wait for stream to finish or cancel signal
     tokio::select! {
-        _ = tokio::signal::ctrl_c() => {
-            tracing::info!("[WORKER] SIGINT — shutting down");
+        _ = cancel.cancelled() => {
+            tracing::info!("[WORKER] cancel signal received");
         }
         _ = stream_handle => {
-            tracing::info!("[WORKER] streaming loop exited");
+            tracing::info!("[WORKER] stream loop exited");
         }
     }
 
-    cancel.cancel();
-    tracing::info!("[WORKER] done");
+    tracing::info!("[WORKER] shutting down");
     Ok(())
 }
