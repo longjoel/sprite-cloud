@@ -24,11 +24,27 @@ pub async fn fan_out_frames(
     audio_track: Arc<TrackLocalStaticSample>,
     cancel: CancellationToken,
 ) {
+    tracing::info!("[fan_out] started — polling shm ring");
+
+    let mut video_count: u64 = 0;
+    let mut audio_count: u64 = 0;
+    let mut empty_count: u64 = 0;
+    let mut stat_tick = tokio::time::interval(Duration::from_secs(5));
+
     loop {
         tokio::select! {
-            _ = cancel.cancelled() => break,
+            _ = cancel.cancelled() => {
+                tracing::info!("[fan_out] cancelled — video={video_count} audio={audio_count}");
+                break;
+            }
+            _ = stat_tick.tick() => {
+                let avail = shm.available();
+                tracing::info!("[fan_out] stats: video={video_count} audio={audio_count} empty_polls={empty_count} shm_avail={avail}");
+            }
             _ = tokio::time::sleep(Duration::from_millis(1)) => {
+                let mut got_any = false;
                 while let Some((frame_type, data, timestamp_us)) = shm.read_frame() {
+                    got_any = true;
                     let sample = Sample {
                         data: data.into(),
                         duration: Duration::from_millis(17), // ~60fps
@@ -37,9 +53,14 @@ pub async fn fan_out_frames(
                     };
                     if frame_type == gv_shm::frame_type::VIDEO {
                         let _ = video_track.write_sample(&sample).await;
+                        video_count += 1;
                     } else if frame_type == gv_shm::frame_type::AUDIO {
                         let _ = audio_track.write_sample(&sample).await;
+                        audio_count += 1;
                     }
+                }
+                if !got_any {
+                    empty_count += 1;
                 }
             }
         }
