@@ -114,6 +114,13 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
     // Pre-warm ICE
     webrtc::prewarm_ice_agent().await;
 
+    // Pre-build PC pool
+    let pool_size: usize = std::env::var("GV_PC_POOL_SIZE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2);
+    let pc_pool = webrtc::PcPool::new(pool_size).await;
+
     tracing::info!("gv-server running — polling for commands...");
 
     const POLL_ERROR_BACKOFF_MS: u64 = 5_000;
@@ -148,7 +155,7 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                 if cmd.command_type == "start_game" {
                                     handle_start_game(
                                         cmd, &client, &mut sessions,
-                                        &rom_roots,
+                                        &rom_roots, &pc_pool,
                                     ).await;
                                 } else if cmd.command_type == "stop_game" {
                                     handle_stop_game(cmd, &client, &mut sessions).await;
@@ -206,6 +213,7 @@ async fn handle_start_game(
     client: &gv_web::GvWebClient,
     sessions: &mut HashMap<String, Arc<GameSession>>,
     rom_roots: &[String],
+    pool: &webrtc::PcPool,
 ) {
     let game_id = cmd.payload.get("game_id").and_then(|v| v.as_str()).unwrap_or("unknown");
     let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
@@ -253,11 +261,11 @@ async fn handle_start_game(
         None => None,
     };
 
-    // Build WebRTC stack
-    let stack = match webrtc::build_session_pc().await {
+    // Acquire WebRTC stack from pool
+    let stack = match pool.acquire().await {
         Ok(s) => s,
         Err(e) => {
-            tracing::error!("[SESSION] build_session_pc failed: {e}");
+            tracing::error!("[SESSION] pool.acquire failed: {e}");
             let _ = client.command_result(
                 &cmd.id, &cmd.lease_token,
                 &serde_json::json!({"error": "webrtc_build_failed", "message": e}),
