@@ -40,14 +40,18 @@ interface GvPlay {
     callbacks: PlayerCallbacks,
     joinToken?: string,
   ) => any;
-  saveState: (player: any, slot: number) => boolean;
-  loadState: (player: any, slot: number) => boolean;
+  saveState: (player: any) => boolean;
+  loadState: (player: any) => boolean;
+  loadStateAt: (player: any, index: number) => boolean;
+  listSaves: (player: any) => boolean;
 }
 
 interface PlayerCallbacks {
   onStateChange: (state: string, detail?: string) => void;
   onStats: (stats: object) => void;
-  onSaveResult: (slot: number, ok: boolean) => void;
+  onSaveResult: (index: number, ok: boolean, error?: string) => void;
+  onLoadResult: (ok: boolean, error?: string) => void;
+  onListSaves: (entries: any[], nextIndex: number) => void;
   onError: (msg: string) => void;
   onProgress: (msg: string) => void;
   onReconnecting: (attempt: number) => void;
@@ -239,11 +243,17 @@ export default function GamePlayer({
           }
         },
         onStats(_stats: object) {},
-        onSaveResult(slot: number, ok: boolean) {
+        onSaveResult(index: number, ok: boolean, error?: string) {
           showToast(
-            ok ? `Saved to slot ${slot}` : `Save failed — slot ${slot}`,
+            ok ? `Saved (#${index})` : `Save failed — ${error || "unknown"}`,
             ok,
           );
+        },
+        onLoadResult(ok: boolean, error?: string) {
+          showToast(ok ? "Loaded" : `Load failed — ${error || "unknown"}`, ok);
+        },
+        onListSaves(entries: any[], _nextIndex: number) {
+          setSaveEntries(entries || []);
         },
         onError(msg: string) {
           setError(msg);
@@ -336,26 +346,45 @@ export default function GamePlayer({
     }
   };
 
-  // ── Slots ─────────────────────────────────────────────────────────
+  // ── Save stack ────────────────────────────────────────────────────
 
-  const handleSave = (slot: number) => {
+  const [saveEntries, setSaveEntries] = useState<any[]>([]);
+
+  const handleSave = () => {
     const gvPlay = window.gvPlay;
     if (!gvPlay || !playerRef.current) {
       showToast("Not connected", false);
       return;
     }
-    const ok = gvPlay.saveState(playerRef.current, slot);
+    const ok = gvPlay.saveState(playerRef.current);
     if (!ok) showToast("Not connected", false);
   };
 
-  const handleLoad = (slot: number) => {
+  const handleLoad = () => {
     const gvPlay = window.gvPlay;
     if (!gvPlay || !playerRef.current) {
       showToast("Not connected", false);
       return;
     }
-    const ok = gvPlay.loadState(playerRef.current, slot);
+    const ok = gvPlay.loadState(playerRef.current);
     if (!ok) showToast("Not connected", false);
+  };
+
+  const handleLoadAt = (index: number) => {
+    const gvPlay = window.gvPlay;
+    if (!gvPlay || !playerRef.current) {
+      showToast("Not connected", false);
+      return;
+    }
+    const ok = gvPlay.loadStateAt(playerRef.current, index);
+    if (!ok) showToast("Not connected", false);
+    showToast(`Loading #${index}…`, true);
+  };
+
+  const handleListSaves = () => {
+    const gvPlay = window.gvPlay;
+    if (!gvPlay || !playerRef.current) return;
+    gvPlay.listSaves(playerRef.current);
   };
 
   // ── Share ─────────────────────────────────────────────────────────
@@ -444,8 +473,8 @@ export default function GamePlayer({
           <Button variant="secondary" size="sm" onClick={() => setShowRoomControls(!showRoomControls)}>
             ⚙ Room
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => setShowSlots(!showSlots)}>
-            💾 Slots
+          <Button variant="secondary" size="sm" onClick={() => { setShowSlots(!showSlots); handleListSaves(); }}>
+            💾 Saves
           </Button>
           <Button variant="secondary" size="sm" onClick={toggleFullscreen}>
             {isFullscreen ? "↙" : "⛶"}
@@ -525,30 +554,51 @@ export default function GamePlayer({
         </div>
       )}
 
-      {/* Slots */}
+      {/* Save stack */}
       {showSlots && (
         <>
           <div className={styles.backdrop} onClick={() => setShowSlots(false)} />
           <div className={styles.slotPanel}>
             <div className={styles.slotHeader}>
-              <span>Save</span>
+              <span>Save Stack</span>
               <Button variant="ghost" onClick={() => setShowSlots(false)}>✕</Button>
             </div>
-            <div className={styles.slotRow}>
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
-                <button key={`save-${n}`} className={styles.slotBtn} onClick={() => handleSave(n)}>
-                  {n}
-                </button>
-              ))}
+            <div className={styles.roomGrid}>
+              <Button variant="secondary" size="sm" onClick={() => { handleSave(); handleListSaves(); }}>
+                💾 Save Now
+              </Button>
+              <Button variant="secondary" size="sm" onClick={handleLoad}>
+                📂 Load Latest
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => { handleListSaves(); }}>
+                ↻ Refresh
+              </Button>
             </div>
-            <div className={styles.slotHeader} style={{ marginTop: 12 }}>Load</div>
-            <div className={styles.slotRow}>
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
-                <button key={`load-${n}`} className={styles.slotBtn} onClick={() => handleLoad(n)}>
-                  {n}
-                </button>
-              ))}
-            </div>
+            {saveEntries.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <div className={styles.slotHeader}>
+                  <span>{saveEntries.length} save{saveEntries.length !== 1 ? "s" : ""}</span>
+                </div>
+                <div className={styles.roomGrid} style={{ marginTop: 8 }}>
+                  {saveEntries.map((e: any) => (
+                    <Button
+                      key={`load-${e.index}`}
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleLoadAt(e.index)}
+                      title={`${e.size} bytes · ${e.timestamp}`}
+                    >
+                      📂 #{e.index}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {saveEntries.length === 0 && (
+              <p style={{ color: "var(--color-muted)", fontSize: "var(--font-size-sm)", marginTop: 12 }}>
+                No saves yet — press 💾 Save Now
+              </p>
+            )}
           </div>
         </>
       )}
