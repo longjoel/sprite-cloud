@@ -234,7 +234,13 @@ pub async fn build_app() -> Result<Router, Box<dyn std::error::Error>> {
         .route("/healthz", get(handlers::handle_healthz))
         .route("/shutdown", post(handlers::handle_shutdown))
         .layer(cors)
-        .with_state(state);
+        .with_state(state.clone());
+
+    // Pre-warm ICE agent in background — primes STUN/TURN so the first
+    // peer connection gathers candidates in < 1s instead of 25-30s.
+    tokio::spawn(async move {
+        webrtc::prewarm_ice_agent().await;
+    });
 
     Ok(app)
 }
