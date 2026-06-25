@@ -1,7 +1,11 @@
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
+use gv_shm::ShmRing;
 use rand::{Rng, distributions::Alphanumeric};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
+use tokio_util::sync::CancellationToken;
 
 use crate::platform;
 
@@ -29,6 +33,11 @@ pub struct SpawnedWorker {
     pub(super) game_id: String,
     pub(super) host_token: Option<String>,
     pub(super) child: Option<Child>,
+    /// Shared-memory ring buffer for frame IPC from the worker.
+    pub shm: Arc<ShmRing>,
+    /// Cancel token signalled when the worker is killed — fan-out tasks
+    /// and health monitors use child tokens to shut down cleanly.
+    pub cancel_token: CancellationToken,
 }
 
 impl SpawnedWorker {
@@ -88,6 +97,9 @@ impl SpawnedWorker {
     /// 2. Wait up to 5s for the process to exit
     /// 3. If still running, SIGKILL
     pub async fn kill(mut self) {
+        // Signal fan-out tasks to stop
+        self.cancel_token.cancel();
+
         // Try graceful shutdown first
         if let Some(ref child) = self.child {
             let pid = child.id().unwrap_or(0);
@@ -182,6 +194,9 @@ pub(crate) fn resolve_worker_bin(override_: Option<&str>) -> String {
 /// The port number is parsed directly from the structured line —
 /// no fragile string scraping.
 ///
+/// Also creates a shared-memory ring buffer for frame IPC between
+/// gv-server and gv-worker.  Frames flow from worker → shm → WebRTC tracks.
+///
 /// `worker_bin_override` — path to the worker binary.  Resolution order:
 /// 1. This argument (from `config.toml` `gv_web.worker_bin`)
 /// 2. `GV_WORKER_BIN` env var
@@ -200,9 +215,23 @@ pub(crate) async fn spawn_worker(
 ) -> Result<SpawnedWorker> {
     let bin = resolve_worker_bin(worker_bin_override);
 
+    // Create shared-memory ring buffer for frame IPC before spawning the worker.
+    // The worker opens this segment (via --shm <name>) and writes encoded frames;
+    // gv-server reads them and fans out to WebRTC tracks in-process.
+    let shm_name = format!("gv-worker-{game_id}");
+    let shm = Arc::new(
+        gv_shm::ShmRing::create(&shm_name, gv_shm::DEFAULT_FRAME_COUNT)
+            .with_context(|| format!("create shm ring '{shm_name}'"))?,
+    );
+    tracing::info!("[WORKER] created shm ring '{shm_name}'");
+
+    let cancel_token = CancellationToken::new();
+
     // Pass port 0 — gv-worker binds a random available port and prints it
     let mut cmd = Command::new(&bin);
     cmd.arg("0");
+    cmd.arg("--shm");
+    cmd.arg(&shm_name);
     cmd.stderr(std::process::Stdio::piped());
 
     // Bind to all interfaces so the health check and WebRTC media work
@@ -372,5 +401,7 @@ pub(crate) async fn spawn_worker(
         game_id: game_id.to_string(),
         host_token: host_token.map(|s| s.to_string()),
         child: Some(child),
+        shm,
+        cancel_token,
     })
 }

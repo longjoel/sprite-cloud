@@ -6,5 +6,6 @@ pub mod local;
 pub mod platform;
 pub mod retry;
 pub mod scan;
+pub mod streaming;
 pub mod webrtc;
 pub mod worker;

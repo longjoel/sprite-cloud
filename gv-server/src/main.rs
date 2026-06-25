@@ -6,6 +6,8 @@ mod local;
 mod platform;
 mod retry;
 mod scan;
+mod streaming;
+mod webrtc;
 mod worker;
 
 use anyhow::Result;
