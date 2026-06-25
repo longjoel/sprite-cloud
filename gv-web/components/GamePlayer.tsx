@@ -573,10 +573,10 @@ export default function GamePlayer({
               <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "reset" }); showToast("Reset", true); }}>
                 ↺ Reset
               </Button>
-              <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "save_state", slot: 1 }); showToast("Saved slot 1", true); }}>
+              <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "save_state" }); showToast("Saved", true); }}>
                 💾 Quick Save
               </Button>
-              <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "load_state", slot: 1 }); showToast("Loaded slot 1", true); }}>
+              <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "load_state" }); showToast("Loaded", true); }}>
                 📂 Quick Load
               </Button>
               <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "disk_eject" }); showToast("Disk ejected", true); }}>

@@ -134,16 +134,16 @@ pub struct CoreFrame {
 pub enum CoreCommand {
     SetJoypad { port: u32, button: libretro_runner::JoypadButton, pressed: bool },
     SetInput { port: u32, state: u16 },
-    SaveState { slot: u8 },
-    LoadState { slot: u8 },
+    SaveState,
+    LoadState { data: Vec<u8> },
     Reset,
     DiskEject,
     DiskInsert { index: u32 },
 }
 
 pub enum CoreResponse {
-    SaveStateResult { slot: u8, data: Vec<u8>, ok: bool },
-    LoadStateResult { slot: u8, ok: bool },
+    SaveStateResult { data: Vec<u8>, ok: bool },
+    LoadStateResult { ok: bool },
 }
 
 // ── gv-core binary location ────────────────────────────────────────
@@ -320,8 +320,7 @@ pub async fn load_core_into_session(
                     CoreCommand::SetJoypad { .. } => {
                         // Joypad commands are unused; ignore
                     }
-                    CoreCommand::SaveState { slot } => {
-                        inp.slot.store(slot, Ordering::Relaxed);
+                    CoreCommand::SaveState => {
                         inp.cmd_type.store(CMD_SAVE_STATE, Ordering::Relaxed);
                         inp.cmd_ready.store(true, Ordering::Release);
                         // Wait for response
@@ -329,15 +328,25 @@ pub async fn load_core_into_session(
                         let ok = out.response_ok.load(Ordering::Relaxed);
                         let len = out.response_data_len.load(Ordering::Relaxed) as usize;
                         let data = out.response_data[..len.min(gv_core::MAX_RESPONSE)].to_vec();
-                        let _ = resp_tx.send(CoreResponse::SaveStateResult { slot, data, ok });
+                        let _ = resp_tx.send(CoreResponse::SaveStateResult { data, ok });
                     }
-                    CoreCommand::LoadState { slot } => {
-                        inp.slot.store(slot, Ordering::Relaxed);
+                    CoreCommand::LoadState { data } => {
+                        // Write state data to output shm so gv-core can read it
+                        let len = data.len().min(gv_core::MAX_RESPONSE);
+                        unsafe {
+                            std::ptr::copy_nonoverlapping(
+                                data.as_ptr(),
+                                out.response_data.as_ptr() as *mut u8,
+                                len,
+                            );
+                        }
+                        out.response_data_len.store(len as u32, Ordering::Relaxed);
+                        // Signal gv-core to load
                         inp.cmd_type.store(CMD_LOAD_STATE, Ordering::Relaxed);
                         inp.cmd_ready.store(true, Ordering::Release);
                         std::thread::sleep(Duration::from_millis(100));
                         let ok = out.response_ok.load(Ordering::Relaxed);
-                        let _ = resp_tx.send(CoreResponse::LoadStateResult { slot, ok });
+                        let _ = resp_tx.send(CoreResponse::LoadStateResult { ok });
                     }
                     CoreCommand::Reset => {
                         inp.cmd_type.store(CMD_RESET, Ordering::Relaxed);

@@ -1,4 +1,4 @@
-// public/player/index.js
+// index.js
 function classifyRoute(pair, connectionState) {
   if (connectionState === "failed") {
     return { route: "failed", detail: "ICE failed" };
@@ -95,11 +95,11 @@ var State = Object.freeze({
 var GvPlayer = class {
   /** @param {HTMLVideoElement} video — must be a <video> element
    *  @param {{ iceServers?: Array<{urls: string|string[], username?: string, credential?: string}>, seat?: number, iceTimeout?: number, disconnectedGrace?: number, gamepadMapping?: import('./index.js').GamepadMapping }} [options] */
-  constructor(video, options) {
-    if (!video || !video.tagName || video.tagName !== "VIDEO") {
+  constructor(video2, options) {
+    if (!video2 || !video2.tagName || video2.tagName !== "VIDEO") {
       throw new TypeError("GvPlayer requires a <video> element");
     }
-    this._video = video;
+    this._video = video2;
     this._video.autoplay = true;
     this._video.playsinline = true;
     this._iceServers = options && options.iceServers || [];
@@ -222,12 +222,7 @@ var GvPlayer = class {
     this._setState(State.CONNECTING);
     this._hostToken = hostToken || null;
     this._peerToken = peerToken || null;
-
-    // ── SDP exchange ──────────────────────────────────────────────
-
     if (sdpAnswer) {
-      // Pre-baked answer from start_game (host path) — PC already has
-      // local description set by the caller. Just set remote.
       this._phaseLog("relay", "prebaked-answer", { chars: sdpAnswer.length });
       const normalized = sdpAnswer.split("\n").filter((line) => !line.trimStart().startsWith("a=extmap:")).join("\n");
       await this._pc.setRemoteDescription(
@@ -235,7 +230,6 @@ var GvPlayer = class {
       );
       this._phaseLog("remote", "set", { ms: Date.now() - this._connectStart });
     } else {
-      // Original flow: create offer, POST sdp_offer, poll for answer
       this._createPeerConnection();
       const offer = await this._pc.createOffer();
       await this._pc.setLocalDescription(offer);
@@ -261,7 +255,7 @@ var GvPlayer = class {
       if (!cmdResp.ok) {
         const errData = await cmdResp.json().catch(() => ({}));
         throw new Error(
-          `sdp_offer POST failed: HTTP ${cmdResp.status} \\u2014 ${errData.error || "unknown"}`
+          `sdp_offer POST failed: HTTP ${cmdResp.status} \u2014 ${errData.error || "unknown"}`
         );
       }
       const cmdData = await cmdResp.json();
@@ -558,7 +552,8 @@ var GvPlayer = class {
   }
   /** @param {object} msg — parsed JSON from DataChannel */
   _handleDataChannelMessage(msg) {
-    switch (msg.type) {
+    const type = msg.cmd || msg.type;
+    switch (type) {
       case "stats":
         this._stats = msg;
         if (this.onStats) {
@@ -584,7 +579,23 @@ var GvPlayer = class {
       case "save_result":
         if (this.onSaveResult) {
           try {
-            this.onSaveResult({ slot: msg.slot, ok: msg.ok });
+            this.onSaveResult({ index: msg.index, ok: msg.ok, error: msg.error });
+          } catch {
+          }
+        }
+        break;
+      case "load_result":
+        if (this.onLoadResult) {
+          try {
+            this.onLoadResult({ ok: msg.ok, error: msg.error });
+          } catch {
+          }
+        }
+        break;
+      case "list_saves_result":
+        if (this.onListSaves) {
+          try {
+            this.onListSaves({ entries: msg.entries || [], nextIndex: msg.next_index });
           } catch {
           }
         }
@@ -811,33 +822,152 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
   const params = new URLSearchParams(location.search);
   const workerParam = params.get("worker");
   if (workerParam) {
-    const video = (
+    const video2 = (
       /** @type {HTMLVideoElement} */
       document.getElementById("video")
     );
-    if (video) {
-      const player = new GvPlayer(video);
-      const statusEl = document.getElementById("status");
+    if (video2) {
+      const player = new GvPlayer(video2);
+      const statusEl2 = document.getElementById("status");
       player.onStateChange = (state, detail) => {
-        if (statusEl) {
-          statusEl.textContent = state + (detail ? `: ${detail}` : "");
-          if (state === State.ERROR) statusEl.classList.add("error");
+        if (statusEl2) {
+          statusEl2.textContent = state + (detail ? `: ${detail}` : "");
+          if (state === State.ERROR) statusEl2.classList.add("error");
         }
       };
       player.connect(workerParam).catch((err) => {
         console.error("[gv] auto-connect failed:", err?.message || err, err?.stack);
-        if (statusEl) {
-          statusEl.textContent = `error: ${err.message || err}`;
-          statusEl.classList.add("error");
+        if (statusEl2) {
+          statusEl2.textContent = `error: ${err.message || err}`;
+          statusEl2.classList.add("error");
         }
       });
       window.gvPlayer = player;
     }
   }
 }
-export {
-  GvPlayer,
-  State,
-  classifyRoute,
-  inspectRoute
-};
+
+// player-entry.js
+var MODE = location.pathname.startsWith("/player") ? "direct" : "relay";
+console.log("[gv] mode:", MODE);
+var video = document.getElementById("video");
+var statusEl = document.getElementById("status");
+var routeEl = document.getElementById("route-indicator");
+var connectingOverlay = document.getElementById("connecting-overlay");
+var connectingDetail = document.getElementById("connecting-detail");
+function setStatus(msg, cls) {
+  if (statusEl) {
+    statusEl.textContent = msg;
+    statusEl.className = cls || "";
+  }
+}
+function hideConnecting() {
+  if (connectingOverlay) {
+    connectingOverlay.classList.add("hidden");
+  }
+}
+var ICE = [
+  { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
+  { urls: "turn:lngnckr.tech:3478", username: "gv", credential: "43b908d07b1f25c97553d43d317ee5fb" }
+];
+async function directConnect() {
+  const q = new URLSearchParams(location.search);
+  const peerToken = q.get("peer_token") || "";
+  const role = q.get("role") || "player";
+  const seat = parseInt(q.get("seat") || "0");
+  const playerOptions = { seat, iceServers: ICE };
+  const player = new GvPlayer(video, playerOptions);
+  player._peerToken = peerToken;
+  player._seat = seat;
+  player._role = role;
+  player.onStateChange = (s, d) => {
+    if (s === State.CONNECTED) {
+      setStatus("connected", "ok");
+      hideConnecting();
+    } else if (s === State.ERROR) setStatus(d || "error", "err");
+    else setStatus(s);
+  };
+  player._onRoute = (route, detail) => {
+    console.log("[gv] route:", route, detail);
+    if (routeEl) {
+      const labels = { local: "LAN", direct: "Direct", relay: "Relay", failed: "Failed" };
+      routeEl.textContent = labels[route] || route;
+    }
+  };
+  setStatus("signaling\u2026");
+  try {
+    const pc = player._createPeerConnection();
+    const dc = player._dc;
+    const prevOnOpen = dc.onopen;
+    dc.onopen = () => {
+      if (prevOnOpen) prevOnOpen();
+      if (player._sendMask) player._sendMask();
+    };
+    player._setState(State.CONNECTING);
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await player._waitForIceGatheringComplete();
+    setStatus("connecting\u2026");
+    const resp = await fetch("/sdp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sdp: pc.localDescription.sdp, peer_token: peerToken, peer_role: role, peer_seat: seat })
+    });
+    if (!resp.ok) {
+      setStatus("SDP failed: " + resp.status, "err");
+      return;
+    }
+    const answer = await resp.json();
+    const clean = answer.sdp.split("\n").filter((l) => !l.trimStart().startsWith("a=extmap:")).join("\n");
+    await pc.setRemoteDescription({ type: "answer", sdp: clean });
+    console.log("[gv] WebRTC connected via direct SDP");
+  } catch (e) {
+    setStatus(e.message, "err");
+    console.error(e);
+  }
+}
+async function relayConnect() {
+  const q = new URLSearchParams(location.search);
+  const serverId = q.get("server_id") || "";
+  const gameId = location.pathname.split("/").pop();
+  const joinToken = q.get("join") || "";
+  const player = new GvPlayer(video, { iceServers: ICE });
+  player.onStateChange = (s, d) => {
+    if (s === State.CONNECTED) {
+      setStatus("connected", "ok");
+      hideConnecting();
+    } else if (s === State.ERROR) setStatus(d || "error", "err");
+    else setStatus(s);
+  };
+  player._onRoute = (route, detail) => {
+    if (routeEl) {
+      const labels = { local: "LAN", direct: "Direct", relay: "Relay", failed: "Failed" };
+      routeEl.textContent = labels[route] || route;
+    }
+  };
+  setStatus("connecting\u2026");
+  try {
+    if (joinToken) {
+      const joinResp = await fetch("/api/room/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ room_token: joinToken })
+      });
+      const joinData = await joinResp.json();
+      if (!joinResp.ok) throw new Error(joinData.error || "Join failed");
+      player._peerToken = joinData.peer_token;
+      player._seat = joinData.seat;
+      player._role = joinData.role;
+    }
+    setStatus("signaling\u2026");
+    await player.connectViaRelay(serverId, gameId, crypto.randomUUID(), null, joinToken, player._peerToken);
+  } catch (e) {
+    setStatus(e.message, "err");
+    console.error(e);
+  }
+}
+(async () => {
+  if (!video) return;
+  if (MODE === "direct") await directConnect();
+  else await relayConnect();
+})();
