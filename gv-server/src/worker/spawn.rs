@@ -393,9 +393,9 @@ pub(crate) async fn spawn_worker(
         }
     });
 
-    // Worker has no HTTP server in shm architecture — URL is a placeholder
-    // kept for backward compatibility with downstream notify calls.
-    let url = String::new();
+    // Worker has no HTTP server in shm architecture — provide a placeholder
+    // URL for gv-web readiness signaling (player polls until worker_url is set).
+    let url = format!("shm://gv-worker/{game_id}");
     Ok(SpawnedWorker {
         url,
         control_token,
