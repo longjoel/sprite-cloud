@@ -27,18 +27,32 @@ pub async fn run_worker(port: u16) -> Result<(), Box<dyn std::error::Error>> {
 
     let app = main_body::build_app().await?;
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    let listener = TcpListener::bind(addr).await?;
+    let listener = std::net::TcpListener::bind(addr)?;
+    listener.set_nonblocking(true)?;
     let bound_port = listener.local_addr()?.port();
+    let tcp_listener = TcpListener::from_std(listener)?;
 
     tracing::info!("gv-worker listening on port {bound_port}");
     eprintln!("WORKER_READY port={bound_port}");
     tracing::info!("open http://localhost:{bound_port}");
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async move {
-            tokio::signal::ctrl_c().await.ok();
-        })
-        .await?;
+    // ── Run the HTTP server on a DEDICATED 2-thread tokio runtime ──
+    // GStreamer appsrc (16 threads) + WebRTC ICE saturation can starve
+    // the main runtime of worker threads, leaving axum unable to process
+    // incoming HTTP requests.  A dedicated runtime guarantees the SDP
+    // endpoint always has capacity.
+    let http_rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .thread_name("http-server")
+        .enable_all()
+        .build()?;
 
-    Ok(())
+    http_rt.block_on(async move {
+        axum::serve(tcp_listener, app)
+            .with_graceful_shutdown(async move {
+                tokio::signal::ctrl_c().await.ok();
+            })
+            .await
+            .map_err(|e| format!("http server: {e}").into())
+    })
 }
