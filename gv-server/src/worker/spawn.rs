@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 use crate::platform;
 
 use super::core::ensure_core;
-use super::pid::{PORT_READ_TIMEOUT_SECS, pid_path, worker_host, write_pid_file};
+use super::pid::{PORT_READ_TIMEOUT_SECS, pid_path, write_pid_file};
 
 fn generate_worker_control_token() -> String {
     rand::thread_rng()
@@ -334,8 +334,8 @@ pub(crate) async fn spawn_worker(
     // Collect lines for diagnostics on timeout
     let lines_seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
 
-    // Wait for the "WORKER_READY port=<N>" line
-    let port: u16 = {
+    // Wait for the "WORKER_READY" line (no port — worker has no HTTP server)
+    let ready: bool = {
         let lines_seen = lines_seen.clone();
         tokio::time::timeout(
             std::time::Duration::from_secs(PORT_READ_TIMEOUT_SECS),
@@ -345,18 +345,17 @@ pub(crate) async fn spawn_worker(
                         Ok(Some(line)) => {
                             tracing::info!("[WORKER] {line}");
                             lines_seen.lock().expect("lines_seen mutex poisoned").push(line.clone());
-                            if let Some(rest) = line.strip_prefix("WORKER_READY port=") {
-                                return rest.trim().parse().ok();
+                            if line.contains("WORKER_READY") {
+                                return true;
                             }
                         }
-                        _ => return None,
+                        _ => return false,
                     }
                 }
             },
         )
         .await
         .ok()
-        .flatten()
         .unwrap_or_else(|| {
             // Timeout — dump what we saw for debugging
             let seen: Vec<_> = lines_seen.lock().expect("lines_seen mutex poisoned").drain(..).collect();
@@ -372,18 +371,18 @@ pub(crate) async fn spawn_worker(
                     tracing::error!("[WORKER]   {line}");
                 }
             }
-            0
+            false
         })
     };
 
-    if port == 0 {
+    if !ready {
         // Kill the child process before bailing — dropping a Child
         // does NOT kill the process, it only closes stdio handles.
         // Without this, a failed spawn leaks a zombie gv-worker.
         let _ = child.kill().await;
         let _ = child.wait().await;
         anyhow::bail!(
-            "gv-worker didn't print WORKER_READY port=<N> within {PORT_READ_TIMEOUT_SECS}s"
+            "gv-worker didn't print WORKER_READY within {PORT_READ_TIMEOUT_SECS}s"
         );
     }
 
@@ -394,7 +393,9 @@ pub(crate) async fn spawn_worker(
         }
     });
 
-    let url = format!("http://{}:{}", worker_host(), port);
+    // Worker has no HTTP server in shm architecture — URL is a placeholder
+    // kept for backward compatibility with downstream notify calls.
+    let url = String::new();
     Ok(SpawnedWorker {
         url,
         control_token,
