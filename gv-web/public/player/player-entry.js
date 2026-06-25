@@ -35,6 +35,7 @@ async function directConnect() {
 
   const playerOptions = { seat, iceServers: ICE };
   const player = new GvPlayer(video, playerOptions);
+  _playerRef = player;
   player._peerToken = peerToken;
   player._seat = seat;
   player._role = role;
@@ -97,6 +98,7 @@ async function relayConnect() {
   const joinToken = q.get('join') || '';
 
   const player = new GvPlayer(video, { iceServers: ICE });
+  _playerRef = player;
   player.onStateChange = (s, d) => {
     if (s === State.CONNECTED) {
       setStatus('connected', 'ok');
@@ -136,9 +138,4 @@ async function relayConnect() {
   }
 }
 
-// ── Boot ──────────────────────────────────────────────────────────
-(async () => {
-  if (!video) return;
-  if (MODE === 'direct') await directConnect();
-  else await relayConnect();
-})();
+// ── Save/load buttons ──────────────────────────────────────────────\nlet _playerRef = null;\nfunction getPlayer() { return _playerRef; }\n\nfunction sendDC(cmd) {\n  const p = getPlayer();\n  if (!p || !p._dc || p._dc.readyState !== \"open\") return false;\n  p._dc.send(JSON.stringify(cmd));\n  return true;\n}\n\nconst saveBtn = document.getElementById('save-btn');\nconst loadBtn = document.getElementById('load-btn');\nif (saveBtn) saveBtn.onclick = () => sendDC({ cmd: \"save_state\" });\nif (loadBtn) loadBtn.onclick = () => sendDC({ cmd: \"load_state\" });\n\n// ── Boot ──────────────────────────────────────────────────────────\n(async () => {\n  if (!video) return;\n  if (MODE === 'direct') await directConnect();\n  else await relayConnect();\n})();

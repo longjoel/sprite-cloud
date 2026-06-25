@@ -432,6 +432,12 @@ export default function GamePlayer({
           </Badge>
         )}
         <div className={styles.bottomRight}>
+          <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "save_state" }); showToast("Saved", true); }}>
+            💾 Save
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "load_state" }); showToast("Loaded", true); }}>
+            📂 Load
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => setShowRemap(!showRemap)}>
             🎮 Keys
           </Button>

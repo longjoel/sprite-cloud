@@ -138,6 +138,31 @@
     background: rgba(160,255,64,0.08);
   }
 
+  #save-btn, #load-btn {
+    font-size: var(--font-size-xs);
+    background: transparent;
+    border: 1px solid var(--color-bamboo);
+    color: var(--color-muted);
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: 0.15s;
+    white-space: nowrap;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  #save-btn:hover, #load-btn:hover {
+    color: var(--color-cream);
+    border-color: var(--color-brass);
+  }
+
+  #save-btn:active, #load-btn:active {
+    color: var(--color-lime);
+    border-color: var(--color-lime);
+    background: rgba(160,255,64,0.08);
+  }
+
   #status {
     font-size: var(--font-size-xs);
     color: var(--color-muted);
@@ -199,6 +224,8 @@
 
 <div id="bottom-bar">
   <span id="controls-hint">Q=Start · W=Select · Arrows=Move · Z=B · X=A</span>
+  <button id="save-btn" title="Save state">💾</button>
+  <button id="load-btn" title="Load state">📂</button>
   <button id="nintendo-toggle" title="Nintendo layout — swap A↔B, X↔Y">🎮 SNES</button>
   <span id="status">connecting…</span>
 </div>
