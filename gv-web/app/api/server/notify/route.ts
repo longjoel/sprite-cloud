@@ -7,6 +7,7 @@ import { STATUS_COMPLETED, STATUS_LEASED, SESSION_READY, SESSION_CONNECTED, SESS
 import { applyRateLimit } from "@/lib/rate-limit";
 import { randomBytes } from "crypto";
 import { recordLaunchEvent } from "@/lib/launch-events";
+import { resolveSdpAnswer } from "@/lib/pending-sdp";
 
 const NOTIFY_RATE_LIMIT = 60; // requests per minute per IP (server-to-server)
 
@@ -281,6 +282,9 @@ export async function POST(request: NextRequest) {
       event: "sdp_answer_returned",
       detail: {},
     });
+
+    // Wake any long-polling start_game request waiting on this answer
+    resolveSdpAnswer(body.command_id, body.sdp_answer);
   } else {
     await recordLaunchEvent({
       commandId: body.command_id,

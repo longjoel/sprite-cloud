@@ -86,7 +86,7 @@ function guestClientId() {
 
 const RECONNECT_DELAY_MS = 3_000;
 const MAX_RECONNECT_ATTEMPTS = 5;
-const GAME_START_POLL_MS = 500;
+const GAME_START_POLL_MS = 100;
 const GAME_START_TIMEOUT_MS = 60_000;
 
 // ── startGame helper ────────────────────────────────────────────────
@@ -104,13 +104,16 @@ const GAME_START_TIMEOUT_MS = 60_000;
  * @param {object} [callbacks] — { onProgress(msg) }
  * @returns {Promise<{workerToken: string, workerUrl: string}>}
  */
-async function startGame(serverId, gameId, corePath, hostToken, callbacks) {
+async function startGame(serverId, gameId, corePath, hostToken, callbacks, sdpOffer) {
   callbacks?.onProgress?.("Starting game…");
 
   const payload = {
     game_id: gameId,
     host_token: hostToken,
   };
+  if (sdpOffer) {
+    payload.sdp = sdpOffer;
+  }
 
   const cmdResp = await fetch("/api/server/command", {
     method: "POST",
@@ -124,21 +127,33 @@ async function startGame(serverId, gameId, corePath, hostToken, callbacks) {
 
   if (!cmdResp.ok) {
     const errData = await cmdResp.json().catch(() => ({}));
+    // Long-poll timeout returns sdp-related error in body
+    if (errData.error) throw new Error(errData.error);
     throw new Error(
       `start_game failed: HTTP ${cmdResp.status} — ${errData.error || "unknown"}`,
     );
   }
 
   const cmdData = await cmdResp.json();
+
+  // If we included an SDP offer, gv-web long-polls and returns the answer
+  // directly in the POST response — no separate polling needed.
+  if (cmdData.sdp_answer) {
+    return { workerToken: cmdData.worker_token, workerUrl: null, sdpAnswer: cmdData.sdp_answer };
+  }
+  if (cmdData.error) {
+    throw new Error(cmdData.error);
+  }
+
   const workerToken = cmdData.worker_token;
   if (!workerToken) {
     throw new Error("start_game response missing worker_token");
   }
 
   callbacks?.onProgress?.("Starting game…");
-  callbacks?.onProgress?.("Worker starting…");
+  callbacks?.onProgress?.(sdpOffer ? "SDP exchanging…" : "Worker starting…");
 
-  // Poll for worker URL
+  // Poll for result (worker_url and optionally sdp_answer)
   const start = Date.now();
   while (Date.now() - start < GAME_START_TIMEOUT_MS) {
     const resp = await fetch(
@@ -149,7 +164,7 @@ async function startGame(serverId, gameId, corePath, hostToken, callbacks) {
     }
     const data = await resp.json();
     if (data.worker_url) {
-      return { workerToken, workerUrl: data.worker_url };
+      return { workerToken, workerUrl: data.worker_url, sdpAnswer: data.sdp_answer || null };
     }
     await new Promise((r) => setTimeout(r, GAME_START_POLL_MS));
   }
@@ -194,6 +209,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
   let reconnectTimer = null;
   let startGameToken = null;
   let gameStarted = false;
+  let sdpAnswer = null;
 
   // Generate a host token once — reused across reconnects so the
   // worker recognizes the same host after a disconnect.
@@ -266,14 +282,23 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
           }
         }
       } else if (!gameStarted) {
-        // Auto-start the game once. Reconnects should renegotiate against
-        // the existing worker/session instead of recursively spawning a
-        // fresh worker and resetting the reconnect counter.
-        console.log("[gv] calling startGame...");
-        const sgResult = await startGame(serverId, gameId, corePath, hostToken, callbacks);
+        // Host: generate SDP offer first, then include it in start_game.
+        // The server does SDP exchange inline, and the poll returns the answer.
+        console.log("[gv] generating SDP offer for start_game...");
+        player._createPeerConnection();
+        const offer = await player._pc.createOffer();
+        await player._pc.setLocalDescription(offer);
+        const gatherStart = Date.now();
+        await player._waitForIceGatheringComplete();
+        console.log("[gv] ICE gather done in", Date.now() - gatherStart, "ms");
+        const sdpOffer = player._pc.localDescription?.sdp || offer.sdp;
+
+        console.log("[gv] calling startGame with SDP offer...");
+        const sgResult = await startGame(serverId, gameId, corePath, hostToken, callbacks, sdpOffer);
         startGameToken = sgResult.workerToken;
+        sdpAnswer = sgResult.sdpAnswer;
         gameStarted = true;
-        console.log("[gv] startGame complete");
+        console.log("[gv] startGame complete, sdpAnswer:", !!sdpAnswer);
       } else {
         console.log("[gv] reconnect — reusing existing game session");
       }
@@ -292,7 +317,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
       console.log("[gv] player type:", typeof player, "constructor:", player?.constructor?.name);
       console.log("[gv] proto methods:", Object.getOwnPropertyNames(Object.getPrototypeOf(player)));
       console.log("[gv] has connectViaRelay:", typeof player.connectViaRelay);
-      await player.connectViaRelay(serverId, gameId, hostToken, startGameToken, player._roomToken || joinToken || undefined, player._peerToken);
+      await player.connectViaRelay(serverId, gameId, hostToken, startGameToken, player._roomToken || joinToken || undefined, player._peerToken, sdpAnswer);
       console.log("[gv] connectViaRelay returned");
     } catch (err) {
       console.error("[gv] connectViaRelay error:", err?.message || err, err?.stack);

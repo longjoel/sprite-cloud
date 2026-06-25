@@ -123,7 +123,7 @@ const PING_INTERVAL_MS = 2000;
 const MAX_PENDING_PINGS = 20;
 
 /** Poll interval when waiting for relay SDP answer (ms). */
-const RELAY_POLL_MS = 500;
+const RELAY_POLL_MS = 100;
 /** Max time to wait for relay SDP answer (ms). */
 const RELAY_TIMEOUT_MS = 30_000;
 
@@ -375,7 +375,7 @@ export class GvPlayer {
    * @param {string} [roomToken]— room token for guest joins
    * @param {string} [peerToken]— peer auth token
    */
-  async connectViaRelay(serverId, gameId, hostToken, pollToken, roomToken, peerToken) {
+  async connectViaRelay(serverId, gameId, hostToken, pollToken, roomToken, peerToken, sdpAnswer) {
     this._connectStart = Date.now();
     this._phaseLog("relay", "connecting", { gameId: gameId.slice(0,8) });
 
@@ -389,69 +389,84 @@ export class GvPlayer {
     this._hostToken = hostToken || null;
     this._peerToken = peerToken || null;
 
-    this._createPeerConnection();
+    // ── SDP exchange ──────────────────────────────────────────────
 
-    // ── SDP exchange (via relay) ──────────────────────────────────
-
-    const offer = await this._pc.createOffer();
-    await this._pc.setLocalDescription(offer);
-    const gatherStart = Date.now();
-    await this._waitForIceGatheringComplete();
-    this._phaseLog("gather", "done", { ms: Date.now() - gatherStart });
-
-    // POST sdp_offer command — returns a worker_token we use to poll
-    const cmdBody = {
-      server_id: serverId,
-      type: "sdp_offer",
-      payload: { game_id: gameId, sdp: this._pc.localDescription?.sdp || offer.sdp, host_token: hostToken },
-    };
-    if (roomToken) {
-      cmdBody.payload.room_token = roomToken;
-    }
-    if (peerToken) {
-      cmdBody.payload.peer_token = peerToken;
-    }
-    const cmdResp = await fetch("/api/server/command", {
-      method: "POST",
-      headers: gvCsrfHeaders(),
-      body: JSON.stringify(cmdBody),
-    });
-
-    if (!cmdResp.ok) {
-      const errData = await cmdResp.json().catch(() => ({}));
-      throw new Error(
-        `sdp_offer POST failed: HTTP ${cmdResp.status} — ${errData.error || "unknown"}`,
+    if (sdpAnswer) {
+      // Pre-baked answer from start_game (host path) — PC already has
+      // local description set by the caller. Just set remote.
+      this._phaseLog("relay", "prebaked-answer", { chars: sdpAnswer.length });
+      const normalized = sdpAnswer
+        .split("\n")
+        .filter((line) => !line.trimStart().startsWith("a=extmap:"))
+        .join("\n");
+      await this._pc.setRemoteDescription(
+        new RTCSessionDescription({ type: "answer", sdp: normalized }),
       );
+      this._phaseLog("remote", "set", { ms: Date.now() - this._connectStart });
+    } else {
+      // Original flow: create offer, POST sdp_offer, poll for answer
+      this._createPeerConnection();
+
+      const offer = await this._pc.createOffer();
+      await this._pc.setLocalDescription(offer);
+      const gatherStart = Date.now();
+      await this._waitForIceGatheringComplete();
+      this._phaseLog("gather", "done", { ms: Date.now() - gatherStart });
+
+      // POST sdp_offer command — returns a worker_token we use to poll
+      const cmdBody = {
+        server_id: serverId,
+        type: "sdp_offer",
+        payload: { game_id: gameId, sdp: this._pc.localDescription?.sdp || offer.sdp, host_token: hostToken },
+      };
+      if (roomToken) {
+        cmdBody.payload.room_token = roomToken;
+      }
+      if (peerToken) {
+        cmdBody.payload.peer_token = peerToken;
+      }
+      const cmdResp = await fetch("/api/server/command", {
+        method: "POST",
+        headers: gvCsrfHeaders(),
+        body: JSON.stringify(cmdBody),
+      });
+
+      if (!cmdResp.ok) {
+        const errData = await cmdResp.json().catch(() => ({}));
+        throw new Error(
+          `sdp_offer POST failed: HTTP ${cmdResp.status} — ${errData.error || "unknown"}`,
+        );
+      }
+
+      const cmdData = await cmdResp.json();
+      const workerToken = cmdData.worker_token;
+      if (!workerToken) {
+        throw new Error("sdp_offer response missing worker_token");
+      }
+
+      // Poll for the worker's SDP answer.
+      // Use the start_game pollToken if available (ties to the session),
+      // otherwise fall back to the sdp_offer's workerToken.
+      const pollStart = Date.now();
+      let answerSdp = await this._pollForAnswer(serverId, pollToken || workerToken);
+      this._phaseLog("relay", "answer", { ms: Date.now() - pollStart, chars: answerSdp.length });
+
+      // Normalize extmap: webrtc-rs 0.17.1 sometimes assigns different extmap IDs
+      // than the offer (e.g. video-timing at id=7 when offer used id=7 for TWCC).
+      // Chrome rejects setRemoteDescription on extmap ID collisions.
+      // Strip all a=extmap lines from the answer — Chrome falls back to the offer's
+      // extmap mappings, and the worker doesn't need RTP header extensions for
+      // basic video streaming.
+      answerSdp = answerSdp
+        .split("\n")
+        .filter((line) => !line.trimStart().startsWith("a=extmap:"))
+        .join("\n");
+
+      await this._pc.setRemoteDescription(
+        new RTCSessionDescription({ type: "answer", sdp: answerSdp }),
+      );
+      this._phaseLog("remote", "set", { ms: Date.now() - this._connectStart });
     }
-
-    const cmdData = await cmdResp.json();
-    const workerToken = cmdData.worker_token;
-    if (!workerToken) {
-      throw new Error("sdp_offer response missing worker_token");
-    }
-
-    // Poll for the worker's SDP answer.
-    // Use the start_game pollToken if available (ties to the session),
-    // otherwise fall back to the sdp_offer's workerToken.
-    const pollStart = Date.now();
-    let answerSdp = await this._pollForAnswer(serverId, pollToken || workerToken);
-    this._phaseLog("relay", "answer", { ms: Date.now() - pollStart, chars: answerSdp.length });
-
-    // Normalize extmap: webrtc-rs 0.17.1 sometimes assigns different extmap IDs
-    // than the offer (e.g. video-timing at id=7 when offer used id=7 for TWCC).
-    // Chrome rejects setRemoteDescription on extmap ID collisions.
-    // Strip all a=extmap lines from the answer — Chrome falls back to the offer's
-    // extmap mappings, and the worker doesn't need RTP header extensions for
-    // basic video streaming.
-    answerSdp = answerSdp
-      .split("\n")
-      .filter((line) => !line.trimStart().startsWith("a=extmap:"))
-      .join("\n");
-
-    await this._pc.setRemoteDescription(
-      new RTCSessionDescription({ type: "answer", sdp: answerSdp }),
-    );
-    this._phaseLog("remote", "set", { ms: Date.now() - this._connectStart });
 
     // ── ICE timeout watchdog ───────────────────────────────────
 

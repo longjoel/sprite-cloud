@@ -66,7 +66,7 @@ var ICE_CONNECT_TIMEOUT_MS = 6e4;
 var DISCONNECTED_GRACE_MS = 5e3;
 var PING_INTERVAL_MS = 2e3;
 var MAX_PENDING_PINGS = 20;
-var RELAY_POLL_MS = 500;
+var RELAY_POLL_MS = 100;
 var RELAY_TIMEOUT_MS = 3e4;
 var GAMEPAD_MASK = 1 << 0 | 1 << 2 | 1 << 3 | 1 << 4 | 1 << 5 | 1 << 6 | 1 << 7 | 1 << 8;
 var DEFAULT_GAMEPAD_MAPPING = Object.freeze({
@@ -213,7 +213,7 @@ var GvPlayer = class {
    * @param {string} [roomToken]— room token for guest joins
    * @param {string} [peerToken]— peer auth token
    */
-  async connectViaRelay(serverId, gameId, hostToken, pollToken, roomToken, peerToken) {
+  async connectViaRelay(serverId, gameId, hostToken, pollToken, roomToken, peerToken, sdpAnswer) {
     this._connectStart = Date.now();
     this._phaseLog("relay", "connecting", { gameId: gameId.slice(0, 8) });
     if (this._state !== State.IDLE) {
@@ -222,47 +222,62 @@ var GvPlayer = class {
     this._setState(State.CONNECTING);
     this._hostToken = hostToken || null;
     this._peerToken = peerToken || null;
-    this._createPeerConnection();
-    const offer = await this._pc.createOffer();
-    await this._pc.setLocalDescription(offer);
-    const gatherStart = Date.now();
-    await this._waitForIceGatheringComplete();
-    this._phaseLog("gather", "done", { ms: Date.now() - gatherStart });
-    const cmdBody = {
-      server_id: serverId,
-      type: "sdp_offer",
-      payload: { game_id: gameId, sdp: this._pc.localDescription?.sdp || offer.sdp, host_token: hostToken }
-    };
-    if (roomToken) {
-      cmdBody.payload.room_token = roomToken;
-    }
-    if (peerToken) {
-      cmdBody.payload.peer_token = peerToken;
-    }
-    const cmdResp = await fetch("/api/server/command", {
-      method: "POST",
-      headers: gvCsrfHeaders(),
-      body: JSON.stringify(cmdBody)
-    });
-    if (!cmdResp.ok) {
-      const errData = await cmdResp.json().catch(() => ({}));
-      throw new Error(
-        `sdp_offer POST failed: HTTP ${cmdResp.status} \u2014 ${errData.error || "unknown"}`
+
+    // ── SDP exchange ──────────────────────────────────────────────
+
+    if (sdpAnswer) {
+      // Pre-baked answer from start_game (host path) — PC already has
+      // local description set by the caller. Just set remote.
+      this._phaseLog("relay", "prebaked-answer", { chars: sdpAnswer.length });
+      const normalized = sdpAnswer.split("\n").filter((line) => !line.trimStart().startsWith("a=extmap:")).join("\n");
+      await this._pc.setRemoteDescription(
+        new RTCSessionDescription({ type: "answer", sdp: normalized })
       );
+      this._phaseLog("remote", "set", { ms: Date.now() - this._connectStart });
+    } else {
+      // Original flow: create offer, POST sdp_offer, poll for answer
+      this._createPeerConnection();
+      const offer = await this._pc.createOffer();
+      await this._pc.setLocalDescription(offer);
+      const gatherStart = Date.now();
+      await this._waitForIceGatheringComplete();
+      this._phaseLog("gather", "done", { ms: Date.now() - gatherStart });
+      const cmdBody = {
+        server_id: serverId,
+        type: "sdp_offer",
+        payload: { game_id: gameId, sdp: this._pc.localDescription?.sdp || offer.sdp, host_token: hostToken }
+      };
+      if (roomToken) {
+        cmdBody.payload.room_token = roomToken;
+      }
+      if (peerToken) {
+        cmdBody.payload.peer_token = peerToken;
+      }
+      const cmdResp = await fetch("/api/server/command", {
+        method: "POST",
+        headers: gvCsrfHeaders(),
+        body: JSON.stringify(cmdBody)
+      });
+      if (!cmdResp.ok) {
+        const errData = await cmdResp.json().catch(() => ({}));
+        throw new Error(
+          `sdp_offer POST failed: HTTP ${cmdResp.status} \\u2014 ${errData.error || "unknown"}`
+        );
+      }
+      const cmdData = await cmdResp.json();
+      const workerToken = cmdData.worker_token;
+      if (!workerToken) {
+        throw new Error("sdp_offer response missing worker_token");
+      }
+      const pollStart = Date.now();
+      let answerSdp = await this._pollForAnswer(serverId, pollToken || workerToken);
+      this._phaseLog("relay", "answer", { ms: Date.now() - pollStart, chars: answerSdp.length });
+      answerSdp = answerSdp.split("\n").filter((line) => !line.trimStart().startsWith("a=extmap:")).join("\n");
+      await this._pc.setRemoteDescription(
+        new RTCSessionDescription({ type: "answer", sdp: answerSdp })
+      );
+      this._phaseLog("remote", "set", { ms: Date.now() - this._connectStart });
     }
-    const cmdData = await cmdResp.json();
-    const workerToken = cmdData.worker_token;
-    if (!workerToken) {
-      throw new Error("sdp_offer response missing worker_token");
-    }
-    const pollStart = Date.now();
-    let answerSdp = await this._pollForAnswer(serverId, pollToken || workerToken);
-    this._phaseLog("relay", "answer", { ms: Date.now() - pollStart, chars: answerSdp.length });
-    answerSdp = answerSdp.split("\n").filter((line) => !line.trimStart().startsWith("a=extmap:")).join("\n");
-    await this._pc.setRemoteDescription(
-      new RTCSessionDescription({ type: "answer", sdp: answerSdp })
-    );
-    this._phaseLog("remote", "set", { ms: Date.now() - this._connectStart });
     this._iceTimer = setTimeout(() => {
       if (this._state !== State.CONNECTED) {
         this._setState(State.ERROR, "ICE connection timed out");
