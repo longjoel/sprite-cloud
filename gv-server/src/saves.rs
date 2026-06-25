@@ -164,7 +164,7 @@ pub fn save_stack_list(rom_hash: &str) -> io::Result<SaveStack> {
 ///
 /// Returns an error if any I/O step fails. Callers should log and continue
 /// — losing a save is bad, but crashing the server is worse.
-fn write_atomic(path: &Path, data: &[u8]) -> io::Result<()> {
+pub(crate) fn write_atomic(path: &Path, data: &[u8]) -> io::Result<()> {
     let tmp_path = path.with_extension("tmp");
 
     // Ensure parent directories exist

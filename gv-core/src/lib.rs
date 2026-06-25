@@ -89,6 +89,8 @@ pub const CMD_SET_INPUT: u8 = 1;
 pub const CMD_SAVE_STATE: u8 = 2;
 pub const CMD_LOAD_STATE: u8 = 3;
 pub const CMD_RESET: u8 = 4;
+pub const CMD_SAVE_SRAM: u8 = 5;
+pub const CMD_LOAD_SRAM: u8 = 6;
 
 // ── Mmap helpers ─────────────────────────────────────────────────────
 
