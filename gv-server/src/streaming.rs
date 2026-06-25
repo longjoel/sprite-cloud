@@ -115,7 +115,8 @@ async fn drain_to_track_video(session: &GameSession, timestamp_us: u32) {
                     packet_timestamp: timestamp_us,
                     ..Default::default()
                 };
-                let _ = session.video_track.write_sample(&sample).await;
+                let track = session.video_track.lock().unwrap().clone();
+                let _ = track.write_sample(&sample).await;
             }
             None => break,
         }
@@ -142,7 +143,8 @@ async fn drain_to_track_audio(session: &GameSession, mut audio_ts: u32) -> u32 {
                         packet_timestamp: audio_ts,
                         ..Default::default()
                     };
-                    let _ = session.audio_track.write_sample(&sample).await;
+                    let track = session.audio_track.lock().unwrap().clone();
+                    let _ = track.write_sample(&sample).await;
                     audio_ts = audio_ts.wrapping_add(960);
                 }
                 None => break,

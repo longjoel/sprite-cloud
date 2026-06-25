@@ -161,7 +161,7 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                     handle_stop_game(cmd, &client, &mut sessions).await;
                                 } else if cmd.command_type == "sdp_offer" {
                                     handle_sdp_offer(
-                                        cmd, &client, &sessions,
+                                        cmd, &client, &sessions, &pc_pool,
                                     ).await;
                                 } else if cmd.command_type == "browse_files" {
                                     handle_browse_files(cmd, &client, &rom_roots).await;
@@ -279,9 +279,9 @@ async fn handle_start_game(
         game_id: game_id.to_string(),
         session_id: session_id.to_string(),
         cancel: tokio_util::sync::CancellationToken::new(),
-        pc: stack.pc,
-        video_track: stack.video_track,
-        audio_track: stack.audio_track,
+        pc: std::sync::Mutex::new(stack.pc),
+        video_track: std::sync::Mutex::new(stack.video_track),
+        audio_track: std::sync::Mutex::new(stack.audio_track),
         core_loaded: std::sync::atomic::AtomicBool::new(false),
         core_loading: std::sync::atomic::AtomicBool::new(false),
         core_ready_notify: tokio::sync::Notify::new(),
@@ -306,66 +306,8 @@ async fn handle_start_game(
 
     let worker_url = format!("http://gv-worker.local/{game_id}");
 
-    // Wire browser DC (non-negotiated, created by browser as "diagnostics")
-    // → core commands. Uses on_data_channel on the PC.
-    {
-        let session = Arc::clone(&session);
-        let pc = Arc::clone(&session.pc);
-        pc.on_data_channel(Box::new(move |dc: Arc<_>| {
-            let session = Arc::clone(&session);
-            Box::pin(async move {
-                tracing::info!("[DC] browser data channel received: {}", dc.label());
-
-                // Clone Arc before setting up handlers (each handler needs its own ref)
-                let dc_for_open = Arc::clone(&dc);
-                let dc_for_msg = Arc::clone(&dc);
-                let session_for_msg = Arc::clone(&session);
-
-                dc_for_open.on_open(Box::new(move || {
-                    tracing::info!("[DC] browser channel opened");
-                    Box::pin(async {})
-                }));
-
-                let dc_for_move = Arc::clone(&dc_for_msg);
-                dc_for_msg.on_message(Box::new(move |msg| {
-                    let session = Arc::clone(&session_for_msg);
-                    let dc = Arc::clone(&dc_for_move);
-                    Box::pin(async move {
-                        let data = if msg.is_string {
-                            String::from_utf8_lossy(&msg.data).into_owned().into_bytes()
-                        } else {
-                            msg.data.to_vec()
-                        };
-                        tracing::info!("[DC] browser msg: {} bytes is_string={}", data.len(), msg.is_string);
-
-                        // Try JSON (auth handshake first)
-                        if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&data) {
-                            if val.get("cmd").and_then(|v| v.as_str()) == Some("auth") {
-                                tracing::info!("[DC] auth received, sending ack");
-                                // Send auth response so browser can start sending input
-                                let ack = serde_json::json!({"cmd": "auth_ok"});
-                                let _ = dc.send_text(ack.to_string()).await;
-                                return;
-                            }
-                        }
-
-                        // Binary input: [seat, state_lo, state_hi]
-                        if data.len() >= 3 {
-                            let seat = data[0] as u32;
-                            let state = data[1] as u16 | ((data[2] as u16) << 8);
-                            let guard = session.core_cmd_tx.lock().await;
-                            if let Some(ref tx) = *guard {
-                                let _ = tx.try_send(core_bridge::CoreCommand::SetInput {
-                                    port: seat,
-                                    state,
-                                });
-                            }
-                        }
-                    })
-                }));
-            })
-        }));
-    }
+    // Wire browser DC → core commands
+    wire_dc_handler(&session);
 
     // Spawn streaming loop
     let stream_session = Arc::clone(&session);
@@ -379,10 +321,55 @@ async fn handle_start_game(
 
     // Notify gv-web — include SDP answer if offer was provided
     if let Some(offer) = sdp_offer {
-        let pc = Arc::clone(&session.pc);
-        match webrtc::exchange_sdp_on_pc(&pc, offer).await {
+        // SDP exchange with retry: first attempt on session PC,
+        // then acquire fresh PC from pool and retry if needed
+        let max_attempts = 2u32;
+        let mut sdp_result = Err("no attempts".to_string());
+
+        for attempt in 1..=max_attempts {
+            let pc = session.pc.lock().unwrap().clone();
+            let start = std::time::Instant::now();
+            sdp_result = webrtc::exchange_sdp_on_pc(&pc, offer).await;
+            let elapsed = start.elapsed();
+
+            match &sdp_result {
+                Ok(answer) => {
+                    tracing::info!(
+                        "[SESSION] SDP exchange OK on attempt {attempt} in {:?} ({} chars)",
+                        elapsed, answer.len()
+                    );
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "[SESSION] SDP exchange attempt {attempt}/{max_attempts} failed in {:?}: {e}",
+                        elapsed
+                    );
+                    if attempt < max_attempts {
+                        // Acquire fresh PC from pool and swap into session
+                        match pool.acquire().await {
+                            Ok(fresh) => {
+                                tracing::info!("[SESSION] SDP retry: swapped in fresh PC from pool");
+                                // Swap tracks too — the streaming loop references them
+                                *session.video_track.lock().unwrap() = fresh.video_track;
+                                *session.audio_track.lock().unwrap() = fresh.audio_track;
+                                *session.pc.lock().unwrap() = fresh.pc;
+                                // Re-wire DC handler on the new PC
+                                wire_dc_handler(&session);
+                                tokio::time::sleep(Duration::from_millis(500)).await;
+                            }
+                            Err(e2) => {
+                                tracing::error!("[SESSION] SDP retry: pool.acquire failed: {e2}");
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        match sdp_result {
             Ok(answer_sdp) => {
-                tracing::info!("[SESSION] SDP exchange done ({} chars)", answer_sdp.len());
                 if let Err(e) = client
                     .notify_sdp(&cmd.id, &cmd.lease_token, &worker_url, game_id, &answer_sdp, Some(session_id))
                     .await
@@ -393,7 +380,7 @@ async fn handle_start_game(
                 }
             }
             Err(e) => {
-                tracing::error!("[SESSION] SDP exchange failed: {e}");
+                tracing::error!("[SESSION] SDP exchange failed after {max_attempts} attempts: {e}");
                 let _ = client.command_result(
                     &cmd.id, &cmd.lease_token,
                     &serde_json::json!({"error": "sdp_handshake_failed", "message": e}),
@@ -432,6 +419,7 @@ async fn handle_sdp_offer(
     cmd: &gv_web::Command,
     client: &gv_web::GvWebClient,
     sessions: &HashMap<String, Arc<GameSession>>,
+    pool: &webrtc::PcPool,
 ) {
     let sdp = cmd.payload.get("sdp").and_then(|v| v.as_str()).unwrap_or("");
     let game_id = cmd.payload.get("game_id").and_then(|v| v.as_str()).unwrap_or("unknown");
@@ -448,8 +436,50 @@ async fn handle_sdp_offer(
     let max_wait = Duration::from_secs(30);
     loop {
         if let Some(session) = sessions.get(game_id) {
-            let pc = Arc::clone(&session.pc);
-            match webrtc::exchange_sdp_on_pc(&pc, sdp).await {
+            // SDP exchange with retry
+            let max_attempts = 2u32;
+            let mut sdp_result = Err("no attempts".to_string());
+
+            for attempt in 1..=max_attempts {
+                let pc = session.pc.lock().unwrap().clone();
+                let start = std::time::Instant::now();
+                sdp_result = webrtc::exchange_sdp_on_pc(&pc, sdp).await;
+                let elapsed = start.elapsed();
+
+                match &sdp_result {
+                    Ok(answer) => {
+                        tracing::info!(
+                            "[SDP] exchange OK on attempt {attempt} in {:?} ({} chars)",
+                            elapsed, answer.len()
+                        );
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "[SDP] exchange attempt {attempt}/{max_attempts} failed in {:?}: {e}",
+                            elapsed
+                        );
+                        if attempt < max_attempts {
+                            match pool.acquire().await {
+                                Ok(fresh) => {
+                                    tracing::info!("[SDP] retry: swapped in fresh PC from pool");
+                                    *session.video_track.lock().unwrap() = fresh.video_track;
+                                    *session.audio_track.lock().unwrap() = fresh.audio_track;
+                                    *session.pc.lock().unwrap() = fresh.pc;
+                                    wire_dc_handler(session);
+                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                }
+                                Err(e2) => {
+                                    tracing::error!("[SDP] retry: pool.acquire failed: {e2}");
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            match sdp_result {
                 Ok(answer_sdp) => {
                     let worker_url = format!("http://gv-worker.local/{game_id}");
                     let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
@@ -463,7 +493,7 @@ async fn handle_sdp_offer(
                     }
                 }
                 Err(e) => {
-                    tracing::error!("[SDP] exchange failed: {e}");
+                    tracing::error!("[SDP] exchange failed after {max_attempts} attempts: {e}");
                     let _ = client.command_result(
                         &cmd.id, &cmd.lease_token,
                         &serde_json::json!({"error": "sdp_handshake_failed", "message": e}),
@@ -585,6 +615,71 @@ async fn handle_scan_paths(
         &cmd.id, &cmd.lease_token,
         &serde_json::json!({"matches": matches}),
     ).await;
+}
+
+// ── DC handler wiring ────────────────────────────────────────────────
+
+/// Wire the browser's non-negotiated DataChannel to core input commands.
+///
+/// The browser creates a DataChannel labeled "diagnostics" (non-negotiated).
+/// We receive it via `pc.on_data_channel()` and parse:
+/// - JSON: `{"cmd":"auth"}` → responds with `{"cmd":"auth_ok"}`
+/// - Binary 3 bytes: `[seat, state_lo, state_hi]` → `SetInput { port, state }`
+///
+/// Called once on session creation and again on SDP retry when the PC is swapped.
+fn wire_dc_handler(session: &Arc<GameSession>) {
+    let session = Arc::clone(session);
+    let pc = session.pc.lock().unwrap().clone();
+    pc.on_data_channel(Box::new(move |dc: Arc<_>| {
+        let session = Arc::clone(&session);
+        Box::pin(async move {
+            tracing::info!("[DC] browser data channel received: {}", dc.label());
+
+            let dc_for_open = Arc::clone(&dc);
+            let dc_for_msg = Arc::clone(&dc);
+            let session_for_msg = Arc::clone(&session);
+
+            dc_for_open.on_open(Box::new(move || {
+                tracing::info!("[DC] browser channel opened");
+                Box::pin(async {})
+            }));
+
+            let dc_for_move = Arc::clone(&dc_for_msg);
+            dc_for_msg.on_message(Box::new(move |msg| {
+                let session = Arc::clone(&session_for_msg);
+                let dc = Arc::clone(&dc_for_move);
+                Box::pin(async move {
+                    let data = if msg.is_string {
+                        String::from_utf8_lossy(&msg.data).into_owned().into_bytes()
+                    } else {
+                        msg.data.to_vec()
+                    };
+                    tracing::info!("[DC] browser msg: {} bytes is_string={}", data.len(), msg.is_string);
+
+                    if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&data) {
+                        if val.get("cmd").and_then(|v| v.as_str()) == Some("auth") {
+                            tracing::info!("[DC] auth received, sending ack");
+                            let ack = serde_json::json!({"cmd": "auth_ok"});
+                            let _ = dc.send_text(ack.to_string()).await;
+                            return;
+                        }
+                    }
+
+                    if data.len() >= 3 {
+                        let seat = data[0] as u32;
+                        let state = data[1] as u16 | ((data[2] as u16) << 8);
+                        let guard = session.core_cmd_tx.lock().await;
+                        if let Some(ref tx) = *guard {
+                            let _ = tx.try_send(core_bridge::CoreCommand::SetInput {
+                                port: seat,
+                                state,
+                            });
+                        }
+                    }
+                })
+            }));
+        })
+    }));
 }
 
 // ── Shutdown signal ─────────────────────────────────────────────────
