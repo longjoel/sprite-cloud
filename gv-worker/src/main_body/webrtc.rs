@@ -409,8 +409,14 @@ pub(crate) async fn prewarm_ice_agent() {
         }
     }
 
-    let _ = pc.close().await;
-    tracing::info!("[PREWARM] done — subsequent PCs will gather instantly");
+    // Do NOT close the pre-warm PC — closing it releases TURN allocations.
+    // The first real peer would then have to re-allocate, defeating the purpose.
+    // The PC stays alive for the worker's lifetime; it gets cleaned up on exit.
+    std::mem::forget(pc);
+    tracing::info!(
+        "[PREWARM] done in {:?} — TURN allocations held for first peer",
+        start.elapsed()
+    );
 }
 
 /// Build a minimal PeerConnection for ICE pre-warming (no tracks).
