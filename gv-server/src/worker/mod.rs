@@ -11,6 +11,9 @@
 //! kills orphaned processes.
 
 #[cfg(test)]
+use std::sync::Arc;
+
+#[cfg(test)]
 use tokio::process::Command;
 
 // ── Core mapping ──────────────────────────────────────────────────────
@@ -35,6 +38,7 @@ pub(crate) use spawn::{SpawnedWorker, resolve_worker_bin, spawn_worker};
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio_util::sync::CancellationToken;
 
     /// `kill()` on a SpawnedWorker must terminate the child and remove the PID file.
     #[tokio::test]
@@ -56,6 +60,11 @@ mod tests {
             game_id: game_id.into(),
             host_token: None,
             child: Some(child),
+            shm: Arc::new(
+                gv_shm::ShmRing::create(&format!("test-shm-{game_id}"), 4)
+                    .expect("create test shm"),
+            ),
+            cancel_token: CancellationToken::new(),
         };
 
         worker.kill().await;
@@ -166,6 +175,11 @@ mod tests {
             game_id: game_id.into(),
             host_token: None,
             child: Some(child),
+            shm: Arc::new(
+                gv_shm::ShmRing::create(&format!("test-shm-{game_id}"), 4)
+                    .expect("create test shm"),
+            ),
+            cancel_token: CancellationToken::new(),
         };
 
         drop(worker);

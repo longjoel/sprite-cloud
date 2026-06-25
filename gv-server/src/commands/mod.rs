@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result};
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::config;
@@ -399,148 +400,68 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                     };
 
                                     if let Some(worker) = worker {
-                                        let internal_url = worker::internal_worker_url(&worker.url);
-                                        tracing::info!(
-                                            "[SDP] forwarding to worker at {internal_url}"
-                                        );
-
-                                        // Build the SDP body — include tokens so the
-                                        // worker can validate the offer authorisation.
-                                        let mut sdp_body = serde_json::json!({ "sdp": sdp });
-                                        if let Some(ht) = cmd.payload.get("host_token").and_then(|v| v.as_str()) {
-                                            sdp_body["host_token"] = serde_json::Value::String(ht.to_string());
-                                        }
-                                        // Guest peers use peer_token from /api/room/join
-                                        if let Some(pt) = cmd.payload.get("peer_token").and_then(|v| v.as_str()) {
-                                            sdp_body["peer_token"] = serde_json::Value::String(pt.to_string());
-                                        }
-                                        // gv-web resolves peer_token → role + seat and enriches the payload
-                                        if let Some(pr) = cmd.payload.get("peer_role").and_then(|v| v.as_str()) {
-                                            sdp_body["peer_role"] = serde_json::Value::String(pr.to_string());
-                                        }
-                                        if let Some(ps) = cmd.payload.get("peer_seat") {
-                                            sdp_body["peer_seat"] = ps.clone();
-                                        }
-
-                                        match client
-                                            .http_client()
-                                            .post(format!("{internal_url}/sdp"))
-                                            .bearer_auth(worker.control_token())
-                                            .json(&sdp_body)
-                                            .send()
-                                            .await
-                                        {
-                                            Ok(resp) if resp.status().is_success() => {
-                                                match resp.json::<serde_json::Value>().await {
-                                                    Ok(answer) => {
-                                                        if let Some(answer_sdp) =
-                                                            answer.get("sdp").and_then(|v| v.as_str())
-                                                        {
-                                                            tracing::info!(
-                                                                "[SDP] got answer from worker ({} chars)",
-                                                                answer_sdp.len()
-                                                            );
-                                                            let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
-                                                            if let Err(e) = client
-                                                                .notify_sdp(
-                                                                    &cmd.id,
-                                                                    &cmd.lease_token,
-                                                                    &worker.url,
-                                                                    game_id,
-                                                                    answer_sdp,
-                                                                    session_id,
-                                                                )
-                                                                .await
-                                                            {
-                                                                tracing::error!(
-                                                                    "[SDP] notify_sdp failed: {e:#}"
-                                                                );
-                                                            }
-                                                        } else {
-                                                            tracing::error!(
-                                                                "[SDP] worker response missing 'sdp' field"
-                                                            );
-                                                            if let Err(e) = client
-                                                                .command_result(
-                                                                    &cmd.id,
-                                                                    &cmd.lease_token,
-                                                                    &serde_json::json!({
-                                                                        "error": "worker_answer_missing_sdp"
-                                                                    }),
-                                                                )
-                                                                .await
-                                                            {
-                                                                tracing::error!(
-                                                                    "[SDP] command_result failed for missing SDP: {e:#}"
-                                                                );
-                                                            }
-                                                        }
-                                                    }
-                                                    Err(e) => {
-                                                        tracing::error!(
-                                                            "[SDP] failed to parse worker answer: {e}"
-                                                        );
-                                                        if let Err(err) = client
-                                                            .command_result(
-                                                                &cmd.id,
-                                                                &cmd.lease_token,
-                                                                &serde_json::json!({
-                                                                    "error": "worker_answer_parse_failed",
-                                                                    "message": e.to_string()
-                                                                }),
-                                                            )
-                                                            .await
-                                                        {
-                                                            tracing::error!(
-                                                                "[SDP] command_result failed for parse error: {err:#}"
-                                                            );
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            Ok(resp) => {
-                                                let status = resp.status();
-                                                let status_code = status.as_u16();
-                                                let body = resp.text().await.unwrap_or_default();
-                                                tracing::error!(
-                                                    "[SDP] worker returned HTTP {}: {}",
-                                                    status_code,
-                                                    body
+                                        // Handle SDP offer in-process via the local WebRTC stack
+                                        // instead of forwarding to the worker over HTTP.
+                                        match crate::webrtc::handle_sdp_offer(sdp).await {
+                                            Ok(session) => {
+                                                tracing::info!(
+                                                    "[SDP] handshake complete for game {game_id} ({} chars)",
+                                                    session.answer_sdp.len()
                                                 );
+
+                                                // Spawn frame fan-out: read encoded frames from shm
+                                                // and write them into the WebRTC video/audio tracks.
+                                                let shm = Arc::clone(&worker.shm);
+                                                let video_track = Arc::clone(&session.video_track);
+                                                let audio_track = Arc::clone(&session.audio_track);
+                                                let cancel = worker.cancel_token.clone();
+                                                tokio::spawn(async move {
+                                                    crate::streaming::fan_out_frames(
+                                                        shm,
+                                                        video_track,
+                                                        audio_track,
+                                                        cancel,
+                                                    )
+                                                    .await;
+                                                });
+
+                                                let session_id = cmd
+                                                    .payload
+                                                    .get("session_id")
+                                                    .and_then(|v| v.as_str());
                                                 if let Err(e) = client
-                                                    .command_result(
+                                                    .notify_sdp(
                                                         &cmd.id,
                                                         &cmd.lease_token,
-                                                        &serde_json::json!({
-                                                            "error": "worker_sdp_http_error",
-                                                            "status": status_code,
-                                                            "message": body
-                                                        }),
+                                                        &worker.url,
+                                                        game_id,
+                                                        &session.answer_sdp,
+                                                        session_id,
                                                     )
                                                     .await
                                                 {
                                                     tracing::error!(
-                                                        "[SDP] command_result failed for HTTP error: {e:#}"
+                                                        "[SDP] notify_sdp failed: {e:#}"
                                                     );
                                                 }
                                             }
                                             Err(e) => {
                                                 tracing::error!(
-                                                    "[SDP] failed to reach worker at {internal_url}: {e}"
+                                                    "[SDP] handle_sdp_offer failed: {e}"
                                                 );
                                                 if let Err(err) = client
                                                     .command_result(
                                                         &cmd.id,
                                                         &cmd.lease_token,
                                                         &serde_json::json!({
-                                                            "error": "worker_unreachable",
-                                                            "message": e.to_string()
+                                                            "error": "sdp_handshake_failed",
+                                                            "message": e
                                                         }),
                                                     )
                                                     .await
                                                 {
                                                     tracing::error!(
-                                                        "[SDP] command_result failed for unreachable worker: {err:#}"
+                                                        "[SDP] command_result failed: {err:#}"
                                                     );
                                                 }
                                             }
