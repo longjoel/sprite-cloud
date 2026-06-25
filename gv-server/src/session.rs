@@ -41,6 +41,10 @@ pub struct GameSession {
     pub video_enc: Mutex<Option<Arc<Mutex<GstVideoEncoder>>>>,
     pub audio_enc: Mutex<Option<Arc<Mutex<Option<GstAudioEncoder>>>>>,
 
+    // ── Save stack ──────────────────────────────────────────────────
+    /// ROM content hash for save directory lookup.
+    pub rom_hash: Mutex<Option<String>>,
+
     // ── Core metadata ───────────────────────────────────────────────
     pub core_width: Mutex<u32>,
     pub core_height: Mutex<u32>,

@@ -795,7 +795,8 @@ export class GvPlayer {
 
   /** @param {object} msg — parsed JSON from DataChannel */
   _handleDataChannelMessage(msg) {
-    switch (msg.type) {
+    const type = msg.cmd || msg.type;
+    switch (type) {
       case "stats":
         this._stats = msg;
         if (this.onStats) {
@@ -819,7 +820,21 @@ export class GvPlayer {
       case "save_result":
         if (this.onSaveResult) {
           try {
-            this.onSaveResult({ slot: msg.slot, ok: msg.ok });
+            this.onSaveResult({ index: msg.index, ok: msg.ok, error: msg.error });
+          } catch { /* safety */ }
+        }
+        break;
+      case "load_result":
+        if (this.onLoadResult) {
+          try {
+            this.onLoadResult({ ok: msg.ok, error: msg.error });
+          } catch { /* safety */ }
+        }
+        break;
+      case "list_saves_result":
+        if (this.onListSaves) {
+          try {
+            this.onListSaves({ entries: msg.entries || [], nextIndex: msg.next_index });
           } catch { /* safety */ }
         }
         break;

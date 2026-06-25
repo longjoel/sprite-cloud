@@ -361,8 +361,16 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
     callbacks.onRoute?.(route, detail);
   };
 
-  player.onSaveResult = ({ slot, ok }) => {
-    callbacks.onSaveResult?.(slot, ok);
+  player.onSaveResult = ({ index, ok, error }) => {
+    callbacks.onSaveResult?.(index, ok, error);
+  };
+
+  player.onLoadResult = ({ ok, error }) => {
+    callbacks.onLoadResult?.(ok, error);
+  };
+
+  player.onListSaves = ({ entries, nextIndex }) => {
+    callbacks.onListSaves?.(entries, nextIndex);
   };
 
   // Start the connection flow
@@ -387,14 +395,22 @@ function sendCommand(player, cmd) {
   }
 }
 
-function saveState(player, slot) {
-  return sendCommand(player, { cmd: "save_state", slot });
+function saveState(player) {
+  return sendCommand(player, { cmd: "save_state" });
 }
 
-function loadState(player, slot) {
-  return sendCommand(player, { cmd: "load_state", slot });
+function loadState(player) {
+  return sendCommand(player, { cmd: "load_state" });
+}
+
+function loadStateAt(player, index) {
+  return sendCommand(player, { cmd: "load_state", index });
+}
+
+function listSaves(player) {
+  return sendCommand(player, { cmd: "list_saves" });
 }
 
 // ── Expose on window ───────────────────────────────────────────────
 
-window.gvPlay = { startPlayer, saveState, loadState };
+window.gvPlay = { startPlayer, saveState, loadState, loadStateAt, listSaves };
