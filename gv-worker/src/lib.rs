@@ -36,23 +36,35 @@ pub async fn run_worker(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("WORKER_READY port={bound_port}");
     tracing::info!("open http://localhost:{bound_port}");
 
-    // ── Run the HTTP server on a DEDICATED 2-thread tokio runtime ──
+    // ── Run the HTTP server on a DEDICATED tokio runtime on its own OS thread ──
     // GStreamer appsrc (16 threads) + WebRTC ICE saturation can starve
     // the main runtime of worker threads, leaving axum unable to process
-    // incoming HTTP requests.  A dedicated runtime guarantees the SDP
-    // endpoint always has capacity.
-    let http_rt = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
-        .thread_name("http-server")
-        .enable_all()
-        .build()?;
+    // incoming HTTP requests.  By running HTTP on a separate OS thread
+    // with its own tokio runtime, the SDP endpoint always has capacity.
+    //
+    // We cannot call block_on from within #[tokio::main] (tokio panics:
+    // "Cannot start a runtime from within a runtime").  Spawn a fresh
+    // OS thread instead.
+    let server_thread = std::thread::Builder::new()
+        .name("http-server".into())
+        .spawn(move || {
+            let http_rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .expect("http runtime");
 
-    http_rt.block_on(async move {
-        axum::serve(tcp_listener, app)
-            .with_graceful_shutdown(async move {
-                tokio::signal::ctrl_c().await.ok();
+            http_rt.block_on(async move {
+                axum::serve(tcp_listener, app)
+                    .with_graceful_shutdown(async move {
+                        tokio::signal::ctrl_c().await.ok();
+                    })
+                    .await
+                    .map_err(|e| eprintln!("http server error: {e}"))
+                    .ok();
             })
-            .await
-            .map_err(|e| format!("http server: {e}").into())
-    })
+        })?;
+
+    server_thread.join().unwrap();
+    Ok(())
 }
