@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 use gv_shm::{ShmRing, frame_type};
 
 use crate::gst_audio::GstAudioEncoder;
-use crate::gst_video::GstVideoEncoder;
+use crate::gst_video::{GstVideoEncoder, VideoCodec};
 
 use super::AppState;
 
@@ -80,7 +80,7 @@ async fn probe_and_rebuild_encoder(
             );
         }
         drop(enc_guard);
-        let new_enc = GstVideoEncoder::new(frame_width, frame_height, fps)
+        let new_enc = GstVideoEncoder::new_with_codec(frame_width, frame_height, fps, VideoCodec::H264)
             .map_err(|e| format!("encoder create/rebuild failed: {e}"))?;
         *state.video_enc.lock().await =
             Some(Arc::new(tokio::sync::Mutex::new(new_enc)));
