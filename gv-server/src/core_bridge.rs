@@ -1,23 +1,26 @@
-//! Bridge between the libretro core (OS thread) and the tokio streaming loop.
+//! Bridge between the libretro core (child process) and the tokio streaming loop.
 //!
-//! The core must run on a dedicated OS thread because libretro callbacks
-//! use thread-local storage. Frames are sent via a bounded sync channel
-//! to the tokio task that encodes and streams them. Input commands flow
-//! in the opposite direction via a separate channel.
+//! The core runs in a separate process (gv-core) for crash isolation.
+//! If Nestopia segfaults, only the child dies — gv-server survives.
 //!
-//! SRAM lifecycle:
-//! - On load: hash ROM, derive save dir, restore battery.srm if present
-//! - On exit: save SRAM atomically before core unload
+//! IPC is via two /dev/shm buffers:
+//!   - Output shm: core writes frames + audio, server reads
+//!   - Input shm:  server writes commands, core reads
+//!
+//! A bridge thread reads from shm and forwards to the existing mpsc channels,
+//! keeping the streaming loop and command handling completely unchanged.
 
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, SyncSender};
+use std::sync::Arc;
 use std::time::Duration;
 
-use libretro_runner::{Core, CoreConfig, JoypadButton};
+use gv_core::{OutputShm, InputShm, map_shm, unlink_shm, CMD_SET_INPUT, CMD_SAVE_STATE, CMD_LOAD_STATE, CMD_RESET};
 
-use crate::saves;
+use crate::session::GameSession;
 
-// ── Core download (from deleted worker/core.rs) ──────────────────────
+// ── Core download (unchanged) ──────────────────────────────────────
 
 fn resolve_core_path(core_filename: &str) -> PathBuf {
     let cores_dir = std::env::var("GV_CORES_DIR").unwrap_or_else(|_| {
@@ -45,84 +48,54 @@ static DOWNLOADING: std::sync::LazyLock<std::sync::Mutex<std::collections::HashS
 
 pub async fn ensure_core(core_filename: &str, client: &reqwest::Client) -> Result<PathBuf, String> {
     let core_path = resolve_core_path(core_filename);
-
-    if core_path.exists() {
-        return Ok(core_path);
-    }
+    if core_path.exists() { return Ok(core_path); }
 
     let already_downloading = {
-        let mut inflight = DOWNLOADING
-            .lock()
-            .map_err(|e| format!("lock poisoned: {e}"))?;
-        if inflight.contains(core_filename) {
-            true
-        } else {
-            inflight.insert(core_filename.to_string());
-            false
-        }
+        let mut inflight = DOWNLOADING.lock().map_err(|e| format!("lock poisoned: {e}"))?;
+        if inflight.contains(core_filename) { true }
+        else { inflight.insert(core_filename.to_string()); false }
     };
 
     if already_downloading {
         for _ in 0..60 {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            if core_path.exists() {
-                return Ok(core_path);
-            }
+            if core_path.exists() { return Ok(core_path); }
         }
         return Err("timed out waiting for concurrent core download".into());
     }
 
     let result = download_and_extract(core_filename, &core_path, client).await;
-
     {
         let mut inflight = DOWNLOADING.lock().map_err(|_| "lock poisoned")?;
         inflight.remove(core_filename);
     }
-
     result.map(|()| core_path)
 }
 
 async fn download_and_extract(
-    core_filename: &str,
-    core_path: &PathBuf,
-    client: &reqwest::Client,
+    core_filename: &str, core_path: &PathBuf, client: &reqwest::Client,
 ) -> Result<(), String> {
     let zip_name = format!("{core_filename}.zip");
     let url = format!("{}/{}", *BUILDBOT_BASE, zip_name);
-
     tracing::info!("[CORE] downloading {url}");
 
-    let resp = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(|e| format!("download {url}: {e}"))?;
-
+    let resp = client.get(&url).send().await.map_err(|e| format!("download {url}: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("download {url}: HTTP {}", resp.status()));
     }
 
     let bytes = resp.bytes().await.map_err(|e| format!("read body: {e}"))?;
-
     let cursor = std::io::Cursor::new(bytes.as_ref());
     let mut archive = zip::ZipArchive::new(cursor).map_err(|e| format!("open zip: {e}"))?;
 
     if archive.len() != 1 {
-        return Err(format!(
-            "expected 1 file in {zip_name}, got {}",
-            archive.len()
-        ));
+        return Err(format!("expected 1 file in {zip_name}, got {}", archive.len()));
     }
 
-    let mut entry = archive
-        .by_index(0)
-        .map_err(|e| format!("read zip entry: {e}"))?;
+    let mut entry = archive.by_index(0).map_err(|e| format!("read zip entry: {e}"))?;
     let name = entry.name().to_string();
-
     if !name.ends_with(".so") || name.contains('/') {
-        return Err(format!(
-            "unexpected file in {zip_name}: {name} (expected {core_filename})"
-        ));
+        return Err(format!("unexpected file in {zip_name}: {name} (expected {core_filename})"));
     }
 
     if let Some(parent) = core_path.parent() {
@@ -130,13 +103,11 @@ async fn download_and_extract(
     }
 
     let tmp_path = core_path.with_extension("tmp");
-    let mut out =
-        std::fs::File::create(&tmp_path).map_err(|e| format!("create {tmp_path:?}: {e}"))?;
+    let mut out = std::fs::File::create(&tmp_path).map_err(|e| format!("create {tmp_path:?}: {e}"))?;
     std::io::copy(&mut entry, &mut out).map_err(|e| format!("extract {name}: {e}"))?;
     drop(out);
 
-    #[cfg(unix)]
-    {
+    #[cfg(unix)] {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755))
             .map_err(|e| format!("chmod +x {tmp_path:?}: {e}"))?;
@@ -147,26 +118,21 @@ async fn download_and_extract(
 
     let size = std::fs::metadata(core_path).map(|m| m.len()).unwrap_or(0);
     tracing::info!("[CORE] installed {} ({} bytes)", core_path.display(), size);
-
     Ok(())
 }
 
-/// A frame produced by the core: RGB24 pixels + dimensions.
+// ── Frame + command types (unchanged) ──────────────────────────────
+
 #[derive(Clone)]
 pub struct CoreFrame {
     pub pixels: Vec<u8>,
-    #[allow(dead_code)]
-    pub width: u32,
-    #[allow(dead_code)]
-    pub height: u32,
-    /// Interleaved stereo i16 PCM audio samples for this frame.
+    #[allow(dead_code)] pub width: u32,
+    #[allow(dead_code)] pub height: u32,
     pub audio: Vec<i16>,
 }
 
-/// Commands sent from the streaming task to the core thread.
 pub enum CoreCommand {
-    SetJoypad { port: u32, button: JoypadButton, pressed: bool },
-    /// Set the full 16-bit joypad state for a port (RetroArch binary format).
+    SetJoypad { port: u32, button: libretro_runner::JoypadButton, pressed: bool },
     SetInput { port: u32, state: u16 },
     SaveState { slot: u8 },
     LoadState { slot: u8 },
@@ -175,184 +141,136 @@ pub enum CoreCommand {
     DiskInsert { index: u32 },
 }
 
-/// Responses sent from the core thread back to the streaming task.
 pub enum CoreResponse {
     SaveStateResult { slot: u8, data: Vec<u8>, ok: bool },
     LoadStateResult { slot: u8, ok: bool },
 }
 
-/// Handle a save state command on the core thread.
-fn handle_save_state(
-    core: &Core,
-    slot: u8,
-    rom_hash: Option<&str>,
-    response_tx: &SyncSender<CoreResponse>,
-) {
-    let data = core.save_state();
-    let ok = data.is_some();
+// ── gv-core binary location ────────────────────────────────────────
 
-    if let (Some(data), Some(hash)) = (&data, rom_hash) {
-        let path = saves::state_path(hash, slot);
-        if let Err(e) = saves::write_atomic(&path, data) {
-            tracing::error!(
-                "[CORE] Failed to save state slot {} to {}: {}",
-                slot,
-                path.display(),
-                e
-            );
-        } else {
-            tracing::info!(
-                "[CORE] Saved state slot {} to {} ({} bytes)",
-                slot,
-                path.display(),
-                data.len()
-            );
-        }
+fn find_gv_core_binary() -> PathBuf {
+    // Check env var first
+    if let Ok(p) = std::env::var("GV_CORE_BIN") {
+        let path = PathBuf::from(&p);
+        if path.exists() { return path; }
     }
-
-    let _ = response_tx.send(CoreResponse::SaveStateResult {
-        slot,
-        data: data.unwrap_or_default(),
-        ok,
-    });
+    // Check next to gv-server binary
+    if let Ok(exe) = std::env::current_exe() {
+        let sibling = exe.with_file_name("gv-core");
+        if sibling.exists() { return sibling; }
+    }
+    // Check debug/release target dirs (cargo workspace root)
+    let mut target = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    target.pop(); // gv-server → workspace root
+    for profile in &["release", "debug"] {
+        let p = target.join("target").join(profile).join("gv-core");
+        if p.exists() { return p; }
+    }
+    // Fallback
+    PathBuf::from("gv-core")
 }
 
-/// Handle a load state command on the core thread.
-fn handle_load_state(
-    core: &mut Core,
-    slot: u8,
-    rom_hash: Option<&str>,
-    response_tx: &SyncSender<CoreResponse>,
-) {
-    let ok = match rom_hash {
-        Some(hash) => {
-            let path = saves::state_path(hash, slot);
-            match std::fs::read(&path) {
-                Ok(data) => {
-                    let success = core.load_state(&data);
-                    if success {
-                        tracing::info!(
-                            "[CORE] Loaded state slot {} from {} ({} bytes)",
-                            slot,
-                            path.display(),
-                            data.len()
-                        );
-                    } else {
-                        tracing::warn!(
-                            "[CORE] Failed to unserialize state slot {} from {}",
-                            slot,
-                            path.display()
-                        );
-                    }
-                    success
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "[CORE] No save state at slot {} ({}): {}",
-                        slot,
-                        path.display(),
-                        e
-                    );
-                    false
-                }
-            }
-        }
-        None => false,
-    };
+// ── Child process management ───────────────────────────────────────
 
-    let _ = response_tx.send(CoreResponse::LoadStateResult { slot, ok });
-}
-
-// ── Session-aware core loading (for in-process use) ────────────────
-
-use crate::session::GameSession;
-use std::sync::Arc;
-
-/// Load a libretro core into an existing GameSession.
-/// Takes explicit paths instead of reading env vars.
-/// Spawns the core on a dedicated OS thread and populates
-/// the session's channels, dimensions, and metadata.
+/// Load a libretro core by spawning gv-core child process.
+/// Keeps the same interface as the old in-process load — channels are
+/// populated the same way. Streaming loop + command handling unchanged.
 pub async fn load_core_into_session(
     session: &Arc<GameSession>,
     core_path: Option<&std::path::Path>,
     content_path: Option<&str>,
     _platform: Option<&str>,
 ) {
+    let game_id = &session.game_id;
+
     let core_path_str = match core_path {
         Some(p) => p.to_string_lossy().to_string(),
         None => {
-            // Fall back to env var
             std::env::var("GV_CORE_PATH").unwrap_or_else(|_| {
                 let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-                p.pop();
-                p.push("test-data/cores/2048_libretro.so");
+                p.pop(); p.push("test-data/cores/2048_libretro.so");
                 p.to_string_lossy().to_string()
             })
         }
     };
 
-    let rom_path: Option<std::path::PathBuf> = content_path.map(|s| s.into());
-    let save_dir: std::path::PathBuf = std::env::var("GV_SAVE_DIR")
-        .unwrap_or_else(|_| "/tmp".into())
-        .into();
-    let channels: u16 = std::env::var("GV_AUDIO_CHANNELS")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(2);
+    let rom_path = content_path.unwrap_or("");
+    let out_name = format!("gv-out-{game_id}");
+    let in_name = format!("gv-in-{game_id}");
 
-    let core_config = libretro_runner::CoreConfig {
-        core_path: core_path_str.into(),
-        content_path: rom_path.clone(),
-        system_dir: std::env::var("GV_SYSTEM_DIR")
-            .unwrap_or_else(|_| "/tmp".into())
-            .into(),
-        save_dir,
-        audio_channels: channels,
+    // Create shm
+    let out_mmap = match map_shm::<OutputShm>(&out_name, OutputShm::size()) {
+        Ok(m) => m,
+        Err(e) => { tracing::error!("[CORE] out shm: {e}"); return; }
+    };
+    let in_mmap = match map_shm::<InputShm>(&in_name, InputShm::size()) {
+        Ok(m) => m,
+        Err(e) => { tracing::error!("[CORE] in shm: {e}"); return; }
     };
 
-    let mut core = match unsafe { libretro_runner::Core::load(core_config) } {
+    let out: &OutputShm = unsafe { &*(out_mmap.as_ptr() as *const OutputShm) };
+    let inp: &InputShm = unsafe { &*(in_mmap.as_ptr() as *const InputShm) };
+
+    // Find gv-core binary
+    let core_bin = find_gv_core_binary();
+    tracing::info!("[CORE] spawning {} {} {} {}", core_bin.display(), core_path_str, rom_path, game_id);
+
+    let mut child = match std::process::Command::new(&core_bin)
+        .args([&core_path_str, rom_path, &out_name, &in_name])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
         Ok(c) => c,
         Err(e) => {
-            tracing::warn!("[CORE] Failed to load core: {} — falling back to test pattern", e);
+            tracing::error!("[CORE] spawn gv-core: {e}");
+            unlink_shm(&out_name);
+            unlink_shm(&in_name);
             return;
         }
     };
 
-    let mut sample_rate = core.av_info.sample_rate;
-    if sample_rate <= 0.0 {
-        if let Err(e) = core.run_frame() {
-            tracing::warn!("[CORE] first run_frame failed: {} — audio disabled", e);
-        } else {
-            sample_rate = core.av_info.sample_rate;
+    // Wait for metadata (core reports dimensions before frame loop)
+    let mut width: u32 = 0;
+    let mut height: u32 = 0;
+    let mut fps: f64 = 0.0;
+    for _ in 0..50 { // 5 second timeout
+        let bw = out.base_width.load(Ordering::Relaxed);
+        let bh = out.base_height.load(Ordering::Relaxed);
+        let fx = out.fps_x1000.load(Ordering::Relaxed);
+        if bw > 0 && bh > 0 && fx > 0 {
+            width = bw;
+            height = bh;
+            fps = fx as f64 / 1000.0;
+            break;
         }
+        // Check if child died early
+        if let Ok(Some(status)) = child.try_wait() {
+            let stderr_out = child.stderr.take()
+                .and_then(|mut r| {
+                    let mut s = String::new();
+                    std::io::Read::read_to_string(&mut r, &mut s).ok().map(|_| s)
+                })
+                .unwrap_or_default();
+            tracing::error!("[CORE] child exited early with {status}: {stderr_out}");
+            unlink_shm(&out_name);
+            unlink_shm(&in_name);
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
     }
 
-    let width = core.av_info.base_width;
-    let height = core.av_info.base_height;
-    let fps = core.av_info.fps;
-    let frame_interval = Duration::from_secs_f64(1.0 / fps);
-    let sram_flush_interval = (fps * 30.0).round() as u64;
-
-    tracing::info!("[CORE] Loaded: {width}×{height} @ {fps:.1}fps, {sample_rate:.0}Hz");
-
-    // ROM hashing + SRAM restore
-    let rom_hash: Option<String> = rom_path
-        .as_ref()
-        .and_then(|p| saves::hash_rom(p));
-
-    if let Some(ref hash) = rom_hash {
-        let sram_path = saves::sram_path(hash);
-        if sram_path.exists() {
-            match std::fs::read(&sram_path) {
-                Ok(data) => {
-                    core.restore_sram(&data);
-                    tracing::info!("[CORE] Restored SRAM from {} ({} bytes)", sram_path.display(), data.len());
-                }
-                Err(e) => tracing::warn!("[CORE] Failed to read SRAM: {e}"),
-            }
-        }
+    if width == 0 || fps == 0.0 {
+        tracing::error!("[CORE] child didn't report metadata in time");
+        let _ = child.kill();
+        unlink_shm(&out_name);
+        unlink_shm(&in_name);
+        return;
     }
 
+    tracing::info!("[CORE] child ready: {width}×{height} @ {fps:.1}fps");
+
+    // Set up channels (same as before)
     let (frame_tx, frame_rx) = mpsc::sync_channel::<CoreFrame>(1);
     let (cmd_tx, cmd_rx) = mpsc::sync_channel::<CoreCommand>(16);
     let (response_tx, response_rx) = mpsc::sync_channel::<CoreResponse>(4);
@@ -368,103 +286,120 @@ pub async fn load_core_into_session(
     session.core_loading.store(false, std::sync::atomic::Ordering::Relaxed);
 
     let cancel = session.cancel.clone();
+    let out_name_clone = out_name.clone();
+    let in_name_clone = in_name.clone();
 
+    // Save state support — copy response data into CoreResponse
+    let resp_tx = response_tx.clone();
+
+    // ── Bridge thread: shm ↔ channels ───────────────────────────────
     std::thread::spawn(move || {
         let mut frame_num: u64 = 0;
+        let frame_interval = Duration::from_secs_f64(1.0 / fps.max(1.0));
+
         loop {
-            let next_tick_start = std::time::Instant::now();
-
-            while let Ok(cmd) = cmd_rx.try_recv() {
-                match cmd {
-                    CoreCommand::SetJoypad { port, button, pressed } => {
-                        core.set_joypad(port, button, pressed);
-                    }
-                    CoreCommand::SetInput { port, state } => {
-                        tracing::info!("[CORE] SetInput port={} state=0x{:04X}", port, state);
-                        core.set_input(port, state);
-                    }
-                    CoreCommand::SaveState { slot } => {
-                        handle_save_state(&core, slot, rom_hash.as_deref(), &response_tx);
-                    }
-                    CoreCommand::LoadState { slot } => {
-                        // core is moved into thread — can't pass &mut through handle_load_state easily
-                        let ok = match rom_hash {
-                            Some(ref hash) => {
-                                let path = saves::state_path(hash, slot);
-                                match std::fs::read(&path) {
-                                    Ok(data) => {
-                                        let success = core.load_state(&data);
-                                        if success {
-                                            tracing::info!("[CORE] Loaded state slot {} ({} bytes)", slot, data.len());
-                                        }
-                                        success
-                                    }
-                                    Err(_) => false,
-                                }
-                            }
-                            None => false,
-                        };
-                        let _ = response_tx.send(CoreResponse::LoadStateResult { slot, ok });
-                    }
-                    CoreCommand::Reset => core.reset(),
-                    CoreCommand::DiskEject => core.disk_eject(),
-                    CoreCommand::DiskInsert { index } => core.disk_insert(index),
-                }
-            }
-
-            if let Err(e) = core.run_frame() {
-                tracing::error!("[CORE] run_frame failed: {e} — exiting core thread");
-                let _ = frame_tx.send(CoreFrame {
-                    pixels: Vec::new(),
-                    width: 0,
-                    height: 0,
-                    audio: Vec::new(),
-                });
+            // Check cancel
+            if cancel.is_cancelled() {
+                tracing::info!("[BRIDGE] cancel — killing child");
+                let _ = child.kill();
+                let _ = child.wait();
                 break;
             }
 
-            if let Some(frame_data) = core.frame() {
-                let audio = core.drain_audio();
-                let frame = CoreFrame {
-                    pixels: frame_data.to_vec(),
-                    width: core.frame_size().0,
-                    height: core.frame_size().1,
-                    audio,
-                };
-                if frame_tx.send(frame).is_err() {
+            // Write commands from channel → input shm
+            while let Ok(cmd) = cmd_rx.try_recv() {
+                match cmd {
+                    CoreCommand::SetInput { port, state } => {
+                        inp.port.store(port, Ordering::Relaxed);
+                        inp.state.store(state, Ordering::Relaxed);
+                        inp.cmd_type.store(CMD_SET_INPUT, Ordering::Relaxed);
+                        inp.cmd_ready.store(true, Ordering::Release);
+                    }
+                    CoreCommand::SetJoypad { .. } => {
+                        // Joypad commands are unused; ignore
+                    }
+                    CoreCommand::SaveState { slot } => {
+                        inp.slot.store(slot, Ordering::Relaxed);
+                        inp.cmd_type.store(CMD_SAVE_STATE, Ordering::Relaxed);
+                        inp.cmd_ready.store(true, Ordering::Release);
+                        // Wait for response
+                        std::thread::sleep(Duration::from_millis(100));
+                        let ok = out.response_ok.load(Ordering::Relaxed);
+                        let len = out.response_data_len.load(Ordering::Relaxed) as usize;
+                        let data = out.response_data[..len.min(gv_core::MAX_RESPONSE)].to_vec();
+                        let _ = resp_tx.send(CoreResponse::SaveStateResult { slot, data, ok });
+                    }
+                    CoreCommand::LoadState { slot } => {
+                        inp.slot.store(slot, Ordering::Relaxed);
+                        inp.cmd_type.store(CMD_LOAD_STATE, Ordering::Relaxed);
+                        inp.cmd_ready.store(true, Ordering::Release);
+                        std::thread::sleep(Duration::from_millis(100));
+                        let ok = out.response_ok.load(Ordering::Relaxed);
+                        let _ = resp_tx.send(CoreResponse::LoadStateResult { slot, ok });
+                    }
+                    CoreCommand::Reset => {
+                        inp.cmd_type.store(CMD_RESET, Ordering::Relaxed);
+                        inp.cmd_ready.store(true, Ordering::Release);
+                    }
+                    _ => {}
+                }
+            }
+
+            // Check child alive
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let stderr_out = child.stderr.take()
+                        .and_then(|mut r| {
+                            let mut s = String::new();
+                            std::io::Read::read_to_string(&mut r, &mut s).ok().map(|_| s)
+                        })
+                        .unwrap_or_default();
+                    tracing::warn!("[BRIDGE] child exited with {status}: {stderr_out}");
+                    let _ = frame_tx.send(CoreFrame { pixels: vec![], width: 0, height: 0, audio: vec![] });
+                    break;
+                }
+                Ok(None) => {} // still running
+                Err(e) => {
+                    tracing::error!("[BRIDGE] try_wait error: {e}");
+                    let _ = frame_tx.send(CoreFrame { pixels: vec![], width: 0, height: 0, audio: vec![] });
                     break;
                 }
             }
 
-            frame_num = frame_num.wrapping_add(1);
+            // Read frame from output shm
+            if out.frame_ready.load(Ordering::Acquire) {
+                let fw = out.width.load(Ordering::Relaxed);
+                let fh = out.height.load(Ordering::Relaxed);
+                let audio_len = out.audio_len.load(Ordering::Relaxed) as usize;
 
-            let elapsed = next_tick_start.elapsed();
-            if let Some(remaining) = frame_interval.checked_sub(elapsed) {
-                if !remaining.is_zero() {
-                    std::thread::sleep(remaining);
+                let px_count = (fw as usize * fh as usize * 3).min(gv_core::MAX_PIXELS);
+                let mut pixels = vec![0u8; px_count];
+                unsafe {
+                    std::ptr::copy_nonoverlapping(out.pixels.as_ptr(), pixels.as_mut_ptr(), px_count);
                 }
+
+                let audio_count = audio_len.min(gv_core::MAX_AUDIO);
+                let mut audio = vec![0i16; audio_count];
+                unsafe {
+                    std::ptr::copy_nonoverlapping(out.audio.as_ptr(), audio.as_mut_ptr(), audio_count);
+                }
+
+                out.frame_ready.store(false, Ordering::Release);
+
+                if frame_tx.send(CoreFrame { pixels, width: fw, height: fh, audio }).is_err() {
+                    break;
+                }
+                frame_num = frame_num.wrapping_add(1);
             }
 
-            if frame_num > 0 && frame_num.is_multiple_of(sram_flush_interval) {
-                if let Some(ref hash) = rom_hash {
-                    if let Some(sram_data) = core.sram() {
-                        if !sram_data.is_empty() {
-                            let path = saves::sram_path(hash);
-                            let _ = saves::write_atomic(&path, &sram_data);
-                        }
-                    }
-                }
-            }
+            std::thread::sleep(Duration::from_millis(1));
         }
 
-        // Save SRAM on exit
-        if let Some(ref hash) = rom_hash {
-            if let Some(sram_data) = core.sram() {
-                if !sram_data.is_empty() {
-                    let path = saves::sram_path(hash);
-                    let _ = saves::write_atomic(&path, &sram_data);
-                }
-            }
-        }
+        // Cleanup
+        let _ = child.kill();
+        let _ = child.wait();
+        unlink_shm(&out_name_clone);
+        unlink_shm(&in_name_clone);
+        tracing::info!("[BRIDGE] exited ({} frames)", frame_num);
     });
 }

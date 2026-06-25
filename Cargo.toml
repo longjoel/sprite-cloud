@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["gv-server", "libretro-runner"]
+members = ["gv-server", "gv-core", "libretro-runner"]
 
 # Point webrtc-rs crates to local fork with trace logging
 [patch.crates-io]
