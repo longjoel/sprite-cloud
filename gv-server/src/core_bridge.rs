@@ -16,9 +16,11 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::Arc;
 use std::time::Duration;
 
-use gv_core::{OutputShm, InputShm, map_shm, unlink_shm, CMD_SET_INPUT, CMD_SAVE_STATE, CMD_LOAD_STATE, CMD_RESET};
+use gv_core::{OutputShm, InputShm, map_shm, unlink_shm, CMD_SET_INPUT, CMD_SAVE_STATE, CMD_LOAD_STATE, CMD_SAVE_SRAM, CMD_LOAD_SRAM, CMD_RESET};
 
 use crate::session::GameSession;
+
+use crate::saves;
 
 // ── Core download (unchanged) ──────────────────────────────────────
 
@@ -136,6 +138,8 @@ pub enum CoreCommand {
     SetInput { port: u32, state: u16 },
     SaveState,
     LoadState { data: Vec<u8> },
+    SaveSram,
+    LoadSram { data: Vec<u8> },
     Reset,
     DiskEject,
     DiskInsert { index: u32 },
@@ -144,6 +148,7 @@ pub enum CoreCommand {
 pub enum CoreResponse {
     SaveStateResult { data: Vec<u8>, ok: bool },
     LoadStateResult { ok: bool },
+    SramData { data: Vec<u8> },
 }
 
 // ── gv-core binary location ────────────────────────────────────────
@@ -270,6 +275,35 @@ pub async fn load_core_into_session(
 
     tracing::info!("[CORE] child ready: {width}×{height} @ {fps:.1}fps");
 
+    // ── Auto-load SRAM if a battery save exists ──────────────────────
+    let rom_hash = saves::hash_rom(std::path::Path::new(rom_path));
+    if let Some(ref hash) = rom_hash {
+        let sram_file = saves::sram_path(hash);
+        if sram_file.exists() {
+            match std::fs::read(&sram_file) {
+                Ok(data) if !data.is_empty() => {
+                    let len = data.len().min(gv_core::MAX_RESPONSE);
+                    unsafe {
+                        std::ptr::copy_nonoverlapping(
+                            data.as_ptr(),
+                            out.response_data.as_ptr() as *mut u8,
+                            len,
+                        );
+                    }
+                    out.response_data_len.store(len as u32, Ordering::Relaxed);
+                    inp.cmd_type.store(CMD_LOAD_SRAM, Ordering::Relaxed);
+                    inp.cmd_ready.store(true, Ordering::Release);
+                    // Wait briefly for core to process
+                    std::thread::sleep(Duration::from_millis(50));
+                    inp.cmd_ready.store(false, Ordering::Release);
+                    tracing::info!("[SRAM] auto-loaded {} bytes from {}", len, sram_file.display());
+                }
+                Ok(_) => {}
+                Err(e) => tracing::warn!("[SRAM] failed to read {}: {e}", sram_file.display()),
+            }
+        }
+    }
+
     // Set up channels (same as before)
     let (frame_tx, frame_rx) = mpsc::sync_channel::<CoreFrame>(1);
     let (cmd_tx, cmd_rx) = mpsc::sync_channel::<CoreCommand>(16);
@@ -293,6 +327,7 @@ pub async fn load_core_into_session(
     let resp_tx = response_tx.clone();
 
     // ── Bridge thread: shm ↔ channels ───────────────────────────────
+    let rom_hash_save = rom_hash.clone();
     std::thread::spawn(move || {
         let _out_mmap = out_mmap; // keep mmap alive for lifetime of thread
         let _in_mmap = in_mmap;   // keep mmap alive for lifetime of thread
@@ -347,6 +382,33 @@ pub async fn load_core_into_session(
                         std::thread::sleep(Duration::from_millis(100));
                         let ok = out.response_ok.load(Ordering::Relaxed);
                         let _ = resp_tx.send(CoreResponse::LoadStateResult { ok });
+                    }
+                    CoreCommand::SaveSram => {
+                        inp.cmd_type.store(CMD_SAVE_SRAM, Ordering::Relaxed);
+                        inp.cmd_ready.store(true, Ordering::Release);
+                        std::thread::sleep(Duration::from_millis(100));
+                        let ok = out.response_ok.load(Ordering::Relaxed);
+                        let len = out.response_data_len.load(Ordering::Relaxed) as usize;
+                        let data = if ok && len > 0 {
+                            out.response_data[..len.min(gv_core::MAX_RESPONSE)].to_vec()
+                        } else {
+                            vec![]
+                        };
+                        let _ = resp_tx.send(CoreResponse::SramData { data });
+                    }
+                    CoreCommand::LoadSram { data } => {
+                        let len = data.len().min(gv_core::MAX_RESPONSE);
+                        unsafe {
+                            std::ptr::copy_nonoverlapping(
+                                data.as_ptr(),
+                                out.response_data.as_ptr() as *mut u8,
+                                len,
+                            );
+                        }
+                        out.response_data_len.store(len as u32, Ordering::Relaxed);
+                        inp.cmd_type.store(CMD_LOAD_SRAM, Ordering::Relaxed);
+                        inp.cmd_ready.store(true, Ordering::Release);
+                        // Don't wait — load happens inline, no response needed
                     }
                     CoreCommand::Reset => {
                         inp.cmd_type.store(CMD_RESET, Ordering::Relaxed);
@@ -404,6 +466,24 @@ pub async fn load_core_into_session(
             }
 
             std::thread::sleep(Duration::from_millis(1));
+        }
+
+        // ── Auto-save SRAM on shutdown ──────────────────────────────
+        if let Some(ref hash) = rom_hash_save {
+            // Signal gv-core to save SRAM (may fail if core already died)
+            inp.cmd_type.store(CMD_SAVE_SRAM, Ordering::Relaxed);
+            inp.cmd_ready.store(true, Ordering::Release);
+            std::thread::sleep(Duration::from_millis(100));
+            let ok = out.response_ok.load(Ordering::Relaxed);
+            let len = out.response_data_len.load(Ordering::Relaxed) as usize;
+            if ok && len > 0 {
+                let data = &out.response_data[..len.min(gv_core::MAX_RESPONSE)];
+                let sram_file = saves::sram_path(hash);
+                match saves::write_atomic(&sram_file, data) {
+                    Ok(()) => tracing::info!("[SRAM] auto-saved {} bytes to {}", len, sram_file.display()),
+                    Err(e) => tracing::error!("[SRAM] write failed {}: {e}", sram_file.display()),
+                }
+            }
         }
 
         // Cleanup

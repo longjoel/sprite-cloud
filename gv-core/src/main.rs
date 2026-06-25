@@ -103,11 +103,35 @@ fn main() {
                     out.response_ok.store(data.len() > 0, Ordering::Relaxed);
                 }
                 gv_core::CMD_LOAD_STATE => {
-                    let slot = inp.slot.load(Ordering::Relaxed);
                     let len = out.response_data_len.load(Ordering::Relaxed) as usize;
                     let data = &out.response_data[..len.min(gv_core::MAX_RESPONSE)];
                     let ok = core.load_state(&data);
                     out.response_ok.store(ok, Ordering::Relaxed);
+                }
+                gv_core::CMD_SAVE_SRAM => {
+                    match core.sram() {
+                        Some(data) => {
+                            let len = data.len().min(gv_core::MAX_RESPONSE);
+                            let resp_ptr = out.response_data.as_ptr() as *mut u8;
+                            unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), resp_ptr, len); }
+                            out.response_data_len.store(len as u32, Ordering::Relaxed);
+                            out.response_ok.store(true, Ordering::Relaxed);
+                        }
+                        None => {
+                            out.response_data_len.store(0, Ordering::Relaxed);
+                            out.response_ok.store(false, Ordering::Relaxed);
+                        }
+                    }
+                }
+                gv_core::CMD_LOAD_SRAM => {
+                    let len = out.response_data_len.load(Ordering::Relaxed) as usize;
+                    if len > 0 {
+                        let data = &out.response_data[..len.min(gv_core::MAX_RESPONSE)];
+                        core.restore_sram(data);
+                        out.response_ok.store(true, Ordering::Relaxed);
+                    } else {
+                        out.response_ok.store(false, Ordering::Relaxed);
+                    }
                 }
                 gv_core::CMD_RESET => {
                     core.reset();
