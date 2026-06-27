@@ -1,0 +1,41 @@
+name: Feature Request
+description: Suggest an idea for Games Vault
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve the project.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the use case or pain point. Feature requests with a clear motivation are more likely to be considered.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What should the feature look or behave like? Be specific enough to discuss.
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Target component
+      options:
+        - gv-web (gateway)
+        - gv-server (host runtime)
+        - gv-player (browser client)
+        - Installer/deployment
+        - Documentation
+        - Other
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or alternative approaches have you considered?
+    validations:
+      required: false

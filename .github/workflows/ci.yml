@@ -19,10 +19,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build Rust release binaries
-        run: cargo build --release -p gv-server -p gv-worker
+        run: cargo build --release -p gv-server
 
       - name: Test Rust crates
-        run: cargo test -p gv-server -p gv-worker
+        run: cargo test -p gv-server -p gv-core -p libretro-runner
 
       - name: Smoke test libretro-runner
         run: cargo test -p libretro-runner --test smoke -- --test-threads=1
