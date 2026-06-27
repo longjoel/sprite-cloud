@@ -2,6 +2,7 @@
 
 /// `ensure_core` must skip download when the .so already exists.
 #[tokio::test]
+#[serial_test::serial]
 async fn ensure_core_skips_when_cached() {
     let tmp = tempfile::tempdir().unwrap();
     let core_path = tmp.path().join("fake_libretro.so");
@@ -21,6 +22,7 @@ async fn ensure_core_skips_when_cached() {
 /// `ensure_core` must fail gracefully for a nonexistent core
 /// (buildbot 404s on unknown cores). No corrupt file must be left behind.
 #[tokio::test]
+#[serial_test::serial]
 async fn ensure_core_download_fails_for_unknown_core() {
     let tmp = tempfile::tempdir().unwrap();
     unsafe {
