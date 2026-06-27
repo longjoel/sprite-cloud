@@ -1,77 +1,52 @@
-# Games Vault — Scripts
+# Games Vault scripts
 
-## dev-start.sh
+Keep this directory boring. Scripts here should be reusable release/dev entrypoints, not one-off experiments.
 
-One-command launcher for the full development stack.
+## Current scripts
 
-```bash
-./scripts/dev-start.sh           # start all services
-./scripts/dev-start.sh --reset   # clean .next cache + restart
-./scripts/dev-start.sh --pair    # one-time server pairing (needs sign-in)
-./scripts/dev-start.sh status    # show what's running
-./scripts/dev-start.sh stop      # kill everything
-```
+| Script | Keep because |
+|---|---|
+| `install.sh` | Public/self-host host installer entrypoint |
+| `dev-start.sh` | Local dev stack helper |
+| `build-release.sh` | Builds `gv-server` and `gv-web` release artifacts |
+| `deploy-vault.sh` | Deploys the host-side `gv-server` binary |
+| `deploy-gv-web.sh` | Deploys the gateway web bundle to the running container |
+| `apply-gv-web-migration.sh` | Applies an explicit Drizzle SQL migration |
+| `smoke-test.sh` | Checks release markers and health endpoints |
+| `release-common.sh` | Shared helpers for the release scripts above |
 
-### First-time setup
-
-1. Build the binaries:
-   ```bash
-   cargo build --release -p gv-server
-   ```
-
-2. Make sure Postgres is running on port 5433.
-
-3. Set up gv-web `.env.local` (copy from root `.env.example`):
-   ```bash
-   cp .env.example gv-web/.env.local
-   # Edit AUTH_SECRET and DATABASE_URL; use /setup for first admin account
-   ```
-
-4. Start gv-web, sign in, then pair gv-server:
-   ```bash
-   ./scripts/dev-start.sh        # starts gv-web
-   # Sign in at http://localhost:3000
-   ./scripts/dev-start.sh --pair # generates config for gv-server
-   ./scripts/dev-start.sh stop   # stop everything
-   ./scripts/dev-start.sh        # start full stack
-   ```
-
-### Daily use
+## Public install
 
 ```bash
-./scripts/dev-start.sh           # start everything
-./scripts/dev-start.sh --reset   # after pulling new code / dependency changes
-./scripts/dev-start.sh stop      # done for the day
+curl -sSL https://raw.githubusercontent.com/longjoel/games-vault/main/scripts/install.sh \
+  | sh -s -- --web-url https://your-gateway.example --rom-dir /path/to/roms
 ```
 
-### Logs
-
-All service output goes to `/dev/shm/gv-logs/`:
-- `gv-web.log` — Next.js dev server
-- `gv-server.log` — gv-server (polling, in-process runtime, SDP relay)
-
-## Systemd (production)
-
-Generate and install systemd units:
+## Local dev
 
 ```bash
-./scripts/dev-start.sh --install-systemd
-sudo systemctl enable --now gv-web gv-server
+./scripts/dev-start.sh build
+./scripts/dev-start.sh start
+./scripts/dev-start.sh status
+./scripts/dev-start.sh stop
 ```
 
-Note: systemd units require a production build (`next build`) and the
-`games-vault` user to exist.
-
-## Release system
-
-The repo now has a single release path for both the local host and the VPS:
+## Release flow
 
 ```bash
-./scripts/build-release.sh      # compile Rust + build gv-web prod bundle
-./scripts/deploy-vault.sh       # install host binary, stamp release commit
-./scripts/deploy-vps-web.sh     # ship gv-web image to VPS, stamp release commit, verify health
-./scripts/smoke-test.sh         # verify local + remote release markers and health
-./scripts/promote-main.sh       # promote stable code to main (optionally after deploy-first)
+./scripts/build-release.sh
+./scripts/deploy-vault.sh
+./scripts/deploy-gv-web.sh
+./scripts/smoke-test.sh
 ```
 
-See `docs/RELEASE.md` for the rules and release marker locations.
+If schema changes exist:
+
+```bash
+./scripts/apply-gv-web-migration.sh gv-web/drizzle/<migration>.sql
+./scripts/deploy-gv-web.sh
+```
+
+## Rule
+
+Do not add one-off smoke tests or local experiments here. Put them in a test suite, a historical plan, or keep them untracked.

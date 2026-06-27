@@ -51,8 +51,8 @@ cp ops/vps/docker-compose.yml /docker/gv-web/
 cp ops/vps/.env.example /docker/gv-web/.env
 $EDITOR /docker/gv-web/.env
 
-# deploy the image (from dev machine)
-./scripts/deploy-vps-web.sh
+# deploy the web bundle (from dev machine)
+./scripts/deploy-gv-web.sh
 ```
 
 ## Cross-reference
@@ -60,4 +60,4 @@ $EDITOR /docker/gv-web/.env
 - `docs/DEPLOY.md` — full deployment guide
 - `docs/RELEASE.md` — release system and CI gate policy
 - `scripts/deploy-vault.sh` — host deploy script
-- `scripts/deploy-vps-web.sh` — VPS web deploy script
+- `scripts/deploy-gv-web.sh` — VPS web deploy script
