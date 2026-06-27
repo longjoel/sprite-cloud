@@ -2,13 +2,10 @@
  * Integration test harness — disposable Postgres for DB-level tests.
  */
 import { execSync } from "child_process";
-import { readFileSync, readdirSync } from "fs";
-import { join } from "path";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "@/lib/db/schema";
 
-const MIGRATIONS_DIR = join(__dirname, "../../drizzle");
 const PG_PW = process.env.TEST_PG_PASSWORD || ("test" + "-" + "password");
 let _containerId: string | null = null;
 let _dbUrl: string | null = null;
@@ -42,7 +39,7 @@ export function setupTestDb(): void {
   _containerId = result.trim();
 
   waitForPostgresSync(_dbUrl);
-  applyMigrations(port);
+  pushSchema();
   _pgClient = postgres(_dbUrl);
   _db = drizzle(_pgClient, { schema });
 }
@@ -73,20 +70,24 @@ export async function resetTestDb(): Promise<void> {
 }
 
 function waitForPostgresSync(url: string, maxAttempts: number = 30): void {
-  const c = postgres(url, { max: 1, idle_timeout: 2 });
+  void url;
   for (let i = 0; i < maxAttempts; i++) {
-    try { c.unsafe("SELECT 1"); c.end(); return; } catch {}
+    try {
+      execSync("docker exec " + _containerId + " pg_isready -U postgres -d gv_web_test", {
+        timeout: 5_000,
+        stdio: "ignore",
+      });
+      return;
+    } catch {}
     const s = Date.now(); while (Date.now() - s < 500) {}
   }
-  c.end();
   throw new Error("Postgres did not become ready");
 }
 
-function applyMigrations(port: number): void {
-  const files = readdirSync(MIGRATIONS_DIR).filter(f => f.endsWith(".sql")).sort();
-  for (const f of files) {
-    const sql = readFileSync(join(MIGRATIONS_DIR, f), "utf-8");
-    execSync("docker exec -i " + _containerId + " psql -U postgres -d gv_web_test -v ON_ERROR_STOP=1",
-      { input: sql, encoding: "utf-8", timeout: 10_000 });
-  }
+function pushSchema(): void {
+  execSync("pnpm exec drizzle-kit push --force", {
+    env: { ...process.env, DATABASE_URL: _dbUrl! },
+    stdio: "ignore",
+    timeout: 30_000,
+  });
 }

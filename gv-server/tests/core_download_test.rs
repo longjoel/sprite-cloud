@@ -13,7 +13,7 @@ async fn ensure_core_skips_when_cached() {
 
     let client = reqwest::Client::new();
     let result =
-        gv_server::worker::ensure_core_for_test("fake_libretro.so", &client).await;
+        gv_server::core_bridge::ensure_core("fake_libretro.so", &client).await;
     assert!(result.is_ok(), "expected Ok, got {:?}", result.err());
     assert_eq!(result.unwrap(), core_path);
 }
@@ -28,7 +28,7 @@ async fn ensure_core_download_fails_for_unknown_core() {
     }
 
     let client = reqwest::Client::new();
-    let result = gv_server::worker::ensure_core_for_test(
+    let result = gv_server::core_bridge::ensure_core(
         "definitely_not_a_real_core_libretro.so",
         &client,
     )
