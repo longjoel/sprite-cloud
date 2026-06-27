@@ -21,13 +21,7 @@ File: `gv-web/.env.local` for local dev, or container environment in production.
 
 Auth is DB-backed email/password. First-run setup uses `/setup` and the setup code printed in container logs.
 
-Legacy bootstrap vars are still supported only for migrations/automation when the users table is empty:
-
-| Variable | Description |
-|---|---|
-| `LAN_USER` | Seeded username/email prefix |
-| `LAN_PASS` | Plaintext seed password; prefer `LAN_PASS_HASH` |
-| `LAN_PASS_HASH` | bcrypt seed password hash |
+First admin account creation is handled by the `/setup` flow. When the `users` table is empty, the production entrypoint prints a one-time setup code to logs. Sign in to `/setup` with that code to create the first account.
 
 ## gv-server host runtime
 
