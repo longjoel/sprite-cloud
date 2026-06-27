@@ -7,7 +7,7 @@ Games Vault release flow builds one host binary (`gv-server`) plus the `gv-web` 
 | Artifact | Purpose |
 |---|---|
 | `scripts/build-release.sh` | Builds `gv-server` and `gv-web` production bundle |
-| `scripts/deploy-vault.sh` | Installs `gv-server`, writes release markers, restarts systemd |
+| `scripts/deploy-dev.sh` | Installs `gv-server`, writes release markers, restarts systemd |
 | `scripts/deploy-gv-web.sh` | Deploys the built gv-web bundle into the running gateway container |
 | `scripts/smoke-test.sh` | Checks local/remote release markers and health endpoints |
 | `ops/` | Repo-tracked deployment templates |
@@ -38,7 +38,7 @@ export GV_WEB_HEALTH_URL=https://your-gateway.example/api/health
 ./scripts/build-release.sh
 
 # 2. Deploy host
-./scripts/deploy-vault.sh
+./scripts/deploy-dev.sh
 
 # 3. Deploy gateway web
 ./scripts/deploy-gv-web.sh

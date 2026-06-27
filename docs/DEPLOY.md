@@ -80,7 +80,7 @@ Install `gv-server` and create a systemd service:
 
 ```bash
 sudo install -m 755 target/release/gv-server /usr/local/bin/gv-server
-sudo cp ops/vault/gv-server.service /etc/systemd/system/
+sudo cp ops/dev-host/gv-server.service /etc/systemd/system/
 sudo systemctl daemon-reload
 ```
 

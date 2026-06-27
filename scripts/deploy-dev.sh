@@ -19,9 +19,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-BIN_DIR="${GV_VAULT_BIN_DIR:-/usr/local/bin}"
-RELEASE_STATE_DIR="${GV_VAULT_STATE_DIR:-/var/lib/games-vault}"
-SERVICE_NAME="${GV_VAULT_SERVICE:-gv-server.service}"
+BIN_DIR="${GV_DEV_BIN_DIR:-/usr/local/bin}"
+RELEASE_STATE_DIR="${GV_DEV_STATE_DIR:-/var/lib/games-vault}"
+SERVICE_NAME="${GV_DEV_SERVICE:-gv-server.service}"
 WEB_HEALTH_URL="${GV_LOCAL_HEALTH_URL:-http://localhost:3000/api/health}"
 
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
@@ -50,4 +50,4 @@ else
   warn "local web health failed: $WEB_HEALTH_URL"
 fi
 
-log "vault deploy complete at $GV_SHA"
+log "dev host deploy complete at $GV_SHA"
