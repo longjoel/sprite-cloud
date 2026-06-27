@@ -1,0 +1,67 @@
+name: Bug Report
+description: Report something that doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to fill out this bug report.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect to happen and what actually happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: How can we reproduce this? Include config, browser, OS, ROM details if applicable.
+      placeholder: |
+        1. Start gv-server with ...
+        2. Open gateway at ...
+        3. Click Play on ...
+        4. See error
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of the project is affected?
+      options:
+        - gv-web (gateway)
+        - gv-server (host runtime)
+        - gv-player (browser client)
+        - Installer/deployment
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: What commit or version are you running? Run `gv-server --version` or paste `git rev-parse --short HEAD`.
+    validations:
+      required: false
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser (if player issue)
+      options:
+        - Chrome
+        - Firefox
+        - Safari
+        - Edge
+        - Other
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste any relevant logs from gv-server or gateway. No credentials, tokens, or personal URLs.
+      render: shell
+    validations:
+      required: false
