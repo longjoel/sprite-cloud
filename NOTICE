@@ -1,0 +1,28 @@
+Games Vault
+Copyright (C) 2026 Joel Longanecker and Games Vault contributors
+
+Games Vault is licensed under the GNU Affero General Public License v3.0 or later.
+See LICENSE for the full license text.
+
+Third-party notices
+===================
+
+GStreamer
+---------
+Games Vault uses GStreamer libraries for media processing and streaming.
+GStreamer is licensed under the GNU Lesser General Public License, version 2.1 or later.
+
+Games Vault dynamically links to system-provided GStreamer libraries. Users may replace or modify those system libraries according to the terms of the LGPL.
+
+GStreamer source and license information:
+https://gstreamer.freedesktop.org/src/
+https://gstreamer.freedesktop.org/documentation/application-development/appendix/licensing.html
+
+Libretro
+--------
+Games Vault integrates with the libretro API. The libretro API is MIT licensed.
+Individual emulator cores may have their own licenses. Users are responsible for complying with the licenses of any cores they install or run.
+
+Game content
+------------
+Games Vault does not grant rights to ROMs, BIOS files, artwork, manuals, saves, or other game content. Users are responsible for using content they have the legal right to use.

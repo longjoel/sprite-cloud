@@ -82,6 +82,16 @@ server_id = "a0000000-..."
 (`./target/release/gv-worker` → `./target/debug/gv-worker`) or falls back
 to the `GV_WORKER_BIN` env var.
 
+## License
+
+Games Vault is licensed under the **GNU Affero General Public License v3.0 or later**. See [LICENSE](LICENSE).
+
+That means you may self-host, study, modify, and redistribute Games Vault, but if you run a modified version as a network service, you must offer the corresponding source code to users of that service.
+
+Commercial licensing is available separately for organizations that need terms outside the AGPL. Contributions require agreement to the [Contributor License Agreement](CLA.md) so the project can maintain a dual-license model.
+
+See [NOTICE](NOTICE) for third-party notices, including GStreamer LGPL information.
+
 ## Status
 
 Early development — MVP video path working (WebRTC P2P, VP8 test pattern).
