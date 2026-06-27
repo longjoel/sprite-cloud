@@ -5,7 +5,7 @@
 //! No cross-process IPC, no spawn, no WORKER_READY parsing.
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU32};
 use std::sync::Mutex as StdMutex;
 use tokio::sync::Mutex;
 
@@ -44,6 +44,10 @@ pub struct GameSession {
     /// True while the host DataChannel is open. Guest leave only
     /// cancels the session if this is false (host already gone).
     pub host_connected: AtomicBool,
+    /// Number of local player ports on the host machine (gamepads + keyboard on seat 0).
+    /// Used to offset guest seat assignment so local multi-controller doesn't collide.
+    /// Defaults to 1 (keyboard + gamepad[0] on seat 0). Set from host auth message.
+    pub local_players: AtomicU32,
 
     // ── Core (libretro) ─────────────────────────────────────────────
     pub core_loaded: AtomicBool,
