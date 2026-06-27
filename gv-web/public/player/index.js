@@ -631,10 +631,18 @@ export class GvPlayer {
         const gps = navigator.getGamepads();
         if (gps) {
           let count = 0;
-          for (const gp of gps) { if (gp) count++; }
+          const names = [];
+          for (const gp of gps) {
+            if (gp) { count++; names.push(gp.id); }
+          }
           localPlayers = Math.max(1, Math.min(count, 4));
+          console.log("[GPAD] auth: found", count, "gamepad(s):", names.join(", "), "→ local_players =", localPlayers);
+        } else {
+          console.log("[GPAD] auth: navigator.getGamepads() returned null");
         }
-      } catch (_) { /* Gamepad API may not be available */ }
+      } catch (_) {
+        console.warn("[GPAD] auth: getGamepads threw — Gamepad API not available");
+      }
 
       // Send auth message first — must be the first message on the channel
       const authCmd = { cmd: "auth", local_players: localPlayers };
@@ -1048,6 +1056,11 @@ export class GvPlayer {
         const gp = gps[i];
         if (!gp) continue;
 
+        // Log first-time gamepad discovery
+        if (this._gamepadStates[i] === undefined) {
+          console.log("[GPAD] detected gamepad[" + i + "]:", (gp.id || "unknown").slice(0, 60));
+        }
+
         let state = 0;
         // D-pad: use configured button indices; fall back to left stick axes
         if (gp.buttons[m.dpadUp]?.pressed    || gp.axes[m.leftStickY] < -m.axisThreshold) state |= (1 << 4); // Up
@@ -1073,7 +1086,9 @@ export class GvPlayer {
           // Gamepad i>0: send on its own seat directly
           if (this._dc && this._dc.readyState === "open") {
             try {
-              this._dc.send(new Uint8Array([this._seat + i, state & 0xFF, state >> 8]).buffer);
+              const seat = this._seat + i;
+              this._dc.send(new Uint8Array([seat, state & 0xFF, state >> 8]).buffer);
+              console.log("[GPAD] gamepad[" + i + "] → seat", seat, "state=" + state.toString(16));
             } catch (e) {
               console.warn("[INPUT] gamepad[" + i + "] send failed:", e?.message || e);
               if (this._dc) this._dc.close();
