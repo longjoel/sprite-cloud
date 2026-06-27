@@ -1014,6 +1014,9 @@ fn wire_dc_handler(session: &Arc<GameSession>) {
                     if data.len() >= 3 {
                         let seat = data[0] as u32;
                         let state = data[1] as u16 | ((data[2] as u16) << 8);
+                        if seat > 0 {
+                            tracing::trace!("[DC] host input seat={seat} state=0x{state:04x}");
+                        }
                         let guard = session.core_cmd_tx.lock().await;
                         if let Some(ref tx) = *guard {
                             let _ = tx.try_send(core_bridge::CoreCommand::SetInput {
