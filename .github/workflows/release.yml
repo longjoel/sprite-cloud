@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build gv-server
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            arch: x86_64
+          - target: aarch64-unknown-linux-gnu
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cross-compilation dependencies
+        if: matrix.arch == 'arm64'
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build gv-server
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release -p gv-server --target ${{ matrix.target }}
+
+      - name: Upload binary as release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: gv-server-${{ matrix.arch }}
+          path: target/${{ matrix.target }}/release/gv-server
+
+  create-release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd artifacts
+          for dir in */; do
+            arch="${dir%/}"
+            sha256sum "$dir/gv-server" > "../gv-server-${arch}.sha256"
+            mv "$dir/gv-server" "../gv-server-${arch}"
+          done
+          cd ..
+          ls -la gv-server-*
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: CHANGELOG.md
+          draft: ${{ github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/v') }}
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
+          files: |
+            gv-server-x86_64
+            gv-server-x86_64.sha256
+            gv-server-arm64
+            gv-server-arm64.sha256
