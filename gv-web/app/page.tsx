@@ -1,14 +1,26 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { serverMembers, servers } from "@/lib/db/schema";
+import { serverMembers, servers, users } from "@/lib/db/schema";
 import { listGames } from "@/lib/games";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { redirect } from "next/navigation";
 import LibraryClient from "@/components/LibraryClient";
 
-// ── Server component — fetches data, passes to client ──────────────
+// ── Server component — gate → redirect or render ──────────────────────
 
 export default async function Home() {
   const session = await auth();
+
+  // First-run: if no users exist, redirect to setup
+  if (!session) {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(users);
+    if (Number(row?.count ?? 0) === 0) {
+      redirect("/setup");
+    }
+    redirect("/signin");
+  }
 
   // Find all servers the user is a member of
   let serverIds: string[] = [];
@@ -28,7 +40,7 @@ export default async function Home() {
     <LibraryClient
       games={games}
       serverIds={serverIds}
-      session={session ? { user: session.user } : null}
+      session={{ user: session.user }}
     />
   );
 }

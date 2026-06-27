@@ -10,9 +10,10 @@ export interface PipelineStep {
 export const PIPELINE_STEPS: PipelineStep[] = [
   { id: "ice", label: "ICE" },
   { id: "server", label: "Server" },
-  { id: "game", label: "Game" },
-  { id: "worker", label: "Worker" },
-  { id: "handshake", label: "Handshake" },
+  { id: "core", label: "Core" },
+  { id: "encode", label: "Encode" },
+  { id: "sdp", label: "SDP" },
+  { id: "media", label: "Media" },
   { id: "connected", label: "Playing" },
 ];
 

@@ -417,8 +417,11 @@ export class GvPlayer {
       const cmdBody = {
         server_id: serverId,
         type: "sdp_offer",
-        payload: { game_id: gameId, sdp: this._pc.localDescription?.sdp || offer.sdp, host_token: hostToken },
+        payload: { game_id: gameId, sdp: this._pc.localDescription?.sdp || offer.sdp },
       };
+      if (hostToken) {
+        cmdBody.payload.host_token = hostToken;
+      }
       if (roomToken) {
         cmdBody.payload.room_token = roomToken;
       }
@@ -788,6 +791,10 @@ export class GvPlayer {
         if (data.room_token) this._roomToken = data.room_token;
         return data.sdp_answer;
       }
+      // Fail fast on terminal errors (session gone, server restarted, etc.)
+      if (data.error) {
+        throw new Error(data.error + (data.message ? ": " + data.message : ""));
+      }
       await new Promise(r => setTimeout(r, RELAY_POLL_MS));
     }
     throw new Error("Timed out waiting for SDP answer from relay");
@@ -843,7 +850,7 @@ export class GvPlayer {
         {
           const reason = msg.reason || msg.message || "Unknown error";
           console.error("[gv-player] Fatal:", reason);
-          this._transition(State.ERROR);
+          this._setState(State.ERROR, reason);
           this.disconnect();
           if (this.onError) {
             try { this.onError(reason); } catch { /* safety */ }

@@ -11,10 +11,18 @@ use tokio::sync::Mutex;
 
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSample;
+use webrtc::data_channel::RTCDataChannel;
 
 use crate::core_bridge::{CoreCommand, CoreFrame, CoreResponse};
 use crate::gst_audio::GstAudioEncoder;
 use crate::gst_video::GstVideoEncoder;
+
+/// A connected guest peer with their own PC and input seat.
+pub struct GuestPeer {
+    pub pc: Arc<RTCPeerConnection>,
+    pub seat: u32,
+    pub peer_token: String,
+}
 
 pub struct GameSession {
     /// Human-friendly identifier for logging.
@@ -28,6 +36,14 @@ pub struct GameSession {
     pub pc: StdMutex<Arc<RTCPeerConnection>>,
     pub video_track: StdMutex<Arc<TrackLocalStaticSample>>,
     pub audio_track: StdMutex<Arc<TrackLocalStaticSample>>,
+    /// DataChannel to the host browser — set after auth handshake.
+    /// Used by the streaming loop to send `core_died` on crash.
+    pub dc: Mutex<Option<Arc<RTCDataChannel>>>,
+    /// Guest peer connections — host is `session.pc`, guests are here.
+    pub guests: Mutex<Vec<Arc<GuestPeer>>>,
+    /// True while the host DataChannel is open. Guest leave only
+    /// cancels the session if this is false (host already gone).
+    pub host_connected: AtomicBool,
 
     // ── Core (libretro) ─────────────────────────────────────────────
     pub core_loaded: AtomicBool,

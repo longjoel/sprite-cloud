@@ -5,6 +5,7 @@
 
 use anyhow::{Context, Result};
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -13,6 +14,13 @@ use crate::core_bridge;
 use crate::dat;
 use crate::gv_web;
 use crate::saves;
+
+/// Build the worker HTTP URL using GV_WORKER_HOST env var (LAN IP) or fallback.
+fn worker_url(game_id: &str) -> String {
+    let host = std::env::var("GV_WORKER_HOST").unwrap_or_else(|_| "gv-worker.local".into());
+    let port = std::env::var("GV_WORKER_PORT").unwrap_or_else(|_| "8787".into());
+    format!("http://{host}:{port}/{game_id}")
+}
 use crate::scan;
 use crate::session::GameSession;
 use crate::streaming;
@@ -123,6 +131,13 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
     let pc_pool = webrtc::PcPool::new(pool_size).await;
 
     tracing::info!("gv-server running — polling for commands...");
+
+    // Start LAN player HTTP server (port 8787) for direct guest connections
+    let player_addr: SocketAddr = std::env::var("GV_PLAYER_BIND")
+        .unwrap_or_else(|_| "0.0.0.0:8787".into())
+        .parse()
+        .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 8787)));
+    tokio::spawn(crate::player_server::serve(player_addr));
 
     const POLL_ERROR_BACKOFF_MS: u64 = 5_000;
     let mut sessions: HashMap<String, Arc<GameSession>> = HashMap::new();
@@ -287,6 +302,9 @@ async fn handle_start_game(
         pc: std::sync::Mutex::new(stack.pc),
         video_track: std::sync::Mutex::new(stack.video_track),
         audio_track: std::sync::Mutex::new(stack.audio_track),
+        dc: tokio::sync::Mutex::new(None),
+        guests: tokio::sync::Mutex::new(Vec::new()),
+        host_connected: std::sync::atomic::AtomicBool::new(false),
         core_loaded: std::sync::atomic::AtomicBool::new(false),
         core_loading: std::sync::atomic::AtomicBool::new(false),
         core_ready_notify: tokio::sync::Notify::new(),
@@ -310,7 +328,7 @@ async fn handle_start_game(
         platform,
     ).await;
 
-    let worker_url = format!("http://gv-worker.local/{game_id}");
+    let worker_url = worker_url(game_id);
 
     // Wire browser DC → core commands
     wire_dc_handler(&session);
@@ -429,19 +447,81 @@ async fn handle_sdp_offer(
 ) {
     let sdp = cmd.payload.get("sdp").and_then(|v| v.as_str()).unwrap_or("");
     let game_id = cmd.payload.get("game_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let peer_token = cmd.payload.get("peer_token")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     if sdp.is_empty() {
         tracing::warn!("[SDP] empty offer — ignoring");
         return;
     }
 
-    tracing::info!("[SDP] offer for game {game_id} ({} chars)", sdp.len());
+    // ── Guest / Host dispatch ─────────────────────────────────────────
+    // Guest SDP offers create a new PC — never touch the host's PC.
+    let is_guest = cmd.payload.as_object().map_or(false, |obj| {
+        obj.contains_key("peer_token") || obj.contains_key("room_token")
+    });
 
-    // Wait for session to appear (core loading may take a moment)
+    tracing::info!("[SDP] {} offer for game {game_id} ({} chars)",
+        if is_guest { "guest" } else { "host" }, sdp.len());
+
+    // Wait for session to appear (core loading may take a moment).
+    // But if this is a host reconnection (host_token in SDP payload)
+    // and the session is gone, fail fast — don't make the browser wait 30s.
     let started = std::time::Instant::now();
     let max_wait = Duration::from_secs(30);
+    let has_host_token = cmd.payload.as_object()
+        .map_or(false, |obj| obj.contains_key("host_token"));
     loop {
         if let Some(session) = sessions.get(game_id) {
+            // ── Guest path: new PC from pool, never touch host PC ────
+            if is_guest {
+                handle_guest_sdp(session, sdp, &peer_token.unwrap_or_default(), cmd, client, pool).await;
+                return;
+            }
+
+            // ── Host reconnection fast-path ─────────────────────────
+            // If host_connected is false, the old PC is dead (DC close / ICE fail).
+            // Skip it entirely — acquire fresh PC and do a clean exchange.
+            let reconnecting = !session.host_connected.load(std::sync::atomic::Ordering::Relaxed);
+            if reconnecting {
+                tracing::info!("[SDP] host reconnecting — swapping in fresh PC");
+                match pool.acquire().await {
+                    Ok(fresh) => {
+                        *session.video_track.lock().unwrap() = fresh.video_track;
+                        *session.audio_track.lock().unwrap() = fresh.audio_track;
+                        *session.pc.lock().unwrap() = fresh.pc;
+                        wire_dc_handler(session);
+
+                        match webrtc::exchange_sdp_on_pc(&session.pc.lock().unwrap().clone(), sdp).await {
+                            Ok(answer_sdp) => {
+                                tracing::info!("[SDP] reconnection exchange OK ({} chars)", answer_sdp.len());
+                                let worker_url = worker_url(game_id);
+                                let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
+                                let _ = client
+                                    .notify_sdp(&cmd.id, &cmd.lease_token, &worker_url, game_id, &answer_sdp, session_id)
+                                    .await;
+                            }
+                            Err(e) => {
+                                tracing::error!("[SDP] reconnection exchange failed: {e}");
+                                let _ = client.command_result(
+                                    &cmd.id, &cmd.lease_token,
+                                    &serde_json::json!({"error": "sdp_handshake_failed", "message": e}),
+                                ).await;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("[SDP] reconnection pool.acquire failed: {e}");
+                        let _ = client.command_result(
+                            &cmd.id, &cmd.lease_token,
+                            &serde_json::json!({"error": "pool_empty", "message": "no PCs available for reconnection"}),
+                        ).await;
+                    }
+                }
+                return;
+            }
+
             // SDP exchange with retry
             let max_attempts = 2u32;
             let mut sdp_result = Err("no attempts".to_string());
@@ -487,7 +567,7 @@ async fn handle_sdp_offer(
 
             match sdp_result {
                 Ok(answer_sdp) => {
-                    let worker_url = format!("http://gv-worker.local/{game_id}");
+                    let worker_url = worker_url(game_id);
                     let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
                     if let Err(e) = client
                         .notify_sdp(&cmd.id, &cmd.lease_token, &worker_url, game_id, &answer_sdp, session_id)
@@ -509,8 +589,9 @@ async fn handle_sdp_offer(
             return;
         }
 
-        if started.elapsed() >= max_wait {
-            tracing::warn!("[SDP] no session for game {game_id} after {:?}", started.elapsed());
+        if started.elapsed() >= max_wait || (has_host_token && started.elapsed() >= Duration::from_millis(100)) {
+            let reason = if has_host_token { "session gone — server may have restarted" } else { "session not ready" };
+            tracing::warn!("[SDP] no session for game {game_id}: {reason}");
             let _ = client.command_result(
                 &cmd.id, &cmd.lease_token,
                 &serde_json::json!({"error": "session_not_ready", "message": "session not ready"}),
@@ -519,6 +600,191 @@ async fn handle_sdp_offer(
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+}
+
+/// Guest SDP exchange — creates a new PC from pool, adds host tracks,
+/// does SDP exchange on the guest PC, sends answer back.
+async fn handle_guest_sdp(
+    session: &Arc<GameSession>,
+    sdp: &str,
+    peer_token: &str,
+    cmd: &gv_web::Command,
+    client: &gv_web::GvWebClient,
+    _pool: &webrtc::PcPool,
+) {
+    tracing::info!("[SDP] guest SDP exchange (peer_token={})", &peer_token[..peer_token.len().min(8)]);
+
+    // Build a fresh PC with TURN for guest. Pool PCs may have stale ICE state.
+    let stack = match webrtc::build_session_pc().await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("[SDP] guest PC build failed: {e}");
+            let _ = client.command_result(&cmd.id, &cmd.lease_token,
+                &serde_json::json!({"error":"pc_build_failed","message":e})).await;
+            return;
+        }
+    };
+
+    // Add host's video + audio tracks to the guest PC
+    use ::webrtc::track::track_local::TrackLocal;
+    let video_track = session.video_track.lock().unwrap().clone();
+    let audio_track = session.audio_track.lock().unwrap().clone();
+    let _ = stack.pc.add_track(video_track as Arc<dyn TrackLocal + Send + Sync>).await;
+    let _ = stack.pc.add_track(audio_track as Arc<dyn TrackLocal + Send + Sync>).await;
+
+    // SDP exchange on guest PC
+    let answer = match webrtc::exchange_sdp_on_pc(&stack.pc, sdp).await {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::error!("[SDP] guest exchange failed: {e}");
+            let _ = client.command_result(&cmd.id, &cmd.lease_token,
+                &serde_json::json!({"error":"sdp_handshake_failed","message":e})).await;
+            return;
+        }
+    };
+
+    tracing::info!("[SDP] guest exchange OK ({} chars)", answer.len());
+
+    // Seat = existing guests + 1  (host is seat 0, first guest is seat 1)
+    let seat = {
+        let guests = session.guests.lock().await;
+        guests.len() as u32 + 1
+    };
+
+    // Store guest peer
+    let guest = Arc::new(crate::session::GuestPeer {
+        pc: stack.pc,
+        seat,
+        peer_token: peer_token.to_string(),
+    });
+    session.guests.lock().await.push(Arc::clone(&guest));
+
+    // Wire DC handler for guest input
+    wire_dc_handler_for_guest(session, peer_token, seat).await;
+
+    // Send SDP answer back via notify_sdp
+    let worker_url = worker_url(&session.game_id);
+    if let Err(e) = client.notify_sdp(&cmd.id, &cmd.lease_token, &worker_url, &session.game_id, &answer, None).await {
+        tracing::error!("[SDP] guest notify_sdp failed: {e:#}");
+    } else {
+        tracing::info!("[SDP] guest answer sent ({} chars, seat={})", answer.len(), seat);
+    }
+}
+
+/// Wire a DataChannel handler for a guest peer.
+/// Guest input routes to the assigned seat (not port 0).
+/// Guests cannot save/load/list — only the host can.
+async fn wire_dc_handler_for_guest(
+    session: &Arc<GameSession>,
+    peer_token: &str,
+    seat: u32,
+) {
+    let session = Arc::clone(session);
+    let pc = {
+        let guests = session.guests.lock().await;
+        guests.iter()
+            .find(|g| g.peer_token == peer_token)
+            .map(|g| g.pc.clone())
+    };
+
+    let Some(pc) = pc else {
+        tracing::warn!("[DC] guest PC not found for peer_token={}", &peer_token[..8]);
+        return;
+    };
+
+    let peer_token = peer_token.to_string();
+    let pt_for_close = peer_token.clone();
+    let session_for_close = Arc::clone(&session);
+    let pc_for_ice = Arc::clone(&pc);
+    let session_for_ice = Arc::clone(&session);
+    let pt_for_ice = peer_token.clone();
+
+    pc.on_data_channel(Box::new(move |dc: Arc<_>| {
+        let session = Arc::clone(&session);
+        let pt = peer_token.clone();
+        Box::pin(async move {
+            tracing::info!("[DC] guest data channel received: {} (seat={})", dc.label(), seat);
+
+            let dc_for_open = Arc::clone(&dc);
+            let dc_for_msg = Arc::clone(&dc);
+            let session_for_msg = Arc::clone(&session);
+
+            dc_for_open.on_open(Box::new(move || {
+                tracing::info!("[DC] guest channel opened (seat={})", seat);
+                Box::pin(async {})
+            }));
+
+            // Cleanup on DC close
+            let session_cleanup = Arc::clone(&session);
+            let pt_cleanup = pt.clone();
+            dc_for_open.on_close(Box::new(move || {
+                let session = Arc::clone(&session_cleanup);
+                let pt = pt_cleanup.clone();
+                Box::pin(async move {
+                    tracing::info!("[DC] guest disconnected (peer_token={})", &pt[..8]);
+                    let mut guests = session.guests.lock().await;
+                    guests.retain(|g| g.peer_token != pt);
+                })
+            }));
+
+            let dc_for_move = Arc::clone(&dc_for_msg);
+            dc_for_msg.on_message(Box::new(move |msg| {
+                let session = Arc::clone(&session_for_msg);
+                let dc = Arc::clone(&dc_for_move);
+                Box::pin(async move {
+                    let data = if msg.is_string {
+                        String::from_utf8_lossy(&msg.data).into_owned().into_bytes()
+                    } else {
+                        msg.data.to_vec()
+                    };
+
+                    // Guest auth: peer_token handshake
+                    if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&data) {
+                        let cmd_str = val.get("cmd").and_then(|v| v.as_str()).unwrap_or("");
+                        if cmd_str == "auth" {
+                            tracing::info!("[DC] guest auth received (seat={}), sending ack", seat);
+                            let ack = serde_json::json!({"cmd":"auth_ok","seat":seat});
+                            let _ = dc.send_text(ack.to_string()).await;
+                            return;
+                        }
+                        // Guests cannot save/load — silently ignore
+                        if cmd_str == "save_state" || cmd_str == "load_state" || cmd_str == "list_saves" {
+                            return;
+                        }
+                    }
+
+                    // Binary input: [seat_byte, state_lo, state_hi]
+                    if data.len() >= 3 {
+                        let state = data[1] as u16 | ((data[2] as u16) << 8);
+                        let guard = session.core_cmd_tx.lock().await;
+                        if let Some(ref tx) = *guard {
+                            let _ = tx.try_send(crate::core_bridge::CoreCommand::SetInput {
+                                port: seat,
+                                state,
+                            });
+                        }
+                    }
+                })
+            }));
+        })
+    }));
+
+    // ICE disconnect watcher — if guest PC fails, remove it
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            let state = pc_for_ice.connection_state().to_string();
+            if state == "failed" || state == "disconnected" {
+                let mut guests = session_for_ice.guests.lock().await;
+                guests.retain(|g| g.peer_token != pt_for_ice);
+                if guests.is_empty() && !session_for_ice.host_connected.load(std::sync::atomic::Ordering::Relaxed) {
+                    tracing::info!("[ICE] last guest left, host gone — cancelling session");
+                    session_for_ice.cancel.cancel();
+                }
+                break;
+            }
+        }
+    });
 }
 
 async fn handle_browse_files(
@@ -637,6 +903,36 @@ async fn handle_scan_paths(
 fn wire_dc_handler(session: &Arc<GameSession>) {
     let session = Arc::clone(session);
     let pc = session.pc.lock().unwrap().clone();
+
+    // ── ICE watcher for host PC ────────────────────────────────────
+    let pc_for_ice = Arc::clone(&pc);
+    let session_for_ice = Arc::clone(&session);
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            let state = pc_for_ice.connection_state().to_string();
+            if state == "failed" || state == "disconnected" {
+                tracing::warn!("[ICE] host PC {} — notifying browser", state);
+                session_for_ice.host_connected.store(false, std::sync::atomic::Ordering::Relaxed);
+                // Send error over DC so the browser triggers reconnection.
+                // Closing the DC alone doesn't change connectionState reliably.
+                if let Some(ref dc) = *session_for_ice.dc.lock().await {
+                    let msg = serde_json::json!({"cmd":"error","reason":"ice failed"});
+                    let _ = dc.send_text(msg.to_string()).await;
+                }
+                let has_guests = !session_for_ice.guests.lock().await.is_empty();
+                if !has_guests {
+                    tracing::info!("[ICE] host PC dead, no guests — cancelling session");
+                    session_for_ice.cancel.cancel();
+                } else {
+                    tracing::info!("[ICE] host PC dead, {} guests present — keeping session alive",
+                        session_for_ice.guests.lock().await.len());
+                }
+                break;
+            }
+        }
+    });
+
     pc.on_data_channel(Box::new(move |dc: Arc<_>| {
         let session = Arc::clone(&session);
         Box::pin(async move {
@@ -649,6 +945,24 @@ fn wire_dc_handler(session: &Arc<GameSession>) {
             dc_for_open.on_open(Box::new(move || {
                 tracing::info!("[DC] browser channel opened");
                 Box::pin(async {})
+            }));
+
+            // ── Host DC close — only cancel if no guests ────────────
+            let session_close = Arc::clone(&session);
+            dc_for_open.on_close(Box::new(move || {
+                let session = Arc::clone(&session_close);
+                Box::pin(async move {
+                    tracing::warn!("[DC] host DC closed — checking guests");
+                    session.host_connected.store(false, std::sync::atomic::Ordering::Relaxed);
+                    let has_guests = !session.guests.lock().await.is_empty();
+                    if !has_guests {
+                        tracing::info!("[DC] host gone, no guests — cancelling session");
+                        session.cancel.cancel();
+                    } else {
+                        tracing::info!("[DC] host gone, {} guests present — session stays alive",
+                            session.guests.lock().await.len());
+                    }
+                })
             }));
 
             let dc_for_move = Arc::clone(&dc_for_msg);
@@ -671,6 +985,9 @@ fn wire_dc_handler(session: &Arc<GameSession>) {
                                 tracing::info!("[DC] auth received, sending ack");
                                 let ack = serde_json::json!({"cmd": "auth_ok"});
                                 let _ = dc.send_text(ack.to_string()).await;
+                                // Store DC for crash notification, mark host connected
+                                *session.dc.lock().await = Some(Arc::clone(&dc));
+                                session.host_connected.store(true, std::sync::atomic::Ordering::Relaxed);
                                 return;
                             }
                             "save_state" => {

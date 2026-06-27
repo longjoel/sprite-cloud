@@ -7,6 +7,7 @@ mod gst_audio;
 mod gst_video;
 mod gv_web;
 mod platform;
+mod player_server;
 mod retry;
 mod saves;
 mod scan;

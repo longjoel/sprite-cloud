@@ -296,6 +296,16 @@ export default function DashboardClient({ memberships }: Props) {
             </span>
           )}
         </div>
+        {pairingCode && (
+          <div style={S.pairingCommand}>
+            <p style={S.pairingHint}>
+              Run this on the machine with your ROMs:
+            </p>
+            <code style={S.pairingCmd}>
+              gv-server pair {pairingCode} --gv-web-url {window.location.origin}
+            </code>
+          </div>
+        )}
       </section>
 
       {/* ── Dev tools ────────────────────────────────────────────── */}
@@ -427,5 +437,27 @@ const S: Record<string, React.CSSProperties> = {
   pairingError: {
     fontSize: "var(--font-size-sm)",
     color: "var(--color-error)",
+  },
+  pairingCommand: {
+    marginTop: "var(--space-5)",
+    padding: "var(--space-5)",
+    background: "var(--color-mahogany)",
+    border: "1px solid var(--color-brass)",
+    borderRadius: "var(--radius-md)",
+  },
+  pairingHint: {
+    fontSize: "var(--font-size-sm)",
+    color: "var(--color-muted)",
+    margin: "0 0 var(--space-3)",
+  },
+  pairingCmd: {
+    display: "block",
+    fontSize: "var(--font-size-md)",
+    fontFamily: "var(--font-mono)",
+    color: "var(--color-lime)",
+    background: "#0d0a06",
+    padding: "var(--space-4) var(--space-5)",
+    borderRadius: "var(--radius-sm)",
+    wordBreak: "break-all",
   },
 };

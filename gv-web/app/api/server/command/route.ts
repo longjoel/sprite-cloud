@@ -312,18 +312,23 @@ export async function POST(request: NextRequest) {
 
     // End any active sessions owned by the same host_token.
     // This implements "starting a new game kills the old one."
+    // Also grab the last room_token so the share link survives restarts.
+    let recycledRoomToken: string | null = null;
     if (hostToken) {
       const victims = await db
-        .select({ id: sessions.id, gameId: sessions.gameId })
+        .select({ id: sessions.id, gameId: sessions.gameId, roomToken: sessions.roomToken })
         .from(sessions)
         .where(
           and(
             eq(sessions.hostToken, hostToken),
             eq(sessions.serverId, serverId),
-            // only sessions that are still alive
           ),
         );
       for (const v of victims) {
+        // Reuse the room_token from a session for the same game
+        if (v.gameId === (enrichedPayload.game_id as string) && v.roomToken) {
+          recycledRoomToken = v.roomToken;
+        }
         await db
           .update(sessions)
           .set({ status: "ended", endedAt: new Date(), roomToken: null })
@@ -339,6 +344,7 @@ export async function POST(request: NextRequest) {
       gameId: enrichedPayload.game_id as string,
       commandId: cmd.id,
       hostToken: hostToken ?? null,
+      roomToken: recycledRoomToken,
       status: "spawning",
       generation: 1, // first generation for this session
       stateEnteredAt: new Date(),

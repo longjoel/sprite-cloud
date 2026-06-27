@@ -131,7 +131,8 @@ async function relayConnect() {
     }
 
     setStatus('signaling…');
-    await player.connectViaRelay(serverId, gameId, crypto.randomUUID(), null, joinToken, player._peerToken);
+    const hostToken = joinToken ? null : crypto.randomUUID();
+    await player.connectViaRelay(serverId, gameId, hostToken, null, joinToken, player._peerToken);
   } catch (e) {
     setStatus(e.message, 'err');
     console.error(e);

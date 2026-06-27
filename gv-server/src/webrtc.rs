@@ -138,7 +138,7 @@ fn ice_config() -> IceConfig {
 // ── Internal helpers ─────────────────────────────────────────────────────────
 
 /// Build a fully-configured RTCPeerConnection with video + audio tracks.
-async fn build_webrtc_stack(video_codec: VideoCodec) -> Result<InternalWebRtcStack, String> {
+async fn build_webrtc_stack(video_codec: VideoCodec, include_turn: bool) -> Result<InternalWebRtcStack, String> {
     let mut media_engine = MediaEngine::default();
     media_engine
         .register_default_codecs()
@@ -163,6 +163,7 @@ async fn build_webrtc_stack(video_codec: VideoCodec) -> Result<InternalWebRtcSta
     let ice_servers: Vec<RTCIceServer> = ice_cfg
         .servers
         .iter()
+        .filter(|s| include_turn || s.username.is_none())  // STUN-only: keep servers without auth
         .map(|s| RTCIceServer {
             urls: s.urls.clone(),
             username: s.username.clone().unwrap_or_default(),
@@ -362,11 +363,21 @@ pub async fn build_session_pc_gathered() -> Result<WebRtcStack, String> {
 /// Build a WebRTC stack (PC + tracks) without pre-gathering.
 /// Use `build_session_pc_gathered` for the hot path.
 pub async fn build_session_pc() -> Result<WebRtcStack, String> {
+    build_session_pc_with_turn(true).await
+}
+
+/// Build a WebRTC stack without TURN servers — for guest LAN connections.
+/// Prevents TURN allocation conflicts when multiple peers are behind the same NAT.
+pub async fn build_session_pc_stun_only() -> Result<WebRtcStack, String> {
+    build_session_pc_with_turn(false).await
+}
+
+async fn build_session_pc_with_turn(include_turn: bool) -> Result<WebRtcStack, String> {
     let InternalWebRtcStack {
         pc,
         video_track,
         audio_track,
-    } = build_webrtc_stack(VideoCodec::H264).await?;
+    } = build_webrtc_stack(VideoCodec::H264, include_turn).await?;
 
     // DC is created by browser as "diagnostics" (non-negotiated).
     // We receive it via ondatachannel — handled by the caller.

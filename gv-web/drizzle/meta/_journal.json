@@ -85,6 +85,20 @@
       "when": 1782333235400,
       "tag": "0011_swift_overlord",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1782439452104,
+      "tag": "0013_short_codes",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1782569686724,
+      "tag": "0014_add_password_hash",
+      "breakpoints": true
     }
   ]
 }
