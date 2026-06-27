@@ -50,8 +50,13 @@ elif [ "$user_count" = "0" ]; then
     printf '\n╔══════════════════════════════════════════════╗\n'
     printf '║         Games Vault — First Run             ║\n'
     printf '╠══════════════════════════════════════════════╣\n'
+    SETUP_URL="${AUTH_URL:-${NEXTAUTH_URL:-}}"
     printf "║  Setup code: %-30s ║\n" "$SETUP_CODE"
-    printf '║  Visit https://lngnckr.tech/setup           ║\n'
+    if [ -n "$SETUP_URL" ]; then
+      printf "║  Visit %-33s ║\n" "${SETUP_URL%/}/setup"
+    else
+      printf '║  Visit /setup on your gateway URL        ║\n'
+    fi
     printf '╚══════════════════════════════════════════════╝\n\n'
   fi
 elif [ "$user_count" -gt 0 ] 2>/dev/null; then

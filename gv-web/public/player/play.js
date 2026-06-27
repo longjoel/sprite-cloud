@@ -282,7 +282,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
         player._role = joinData.role;
         startGameToken = joinData.worker_token;
 
-        // LAN redirect disabled — all guests stay on lngnckr.tech via TURN relay.
+        // LAN redirect disabled — guests stay on the gateway origin and use configured ICE/TURN.
         // if (joinData.worker_url) {
         //   ...redirect logic removed...
         // }

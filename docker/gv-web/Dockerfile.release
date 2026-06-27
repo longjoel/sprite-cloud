@@ -1,5 +1,5 @@
 # Release Dockerfile — expects pre-built .next/standalone output.
-# Build: cd gv-web && pnpm build && cd .. && docker build -f docker/gv-web/Dockerfile.release -t gv-web-prod:latest .
+# Build: cd gv-web && pnpm build && cd .. && docker build -f docker/gv-web/Dockerfile.release -t gv-web:latest .
 FROM node:22-slim
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \

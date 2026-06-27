@@ -17,13 +17,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-VPS_HOST="${VPS_HOST:-lngnckr.tech}"
+VPS_HOST="${VPS_HOST:-${GV_VPS_HOST:?set VPS_HOST or GV_VPS_HOST}}"
 VPS_USER="${VPS_USER:-root}"
 VPS_APP_DIR="${GV_VPS_APP_DIR:-/docker/gv-web}"
 SERVICE_NAME="${GV_VPS_SERVICE:-gv-web}"
-PUBLIC_HEALTH_URL="${GV_PUBLIC_HEALTH_URL:-https://lngnckr.tech/api/health}"
-IMAGE_SHA_TAG="gv-web-prod:${GV_SHORT_SHA}"
-IMAGE_LATEST_TAG="gv-web-prod:latest"
+PUBLIC_HEALTH_URL="${GV_PUBLIC_HEALTH_URL:-${GV_WEB_URL:?set GV_WEB_URL or GV_PUBLIC_HEALTH_URL}/api/health}"
+IMAGE_SHA_TAG="gv-web:${GV_SHORT_SHA}"
+IMAGE_LATEST_TAG="gv-web:latest"
 WEB_PACKAGE_VERSION="$(python3 - <<'PY'
 import json
 with open('gv-web/package.json', 'r', encoding='utf-8') as f:

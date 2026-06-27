@@ -16,7 +16,7 @@ One-command launcher for the full development stack.
 
 1. Build the binaries:
    ```bash
-   cargo build --release -p gv-server -p gv-worker
+   cargo build --release -p gv-server
    ```
 
 2. Make sure Postgres is running on port 5433.
@@ -24,7 +24,7 @@ One-command launcher for the full development stack.
 3. Set up gv-web `.env.local` (copy from root `.env.example`):
    ```bash
    cp .env.example gv-web/.env.local
-   # Edit AUTH_SECRET, DATABASE_URL, LAN_USER, LAN_PASS
+   # Edit AUTH_SECRET and DATABASE_URL; use /setup for first admin account
    ```
 
 4. Start gv-web, sign in, then pair gv-server:
@@ -48,7 +48,7 @@ One-command launcher for the full development stack.
 
 All service output goes to `/dev/shm/gv-logs/`:
 - `gv-web.log` — Next.js dev server
-- `gv-server.log` — gv-server (polling, worker spawn, SDP relay)
+- `gv-server.log` — gv-server (polling, in-process runtime, SDP relay)
 
 ## Systemd (production)
 
@@ -68,7 +68,7 @@ The repo now has a single release path for both the local host and the VPS:
 
 ```bash
 ./scripts/build-release.sh      # compile Rust + build gv-web prod bundle
-./scripts/deploy-vault.sh       # install host binaries, stamp release commit, smoke test worker
+./scripts/deploy-vault.sh       # install host binary, stamp release commit
 ./scripts/deploy-vps-web.sh     # ship gv-web image to VPS, stamp release commit, verify health
 ./scripts/smoke-test.sh         # verify local + remote release markers and health
 ./scripts/promote-main.sh       # promote stable code to main (optionally after deploy-first)

@@ -9,7 +9,7 @@ ops/
 ├── vault/                      VAULT host (bare-metal N100)
 │   ├── gv-server.service       systemd unit
 │   └── games-vault.env.example environment template
-├── vps/                        VPS host (Docker on lngnckr.tech)
+├── vps/                        Gateway Docker host
 │   ├── docker-compose.yml      gv-web compose file
 │   └── .env.example            environment template
 └── README.md                   this file
@@ -18,7 +18,7 @@ ops/
 ## What does NOT live here
 
 - **Secrets** (`AUTH_SECRET`, `DATABASE_URL`, `GV_ICE_TURN_CREDENTIAL`, `GV_API_KEY`) — these stay on the box or in a secrets manager
-- **Rust source code** — that's under `gv-server/`, `gv-worker/`, etc.
+- **Rust source code** — that's under `gv-server/`, `gv-core/`, and `libretro-runner/`
 - **gv-web source** — under `gv-web/`
 - **Deployment scripts** — under `scripts/`
 

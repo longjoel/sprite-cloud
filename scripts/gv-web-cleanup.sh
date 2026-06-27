@@ -4,7 +4,7 @@ set -euo pipefail
 # Schedule via cron on the VPS:
 #   */10 * * * * /root/projects/games-vault/scripts/gv-web-cleanup.sh
 
-VPS_HOST="${GV_VPS_HOST:-lngnckr.tech}"
+VPS_HOST="${GV_VPS_HOST:?set GV_VPS_HOST to your gateway host}"
 VPS_USER="${GV_VPS_USER:-root}"
 CONTAINER="${GV_WEB_CONTAINER:-gv-web-gv-web-1}"
 

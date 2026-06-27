@@ -20,8 +20,8 @@ done
 LOCAL_HEALTH_URL="${GV_LOCAL_HEALTH_URL:-http://localhost:3000/api/health}"
 LOCAL_RELEASE_FILE="${GV_LOCAL_RELEASE_FILE:-/var/lib/games-vault/RELEASE_COMMIT}"
 REMOTE_RELEASE_FILE="${GV_REMOTE_RELEASE_FILE:-/docker/gv-web/RELEASE_COMMIT}"
-PUBLIC_HEALTH_URL="${GV_PUBLIC_HEALTH_URL:-https://lngnckr.tech/api/health}"
-VPS_HOST="${VPS_HOST:-lngnckr.tech}"
+PUBLIC_HEALTH_URL="${GV_PUBLIC_HEALTH_URL:-${GV_WEB_URL:+${GV_WEB_URL%/}/api/health}}"
+VPS_HOST="${VPS_HOST:-${GV_VPS_HOST:-}}"
 VPS_USER="${VPS_USER:-root}"
 
 if [[ "$CHECK_LOCAL" -eq 1 ]]; then
@@ -45,6 +45,8 @@ if [[ "$CHECK_LOCAL" -eq 1 ]]; then
 fi
 
 if [[ "$CHECK_REMOTE" -eq 1 ]]; then
+  [[ -n "$VPS_HOST" ]] || fail "set VPS_HOST or GV_VPS_HOST for remote smoke test"
+  [[ -n "$PUBLIC_HEALTH_URL" ]] || fail "set GV_WEB_URL or GV_PUBLIC_HEALTH_URL for remote smoke test"
   log "checking remote release markers"
   REMOTE_SHA="$(ssh "$VPS_USER@$VPS_HOST" "cat '$REMOTE_RELEASE_FILE'")"
   log "remote RELEASE_COMMIT=$REMOTE_SHA"

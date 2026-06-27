@@ -178,9 +178,12 @@ log "Configuration"
 echo ""
 
 if [[ -z "$WEB_URL" ]]; then
-  printf "  ${CYAN}Web URL${NC} [https://lngnckr.tech]: "
+  printf "  ${CYAN}Web URL${NC} (for example https://your-gateway.example): "
   read -r WEB_URL
-  WEB_URL="${WEB_URL:-https://lngnckr.tech}"
+fi
+
+if [[ -z "$WEB_URL" ]]; then
+  err "Web URL is required. Re-run with --web-url https://your-gateway.example"
 fi
 
 if [[ -z "$ROM_DIR" ]]; then
@@ -282,7 +285,7 @@ printf "  Next steps:\n"
 echo ""
 printf "  ${BOLD}1. Pair your server:${NC}\n"
 printf "     Go to ${CYAN}${WEB_URL}${NC} → Pair Server → copy the code\n"
-printf "     Run: ${BOLD}gv-server pair <CODE>${NC}\n"
+printf "     Run: ${BOLD}gv-server pair <CODE> --gv-web-url ${WEB_URL}${NC}\n"
 echo ""
 printf "  ${BOLD}2. Start the service:${NC}\n"
 printf "     ${BOLD}${SYSTEMCTL} enable --now gv-server${NC}\n"

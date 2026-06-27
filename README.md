@@ -1,86 +1,97 @@
 # Games Vault
 
-Retro game library and browser-based streaming. Monorepo.
+Self-hosted retro game library and browser streaming.
 
-## Architecture
+Games Vault has three roles:
 
-```
-gv-web          Next.js website (hosting, auth, library management)
-gv-player       Vanilla JS WebRTC client — connects to gv-worker, plays video
-gv-server       Rust binary — polls gv-web, spawns gv-worker on demand
-gv-worker       Rust binary — per-game WebRTC peer with GStreamer VP8 + Opus encoding
-```
+| Role | Runs where | What it does |
+|---|---|---|
+| `gv-web` | Gateway server | Web UI, email/password auth, setup wizard, library, pairing, command relay |
+| `gv-server` | Host machine with ROMs | Polls the gateway, runs emulator cores in-process, streams video/audio over WebRTC |
+| Browser player | Player device | Plays in the browser — no plugin or native app |
+
+`gv-worker` is no longer a separate production binary; the worker/runtime path is merged into `gv-server`.
 
 Full protocol and wire formats: **[docs/PROTOCOL.md](docs/PROTOCOL.md)**
 
 ## Quick start
 
+For the user-facing guide, see **[QUICKSTART.md](QUICKSTART.md)**.
+
+### Run gv-web locally
+
 ```bash
-# 1. gv-web
 cd gv-web
-cp .env.example .env.local   # fill in GitHub OAuth + DB + SERVER_API_KEY
 pnpm install
-pnpm db:push                  # create tables
-pnpm dev                      # http://localhost:3001
+cp .env.example .env.local
+# Fill DATABASE_URL and AUTH_SECRET.
+pnpm exec drizzle-kit push
+pnpm dev
+```
 
-# 2. Pair a server
-cd ..
-cargo run -p gv-server -- pair <code-from-/dev>
+Open `http://localhost:3000/setup`, use the setup code printed by the server/container logs, then create the first admin account.
 
-# 3. Start the server
+### Pair and run a host
+
+From the gateway dashboard, generate a pairing code. The UI shows the exact command, including the gateway URL:
+
+```bash
+gv-server pair ABCD-EFGH --gv-web-url https://your-gateway.example
+```
+
+Then point the host at your ROMs and start it:
+
+```bash
+export GV_ROM_ROOTS=/path/to/roms
 cargo run -p gv-server -- start
-
-# 4. Build the worker
-cargo build -p gv-worker
-
-# 5. Play — hit /dev, enter server_id, click Play
 ```
 
-## Environment variables
-
-See `.env.example` — single source of truth for all components.
-
-### Password hashing
-
-Credentials provider passwords must be stored as bcrypt hashes (plaintext is deprecated).
+## One-liner host install
 
 ```bash
-# Generate a hash (interactive prompt)
-node scripts/hash-password.mjs
-
-# Or from a pipe
-echo "your-password" | node scripts/hash-password.mjs --stdin
+curl -sSL https://raw.githubusercontent.com/longjoel/games-vault/main/scripts/install.sh | sh -s -- --web-url https://your-gateway.example --rom-dir /path/to/roms
 ```
 
-Set `LAN_PASS_HASH` in gv-web's environment with the output. `LAN_PASS` (plaintext) still works as a fallback but logs a deprecation warning.
+The installer detects Linux distro/arch, installs system dependencies, downloads `gv-server` from GitHub Releases, writes config, and installs a systemd service.
 
-## One-liner install
+> Current state: release artifacts still need CI publishing before the one-liner is useful for public users. Until then, build from source as shown in [QUICKSTART.md](QUICKSTART.md).
 
-```bash
-curl -sSL https://raw.githubusercontent.com/longjoel/games-vault/main/scripts/install.sh | sh
-```
+## Manual host config
 
-Detects OS (Ubuntu/Debian, Fedora, Arch) and arch, installs system deps, downloads
-`gv-server`, and sets up a systemd service. See [scripts/install.sh](scripts/install.sh).
+`gv-server pair` writes credentials to `~/.config/games-vault/config.toml` or `/etc/games-vault/config.toml` depending on install mode.
 
-## Manual deployment
-
-For manual setups, build with `--release` and configure
-`~/.config/games-vault/config.toml`:
+A minimal config looks like:
 
 ```toml
 [gv_web]
-url = "https://games.example.com"
-worker_bin = "/opt/games-vault/gv-worker"   # production binary
+url = "https://your-gateway.example"
 
 [auth]
 api_key = "gvsk_..."
 server_id = "a0000000-..."
+
+[rom]
+roots = ["/path/to/roms"]
 ```
 
-`worker_bin` is optional — without it gv-server auto-detects
-(`./target/release/gv-worker` → `./target/debug/gv-worker`) or falls back
-to the `GV_WORKER_BIN` env var.
+## Environment variables
+
+See `.env.example` for the full list.
+
+Important public deployment variables:
+
+| Variable | Purpose |
+|---|---|
+| `AUTH_SECRET` | NextAuth secret |
+| `AUTH_URL` | Public gateway origin |
+| `DATABASE_URL` | Postgres connection string |
+| `GV_WEB_SCHEMA_PUSH_ON_START=1` | Apply current schema at container startup |
+| `GV_ICE_STUN_URLS` | Comma-separated STUN URLs |
+| `GV_ICE_TURN_URLS` | Comma-separated TURN URLs |
+| `GV_ICE_TURN_USERNAME` | TURN username |
+| `GV_ICE_TURN_CREDENTIAL` | TURN credential |
+
+Auth is DB-backed email/password. The first admin account is created through the setup wizard; LAN env-var users are legacy migration/bootstrap only, not the public setup path.
 
 ## License
 
@@ -94,4 +105,4 @@ See [NOTICE](NOTICE) for third-party notices, including GStreamer LGPL informati
 
 ## Status
 
-Early development — MVP video path working (WebRTC P2P, VP8 test pattern).
+Early development. The current architecture supports DB-backed auth, gateway pairing, ROM scanning, in-process libretro runtime, and browser WebRTC play. Public release still needs release CI and broader install-script verification.

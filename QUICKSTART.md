@@ -38,7 +38,6 @@ git clone https://github.com/longjoel/games-vault
 cd games-vault
 cargo build --release -p gv-core -p gv-server
 sudo cp target/release/gv-server /usr/local/bin/
-sudo cp target/release/gv-worker /usr/local/bin/
 ```
 
 This also needs GStreamer (VP8 + Opus encoding):
@@ -175,7 +174,7 @@ gv-server (host) ── polls ──▶ gv-web (gateway)
 ```
 
 - **Player** visits the gateway, clicks Play → browser gets a WebRTC offer
-- **Host** polls the gateway for commands → spawns a worker → streams video
+- **Host** polls the gateway for commands → runs the game in-process → streams video
 - **Gateway** handles auth, library, pairing, and command queuing
 
 No port forwarding on the host. WebRTC + TURN handles NAT traversal.
@@ -187,8 +186,7 @@ No port forwarding on the host. WebRTC + TURN handles NAT traversal.
 | Component | Machine | Purpose |
 |-----------|---------|---------|
 | Browser | Player's device | WebRTC client, gamepad input |
-| gv-server | Host machine | Polls gateway, spawns workers |
-| gv-worker | Host machine | Runs the emulator, encodes video |
+| gv-server | Host machine | Polls gateway, runs emulator cores, encodes video/audio |
 | gv-web | Gateway server | Web UI, auth, library, pairing |
 | Postgres | Gateway server | Users, servers, games, sessions |
 | TURN server | Any public VPS | NAT traversal relay |

@@ -59,10 +59,6 @@ payload = {
             'path': os.path.join(project_dir, 'target/release/gv-server'),
             'sha256': checksum(os.path.join(project_dir, 'target/release/gv-server')),
         },
-        'gv_worker': {
-            'path': os.path.join(project_dir, 'target/release/gv-worker'),
-            'sha256': checksum(os.path.join(project_dir, 'target/release/gv-worker')),
-        },
     },
 }
 with open(os.path.join(release_dir, 'release-manifest.json'), 'w', encoding='utf-8') as f:

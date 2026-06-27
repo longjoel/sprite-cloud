@@ -12,7 +12,6 @@ PG_USER="${GV_PG_USER:-games-vault}"
 WEB_PORT="${GV_WEB_PORT:-3000}"
 LOG_DIR="${GV_LOG_DIR:-/dev/shm/gv-logs}"
 ROM_ROOTS="${GV_ROM_ROOTS:-/srv/storage/games/roms}"
-WORKER_BIN="${GV_WORKER_BIN:-/usr/local/bin/gv-worker}"
 SERVER_BIN="${GV_SERVER_BIN:-/usr/local/bin/gv-server}"
 CORES_DIR="${GV_CORES_DIR:-/srv/storage/games/cores}"
 SAVE_DIR="${GV_SAVE_DIR:-/srv/storage/games/saves}"
@@ -42,12 +41,12 @@ health_check() {
 }
 
 # ── Kill all game processes (by user) ───────────────────────────────────
-# Because gv-server spawns gv-worker children, all run as GV_USER.
-# pkill -u kills zombies, orphans, and defunct processes in one shot.
+# gv-server owns the in-process runtime. Kill by service user to clean up
+# stale dev processes from previous runs.
 cmd_killall() {
     log "Killing all game processes (user: $GV_USER)..."
     pkill -9 -u "$GV_USER" 2>/dev/null && log "  Killed all $GV_USER processes" || true
-    rm -f /tmp/gv-worker-pids/*.pid 2>/dev/null || true
+    rm -f /tmp/gv-worker-pids/*.pid /tmp/gv-workers/*.pid 2>/dev/null || true
     log "Done"
 }
 
@@ -94,14 +93,6 @@ for name, c in sorted(h['components'].items()):
     else
         echo -e "  gv-server ${RED}DOWN${NC}"
     fi
-    local workers
-    # pgrep exits 1 when no workers are running; status should still report idle.
-    workers=$(pgrep -u "$GV_USER" 'gv-worker' 2>/dev/null | wc -l || true)
-    if [ "$workers" -gt 0 ]; then
-        echo -e "  gv-worker ${GREEN}ok${NC}  ($workers running, user: $GV_USER)"
-    else
-        echo -e "  gv-worker ${YELLOW}idle${NC}  (on demand, user: $GV_USER)"
-    fi
     echo ""
     echo "Library: http://localhost:$WEB_PORT"
     echo "Dev:     http://localhost:$WEB_PORT/dev"
@@ -129,12 +120,6 @@ cmd_start() {
         exit 1
     fi
     log "Postgres ready"
-
-    if [ ! -f "$WORKER_BIN" ]; then
-        err "gv-worker binary not found: $WORKER_BIN"
-        err "Build: cargo build --release -p gv-worker && cp target/release/gv-worker $WORKER_BIN && chown $GV_USER:$GV_USER $WORKER_BIN"
-        exit 1
-    fi
 
     if [ ! -f "$SERVER_BIN" ]; then
         err "gv-server binary not found: $SERVER_BIN"
@@ -219,7 +204,6 @@ cmd_start() {
         log "Starting gv-server (user: $GV_USER)..."
         runuser -u "$GV_USER" -- env \
             XDG_CONFIG_HOME="$CFG_DIR/.." \
-            GV_WORKER_BIN="$WORKER_BIN" \
             GV_CORES_DIR="$CORES_DIR" \
             GV_ROM_ROOTS="$ROM_ROOTS" \
             GV_SAVE_DIR="$SAVE_DIR" \
@@ -245,12 +229,11 @@ cmd_start() {
 cmd_build() {
     log "Building release binaries..."
     cd "$PROJECT_DIR"
-    cargo build --release -p gv-server -p gv-worker
+    cargo build --release -p gv-server
     cp target/release/gv-server "$SERVER_BIN"
-    cp target/release/gv-worker "$WORKER_BIN"
-    chown "$GV_USER:$GV_USER" "$SERVER_BIN" "$WORKER_BIN"
-    chmod 755 "$SERVER_BIN" "$WORKER_BIN"
-    log "Installed to $SERVER_BIN and $WORKER_BIN"
+    chown "$GV_USER:$GV_USER" "$SERVER_BIN"
+    chmod 755 "$SERVER_BIN"
+    log "Installed to $SERVER_BIN"
 }
 
 # ── Pair (one-time setup) ───────────────────────────────────────────────
