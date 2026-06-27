@@ -6,7 +6,7 @@ Repo-tracked templates for deploying Games Vault. The files here are the **sourc
 
 ```
 ops/
-├── vault/                      VAULT host (bare-metal N100)
+├── dev-host/                   dev/self-host gv-server host
 │   ├── gv-server.service       systemd unit
 │   └── games-vault.env.example environment template
 ├── vps/                        Gateway Docker host
@@ -26,14 +26,14 @@ ops/
 
 To reconstitute a fresh host from these templates:
 
-### VAULT
+### Dev/self-host gv-server host
 ```bash
 # systemd unit
-sudo cp ops/vault/gv-server.service /etc/systemd/system/
+sudo cp ops/dev-host/gv-server.service /etc/systemd/system/
 sudo systemctl daemon-reload
 
 # environment (fill in real values from secrets)
-sudo cp ops/vault/games-vault.env.example /etc/games-vault.env
+sudo cp ops/dev-host/games-vault.env.example /etc/games-vault.env
 sudo $EDITOR /etc/games-vault.env
 
 # config
@@ -59,5 +59,5 @@ $EDITOR /docker/gv-web/.env
 
 - `docs/DEPLOY.md` — full deployment guide
 - `docs/RELEASE.md` — release system and CI gate policy
-- `scripts/deploy-vault.sh` — host deploy script
+- `scripts/deploy-dev.sh` — dev/self-host deploy script
 - `scripts/deploy-gv-web.sh` — VPS web deploy script

@@ -9,7 +9,7 @@ Keep this directory boring. Scripts here should be reusable release/dev entrypoi
 | `install.sh` | Public/self-host host installer entrypoint |
 | `dev-start.sh` | Local dev stack helper |
 | `build-release.sh` | Builds `gv-server` and `gv-web` release artifacts |
-| `deploy-vault.sh` | Deploys the host-side `gv-server` binary |
+| `deploy-dev.sh` | Deploys the dev/self-host `gv-server` binary |
 | `deploy-gv-web.sh` | Deploys the gateway web bundle to the running container |
 | `apply-gv-web-migration.sh` | Applies an explicit Drizzle SQL migration |
 | `smoke-test.sh` | Checks release markers and health endpoints |
@@ -35,7 +35,7 @@ curl -sSL https://raw.githubusercontent.com/longjoel/games-vault/main/scripts/in
 
 ```bash
 ./scripts/build-release.sh
-./scripts/deploy-vault.sh
+./scripts/deploy-dev.sh
 ./scripts/deploy-gv-web.sh
 ./scripts/smoke-test.sh
 ```
