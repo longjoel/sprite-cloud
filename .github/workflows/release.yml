@@ -14,8 +14,6 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             arch: x86_64
-          - target: aarch64-unknown-linux-gnu
-            arch: arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -32,27 +30,10 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross-compilation dependencies
-        if: matrix.arch == 'arm64'
-        run: |
-          sudo dpkg --add-architecture arm64
-          sudo apt-get update
-          sudo apt-get install -y \
-            gcc-aarch64-linux-gnu \
-            libc6-dev-arm64-cross \
-            libgstreamer1.0-dev:arm64 \
-            libgstreamer-plugins-base1.0-dev:arm64 \
-            libglib2.0-dev:arm64 \
-            pkg-config-aarch64-linux-gnu
-
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
       - name: Build gv-server
-        env:
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-          PKG_CONFIG: aarch64-linux-gnu-pkg-config
-          PKG_CONFIG_ALLOW_CROSS: 1
         run: cargo build --release -p gv-server --target ${{ matrix.target }}
 
       - name: Upload binary as release asset
@@ -96,5 +77,3 @@ jobs:
           files: |
             gv-server-x86_64
             gv-server-x86_64.sha256
-            gv-server-arm64
-            gv-server-arm64.sha256
