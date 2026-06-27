@@ -6,7 +6,7 @@ export interface LaunchEventInput {
   commandId?: string | null;
   serverId?: string | null;
   gameId?: string | null;
-  source: "browser" | "gv-web" | "gv-server" | "gv-worker";
+  source: "browser" | "gv-web" | "gv-server" | "host-runtime";
   event: string;
   detail?: Record<string, unknown>;
 }

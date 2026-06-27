@@ -162,7 +162,7 @@ var GvPlayer = class {
   }
   // ── Public API ──────────────────────────────────────────────────
   /**
-   * Connect to a gv-worker at the given URL (direct path — dev only).
+   * Connect to the host runtime at the given URL (direct path — dev only).
    * @param {string} workerUrl — e.g. "http://localhost:54321"
    */
   async connect(workerUrl) {

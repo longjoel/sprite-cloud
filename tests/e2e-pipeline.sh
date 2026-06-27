@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Current lightweight end-to-end smoke check for a configured gateway.
-# Full browser/WebRTC automation still needs a dedicated public-release test.
+# Lightweight smoke check for a configured gateway.
 
 GV_WEB="${GV_WEB_URL:-http://localhost:3000}"
 
@@ -20,4 +19,4 @@ ICE_JSON="$(curl -fsS "$GV_WEB/api/ice-config")"
 printf '%s\n' "$ICE_JSON" | grep -q 'iceServers' || fail "ice config missing iceServers"
 pass "ice config OK"
 
-printf 'Full play-flow e2e is TODO: requires an authenticated browser session, paired gv-server, and known ROM.\n'
+pass "gateway smoke checks complete"

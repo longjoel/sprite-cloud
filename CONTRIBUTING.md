@@ -38,7 +38,7 @@ pnpm build
 
 - Keep implementations simple and direct.
 - Do not commit ROMs, BIOS files, commercial game assets, generated bundles, `.env` files, credentials, database dumps, or build artifacts.
-- Do not hardcode deployment domains. Test URLs such as `lngnckr.tech` are not product defaults.
+- Do not hardcode deployment domains. Use configurable origins or neutral examples such as `https://your-gateway.example`.
 - Prefer source-built, reproducible changes over checked-in binaries.
 - Include tests for auth, pairing, session startup, and protocol changes when practical.
 - Update docs when behavior changes.

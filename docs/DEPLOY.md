@@ -7,8 +7,6 @@ Production Games Vault has two roles:
 | Gateway | Docker/VPS/server | `gv-web` + PostgreSQL + optional TURN |
 | Host | Linux box with ROMs/GPU | `gv-server` systemd service |
 
-`gv-worker` is not deployed separately; the runtime is merged into `gv-server`.
-
 ## Architecture
 
 ```text

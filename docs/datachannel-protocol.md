@@ -1,8 +1,8 @@
-# DataChannel Protocol — Browser ↔ Worker
+# DataChannel Protocol — Browser ↔ Host Runtime
 
 The `"diagnostics"` DataChannel carries both binary input and JSON control
 messages over a single WebRTC DataChannel. The browser (offerer) creates it,
-the worker (answerer) receives it via `ondatachannel`.
+the host runtime (answerer) receives it via `ondatachannel`.
 
 ## Peer authentication
 
@@ -13,8 +13,8 @@ The auth message is a JSON object:
 {"cmd": "auth", "host_token": "..."}
 ```
 
-The worker compares the token against the session's host token (set from the
-first `sdp_offer` carrying one, or the `GV_HOST_TOKEN` env var):
+The host runtime compares the token against the session's host token set during
+session negotiation:
 
 | Match | Role | Capabilities |
 |-------|------|-------------|
@@ -89,7 +89,7 @@ if msg.data.len() == 3 {
 
 All JSON messages are objects with at minimum a `"cmd"` string field.
 
-### Browser → Worker
+### Browser → Host runtime
 
 | cmd | Role | Fields | Notes |
 |-----|------|--------|-------|
@@ -107,7 +107,7 @@ All JSON messages are objects with at minimum a `"cmd"` string field.
 {"cmd": "ping", "seq": 1, "client_ts": 12345.6}
 ```
 
-### Worker → Browser
+### Host runtime → Browser
 
 | type | Fields | Notes |
 |------|--------|-------|
@@ -140,7 +140,7 @@ message is dropped. No error is sent back — hostile input is simply ignored.
 
 1. User clicks slot N in the player UI (host only)
 2. Browser sends `{"cmd":"save_state","slot":N}` over DataChannel
-3. Worker saves state, writes to disk, replies `{"type":"save_result","slot":N,"ok":true}`
+3. The host runtime saves state, writes to disk, replies `{"type":"save_result","slot":N,"ok":true}`
 4. Browser shows toast (green for ok, red for failure)
 
 ## Reconnection

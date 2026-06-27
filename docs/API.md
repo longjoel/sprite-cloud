@@ -1,338 +1,108 @@
-# gv-web REST API Reference
+# API Reference
 
-gv-web is the Next.js 15 web application that handles authentication,
-pairing, command queuing, and session management. All API routes live
-under `/api/`.
+`gv-web` exposes the HTTP API used by the browser UI and paired `gv-server` hosts. All routes are under `/api`.
 
-**Base URL:** `http://<host>:<port>` (default: `http://localhost:3001`)
+## Auth models
 
----
+| Caller | Auth | Used for |
+|---|---|---|
+| Browser | Auth.js session cookie + CSRF on mutations | Dashboard, setup, library, play/share flows |
+| Host runtime | `Authorization: Bearer <api-key>` | Pair verification, polling, command results, session updates |
+| Pairing command | Short-lived pairing code | Initial host registration |
 
-## Authentication
+Secrets and bearer tokens are examples only in this document; never commit real values.
 
-Two auth models:
+## Setup/auth
 
-| Model | How | Used by |
-|-------|-----|---------|
-| OAuth session | NextAuth.js session cookie | Browser (user signed in via GitHub or LAN creds) |
-| API key bearer | `Authorization: Bearer gvsk_...` | gv-server (acquired during pairing) |
+| Route | Method | Auth | Purpose |
+|---|---:|---|---|
+| `/api/auth/setup` | `POST` | setup code | Create the first admin account when no users exist |
+| `/api/auth/signup` | `POST` | session/setup policy | Create a DB-backed user account |
+| `/api/auth/[...nextauth]` | `GET/POST` | Auth.js | Sign-in/sign-out/session handling |
+| `/api/auth/verify` | `GET` | host bearer | Validate a paired host API key |
 
-Endpoints specify which auth model they require.
+### Pairing
 
----
+| Route | Method | Auth | Purpose |
+|---|---:|---|---|
+| `/api/auth/pair/generate` | `POST` | browser session | Generate a short-lived pairing code |
+| `/api/auth/pair/claim` | `POST` | pairing code | Exchange a pairing code for `server_id` + API key |
 
-## Endpoints
+Claim request:
 
-### POST /api/auth/pair/generate — Generate pairing code
-
-Creates an 8-letter case-insensitive pairing code with a 5-minute TTL.
-Used by the `/dev` dashboard.
-
-**Auth:** OAuth session
-
-**Request**
-```
-POST /api/auth/pair/generate
-```
-
-**Response** `200 OK`
 ```json
 { "code": "ABCD-EFGH" }
 ```
 
----
+Claim response:
 
-### POST /api/auth/pair/claim — Claim pairing code
-
-Redeems a pairing code and returns an API key + server ID. Called by
-`gv-server pair`.
-
-**Auth:** None (the code itself is the credential)
-
-**Request**
-```
-POST /api/auth/pair/claim
-Content-Type: application/json
-```
-```json
-{ "code": "ABCD-EFGH" }
-```
-
-**Response** `200 OK`
 ```json
 {
-  "api_key": "gvsk_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
-  "server_id": "a0000000-0000-0000-0000-000000000001"
+  "server_id": "00000000-0000-0000-0000-000000000000",
+  "api_key": "gvsk_example"
 }
 ```
 
-**Error responses**
-| Status | Body | Cause |
-|--------|------|-------|
-| `400 Bad Request` | `"Invalid code"` | Code not found |
-| `400 Bad Request` | `"Code expired"` | Code older than 5 minutes |
-| `400 Bad Request` | `"Code already claimed"` | Already used |
+## Host command relay
 
----
+| Route | Method | Auth | Purpose |
+|---|---:|---|---|
+| `/api/server/poll` | `POST` | host bearer | Return pending commands for a paired host |
+| `/api/server/result` | `POST` | host bearer | Submit command completion/failure payloads |
+| `/api/server/command` | `POST` | browser session | Queue a command for a selected host |
+| `/api/commands/[id]/result` | `GET` | browser session | Poll a queued command result by command ID |
+| `/api/server/notify` | `GET/POST` | browser/session or host bearer | Legacy-compatible session readiness endpoint |
+| `/api/server/launch-event` | `POST` | host bearer | Report launch lifecycle events |
+| `/api/admin/launch-timeline` | `GET` | browser session | Inspect recent launch/session events |
+| `/api/server/ws` | `GET` | browser/session | WebSocket/SSE-style server updates where enabled |
 
-### GET /api/auth/verify — Verify server credentials
+Command payloads are JSON objects with a `type`, `server_id`, and type-specific `payload`. Current host command families include:
 
-Validates that an API key is still active. Used by gv-server on startup
-to confirm its credentials.
+- `start_game`
+- `stop_game`
+- `sdp_offer`
+- `browse_files`
+- `scan_paths`
 
-**Auth:** API key bearer
+## Server and library management
 
-**Request**
-```
-GET /api/auth/verify
-Authorization: Bearer gvsk_...
-```
+| Route | Method | Auth | Purpose |
+|---|---:|---|---|
+| `/api/servers/members` | `GET` | browser session | List servers available to the signed-in user |
+| `/api/servers/[server_id]` | `GET/PATCH/DELETE` | browser session | Read/update/remove a server registration |
+| `/api/servers/[server_id]/metadata` | `GET/PATCH` | browser session | Read/update host metadata |
+| `/api/servers/[server_id]/rom-roots` | `GET/PATCH` | browser session | Configure visible ROM roots |
+| `/api/library/import` | `POST` | browser session | Import scan results into the library |
+| `/api/games/[id]` | `GET` | browser session | Fetch one game record |
+| `/api/playable-hosts` | `GET` | browser session | Return hosts that can play a selected game |
 
-**Response** `200 OK`
-```json
-{ "valid": true, "server_id": "a0000000-..." }
-```
+## Rooms/share links
 
-**Error responses**
-| Status | Body | Cause |
-|--------|------|-------|
-| `401 Unauthorized` | — | Missing or invalid API key |
+| Route | Method | Auth | Purpose |
+|---|---:|---|---|
+| `/api/room/share` | `POST` | browser session | Create a room/share token for a session |
+| `/api/room/join` | `POST` | room token/session | Join an existing room |
+| `/api/room/resolve/[code]` | `GET` | optional session | Resolve a short share code |
+| `/api/room/shorten` | `POST` | browser session | Create a short code for a room/session URL |
 
----
+## Runtime config/health
 
-### POST /api/server/command — Queue a command
+| Route | Method | Auth | Purpose |
+|---|---:|---|---|
+| `/api/health` | `GET` | none | Gateway health/status check |
+| `/api/ice-config` | `GET` | none/session-safe | Return STUN/TURN config for browser WebRTC setup |
 
-Queues a command for a gv-server to execute. Generates a `worker_token`
-for `start_game` commands so the browser can later poll for the worker URL.
+Example ICE response:
 
-**Auth:** OAuth session
-
-**Request**
-```
-POST /api/server/command
-Content-Type: application/json
-```
-```json
-{
-  "type": "start_game",
-  "server_id": "a0000000-...",
-  "payload": {
-    "game_id": "snes_super_mario_world"
-  }
-}
-```
-
-**Response** `200 OK`
 ```json
 {
-  "id": "cmd_abc123",
-  "worker_token": "tok_def456"
-}
-```
-
-**Supported command types:**
-
-| `type` | `payload` | Returns `worker_token`? |
-|--------|-----------|------------------------|
-| `start_game` | `{ game_id: string }` | Yes |
-| `stop_game` | `{ game_id: string }` | No |
-
-**Error responses**
-| Status | Cause |
-|--------|-------|
-| `401 Unauthorized` | No valid session |
-| `400 Bad Request` | Missing required fields |
-
----
-
-### POST /api/server/poll — Poll for pending commands
-
-Returns undelivered commands for a server. Commands are delivered once
-via a cursor — a consumed command is never re-delivered.
-
-**Auth:** API key bearer
-
-**Request**
-```
-POST /api/server/poll
-Authorization: Bearer gvsk_...
-Content-Type: application/json
-```
-```json
-{ "server_id": "a0000000-..." }
-```
-
-**Response** `200 OK`
-```json
-{
-  "commands": [
-    {
-      "id": "cmd_abc123",
-      "command_type": "start_game",
-      "payload": { "game_id": "snes_super_mario_world" }
-    }
+  "iceServers": [
+    { "urls": "stun:stun.l.google.com:19302" }
   ],
-  "next_poll_ms": 2000
+  "iceTransportPolicy": "all"
 }
 ```
 
-`next_poll_ms` guides the poll interval: 2000ms when idle, 250ms when
-commands were recently delivered (active session).
+## Compatibility terminology
 
-**Error responses**
-| Status | Cause |
-|--------|-------|
-| `401 Unauthorized` | Missing or invalid API key |
-| `400 Bad Request` | Missing `server_id` |
-
----
-
-### POST /api/server/notify — Report worker URL (server → web)
-
-Called by gv-server after successfully spawning a gv-worker. Creates or
-updates a session record with the worker URL.
-
-**Auth:** API key bearer
-
-**Request**
-```
-POST /api/server/notify
-Authorization: Bearer gvsk_...
-Content-Type: application/json
-```
-```json
-{
-  "command_id": "cmd_abc123",
-  "worker_url": "http://192.168.86.126:54321",
-  "game_id": "snes_super_mario_world"
-}
-```
-
-For `stop_game`:
-```json
-{
-  "command_id": "cmd_def456",
-  "worker_url": "",
-  "game_id": "snes_super_mario_world",
-  "action": "stop"
-}
-```
-
-**Response** `200 OK`
-```json
-{ "ok": true }
-```
-
-**Error responses**
-| Status | Cause |
-|--------|-------|
-| `401 Unauthorized` | Missing or invalid API key |
-| `400 Bad Request` | Missing `command_id` or `game_id` |
-
----
-
-### GET /api/server/notify — Poll for worker URL (browser → web)
-
-The browser polls this endpoint after submitting a `start_game` command.
-Returns the worker URL once the server has reported it.
-
-**Auth:** OAuth session
-
-**Query parameters**
-| Param | Required | Description |
-|-------|----------|-------------|
-| `server_id` | Yes | Server UUID |
-| `worker_token` | Yes | Token from command POST response |
-
-**Request**
-```
-GET /api/server/notify?server_id=a0000000-...&worker_token=tok_def456
-```
-
-**Response** `200 OK` (session ready)
-```json
-{
-  "worker_url": "http://192.168.86.126:54321",
-  "game_id": "snes_super_mario_world",
-  "status": "ready"
-}
-```
-
-**Response** `200 OK` (not ready yet)
-```json
-{
-  "worker_url": null,
-  "status": "waiting"
-}
-```
-
-**Response** `200 OK` (session ended)
-```json
-{
-  "worker_url": null,
-  "status": "stopped"
-}
-```
-
-**Error responses**
-| Status | Cause |
-|--------|-------|
-| `401 Unauthorized` | No valid session |
-| `400 Bad Request` | Missing `server_id` or `worker_token` |
-
----
-
-### GET /api/servers/members — List user's servers
-
-Returns all servers paired with the current user's account. Used by the
-dashboard to show which servers are available for commands.
-
-**Auth:** OAuth session
-
-**Request**
-```
-GET /api/servers/members
-```
-
-**Response** `200 OK`
-```json
-{
-  "servers": [
-    {
-      "id": "a0000000-...",
-      "name": "Vault",
-      "created_at": "2026-06-14T00:00:00.000Z"
-    }
-  ]
-}
-```
-
----
-
-### GET /api/auth/[...nextauth] — NextAuth.js handler
-
-Standard NextAuth.js route handler. Handles OAuth sign-in flow, session
-management, and CSRF protection. Managed by NextAuth.js — no custom logic.
-
-**Auth:** Handled by NextAuth.js
-
----
-
-## cURL examples
-
-```bash
-# Generate a pairing code (requires session cookie)
-curl -X POST http://localhost:3001/api/auth/pair/generate   -H "Cookie: authjs.session-token=..."
-
-# Claim a pairing code
-curl -X POST http://localhost:3001/api/auth/pair/claim   -H "Content-Type: application/json"   -d '{"code": "ABCD-EFGH"}'
-
-# Poll for commands (server → web)
-curl -X POST http://localhost:3001/api/server/poll   -H "Authorization: Bearer gvsk_..."   -H "Content-Type: application/json"   -d '{"server_id": "a0000000-..."}'
-
-# Queue a start command (browser → web)
-curl -X POST http://localhost:3001/api/server/command   -H "Content-Type: application/json"   -H "Cookie: authjs.session-token=..."   -d '{"type":"start_game","server_id":"a0000000-...","payload":{"game_id":"snes_super_mario_world"}}'
-
-# Poll for worker URL (browser → web)
-curl "http://localhost:3001/api/server/notify?server_id=a0000000-...&worker_token=tok_def456"   -H "Cookie: authjs.session-token=..."
-```
+Some response fields still use `worker_*` names, especially `worker_token`, for compatibility with older client/server code. In current deployments those values identify a host-runtime play session inside `gv-server`; they do not imply a separate runtime binary.

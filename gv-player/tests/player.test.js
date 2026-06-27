@@ -1,7 +1,7 @@
 // gv-player tests — unit and integration.
 //
 // Unit tests use linkedom for DOM simulation; no browser required.
-// Integration tests require a running gv-worker (set GV_WORKER_URL).
+// Integration tests require a running host runtime (set GV_WORKER_URL for compatibility).
 //
 // Run: node --test tests/player.test.js
 
@@ -216,7 +216,7 @@ describe("GvPlayer integration", { skip: !process.env.GV_WORKER_URL }, () => {
     player.disconnect();
   });
 
-  it("connects and receives video from gv-worker", async () => {
+  it("connects and receives video from the host runtime", async () => {
     const workerUrl = process.env.GV_WORKER_URL;
 
     const trackPromise = new Promise((resolve, reject) => {

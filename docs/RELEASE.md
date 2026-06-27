@@ -12,7 +12,7 @@ Games Vault release flow builds one host binary (`gv-server`) plus the `gv-web` 
 | `scripts/smoke-test.sh` | Checks local/remote release markers and health endpoints |
 | `ops/` | Repo-tracked deployment templates |
 
-`gv-worker` is no longer a separate release artifact.
+The host runtime ships as the single `gv-server` binary.
 
 ## Required deploy environment
 

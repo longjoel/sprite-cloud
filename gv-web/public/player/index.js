@@ -1,6 +1,6 @@
 // ── gv-player — browser-side WebRTC client ────────────────────────────
 //
-// Connects to a gv-worker, negotiates a WebRTC session, and renders
+// Connects to the gv-server host runtime, negotiates a WebRTC session, and renders
 // the VP8 video stream.  Exported as a module for testing; a small
 // bootstrap at the bottom auto-connects when loaded in a browser
 // with a `?worker=` query parameter.
@@ -311,7 +311,7 @@ export class GvPlayer {
   // ── Public API ──────────────────────────────────────────────────
 
   /**
-   * Connect to a gv-worker at the given URL (direct path — dev only).
+   * Connect to the host runtime at the given URL (direct path — dev only).
    * @param {string} workerUrl — e.g. "http://localhost:54321"
    */
   async connect(workerUrl) {

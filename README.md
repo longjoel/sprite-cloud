@@ -10,9 +10,8 @@ Games Vault has three roles:
 | `gv-server` | Host machine with ROMs | Polls the gateway, runs emulator cores in-process, streams video/audio over WebRTC |
 | Browser player | Player device | Plays in the browser — no plugin or native app |
 
-`gv-worker` is no longer a separate production binary; the worker/runtime path is merged into `gv-server`.
-
-Full protocol and wire formats: **[docs/PROTOCOL.md](docs/PROTOCOL.md)**
+Architecture overview: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
+Protocol and wire formats: **[docs/PROTOCOL.md](docs/PROTOCOL.md)**
 
 ## Quick start
 
@@ -91,7 +90,7 @@ Important public deployment variables:
 | `GV_ICE_TURN_USERNAME` | TURN username |
 | `GV_ICE_TURN_CREDENTIAL` | TURN credential |
 
-Auth is DB-backed email/password. The first admin account is created through the setup wizard; LAN env-var users are legacy migration/bootstrap only, not the public setup path.
+Auth is DB-backed email/password. The first admin account is created through the setup wizard.
 
 ## License
 

@@ -87,7 +87,7 @@ pub fn http_timeout() -> Duration {
     *TIMEOUT
 }
 
-// ── GStreamer encoder config (from gv-worker) ────────────────────────
+// ── GStreamer encoder config ─────────────────────────────────────────
 
 /// Target bitrate in kbps. GV_GST_VIDEO_BITRATE_KBPS, default 2000.
 pub fn gst_video_bitrate_kbps() -> u32 {
