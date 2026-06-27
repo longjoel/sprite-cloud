@@ -2,19 +2,19 @@
 resolver = "2"
 members = ["gv-server", "gv-core", "libretro-runner"]
 
-# Point webrtc-rs crates to local fork with trace logging
+# Patch webrtc-rs crates from fork (makes RTCIceCandidatePair field public, trace logging)
 [patch.crates-io]
-webrtc = { path = "/root/webrtc-rs-fork/webrtc" }
-webrtc-ice = { path = "/root/webrtc-rs-fork/ice" }
-turn = { path = "/root/webrtc-rs-fork/turn" }
-stun = { path = "/root/webrtc-rs-fork/stun" }
-sdp = { path = "/root/webrtc-rs-fork/sdp" }
-webrtc-mdns = { path = "/root/webrtc-rs-fork/mdns" }
-rtp = { path = "/root/webrtc-rs-fork/rtp" }
-rtcp = { path = "/root/webrtc-rs-fork/rtcp" }
-webrtc-srtp = { path = "/root/webrtc-rs-fork/srtp" }
-dtls = { path = "/root/webrtc-rs-fork/dtls" }
-webrtc-sctp = { path = "/root/webrtc-rs-fork/sctp" }
-interceptor = { path = "/root/webrtc-rs-fork/interceptor" }
-webrtc-media = { path = "/root/webrtc-rs-fork/media" }
-webrtc-util = { path = "/root/webrtc-rs-fork/util" }
+webrtc = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
+webrtc-ice = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
+turn = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
+stun = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
+sdp = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
+webrtc-mdns = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
+rtp = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
+rtcp = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
+webrtc-srtp = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
+dtls = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
+webrtc-sctp = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
+interceptor = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
+webrtc-media = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
+webrtc-util = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
