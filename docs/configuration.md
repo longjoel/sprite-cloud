@@ -1,6 +1,6 @@
 # Configuration Reference
 
-Configuration for the current Games Vault architecture: `gv-web` gateway + `gv-server` host runtime. `gv-worker` is no longer a separate production binary.
+Configuration for the current Games Vault architecture: `gv-web` gateway + `gv-server` host runtime.
 
 ## gv-web gateway
 
@@ -56,13 +56,13 @@ Runtime env vars:
 | `GV_ROM_ROOTS` | from config | Comma-separated ROM roots used during pairing/startup |
 | `GV_CORES_DIR` | workspace/test-data fallback | Libretro core cache/download directory |
 | `GV_BUILDBOT_URL` | libretro buildbot | Core download base URL |
-| `GV_WORKER_HOST` | auto-detected LAN IP | Host/IP advertised in player URLs for the local player endpoint |
-| `GV_WORKER_PORT` | `8787` | Port advertised in player URLs |
+| `GV_WORKER_HOST` | auto-detected LAN IP | Compatibility name for the host/IP advertised in player URLs for the local player endpoint |
+| `GV_WORKER_PORT` | `8787` | Compatibility name for the port advertised in player URLs |
 | `GV_PLAYER_BIND` | `0.0.0.0:8787` | Local player HTTP bind address |
 | `GV_SAVE_DIR` | temp/default | Save-state/SRAM directory |
 | `GV_SYSTEM_DIR` | temp/default | BIOS/system directory |
 
-`GV_WORKER_HOST`/`GV_WORKER_PORT` are legacy names for the browser-facing local player endpoint. They do **not** point to a separate `gv-worker` process.
+`GV_WORKER_HOST`/`GV_WORKER_PORT` are compatibility names for the browser-facing local player endpoint.
 
 ## Core overrides
 

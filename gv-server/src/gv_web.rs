@@ -250,7 +250,7 @@ impl GvWebClient {
 
     /// POST /api/server/notify — report worker URL after spawning.
     ///
-    /// Called after `start_game` spawns a gv-worker so gv-web can
+    /// Called after `start_game` starts a host-runtime session so gv-web can
     /// surface the connect URL to the browser.
     ///
     /// Retries up to 3 times with exponential backoff for transient
@@ -266,7 +266,7 @@ impl GvWebClient {
 
     /// POST /api/server/notify with an SDP answer.
     ///
-    /// Called after relaying an SDP offer to a gv-worker so the browser
+    /// Called after relaying an SDP offer to the host runtime so the browser
     /// can retrieve the answer via polling.
     pub async fn notify_sdp(
         &self,

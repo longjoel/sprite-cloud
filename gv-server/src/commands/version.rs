@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use crate::config;
 use crate::gv_web;
 
-// The gv-worker binary is now merged into gv-server.
+// Runtime version metadata for the single gv-server host binary.
 // Version reporting no longer needs to resolve a separate binary.
 
 // ── Release metadata collection ───────────────────────────────────────

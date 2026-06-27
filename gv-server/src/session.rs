@@ -1,6 +1,6 @@
 //! Per-game session: libretro core + GStreamer pipeline + WebRTC tracks.
 //!
-//! Everything that was split across gv-worker (core/GStreamer), gv-shm
+//! Session runtime for core execution, GStreamer encoding, WebRTC, and input.
 //! (IPC ring buffer), and gv-server (fan_out_frames) is now one struct.
 //! No cross-process IPC, no spawn, no WORKER_READY parsing.
 

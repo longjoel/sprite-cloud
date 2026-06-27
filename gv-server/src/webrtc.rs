@@ -1,6 +1,6 @@
 //! WebRTC stack: pre-warming, PC building, SDP exchange, ICE gathering.
 //!
-//! Adapted from gv-worker/src/main_body/webrtc.rs — all worker-specific
+//! WebRTC peer/session helpers for the in-process host runtime.
 //! code (GStreamer encoders, core loading, DC auth handler) removed.
 //!
 //! Provides a single `handle_sdp_offer()` entry point that takes a browser

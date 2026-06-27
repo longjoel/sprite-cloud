@@ -1,7 +1,7 @@
 //! CLI subcommand implementations: `pair` and `start`.
 //!
 //! `start` polls gv-web via HTTP (same as before), but game sessions now
-//! run in-process — no gv-worker binary, no shm IPC, no cross-process spawn.
+//! run in-process — no separate runtime binary, no shm IPC, no cross-process spawn.
 
 use anyhow::{Context, Result};
 use std::collections::HashMap;
@@ -17,7 +17,7 @@ use crate::saves;
 
 /// Build the worker HTTP URL using GV_WORKER_HOST env var (LAN IP) or fallback.
 fn worker_url(game_id: &str) -> String {
-    let host = std::env::var("GV_WORKER_HOST").unwrap_or_else(|_| "gv-worker.local".into());
+    let host = std::env::var("GV_WORKER_HOST").unwrap_or_else(|_| "localhost".into());
     let port = std::env::var("GV_WORKER_PORT").unwrap_or_else(|_| "8787".into());
     format!("http://{host}:{port}/{game_id}")
 }

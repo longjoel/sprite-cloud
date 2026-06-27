@@ -1,156 +1,109 @@
-# Development Conventions
-
-How we work on the Games Vault v2 monorepo.
-
----
+# Development Guide
 
 ## Repository structure
 
-```
+```text
 games-vault/
-├── gv-web/            Next.js 15 web app (TypeScript)
-│   ├── app/           App router pages + API routes
-│   ├── lib/           Shared logic (auth, db, commands, notify)
-│   ├── __tests__/     vitest test suite
-│   └── public/player/ Browser WebRTC client (vanilla JS)
-├── gv-server/         Rust CLI (polls gv-web, manages workers)
-├── gv-worker/         Rust per-game WebRTC peer
-├── gv-player/         (legacy — empty, player lives in gv-web/public/player/)
-├── docs/              Protocol, API reference, ADRs, guides
-└── .hermes/           Agent plans and skill references (gitignored)
+├── gv-web/             Next.js gateway app and browser player assets
+│   ├── app/            App router pages and API routes
+│   ├── lib/            Auth, DB, command/session helpers
+│   ├── tests/          Vitest tests
+│   └── public/player/  Browser WebRTC player client
+├── gv-server/          Rust host runtime CLI/service
+├── gv-core/            Shared game/core metadata helpers
+├── libretro-runner/    Libretro execution support
+├── docker/             Container entrypoints
+├── ops/                Deployment templates
+├── scripts/            Reusable install/build/deploy/dev scripts
+└── docs/               Current public documentation
 ```
 
-**Workspace setup:**
-- pnpm workspace: `pnpm-workspace.yaml` (gv-web)
-- Cargo workspace: root `Cargo.toml` (gv-server, gv-worker)
-- No shared Rust library crate — each binary is self-contained
-- gv-worker binary is consumed by gv-server via `spawn_worker()`, not Cargo dep
+There is no separate production worker crate or binary. The emulator/runtime path is part of `gv-server`.
 
----
+## Local development
 
-## Branch strategy
+Gateway:
 
-Single active branch: `main`. All development happens on `main`.
-
-- Feature branches: `feat/<name>` — merge directly to `main`
-- Fix branches: `fix/<name>` — merge directly to `main`
-- No release branches, no develop branch
-- gv-test VPS deploys from `main` tip (Docker Compose)
-- Vault deploys from `main` tip (systemd)
-
-Before committing, verify:
 ```bash
-git branch --show-current  # Must show "main"
+cd gv-web
+pnpm install
+cp .env.example .env.local
+pnpm exec drizzle-kit push
+pnpm dev
 ```
 
----
+Host runtime:
 
-## Commit conventions
-
-[Conventional Commits](https://www.conventionalcommits.org/):
-
-```
-feat(scope): description
-fix(scope): description
-docs(scope): description
-chore(scope): description
-refactor(scope): description
-test(scope): description
+```bash
+cargo run -p gv-server -- --help
+cargo run -p gv-server -- start
 ```
 
-**Scopes:** `worker`, `player`, `server`, `web`, `docs`, `ci`, `deps`
+Combined helper:
 
-**Examples:**
+```bash
+./scripts/dev-start.sh build
+./scripts/dev-start.sh start
+./scripts/dev-start.sh status
+./scripts/dev-start.sh stop
 ```
-fix(worker): browser creates DataChannel as offerer
-feat(player): debug HUD with stats panels and pipeline indicators
-docs: gv-worker HTTP endpoint reference
-```
-
-Reference issue numbers in the commit body (not the summary line):
-```
-fix(worker): handle mutex poison gracefully instead of panicking
-
-Closes #42
-```
-
----
 
 ## Code style
 
 ### Rust
 
-- Edition 2024
-- `cargo fmt` (standard Rust style)
-- `cargo clippy` — no warnings allowed
-- `#![deny(unsafe_code)]` unless explicitly needed (libvpx FFI)
-- `tracing` for all logging — no `println!`/`eprintln!`
-- JSON log output to stdout via `tracing-subscriber`
-- All tunable values go in `config.rs` as `pub const` or `LazyLock`
-- Retry logic centralized in `gv-server/src/retry.rs` — `with_retry()`
+- Rust edition 2024
+- Use `cargo fmt`
+- Use `tracing` for logging
+- Keep runtime config in `gv-server/src/config.rs` or documented env/config files
+- Avoid committing generated binaries, ROMs, downloaded cores, or build output
 
-### TypeScript / Next.js
+### TypeScript/Next.js
 
-- Prettier for formatting
-- ESLint for linting
-- Path aliases via `tsconfig.json`
-- Server actions and API routes in `app/api/`
-- Database queries via Drizzle ORM
-- Auth via NextAuth.js v5
+- API routes live under `gv-web/app/api/**/route.ts`
+- Shared DB/auth/session helpers live under `gv-web/lib/`
+- Database schema uses Drizzle
+- Tests use Vitest
+- Run `pnpm run lint`, `pnpm test`, and `pnpm build` before public-facing changes
 
-### JavaScript (gv-player)
+### Browser player JavaScript
 
-- Vanilla JS, no build step
-- ES modules (`import`/`export`)
-- JSDoc type annotations on all public methods
-- No framework dependencies
-- `"use strict"` implied by module mode
+- Served directly from `gv-web/public/player/`
+- Vanilla ES modules; no separate bundling step
+- Keep protocol changes reflected in `docs/PROTOCOL.md` and `docs/datachannel-protocol.md`
 
-### Pre-commit hook
+## Adding a host command
 
-Stored in `.git/hooks/pre-commit`:
+1. Add/adjust the command payload shape in `gv-web` route/schema code.
+2. Add or update the `gv-server` command handler.
+3. Add tests on both sides when the behavior is externally visible.
+4. Update `docs/PROTOCOL.md` if the component contract changed.
+5. Update `docs/API.md` if an HTTP route or response changed.
+
+## Adding an API route
+
+1. Create `gv-web/app/api/<path>/route.ts`.
+2. Add appropriate auth: browser session, host bearer token, setup code, or public-safe read-only access.
+3. Validate input explicitly.
+4. Add Vitest coverage.
+5. Update `docs/API.md` and, if relevant, `docs/PROTOCOL.md`.
+
+## Commit/release discipline
+
+Before committing meaningful changes:
+
 ```bash
-# JS syntax check on staged files
-for f in $(git diff --cached --name-only --diff-filter=ACM | grep '\.js$'); do
-  node -c "$f" || exit 1
-done
+cargo test --workspace
+cd gv-web && pnpm run lint && pnpm test && pnpm build
+git diff --check
 ```
 
----
+Release/build entrypoints are documented in `docs/RELEASE.md` and `scripts/README.md`.
 
-## Adding a new command type
+## Public repo rules
 
-Commands flow: Browser → gv-web → gv-server → gv-worker.
-
-1. **Add type to gv-web schema** — `lib/db/schema.ts` — add new variant to the command type union
-2. **Create command route** (if needed) — `app/api/server/command/route.ts` — already generic, accepts any `type` string
-3. **Add server handler** — `gv-server/src/commands.rs` — match on `cmd_type`, implement handler
-4. **Update protocol doc** — `docs/PROTOCOL.md` — add sequence diagram, payload shape, error handling
-5. **Add test** — gv-web: API route test; gv-server: unit test for poll response parsing
-6. **Update API doc** — `docs/API.md` — if a new endpoint is added
-
-No server restart required — gv-server polls for commands and picks up new types on next deploy.
-
----
-
-## Adding a new API route (gv-web)
-
-1. Create the route file in `app/api/<path>/route.ts`
-2. Export handler functions: `GET`, `POST`, etc.
-3. Add auth middleware — `auth()` for session, `validateServerAuth()` for API key
-4. Add request validation (Zod schema or inline checks)
-5. Add test in `__tests__/` — use vitest with `testClient` helper
-6. Update `docs/API.md`
-7. Update `docs/PROTOCOL.md` if it changes a contract between components
-
----
-
-## Release process
-
-1. All tests pass: `cargo test --workspace && cd gv-web && pnpm test`
-2. Verify on gv-test VPS: deploy to Docker Compose, smoke test
-3. Deploy to Vault: systemd restart
-4. Tag if needed: `git tag v0.2.0 && git push --tags`
-
-No version bumps in `package.json` or `Cargo.toml` — tags are the version
-source of truth for now.
+- No secrets, setup codes, API keys, tokens, passwords, or private connection strings
+- No ROMs, downloaded libretro cores, generated bundles, or large artifacts
+- No hardcoded personal domains as defaults
+- No historical scratchpad plans in public docs
+- Keep docs focused on the architecture that exists now

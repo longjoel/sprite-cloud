@@ -1,6 +1,6 @@
 //! Streaming loop: libretro core → GStreamer → WebRTC tracks.
 //!
-//! Merges gv-worker's stream_frames (core drain + GStreamer encode)
+//! Core drain + GStreamer encode streaming pipeline.
 //! with gv-server's fan_out_frames (write to WebRTC tracks). No shm.
 
 use std::sync::Arc;

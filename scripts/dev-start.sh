@@ -46,7 +46,7 @@ health_check() {
 cmd_killall() {
     log "Killing all game processes (user: $GV_USER)..."
     pkill -9 -u "$GV_USER" 2>/dev/null && log "  Killed all $GV_USER processes" || true
-    rm -f /tmp/gv-worker-pids/*.pid /tmp/gv-workers/*.pid 2>/dev/null || true
+    rm -f /tmp/gv-sessions/*.pid 2>/dev/null || true
     log "Done"
 }
 

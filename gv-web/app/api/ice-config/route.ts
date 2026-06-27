@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 // ── GET /api/ice-config ────────────────────────────────────────────────
 //
 // Returns the shared ICE server policy for browser WebRTC connections.
-// Configured via environment variables on gv-web (same vars as gv-worker):
+// Configured via environment variables on gv-web:
 //
 //   GV_ICE_STUN_URLS       — comma-separated STUN URLs
 //   GV_ICE_TURN_URLS       — comma-separated TURN URLs
