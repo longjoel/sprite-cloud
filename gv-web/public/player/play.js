@@ -13,6 +13,8 @@ import { GvPlayer, State } from "./index.js";
 // On plain HTTP we fall back to crypto.getRandomValues → Math.random.
 
 function isPrivateIP(host) {
+  // .local mDNS names are always LAN
+  if (host.endsWith(".local")) return true;
   // Check if an IP address is in a private/LAN range.
   // Returns false for hostnames (not IPs), true for private IPs.
   const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
@@ -166,6 +168,10 @@ async function startGame(serverId, gameId, corePath, hostToken, callbacks, sdpOf
     if (data.worker_url) {
       return { workerToken, workerUrl: data.worker_url, sdpAnswer: data.sdp_answer || null };
     }
+    // Fail fast on terminal errors (session gone, server restarted, etc.)
+    if (data.error) {
+      throw new Error(data.error + (data.message ? ": " + data.message : ""));
+    }
     await new Promise((r) => setTimeout(r, GAME_START_POLL_MS));
   }
   throw new Error("Timed out waiting for worker to start");
@@ -197,8 +203,8 @@ async function fetchIceConfig() {
   return { iceServers: [{ urls: "stun:stun.l.google.com:19302" }], iceTransportPolicy: "all" };
 }
 
-function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
-  console.log("[gv] startPlayer called", { serverId, gameId, joinToken: !!joinToken });
+function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, hostTokenParam) {
+  console.log("[gv] startPlayer called", { serverId, gameId, joinToken: !!joinToken, hostTokenParam: !!hostTokenParam });
 
   // Fetch ICE config first, then create player with it
   let player = null;
@@ -213,7 +219,25 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
 
   // Generate a host token once — reused across reconnects so the
   // worker recognizes the same host after a disconnect.
-  const hostToken = randomUUID();
+  const hostToken = (() => {
+    // ── Priority: explicit param (from short code) > URL param > new UUID ──
+    if (hostTokenParam) {
+      console.log("[gv] using hostToken from props:", hostTokenParam.slice(0, 8) + "...");
+      return hostTokenParam;
+    }
+    const urlParams = new URLSearchParams(window.location.search);
+    const fromUrl = urlParams.get("host_token");
+    if (fromUrl) {
+      console.log("[gv] reusing host_token from URL:", fromUrl.slice(0, 8) + "...");
+      return fromUrl;
+    }
+    return randomUUID();
+  })();
+
+  // If URL has host_token, this is a page-refresh reconnection.
+  // Skip start_game — the server session is still alive.
+  // Falls back to start_game if the session is gone (e.g. server restarted).
+  let isReconnect = !!new URLSearchParams(window.location.search).get("host_token") || !!hostTokenParam;
 
   const doConnect = async () => {
     callbacks.onStateChange?.("connecting");
@@ -258,47 +282,68 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
         player._role = joinData.role;
         startGameToken = joinData.worker_token;
 
-        // LAN guest: redirect to worker's HTTP player page.
-        // Chrome on HTTP doesn't use mDNS → real IP host candidates →
-        // prflx discovery → direct host↔host WebRTC. No TURN needed.
-        // Redirect (not iframe) avoids CSP frame-src restrictions.
-        if (joinData.worker_url) {
+        // LAN redirect disabled — all guests stay on lngnckr.tech via TURN relay.
+        // if (joinData.worker_url) {
+        //   ...redirect logic removed...
+        // }
+      } else if (!gameStarted) {
+        // ── URL persistence: create short code on first connect ──
+        const persistUrl = async () => {
           try {
-            const workerHost = new URL(joinData.worker_url).hostname;
-            if (isPrivateIP(workerHost)) {
-              const redirectUrl = joinData.worker_url
-                + "/player?join=" + encodeURIComponent(rt)
-                + "&peer_token=" + encodeURIComponent(joinData.peer_token)
-                + "&worker_token=" + encodeURIComponent(joinData.worker_token || "")
-                + "&server_id=" + encodeURIComponent(joinData.server_id || "")
-                + "&seat=" + (joinData.seat ?? 0)
-                + "&role=" + encodeURIComponent(joinData.role || "player");
-              console.log("[gv] LAN worker detected (" + workerHost + "): redirecting to HTTP player →", redirectUrl);
-              window.location.href = redirectUrl;
-              return;
+            const resp = await fetch("/api/room/shorten", {
+              method: "POST",
+              headers: csrfHeaders(),
+              body: JSON.stringify({
+                game_id: gameId,
+                host_token: hostToken,
+                server_id: serverId,
+              }),
+            });
+            if (resp.ok) {
+              const data = await resp.json();
+              const shortUrl = `/p/${data.code}`;
+              window.history.replaceState(null, "", shortUrl);
+              console.log("[gv] short URL persisted:", shortUrl);
+            } else {
+              console.warn("[gv] shorten API failed, falling back to query params");
+              const url = new URL(window.location.href);
+              url.searchParams.set("game", gameId);
+              url.searchParams.set("host_token", hostToken);
+              url.searchParams.set("server_id", serverId);
+              window.history.replaceState(null, "", url.toString());
             }
           } catch (e) {
-            console.warn("[gv] LAN redirect setup failed:", e?.message || e);
+            console.warn("[gv] URL persist failed:", e?.message || e);
           }
-        }
-      } else if (!gameStarted) {
-        // Host: generate SDP offer first, then include it in start_game.
-        // The server does SDP exchange inline, and the poll returns the answer.
-        console.log("[gv] generating SDP offer for start_game...");
-        player._createPeerConnection();
-        const offer = await player._pc.createOffer();
-        await player._pc.setLocalDescription(offer);
-        const gatherStart = Date.now();
-        await player._waitForIceGatheringComplete();
-        console.log("[gv] ICE gather done in", Date.now() - gatherStart, "ms");
-        const sdpOffer = player._pc.localDescription?.sdp || offer.sdp;
+        };
 
-        console.log("[gv] calling startGame with SDP offer...");
-        const sgResult = await startGame(serverId, gameId, corePath, hostToken, callbacks, sdpOffer);
-        startGameToken = sgResult.workerToken;
-        sdpAnswer = sgResult.sdpAnswer;
-        gameStarted = true;
-        console.log("[gv] startGame complete, sdpAnswer:", !!sdpAnswer);
+        if (isReconnect) {
+          // Page-refresh reconnection: skip start_game, go straight to
+          // connectViaRelay with a fresh SDP offer.
+          // Server detects !host_connected and swaps in a fresh PC.
+          console.log("[gv] reconnection mode — skipping start_game");
+          gameStarted = true;
+          persistUrl();
+        } else {
+          // Host: generate SDP offer first, then include it in start_game.
+          // The server does SDP exchange inline, and the poll returns the answer.
+          console.log("[gv] generating SDP offer for start_game...");
+          player._createPeerConnection();
+          const offer = await player._pc.createOffer();
+          await player._pc.setLocalDescription(offer);
+          const gatherStart = Date.now();
+          await player._waitForIceGatheringComplete();
+          console.log("[gv] ICE gather done in", Date.now() - gatherStart, "ms");
+          const sdpOffer = player._pc.localDescription?.sdp || offer.sdp;
+
+          console.log("[gv] calling startGame with SDP offer...");
+          const sgResult = await startGame(serverId, gameId, corePath, hostToken, callbacks, sdpOffer);
+          startGameToken = sgResult.workerToken;
+          sdpAnswer = sgResult.sdpAnswer;
+          gameStarted = true;
+          persistUrl();
+          console.log("[gv] startGame complete, sdpAnswer:", !!sdpAnswer);
+        }
       } else {
         console.log("[gv] reconnect — reusing existing game session");
       }
@@ -321,6 +366,15 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken) {
       console.log("[gv] connectViaRelay returned");
     } catch (err) {
       console.error("[gv] connectViaRelay error:", err?.message || err, err?.stack);
+      // If this was a reconnection attempt and it failed (session gone),
+      // fall back to start_game on the next retry.
+      if (isReconnect) {
+        console.log("[gv] reconnection failed — falling back to start_game");
+        isReconnect = false;
+        gameStarted = false;
+        sdpAnswer = null;
+        startGameToken = null;
+      }
       callbacks.onError?.(err.message || String(err));
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         doReconnect();

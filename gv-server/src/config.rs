@@ -126,10 +126,10 @@ pub fn gst_video_deadline() -> u32 {
     *V
 }
 
-/// Keyframe max distance in frames. GV_GST_VIDEO_KEYFRAME_MAX_DIST, default 150.
+/// Keyframe max distance in frames. GV_GST_VIDEO_KEYFRAME_MAX_DIST, default 30 (0.5s @ 60fps).
 pub fn gst_video_keyframe_max_dist() -> u32 {
     use std::sync::LazyLock;
-    static V: LazyLock<u32> = LazyLock::new(|| env_or("GV_GST_VIDEO_KEYFRAME_MAX_DIST", 150));
+    static V: LazyLock<u32> = LazyLock::new(|| env_or("GV_GST_VIDEO_KEYFRAME_MAX_DIST", 30));
     *V
 }
 

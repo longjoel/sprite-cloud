@@ -191,6 +191,16 @@ pub async fn run_stream(session: Arc<GameSession>) {
                         match latest {
                             Some(f) if f.width == 0 => {
                                 tracing::error!("[STREAM] Core sentinel — died");
+                                // Notify player via DataChannel
+                                if let Some(ref dc) = *session.dc.lock().await {
+                                    let msg = serde_json::json!({"cmd":"core_died","reason":"core process crashed"});
+                                    let _ = dc.send_text(msg.to_string()).await;
+                                }
+                                // Clean up session state
+                                session.core_loaded.store(false, std::sync::atomic::Ordering::Relaxed);
+                                *session.core_frame_rx.lock().await = None;
+                                *session.core_cmd_tx.lock().await = None;
+                                *session.core_response_rx.lock().await = None;
                                 break;
                             }
                             Some(f) => {

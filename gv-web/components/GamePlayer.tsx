@@ -39,6 +39,7 @@ interface GvPlay {
     corePath: string | null,
     callbacks: PlayerCallbacks,
     joinToken?: string,
+    hostToken?: string,
   ) => any;
   saveState: (player: any) => boolean;
   loadState: (player: any) => boolean;
@@ -72,9 +73,12 @@ interface GamePlayerProps {
   gameId: string;
   serverId: string;
   gameName?: string;
+  hostToken?: string;       // pre-existing host token for reconnection
+  joinToken?: string;       // pre-existing room token for guest join
   onClose?: () => void;
   sessionId?: string;
   initialPipeline?: Record<string, StepState>;
+  initialStatus?: string;
 }
 
 // ── Component ─────────────────────────────────────────────────────────
@@ -83,14 +87,17 @@ export default function GamePlayer({
   gameId,
   serverId,
   gameName,
+  hostToken,
+  joinToken: joinTokenProp,
   onClose,
   sessionId,
   initialPipeline,
+  initialStatus,
 }: GamePlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<any>(null);
   const searchParams = useSearchParams();
-  const joinToken = searchParams.get("join") || undefined;
+  const joinToken = joinTokenProp || searchParams.get("join") || undefined;
 
   const [status, setStatus] = useState("loading…");
   const [error, setError] = useState<string | null>(null);
@@ -222,10 +229,12 @@ export default function GamePlayer({
         onStateChange(state: string, detail?: string) {
           setStatus(state);
           if (state === "connecting") {
-            advanceStep("handshake");
+            advanceStep("server");
           }
           if (state === "connected") {
-            advanceStep("connected");
+            advanceStep("media");
+            // Small delay then mark Playing — lets first frame paint
+            setTimeout(() => advanceStep("connected"), 300);
             setError(null);
             setConnected(true);
             setShowDisconnect(false);
@@ -264,9 +273,9 @@ export default function GamePlayer({
         },
         onProgress(msg: string) {
           setStatus(msg);
-          if (msg.includes("Starting game")) advanceStep("game");
-          else if (msg.includes("Worker")) advanceStep("worker");
-          else if (msg.includes("handshak")) advanceStep("handshake");
+          if (msg.includes("Starting game")) advanceStep("core");
+          else if (msg.includes("Worker") || msg.includes("SDP")) advanceStep("sdp");
+          else if (msg.includes("handshak")) advanceStep("encode");
         },
         onReconnecting(attempt: number) {
           setShowDisconnect(true);
@@ -287,6 +296,7 @@ export default function GamePlayer({
         },
       },
       joinToken,
+      hostToken,
     );
 
     playerRef.current = player;

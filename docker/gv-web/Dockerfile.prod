@@ -46,7 +46,7 @@ COPY --from=builder /app/gv-web/lib/db/schema.ts ./gv-web/lib/db/
 
 # Install drizzle-kit locally for runtime DB schema push
 WORKDIR /app/gv-web
-RUN npm init -y 2>/dev/null; npm install drizzle-kit@0.31.10
+RUN npm init -y 2>/dev/null; npm install drizzle-kit@0.31.10 bcryptjs
 WORKDIR /app
 
 # Copy production entrypoint

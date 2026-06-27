@@ -7,6 +7,7 @@ pub mod gst_audio;
 pub mod gst_video;
 pub mod gv_web;
 pub mod platform;
+pub mod player_server;
 pub mod retry;
 pub mod saves;
 pub mod scan;

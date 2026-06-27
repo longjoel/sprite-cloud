@@ -6,6 +6,7 @@ export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
   email: text("email").notNull().unique(),
   name: text("name"),
+  passwordHash: text("password_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -234,3 +235,17 @@ export const peerTokens = pgTable(
     sessionClient: unique("peer_tokens_session_client").on(table.sessionId, table.clientId),
   }),
 );
+
+// ── Short codes (URL-shortener for player reconnection links) ──────────
+//
+// When a host connects, we generate a 6-char code that encodes their
+// game_id, host_token, and server_id. The host can then refresh the
+// short URL (/p/AGFDOY) to reconnect without exposing tokens in query params.
+
+export const shortCodes = pgTable("short_codes", {
+  code: text("code").primaryKey(),
+  gameId: text("game_id").notNull(),
+  hostToken: text("host_token").notNull(),
+  serverId: text("server_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});

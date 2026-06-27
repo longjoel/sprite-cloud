@@ -22,6 +22,15 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        source: "/player/:path*",
+        headers: [
+          {
+            key: "Access-Control-Allow-Origin",
+            value: "*",
+          },
+        ],
+      },
+      {
         source: "/(.*)",
         headers: [
           {
