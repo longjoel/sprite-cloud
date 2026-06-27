@@ -124,6 +124,11 @@ function mkReq(url: string, init?: RequestInit): NextRequest {
 
 function resetAllMocks() {
   vi.clearAllMocks();
+  mockDb.select.mockReset().mockImplementation(() => mockQueryBuilder([]));
+  mockDb.insert.mockReset().mockImplementation(() => mockQueryBuilder([{ id: "test-id" }]));
+  mockDb.update.mockReset().mockImplementation(() => mockQueryBuilder(undefined));
+  mockDb.delete.mockReset().mockImplementation(() => mockQueryBuilder(undefined));
+  mockDb.transaction.mockReset().mockImplementation((fn: (tx: unknown) => unknown) => fn(mockDb as any));
   process.env.GV_WEB_VERSION = mockWebVersionEnv.GV_WEB_VERSION;
   process.env.GV_WEB_GIT_SHA = mockWebVersionEnv.GV_WEB_GIT_SHA;
   process.env.GV_WEB_RELEASED_AT_UTC = mockWebVersionEnv.GV_WEB_RELEASED_AT_UTC;
