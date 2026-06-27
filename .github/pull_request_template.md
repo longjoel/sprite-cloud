@@ -1,15 +1,15 @@
-## What
+## Summary
 
-<!-- What does this change? One sentence is enough. -->
 
-## How to test
+## Test plan
 
-<!-- Concrete steps to verify this works. -->
+- [ ] `cargo test --workspace`
+- [ ] `cd gv-web && pnpm test`
+- [ ] `cd gv-web && pnpm build`
 
-## Blast radius
+## Checklist
 
-<!-- What could this break? Any subsystems or external dependencies? -->
-
-## Reference
-
-<!-- Link related issues: Closes #123 -->
+- [ ] I agree to the Games Vault Contributor License Agreement in `CLA.md`.
+- [ ] I did not commit secrets, ROMs, BIOS files, generated bundles, or build artifacts.
+- [ ] I updated docs for user-visible behavior changes.
+- [ ] I noted migrations/deployment steps if needed.

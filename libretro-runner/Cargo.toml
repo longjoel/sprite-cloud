@@ -3,6 +3,7 @@ name = "libretro-runner"
 version = "0.1.0"
 edition = "2024"
 description = "Synchronous libretro core runner — loads cores, runs them frame-by-frame, captures video and audio"
+license = "AGPL-3.0-or-later"
 
 [dependencies]
 libloading = "0.8"
