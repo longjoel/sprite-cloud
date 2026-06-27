@@ -11,7 +11,7 @@ require_cmd sha256sum
 
 log "building Rust release binaries for $GV_SHA"
 cd "$PROJECT_DIR"
-cargo build --release -p gv-server -p gv-worker
+cargo build --release -p gv-server
 
 log "building gv-web production bundle"
 cd "$PROJECT_DIR/gv-web"
@@ -19,7 +19,7 @@ pnpm install --frozen-lockfile
 pnpm build
 
 cd "$PROJECT_DIR"
-sha256sum target/release/gv-server target/release/gv-worker > "$(checksums_path)"
+sha256sum target/release/gv-server > "$(checksums_path)"
 write_local_manifest ok
 
 echo "$GV_SHA" > "$RELEASE_DIR/RELEASE_COMMIT"

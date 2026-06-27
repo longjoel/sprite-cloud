@@ -22,11 +22,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WEB_DIR="$PROJECT_DIR/gv-web"
 
-VPS_HOST="${GV_VPS_HOST:-lngnckr.tech}"
+VPS_HOST="${GV_VPS_HOST:?set GV_VPS_HOST to your gateway host}"
 VPS_USER="${GV_VPS_USER:-root}"
 CONTAINER="${GV_WEB_CONTAINER:-gv-web-gv-web-1}"
 APP_DIR="${GV_WEB_APP_DIR:-/app/gv-web}"
-HEALTH_URL="${GV_WEB_HEALTH_URL:-https://lngnckr.tech/api/health}"
+HEALTH_URL="${GV_WEB_HEALTH_URL:-${GV_WEB_URL:?set GV_WEB_URL or GV_WEB_HEALTH_URL}/api/health}"
 
 # ── helpers ────────────────────────────────────────────────────────────
 

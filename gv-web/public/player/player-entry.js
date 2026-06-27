@@ -20,11 +20,25 @@ function hideConnecting() {
   }
 }
 
-// ICE config
-const ICE = [
+const DEFAULT_ICE = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
-  { urls: 'turn:lngnckr.tech:3478', username: 'gv', credential: '43b908d07b1f25c97553d43d317ee5fb' },
 ];
+
+async function fetchIceConfig() {
+  try {
+    const resp = await fetch('/api/ice-config');
+    if (resp.ok) {
+      const cfg = await resp.json();
+      if (Array.isArray(cfg.iceServers) && cfg.iceServers.length > 0) {
+        return cfg.iceServers;
+      }
+    }
+    console.warn('[gv] /api/ice-config returned HTTP', resp.status);
+  } catch (e) {
+    console.warn('[gv] /api/ice-config unreachable:', e?.message || e);
+  }
+  return DEFAULT_ICE;
+}
 
 // ── Direct mode: connect to worker via same-origin SDP ───────────
 async function directConnect() {
@@ -33,6 +47,7 @@ async function directConnect() {
   const role = q.get('role') || 'player';
   const seat = parseInt(q.get('seat') || '0');
 
+  const ICE = await fetchIceConfig();
   const playerOptions = { seat, iceServers: ICE };
   const player = new GvPlayer(video, playerOptions);
   _playerRef = player;
@@ -97,6 +112,7 @@ async function relayConnect() {
   const gameId = location.pathname.split('/').pop();
   const joinToken = q.get('join') || '';
 
+  const ICE = await fetchIceConfig();
   const player = new GvPlayer(video, { iceServers: ICE });
   _playerRef = player;
   player.onStateChange = (s, d) => {

@@ -1,228 +1,150 @@
 # Deployment Guide
 
-Production deployment of Games Vault across two machines: the **VAULT** (bare-metal host running gv-server + gv-worker) and the **VPS** (Docker host running gv-web + PostgreSQL + coturn).
+Production Games Vault has two roles:
 
----
+| Role | Runs where | Purpose |
+|---|---|---|
+| Gateway | Docker/VPS/server | `gv-web` + PostgreSQL + optional TURN |
+| Host | Linux box with ROMs/GPU | `gv-server` systemd service |
+
+`gv-worker` is not deployed separately; the runtime is merged into `gv-server`.
 
 ## Architecture
 
-```
+```text
 ┌──────────────────────────────────────────────────────┐
-│  VPS (lngnckr.tech)                                  │
-│  ├─ Traefik → gv-web (:3000, host network)           │
-│  ├─ PostgreSQL (:5432)                               │
-│  └─ coturn (:3478/udp, :3478/tcp)                    │
+│ Gateway server                                       │
+│  ├─ reverse proxy / TLS → gv-web (:3000)             │
+│  ├─ PostgreSQL                                       │
+│  └─ optional coturn (:3478 udp/tcp)                  │
 ├──────────────────────────────────────────────────────┤
-│  VAULT (N100, 192.168.86.126)                        │
-│  ├─ gv-server  systemd service                       │
-│  └─ gv-worker  spawned on demand (dynamic port)      │
+│ Host machine                                         │
+│  ├─ gv-server systemd service                        │
+│  ├─ ROM roots                                        │
+│  └─ libretro core cache                              │
 └──────────────────────────────────────────────────────┘
 ```
 
-gv-web runs **only** on the VPS. The VAULT has no web server — gv-server polls the VPS-hosted gv-web for commands.
-
----
-
-## Directory layout
-
-### VAULT (bare metal)
-
-```
-/usr/local/bin/
-├── gv-server          gv-server release binary
-└── gv-worker           gv-worker release binary
-
-/etc/games-vault/
-└── config.toml         gv-server config (web URL, auth, ROM roots)
-
-/var/lib/games-vault/
-├── RELEASE_COMMIT      deployed git SHA
-├── RELEASE_MANIFEST.json
-└── cores/              libretro core .so files
-
-/var/log/games-vault/   JSON log output (via journald)
-/tmp/gv-workers/        worker PID files
-```
-
-### VPS (Docker)
-
-```
-/docker/gv-web/
-├── docker-compose.yml
-├── .env                env vars (secrets: AUTH_SECRET, DATABASE_URL)
-├── RELEASE_COMMIT      deployed git SHA
-└── RELEASE_MANIFEST.json
-```
-
----
+gv-server polls gv-web for commands. Players use the gateway URL in their browser; WebRTC handles media transport.
 
 ## Build
 
-All Rust binaries and the web bundle are built from the monorepo root:
+From the repo root:
 
 ```bash
-cd ~/projects/games-vault
-
-# Option A: full release build + deploy scripts
 ./scripts/build-release.sh
-
-# Option B: manual
-cargo build --release -p gv-server -p gv-worker
-cd gv-web && pnpm build
 ```
 
----
-
-## Deploy
-
-Use the release scripts. Do NOT deploy manually unless debugging.
-
-### Host (VAULT)
+Manual equivalent:
 
 ```bash
-./scripts/deploy-vault.sh          # build + install + restart
-./scripts/deploy-vault.sh --no-restart   # install without restarting
+cargo build --release -p gv-server
+cd gv-web
+pnpm install --frozen-lockfile
+pnpm build
 ```
 
-What it does:
-1. Runs `build-release.sh` (Rust release + gv-web prod bundle)
-2. Installs `gv-server` and `gv-worker` to `/usr/local/bin/`
-3. Writes `RELEASE_COMMIT` and `RELEASE_MANIFEST.json` to `/var/lib/games-vault/`
-4. Restarts `gv-server.service`
+## Gateway deploy
 
-### Web (VPS)
+Use a deploy directory containing `ops/vps/docker-compose.yml` and an `.env` derived from `ops/vps/.env.example`.
+
+Required env:
+
+| Var | Purpose |
+|---|---|
+| `AUTH_SECRET` | Auth.js/NextAuth session encryption |
+| `AUTH_URL` | Public gateway origin |
+| `DATABASE_URL` | Postgres connection string |
+| `GV_WEB_SCHEMA_PUSH_ON_START` | `1` for simple self-hosted schema updates |
+| `GV_ICE_STUN_URLS` | STUN URLs |
+| `GV_ICE_TURN_URLS` | TURN URLs, recommended for public internet play |
+| `GV_ICE_TURN_USERNAME` | TURN username |
+| `GV_ICE_TURN_CREDENTIAL` | TURN credential |
+
+Start:
 
 ```bash
-./scripts/deploy-vps-web.sh          # build + ship + restart + health check
-./scripts/deploy-vps-web.sh --skip-build  # ship pre-built artifacts
+docker compose up -d
 ```
 
-What it does:
-1. Runs `build-release.sh` (if not skipped)
-2. Builds Docker image `gv-web-prod:<sha>` and `gv-web-prod:latest`
-3. Ships image to VPS via `docker save | gzip | ssh | docker load`
-4. Restarts the `gv-web` service via `docker compose up -d`
-5. Polls `https://lngnckr.tech/api/health` until it responds
-
----
-
-## Verify
-
-After every deploy:
+First run:
 
 ```bash
-./scripts/smoke-test.sh
+docker logs <gv-web-container>
+# Copy the setup code, then visit https://your-gateway.example/setup
 ```
 
-Checks:
-- Local release marker present at `/var/lib/games-vault/RELEASE_COMMIT`
-- Remote release marker present at `/docker/gv-web/RELEASE_COMMIT`
-- VPS public health endpoint returns 200
+## Host deploy
 
----
-
-## Systemd unit
-
-Repo-tracked at `ops/vault/gv-server.service`. Deploy with:
+Install `gv-server` and create a systemd service:
 
 ```bash
+sudo install -m 755 target/release/gv-server /usr/local/bin/gv-server
 sudo cp ops/vault/gv-server.service /etc/systemd/system/
 sudo systemctl daemon-reload
+```
+
+Pair the host from the gateway dashboard:
+
+```bash
+gv-server pair ABCD-EFGH --gv-web-url https://your-gateway.example
+```
+
+Set ROM roots either in config or env:
+
+```toml
+[rom]
+roots = ["/srv/storage/games/roms"]
+```
+
+Then start:
+
+```bash
 sudo systemctl enable --now gv-server
 ```
 
-### Key details
+## Host config
 
-| Setting | Value | Why |
-|---------|-------|-----|
-| `User` | `games-vault` | dedicated service account |
-| `EnvironmentFile` | `/etc/games-vault.env` | ICE/STUN/TURN vars |
-| `XDG_CONFIG_HOME` | `/etc` | config path → `/etc/games-vault/config.toml` |
-| `ExecStartPre` | `mkdir -p /tmp/gv-workers` | worker PID dir |
-| `ProtectSystem` | `strict` | read-only filesystem except listed paths |
-| `ReadWritePaths` | `/var/lib/games-vault`, `/tmp/gv-workers` | |
-| `DeviceAllow` | `/dev/dri rw` | GPU access for encoding |
-
----
-
-## Configuration
-
-### gv-server (`/etc/games-vault/config.toml`)
+`/etc/games-vault/config.toml` for system services:
 
 ```toml
 [gv_web]
-url = "https://lngnckr.tech"
-worker_bin = "/usr/local/bin/gv-worker"
+url = "https://your-gateway.example"
 
 [auth]
 api_key = "gvsk_..."
-server_id = "9e0bf60c-..."
+server_id = "..."
 
 [rom]
 roots = ["/srv/storage/games/roms"]
 ```
 
-### gv-web env (`/docker/gv-web/.env`)
-
-Template at `ops/vps/.env.example`. Required vars:
-
-| Var | Purpose |
-|-----|---------|
-| `AUTH_SECRET` | NextAuth session encryption (secret) |
-| `DATABASE_URL` | PostgreSQL connection string (secret — contains password) |
-| `GV_ICE_STUN_URLS` | comma-separated STUN URLs |
-| `GV_ICE_TURN_URLS` | comma-separated TURN URLs |
-| `GV_ICE_TURN_USERNAME` | TURN username |
-| `GV_ICE_TURN_CREDENTIAL` | TURN credential (secret) |
-
----
-
-## Logging
-
-All Rust components log structured JSON to stdout. systemd captures into journald.
+## Verify
 
 ```bash
-journalctl -u gv-server -f          # follow
-journalctl -u gv-server --since today
-journalctl -u gv-server -n 100      # last 100 lines
-```
+# gateway
+curl -fsS https://your-gateway.example/api/health
 
----
-
-## Health checks
-
-```bash
-# gv-web (public)
-curl -s https://lngnckr.tech/api/health
-
-# gv-server
+# host
 systemctl is-active gv-server
+journalctl -u gv-server -n 100 --no-pager
 
-# TURN
+# TURN, if used
 ss -tuln | grep 3478
-
-# Release markers
-cat /var/lib/games-vault/RELEASE_COMMIT
-ssh root@lngnckr.tech 'cat /docker/gv-web/RELEASE_COMMIT'
 ```
 
----
-
-## Firewall / ports
+## Ports
 
 | Port | Service | Access |
-|------|---------|--------|
-| 443  | gv-web (Traefik) | public |
-| 3478 | coturn TURN | public (UDP + TCP) |
-| 5432 | PostgreSQL | VPS localhost only |
-| dynamic | gv-worker WebRTC/HTTP | LAN only, CORS-gated |
-
----
+|---|---|---|
+| 443 | gv-web through reverse proxy | public |
+| 3000 | gv-web container/app | local/proxy |
+| 3478 | TURN | public UDP/TCP if configured |
+| 5432 | PostgreSQL | private only |
+| 8787 | gv-server local player endpoint | LAN/host network |
 
 ## Crash recovery
 
-- **gv-server** restarts automatically (`Restart=on-failure`, 5s delay)
-- **gv-web** restarts automatically (`restart: unless-stopped` in Docker Compose)
-- Worker processes are ephemeral — gv-server spawns new ones on demand
-- On server restart, `reap_stale_workers()` cleans up orphaned workers from `/tmp/gv-workers/`
-- The browser must re-submit a `start_game` command after a worker crash
+- `gv-server` should run under systemd with `Restart=on-failure`.
+- `gv-web` should run under Docker Compose with `restart: unless-stopped`.
+- The browser can re-request a session if the host restarts.

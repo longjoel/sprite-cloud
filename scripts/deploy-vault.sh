@@ -29,9 +29,8 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
 fi
 
 cd "$PROJECT_DIR"
-log "installing release binaries into $BIN_DIR"
+log "installing release binary into $BIN_DIR"
 sudo install -m 755 target/release/gv-server "$BIN_DIR/gv-server"
-sudo install -m 755 target/release/gv-worker "$BIN_DIR/gv-worker"
 sudo mkdir -p "$RELEASE_STATE_DIR"
 printf '%s\n' "$GV_SHA" | sudo tee "$RELEASE_STATE_DIR/RELEASE_COMMIT" >/dev/null
 sudo cp "$(manifest_path)" "$RELEASE_STATE_DIR/RELEASE_MANIFEST.json"
@@ -42,9 +41,8 @@ if [[ "$NO_RESTART" -eq 0 ]]; then
   sudo systemctl is-active --quiet "$SERVICE_NAME" || fail "$SERVICE_NAME failed to restart"
 fi
 
-log "running worker smoke test"
-SMOKE_OUTPUT="$(sudo -u games-vault env GV_BIND_ADDR=127.0.0.1 timeout 8 "$BIN_DIR/gv-worker" 0 2>&1 || true)"
-printf '%s\n' "$SMOKE_OUTPUT" | grep -q 'WORKER_READY' || fail "worker smoke test failed: $SMOKE_OUTPUT"
+log "checking gv-server binary"
+"$BIN_DIR/gv-server" --version >/dev/null 2>&1 || warn "gv-server --version check failed"
 
 if curl -fsS "$WEB_HEALTH_URL" >/dev/null 2>&1; then
   log "local web health OK: $WEB_HEALTH_URL"

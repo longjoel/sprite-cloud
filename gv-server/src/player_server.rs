@@ -83,7 +83,6 @@ const workerToken = q.get('worker_token') || '';
 
 const ICE = [
   {{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }},
-  {{ urls: 'turn:lngnckr.tech:3478', username: 'gv', credential: '43b908d07b1f25c97553d43d317ee5fb' }},
 ];
 
 const el = (id) => document.getElementById(id);
@@ -220,10 +219,10 @@ async fn proxy(
     Ok(response)
 }
 
-pub async fn serve(bind: SocketAddr) {
+pub async fn serve(bind: SocketAddr, gv_web: String) {
     let state = Arc::new(AppState {
         client: Client::new(),
-        gv_web: "https://lngnckr.tech".to_string(),
+        gv_web,
     });
 
     let app = Router::new()

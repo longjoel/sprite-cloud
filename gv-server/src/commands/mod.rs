@@ -54,10 +54,7 @@ pub(crate) async fn cmd_pair(code: &str, gv_web_url: &str) -> Result<()> {
     let resp = gv_web::GvWebClient::claim(code, gv_web_url, rom_roots.clone(), &hostname).await?;
 
     let cfg = config::Config {
-        gv_web: config::GvWeb {
-            url: gv_web_url.to_string(),
-            worker_bin: std::env::var("GV_WORKER_BIN").ok(),
-        },
+        gv_web: config::GvWeb { url: gv_web_url.to_string() },
         auth: config::Auth {
             api_key: resp.api_key.clone(),
             server_id: resp.server_id.clone(),
@@ -137,7 +134,7 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
         .unwrap_or_else(|_| "0.0.0.0:8787".into())
         .parse()
         .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 8787)));
-    tokio::spawn(crate::player_server::serve(player_addr));
+    tokio::spawn(crate::player_server::serve(player_addr, cfg.gv_web.url.clone()));
 
     const POLL_ERROR_BACKOFF_MS: u64 = 5_000;
     let mut sessions: HashMap<String, Arc<GameSession>> = HashMap::new();

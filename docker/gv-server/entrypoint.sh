@@ -3,22 +3,21 @@ set -eu
 
 echo "[gv-server] entrypoint starting..."
 
-# Verify required binaries exist
-for bin in /usr/local/bin/gv-server /usr/local/bin/gv-worker; do
-  if [ ! -f "$bin" ]; then
-    echo "[gv-server] ERROR: $bin not found — build host binaries first (./scripts/dev-start.sh build)"
-    exit 1
-  fi
-  if [ ! -x "$bin" ]; then
-    echo "[gv-server] ERROR: $bin is not executable"
-    exit 1
-  fi
-done
+# Verify required binary exists
+bin=/usr/local/bin/gv-server
+if [ ! -f "$bin" ]; then
+  echo "[gv-server] ERROR: $bin not found — build host binary first (./scripts/dev-start.sh build)"
+  exit 1
+fi
+if [ ! -x "$bin" ]; then
+  echo "[gv-server] ERROR: $bin is not executable"
+  exit 1
+fi
 
 # Verify shared libs are available (fail early)
-if ! ldd /usr/local/bin/gv-worker >/dev/null 2>&1; then
-  echo "[gv-server] WARNING: gv-worker has unmet library dependencies:"
-  ldd /usr/local/bin/gv-worker || true
+if ! ldd /usr/local/bin/gv-server >/dev/null 2>&1; then
+  echo "[gv-server] WARNING: gv-server has unmet library dependencies:"
+  ldd /usr/local/bin/gv-server || true
 fi
 
 # Wait for gv-web to be healthy
