@@ -1,32 +1,75 @@
-// index.js
-function classifyRoute(pair, connectionState) {
+// ── gv-player — browser-side WebRTC client ────────────────────────────
+//
+// Connects to the gv-server host runtime, negotiates a WebRTC session, and renders
+// the VP8 video stream.  Exported as a module for testing; a small
+// bootstrap at the bottom auto-connects when loaded in a browser
+// with a `?worker=` query parameter.
+
+// ── Constants (no magic values) ───────────────────────────────────────
+
+
+// ── Route classification ────────────────────────────────────────────────
+
+/**
+ * Classify a WebRTC route from getStats() selected candidate pair.
+ *
+ * @param {{ localCandidateType?: string, remoteCandidateType?: string }} pair
+ * @param {string} connectionState — RTCPeerConnection.connectionState
+ * @returns {{ route: string, detail: string }}
+ *
+ * route values:
+ *   "local"   — both candidates are host/private IPs
+ *   "direct"  — server-reflexive on either side, no relay
+ *   "relay"   — relay candidate on either side
+ *   "failed"  — ICE failed
+ *   "unknown" — connected but stats unavailable
+ */
+export function classifyRoute(pair, connectionState) {
   if (connectionState === "failed") {
     return { route: "failed", detail: "ICE failed" };
   }
-  const local = pair && pair.localCandidateType || "";
-  const remote = pair && pair.remoteCandidateType || "";
+
+  const local = (pair && pair.localCandidateType) || "";
+  const remote = (pair && pair.remoteCandidateType) || "";
+
   if (!local && !remote) {
     return { route: "unknown", detail: "no candidate stats" };
   }
+
   if (local === "relay" || remote === "relay") {
     return { route: "relay", detail: "TURN relay" };
   }
+
   if (local === "srflx" || remote === "srflx") {
     return { route: "direct", detail: "STUN direct" };
   }
+
+  // Both host candidates
   return { route: "local", detail: "LAN host" };
 }
-async function inspectRoute(pc) {
+
+/**
+ * Inspect a connected RTCPeerConnection and classify the route.
+ * Returns null if getStats() fails (non-critical).
+ *
+ * @param {RTCPeerConnection} pc
+ * @returns {Promise<{route: string, detail: string} | null>}
+ */
+export async function inspectRoute(pc) {
   if (!pc || pc.connectionState !== "connected") return null;
+
   try {
     const stats = await pc.getStats();
     let selectedPair = null;
+
     for (const r of stats.values()) {
       if (r.type === "candidate-pair" && r.state === "succeeded" && r.nominated) {
         selectedPair = r;
         break;
       }
     }
+
+    // Fallback: any succeeded pair
     if (!selectedPair) {
       for (const r of stats.values()) {
         if (r.type === "candidate-pair" && r.state === "succeeded") {
@@ -35,14 +78,18 @@ async function inspectRoute(pc) {
         }
       }
     }
+
+    // Resolve local/remote candidate types from stats
     let localCandidateType = "";
     let remoteCandidateType = "";
+
     if (selectedPair) {
       const localCand = stats.get(selectedPair.localCandidateId);
       const remoteCand = stats.get(selectedPair.remoteCandidateId);
-      localCandidateType = localCand && localCand.candidateType || "";
-      remoteCandidateType = remoteCand && remoteCand.candidateType || "";
+      localCandidateType = (localCand && localCand.candidateType) || "";
+      remoteCandidateType = (remoteCand && remoteCand.candidateType) || "";
     }
+
     return classifyRoute(
       { localCandidateType, remoteCandidateType },
       pc.connectionState || "connected"
@@ -52,85 +99,182 @@ async function inspectRoute(pc) {
     return { route: "unknown", detail: "stats unavailable" };
   }
 }
+
 function gvCsrfHeaders() {
-  let token = document.cookie.split(";").map((p) => p.trim()).find((p) => p.startsWith("gv_csrf_token="))?.split("=").slice(1).join("=");
+  let token = document.cookie
+    .split(";")
+    .map((p) => p.trim())
+    .find((p) => p.startsWith("gv_csrf_token="))
+    ?.split("=")
+    .slice(1)
+    .join("=");
   if (!token) {
     token = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
     document.cookie = `gv_csrf_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax`;
   }
   return { "Content-Type": "application/json", "x-csrf-token": decodeURIComponent(token) };
 }
-var SDP_ENDPOINT = "/sdp";
-var ICE_TIMEOUT_MS = 15e3;
-var ICE_CONNECT_TIMEOUT_MS = 6e4;
-var DISCONNECTED_GRACE_MS = 5e3;
-var PING_INTERVAL_MS = 2e3;
-var MAX_PENDING_PINGS = 20;
-var RELAY_POLL_MS = 100;
-var RELAY_TIMEOUT_MS = 3e4;
-var GAMEPAD_MASK = 1 << 0 | 1 << 2 | 1 << 3 | 1 << 4 | 1 << 5 | 1 << 6 | 1 << 7 | 1 << 8;
-var DEFAULT_GAMEPAD_MAPPING = Object.freeze({
+
+const SDP_ENDPOINT = "/sdp";
+const ICE_TIMEOUT_MS = 15_000;
+const ICE_CONNECT_TIMEOUT_MS = 60_000;
+const DISCONNECTED_GRACE_MS = 5_000;
+const PING_INTERVAL_MS = 2000;
+const MAX_PENDING_PINGS = 20;
+
+/** Poll interval when waiting for relay SDP answer (ms). */
+const RELAY_POLL_MS = 100;
+/** Max time to wait for relay SDP answer (ms). */
+const RELAY_TIMEOUT_MS = 30_000;
+
+/** Bits in the RetroArch mask that the gamepad can set.
+ *  Keyboard and gamepad share the same mask; gamepad-owned bits
+ *  are cleared each frame so keyboard presses persist across
+ *  gamepad poll frames.
+ *
+ *  Bit layout: B=0, Y=1, Select=2, Start=3, Up=4, Down=5,
+ *  Left=6, Right=7, A=8, X=9, L=10, R=11, L2=12, R2=13,
+ *  L3=14, R3=15 (RetroArch RETRO_DEVICE_ID_JOYPAD_*).
+ *
+ *  KEEP IN SYNC with the canonical source:
+ *  libretro-runner/src/lib.rs — JoypadButton enum. */
+const GAMEPAD_MASK = (1 << 0) | (1 << 2) | (1 << 3) | (1 << 4)
+                   | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8);
+
+/**
+ * Default gamepad button mapping for the standard layout
+ * (https://w3c.github.io/gamepad/#remapping).
+ *
+ * Each property maps a logical action to the button index in the
+ * Gamepad.buttons array for standard-mapped controllers.
+ *
+ * Override by passing `gamepadMapping` in GvPlayer constructor
+ * options to support non-standard controllers (8BitDo in
+ * DirectInput mode, fight sticks, etc.).
+ *
+ * @typedef {{ dpadUp: number, dpadDown: number, dpadLeft: number,
+ *             dpadRight: number, start: number, select: number,
+ *             a: number, b: number, leftStickX: number,
+ *             leftStickY: number, axisThreshold: number }} GamepadMapping
+ */
+const DEFAULT_GAMEPAD_MAPPING = Object.freeze({
   dpadUp: 12,
   dpadDown: 13,
   dpadLeft: 14,
   dpadRight: 15,
   start: 9,
   select: 8,
-  a: 0,
-  // cross / bottom face button
-  b: 1,
-  // circle / right face button
-  leftStickX: 0,
-  // axis index for horizontal
-  leftStickY: 1,
-  // axis index for vertical
-  axisThreshold: 0.5
+  a: 0,           // cross / bottom face button
+  b: 1,           // circle / right face button
+  leftStickX: 0,  // axis index for horizontal
+  leftStickY: 1,  // axis index for vertical
+  axisThreshold: 0.5,
 });
-var State = Object.freeze({
+
+// ── State machine ─────────────────────────────────────────────────────
+
+export const State = Object.freeze({
   IDLE: "idle",
   CONNECTING: "connecting",
   CONNECTED: "connected",
-  ERROR: "error"
+  ERROR: "error",
 });
-var GvPlayer = class {
+
+// ── GvPlayer ──────────────────────────────────────────────────────────
+
+export class GvPlayer {
   /** @param {HTMLVideoElement} video — must be a <video> element
    *  @param {{ iceServers?: Array<{urls: string|string[], username?: string, credential?: string}>, seat?: number, iceTimeout?: number, disconnectedGrace?: number, gamepadMapping?: import('./index.js').GamepadMapping }} [options] */
-  constructor(video2, options) {
-    if (!video2 || !video2.tagName || video2.tagName !== "VIDEO") {
+  constructor(video, options) {
+    if (!video || !video.tagName || video.tagName !== "VIDEO") {
       throw new TypeError("GvPlayer requires a <video> element");
     }
-    this._video = video2;
+    this._video = video;
     this._video.autoplay = true;
     this._video.playsinline = true;
-    this._iceServers = options && options.iceServers || [];
-    this._iceTransportPolicy = options && options.iceTransportPolicy || "all";
-    this._seat = options && typeof options.seat === "number" ? options.seat : 0;
-    this._iceTimeout = options && typeof options.iceTimeout === "number" ? options.iceTimeout : ICE_TIMEOUT_MS;
-    this._disconnectedGrace = options && typeof options.disconnectedGrace === "number" ? options.disconnectedGrace : DISCONNECTED_GRACE_MS;
-    this._gamepadMapping = options && options.gamepadMapping || DEFAULT_GAMEPAD_MAPPING;
+
+    /** @type {Array<{urls: string|string[], username?: string, credential?: string}>} */
+    this._iceServers = (options && options.iceServers) || [];
+    this._iceTransportPolicy = (options && options.iceTransportPolicy) || "all";
+
+    /** @type {number} Player seat index (0 = default, 1–N for multi-seat). */
+    this._seat = (options && typeof options.seat === "number") ? options.seat : 0;
+
+    /** @type {number} ICE gathering timeout in ms. */
+    this._iceTimeout = (options && typeof options.iceTimeout === "number") ? options.iceTimeout : ICE_TIMEOUT_MS;
+
+    /** @type {number} Grace period in ms before declaring connection lost after ICE disconnect. */
+    this._disconnectedGrace = (options && typeof options.disconnectedGrace === "number") ? options.disconnectedGrace : DISCONNECTED_GRACE_MS;
+
+    /** @type {import('./index.js').GamepadMapping} Button indices for gamepad mapping.
+     *  Override via options.gamepadMapping for non-standard controllers. */
+    this._gamepadMapping = (options && options.gamepadMapping) || DEFAULT_GAMEPAD_MAPPING;
+
+    /** @type {RTCPeerConnection | null} */
     this._pc = null;
+
+    /** @type {RTCDataChannel | null} */
     this._dc = null;
+
+    /** @private @type {number} timestamp of connectViaRelay start */
     this._connectStart = 0;
+
+    /** @type {string} */
     this._state = State.IDLE;
+
+    /** @type {(state: string, detail?: string) => void} */
     this.onStateChange = null;
+
+    /** @type {(track: MediaStreamTrack) => void} */
     this.onTrack = null;
+
+    /** @type {(stats: object) => void} */
     this.onStats = null;
+
+    /** @type {({slot: number, ok: boolean}) => void} */
     this.onSaveResult = null;
+
+    /** @type {number | null} */
     this._iceTimer = null;
+
+    /** @type {number | null} */
     this._disconnectedTimer = null;
+
+    /** @type {number | null} */
     this._rttTimer = null;
+
+    /** @private @type {object} */
     this._stats = { video: {}, audio: {}, pipeline: {} };
+
+    /** @private @type {number | null} */
     this._rttMs = null;
+
+    /** @private @type {number} */
     this._pingSeq = 0;
-    this._pendingPings = /* @__PURE__ */ new Map();
+
+    /** @private @type {Map<number, number>} seq → performance.now() */
+    this._pendingPings = new Map();
+
+    /** @private @type {{route: string, detail: string} | null} */
     this._route = null;
+
+    /** @type {(route: string, detail: string) => void} */
     this._onRoute = null;
+
+    // ── Gamepad state ──────────────────────────────────────────────
+    /** @private @type {boolean} */
     this._gamepadActive = false;
+    /** @private @type {number} last raw gamepad mask */
     this._gamepadState = 0;
+    /** @private @type {number | null} rAF handle for gamepad poll */
     this._gamepadRAF = null;
+
+    /** @private @type {boolean} play deferred until user gesture (Safari iOS) */
     this._playbackDeferred = false;
+    /** @private @type {Function | null} bound gesture handler */
     this._gestureHandler = null;
   }
+
   /**
    * Log a connection phase with elapsed time since connectViaRelay start.
    * Format: [gv] +1234ms phase:state key=value ...
@@ -148,19 +292,24 @@ var GvPlayer = class {
     }
     console.log(parts.join(" "));
   }
+
   /** Current connection state (one of State.*). */
   get state() {
     return this._state;
   }
+
   /** Latest worker stats from DataChannel (or empty objects). */
   get stats() {
     return this._stats;
   }
+
   /** Latest RTT in milliseconds from DataChannel ping/pong (or null). */
   get rttMs() {
     return this._rttMs;
   }
+
   // ── Public API ──────────────────────────────────────────────────
+
   /**
    * Connect to the host runtime at the given URL (direct path — dev only).
    * @param {string} workerUrl — e.g. "http://localhost:54321"
@@ -169,28 +318,40 @@ var GvPlayer = class {
     if (this._state !== State.IDLE) {
       this.disconnect();
     }
+
     const url = this._normaliseUrl(workerUrl);
     this._setState(State.CONNECTING);
+
     this._createPeerConnection();
+
+    // ── SDP exchange (direct to worker) ──────────────────────────
+
     const offer = await this._pc.createOffer();
     await this._pc.setLocalDescription(offer);
     await this._waitForIceGatheringComplete();
+
     const sdpUrl = `${url}${SDP_ENDPOINT}`;
     const resp = await fetch(sdpUrl, {
       method: "POST",
       headers: gvCsrfHeaders(),
-      body: JSON.stringify({ sdp: this._pc.localDescription?.sdp || offer.sdp })
+      body: JSON.stringify({ sdp: this._pc.localDescription?.sdp || offer.sdp }),
     });
+
     if (!resp.ok) {
       throw new Error(`SDP POST returned HTTP ${resp.status}`);
     }
+
     const answer = await resp.json();
     if (!answer.sdp) {
       throw new Error("SDP answer missing sdp field");
     }
+
     await this._pc.setRemoteDescription(
-      new RTCSessionDescription({ type: "answer", sdp: answer.sdp })
+      new RTCSessionDescription({ type: "answer", sdp: answer.sdp }),
     );
+
+    // ── ICE timeout watchdog ───────────────────────────────────
+
     this._iceTimer = setTimeout(() => {
       if (this._state !== State.CONNECTED) {
         this._setState(State.ERROR, "ICE connection timed out");
@@ -198,6 +359,7 @@ var GvPlayer = class {
       }
     }, ICE_CONNECT_TIMEOUT_MS);
   }
+
   /**
    * Connect through the signaling relay.
    *
@@ -215,32 +377,51 @@ var GvPlayer = class {
    */
   async connectViaRelay(serverId, gameId, hostToken, pollToken, roomToken, peerToken, sdpAnswer) {
     this._connectStart = Date.now();
-    this._phaseLog("relay", "connecting", { gameId: gameId.slice(0, 8) });
+    this._phaseLog("relay", "connecting", { gameId: gameId.slice(0,8) });
+
     if (this._state !== State.IDLE) {
       this.disconnect();
     }
+
     this._setState(State.CONNECTING);
+
+    // Store tokens for DataChannel auth and SDP payload
     this._hostToken = hostToken || null;
     this._peerToken = peerToken || null;
+
+    // ── SDP exchange ──────────────────────────────────────────────
+
     if (sdpAnswer) {
+      // Pre-baked answer from start_game (host path) — PC already has
+      // local description set by the caller. Just set remote.
       this._phaseLog("relay", "prebaked-answer", { chars: sdpAnswer.length });
-      const normalized = sdpAnswer.split("\n").filter((line) => !line.trimStart().startsWith("a=extmap:")).join("\n");
+      const normalized = sdpAnswer
+        .split("\n")
+        .filter((line) => !line.trimStart().startsWith("a=extmap:"))
+        .join("\n");
       await this._pc.setRemoteDescription(
-        new RTCSessionDescription({ type: "answer", sdp: normalized })
+        new RTCSessionDescription({ type: "answer", sdp: normalized }),
       );
       this._phaseLog("remote", "set", { ms: Date.now() - this._connectStart });
     } else {
+      // Original flow: create offer, POST sdp_offer, poll for answer
       this._createPeerConnection();
+
       const offer = await this._pc.createOffer();
       await this._pc.setLocalDescription(offer);
       const gatherStart = Date.now();
       await this._waitForIceGatheringComplete();
       this._phaseLog("gather", "done", { ms: Date.now() - gatherStart });
+
+      // POST sdp_offer command — returns a worker_token we use to poll
       const cmdBody = {
         server_id: serverId,
         type: "sdp_offer",
-        payload: { game_id: gameId, sdp: this._pc.localDescription?.sdp || offer.sdp, host_token: hostToken }
+        payload: { game_id: gameId, sdp: this._pc.localDescription?.sdp || offer.sdp },
       };
+      if (hostToken) {
+        cmdBody.payload.host_token = hostToken;
+      }
       if (roomToken) {
         cmdBody.payload.room_token = roomToken;
       }
@@ -250,28 +431,48 @@ var GvPlayer = class {
       const cmdResp = await fetch("/api/server/command", {
         method: "POST",
         headers: gvCsrfHeaders(),
-        body: JSON.stringify(cmdBody)
+        body: JSON.stringify(cmdBody),
       });
+
       if (!cmdResp.ok) {
         const errData = await cmdResp.json().catch(() => ({}));
         throw new Error(
-          `sdp_offer POST failed: HTTP ${cmdResp.status} \u2014 ${errData.error || "unknown"}`
+          `sdp_offer POST failed: HTTP ${cmdResp.status} — ${errData.error || "unknown"}`,
         );
       }
+
       const cmdData = await cmdResp.json();
       const workerToken = cmdData.worker_token;
       if (!workerToken) {
         throw new Error("sdp_offer response missing worker_token");
       }
+
+      // Poll for the worker's SDP answer.
+      // Use the start_game pollToken if available (ties to the session),
+      // otherwise fall back to the sdp_offer's workerToken.
       const pollStart = Date.now();
       let answerSdp = await this._pollForAnswer(serverId, pollToken || workerToken);
       this._phaseLog("relay", "answer", { ms: Date.now() - pollStart, chars: answerSdp.length });
-      answerSdp = answerSdp.split("\n").filter((line) => !line.trimStart().startsWith("a=extmap:")).join("\n");
+
+      // Normalize extmap: webrtc-rs 0.17.1 sometimes assigns different extmap IDs
+      // than the offer (e.g. video-timing at id=7 when offer used id=7 for TWCC).
+      // Chrome rejects setRemoteDescription on extmap ID collisions.
+      // Strip all a=extmap lines from the answer — Chrome falls back to the offer's
+      // extmap mappings, and the worker doesn't need RTP header extensions for
+      // basic video streaming.
+      answerSdp = answerSdp
+        .split("\n")
+        .filter((line) => !line.trimStart().startsWith("a=extmap:"))
+        .join("\n");
+
       await this._pc.setRemoteDescription(
-        new RTCSessionDescription({ type: "answer", sdp: answerSdp })
+        new RTCSessionDescription({ type: "answer", sdp: answerSdp }),
       );
       this._phaseLog("remote", "set", { ms: Date.now() - this._connectStart });
     }
+
+    // ── ICE timeout watchdog ───────────────────────────────────
+
     this._iceTimer = setTimeout(() => {
       if (this._state !== State.CONNECTED) {
         this._setState(State.ERROR, "ICE connection timed out");
@@ -279,6 +480,7 @@ var GvPlayer = class {
       }
     }, ICE_CONNECT_TIMEOUT_MS);
   }
+
   /** Tear down the peer connection. */
   disconnect() {
     this._clearIceTimer();
@@ -286,6 +488,7 @@ var GvPlayer = class {
     this._stopPingInterval();
     this._removeKeyboardInput();
     this._removeGamepadInput();
+    // Remove Safari iOS deferred-play gesture listener
     if (this._gestureHandler) {
       document.removeEventListener("pointerdown", this._gestureHandler, true);
       document.removeEventListener("touchstart", this._gestureHandler, true);
@@ -293,6 +496,8 @@ var GvPlayer = class {
       this._gestureHandler = null;
     }
     this._playbackDeferred = false;
+    // Detach event handlers before closing to prevent stale callbacks
+    // from firing on a null this._pc / this._dc after reconnect.
     if (this._dc) {
       this._dc.onmessage = null;
       this._dc.onopen = null;
@@ -307,7 +512,7 @@ var GvPlayer = class {
       this._pc = null;
     }
     if (this._mediaStream) {
-      this._mediaStream.getTracks().forEach((t) => t.stop());
+      this._mediaStream.getTracks().forEach(t => t.stop());
       this._mediaStream = null;
     }
     this._video.srcObject = null;
@@ -318,7 +523,9 @@ var GvPlayer = class {
       this._setState(State.IDLE);
     }
   }
+
   // ── Internal ────────────────────────────────────────────────────
+
   /**
    * Create the RTCPeerConnection, DataChannel, and input handlers.
    * Shared by both connect() and connectViaRelay().
@@ -333,16 +540,20 @@ var GvPlayer = class {
     }
     this._pc = new RTCPeerConnection({
       iceServers: this._iceServers,
-      iceTransportPolicy: this._iceTransportPolicy
+      iceTransportPolicy: this._iceTransportPolicy,
     });
+
     this._pc.oniceconnectionstatechange = () => {
+      // no state change — connection state handles it
     };
+
     this._pc.onconnectionstatechange = () => {
       const s = this._pc.connectionState;
       this._phaseLog("conn", s, { ms: Date.now() - (this._connectStart || Date.now()) });
       if (s === "connected") {
         this._setState(State.CONNECTED);
         this._clearIceTimer();
+        // Inspect the WebRTC route asynchronously (non-blocking)
         inspectRoute(this._pc).then((info) => {
           if (info) {
             this._route = info;
@@ -354,6 +565,7 @@ var GvPlayer = class {
         this._setState(State.ERROR, "connection failed");
         this._cleanup();
       } else if (s === "disconnected") {
+        // Give ICE a grace period to recover before declaring error
         if (this._disconnectedTimer === null) {
           this._disconnectedTimer = setTimeout(() => {
             if (this._pc && this._pc.connectionState === "disconnected") {
@@ -363,9 +575,12 @@ var GvPlayer = class {
           }, this._disconnectedGrace);
         }
       } else {
+        // Connection is connecting, new, or connected — clear any
+        // pending disconnect timeout.
         this._clearDisconnectedTimer();
       }
     };
+
     this._pc.ontrack = (event) => {
       this._phaseLog("media", event.track?.kind || "track", { ms: Date.now() - (this._connectStart || Date.now()) });
       if (!this._mediaStream) {
@@ -373,23 +588,30 @@ var GvPlayer = class {
         this._video.srcObject = this._mediaStream;
       }
       this._mediaStream.addTrack(event.track);
+
+      // Defer play until a user gesture (required by Safari iOS).
+      // On desktop, play() succeeds immediately; on iOS it fails
+      // and the gesture handler picks it up.
       this._playbackDeferred = true;
       this._video.play().then(() => {
         this._playbackDeferred = false;
         this._video.muted = false;
         console.log("[gv] audio unmuted");
       }).catch((e) => {
-        console.debug("play() deferred \u2014 waiting for user gesture:", e.message || e);
+        console.debug("play() deferred — waiting for user gesture:", e.message || e);
       });
+
       if (this.onTrack) {
-        try {
-          this.onTrack(event.track);
-        } catch {
-        }
+        try { this.onTrack(event.track); } catch { /* safety */ }
       }
     };
+
     this._pc.addTransceiver("video", { direction: "recvonly" });
     this._pc.addTransceiver("audio", { direction: "recvonly" });
+
+    // ── DataChannel (diagnostics) — create BEFORE offer ──────
+    // The offerer must create the DataChannel so it appears in the
+    // SDP offer. The worker (answerer) receives it via ondatachannel.
     this._dc = this._pc.createDataChannel("diagnostics");
     this._dc.onmessage = (msgEvent) => {
       try {
@@ -399,22 +621,41 @@ var GvPlayer = class {
         console.debug("DataChannel non-JSON message:", msgEvent.data?.slice?.(0, 80) || msgEvent.data);
       }
     };
+
+    // Flush any accumulated input state and send auth when the DataChannel opens
     this._dc.onopen = () => {
-      const authCmd = { cmd: "auth" };
+      // Count connected gamepads for local_players seat offset
+      // Minimum 1 (keyboard on seat 0), maximum capped at 4 (libretro port limit)
+      let localPlayers = 1;
+      try {
+        const gps = navigator.getGamepads();
+        if (gps) {
+          let count = 0;
+          for (const gp of gps) { if (gp) count++; }
+          localPlayers = Math.max(1, Math.min(count, 4));
+        }
+      } catch (_) { /* Gamepad API may not be available */ }
+
+      // Send auth message first — must be the first message on the channel
+      const authCmd = { cmd: "auth", local_players: localPlayers };
       if (this._peerToken) authCmd.peer_token = this._peerToken;
       if (this._hostToken && !this._peerToken) authCmd.host_token = this._hostToken;
       if (authCmd.peer_token || authCmd.host_token) {
         try {
           this._dc.send(JSON.stringify(authCmd));
         } catch (e) {
-          console.warn("[DC] auth send failed:", e?.message || e, "\u2014 DC closing");
+          console.warn("[DC] auth send failed:", e?.message || e, "— DC closing");
           this._dc.close();
         }
       }
       if (this._sendMask) this._sendMask();
     };
+
+    // ── Input ─────────────────────────────────────────────────
     this._setupKeyboardInput();
     this._setupGamepadInput();
+
+    // ── Safari iOS deferred play ──────────────────────────────
     const deferredPlay = () => {
       if (!this._playbackDeferred) return;
       this._playbackDeferred = false;
@@ -423,6 +664,7 @@ var GvPlayer = class {
       }).catch((e) => {
         console.debug("deferred play() still blocked:", e.message || e);
       });
+      // Remove the gesture listener after first successful trigger
       if (this._gestureHandler) {
         document.removeEventListener("pointerdown", this._gestureHandler, true);
         document.removeEventListener("touchstart", this._gestureHandler, true);
@@ -430,30 +672,33 @@ var GvPlayer = class {
         this._gestureHandler = null;
       }
     };
+    // Capture phase so we catch events even on child elements
     this._gestureHandler = deferredPlay;
     document.addEventListener("pointerdown", deferredPlay, true);
     document.addEventListener("touchstart", deferredPlay, true);
     document.addEventListener("keydown", deferredPlay, true);
+
+    // ── RTT ping interval ────────────────────────────────────
     this._startPingInterval();
     return this._pc;
   }
+
   /** @param {string} state */
   _setState(state, detail) {
     if (state === this._state) return;
     this._state = state;
     if (this.onStateChange) {
-      try {
-        this.onStateChange(state, detail);
-      } catch {
-      }
+      try { this.onStateChange(state, detail); } catch { /* safety */ }
     }
   }
+
   _cleanup() {
     this._clearIceTimer();
     this._clearDisconnectedTimer();
     this._stopPingInterval();
     this._removeKeyboardInput();
     this._removeGamepadInput();
+    // Remove Safari iOS deferred-play gesture listener
     if (this._gestureHandler) {
       document.removeEventListener("pointerdown", this._gestureHandler, true);
       document.removeEventListener("touchstart", this._gestureHandler, true);
@@ -467,8 +712,9 @@ var GvPlayer = class {
       this._dc.close();
       this._dc = null;
     }
+    // Clean media stream — stale tracks poison reconnects.
     if (this._mediaStream) {
-      this._mediaStream.getTracks().forEach((t) => t.stop());
+      this._mediaStream.getTracks().forEach(t => t.stop());
       this._mediaStream = null;
     }
     this._video.srcObject = null;
@@ -480,18 +726,21 @@ var GvPlayer = class {
       this._pc = null;
     }
   }
+
   _clearIceTimer() {
     if (this._iceTimer !== null) {
       clearTimeout(this._iceTimer);
       this._iceTimer = null;
     }
   }
+
   _clearDisconnectedTimer() {
     if (this._disconnectedTimer !== null) {
       clearTimeout(this._disconnectedTimer);
       this._disconnectedTimer = null;
     }
   }
+
   async _waitForIceGatheringComplete() {
     if (!this._pc) {
       console.warn("[gv] _waitForIceGatheringComplete: no pc, returning");
@@ -501,9 +750,12 @@ var GvPlayer = class {
       console.log("[gv] _waitForIceGatheringComplete: already complete");
       return;
     }
+
     const isRelayOnly = this._iceTransportPolicy === "relay";
-    const timeout = isRelayOnly ? 6e4 : this._iceTimeout;
+    const timeout = isRelayOnly ? 60_000 : this._iceTimeout;
+
     console.log("[gv] _waitForIceGatheringComplete: waiting (state=" + this._pc.iceGatheringState + ", timeout=" + timeout + "ms, relay=" + isRelayOnly + ")");
+
     const start = Date.now();
     while (Date.now() - start < timeout) {
       await new Promise((r) => setTimeout(r, 250));
@@ -513,18 +765,22 @@ var GvPlayer = class {
       }
       const st = this._pc.iceGatheringState;
       if (st === "complete") {
+        // For relay-only, also verify the SDP actually contains candidates.
+        // Chrome may report "complete" before adding relay candidates to the SDP.
         if (isRelayOnly) {
           const sdp = this._pc.localDescription?.sdp || "";
           if (!sdp.includes("a=candidate:")) {
-            continue;
+            continue; // still waiting for relay candidate in SDP
           }
         }
         console.log("[gv] _waitForIceGatheringComplete: complete after " + (Date.now() - start) + "ms");
         return;
       }
     }
+
     console.warn("[gv] _waitForIceGatheringComplete: timed out after " + timeout + "ms (state=" + (this._pc?.iceGatheringState || "null") + "), sending partial offer");
   }
+
   /**
    * Poll GET /api/server/notify until sdp_answer is available.
    * @private
@@ -534,9 +790,10 @@ var GvPlayer = class {
    */
   async _pollForAnswer(serverId, workerToken) {
     const start = Date.now();
+
     while (Date.now() - start < RELAY_TIMEOUT_MS) {
       const resp = await fetch(
-        `/api/server/notify?server_id=${encodeURIComponent(serverId)}&worker_token=${encodeURIComponent(workerToken)}`
+        `/api/server/notify?server_id=${encodeURIComponent(serverId)}&worker_token=${encodeURIComponent(workerToken)}`,
       );
       if (!resp.ok) {
         throw new Error(`Notify poll failed: HTTP ${resp.status}`);
@@ -546,10 +803,15 @@ var GvPlayer = class {
         if (data.room_token) this._roomToken = data.room_token;
         return data.sdp_answer;
       }
-      await new Promise((r) => setTimeout(r, RELAY_POLL_MS));
+      // Fail fast on terminal errors (session gone, server restarted, etc.)
+      if (data.error) {
+        throw new Error(data.error + (data.message ? ": " + data.message : ""));
+      }
+      await new Promise(r => setTimeout(r, RELAY_POLL_MS));
     }
     throw new Error("Timed out waiting for SDP answer from relay");
   }
+
   /** @param {object} msg — parsed JSON from DataChannel */
   _handleDataChannelMessage(msg) {
     const type = msg.cmd || msg.type;
@@ -557,10 +819,7 @@ var GvPlayer = class {
       case "stats":
         this._stats = msg;
         if (this.onStats) {
-          try {
-            this.onStats(msg);
-          } catch {
-          }
+          try { this.onStats(msg); } catch { /* safety */ }
         }
         break;
       case "pong":
@@ -570,6 +829,7 @@ var GvPlayer = class {
             const sentAt = this._pendingPings.get(seq);
             this._pendingPings.delete(seq);
             this._rttMs = performance.now() - sentAt;
+            // Clean up old entries to prevent unbounded growth
             if (this._pendingPings.size > MAX_PENDING_PINGS) {
               this._pendingPings.clear();
             }
@@ -580,24 +840,21 @@ var GvPlayer = class {
         if (this.onSaveResult) {
           try {
             this.onSaveResult({ index: msg.index, ok: msg.ok, error: msg.error });
-          } catch {
-          }
+          } catch { /* safety */ }
         }
         break;
       case "load_result":
         if (this.onLoadResult) {
           try {
             this.onLoadResult({ ok: msg.ok, error: msg.error });
-          } catch {
-          }
+          } catch { /* safety */ }
         }
         break;
       case "list_saves_result":
         if (this.onListSaves) {
           try {
             this.onListSaves({ entries: msg.entries || [], nextIndex: msg.next_index });
-          } catch {
-          }
+          } catch { /* safety */ }
         }
         break;
       case "core_died":
@@ -605,24 +862,24 @@ var GvPlayer = class {
         {
           const reason = msg.reason || msg.message || "Unknown error";
           console.error("[gv-player] Fatal:", reason);
-          this._transition(State.ERROR);
+          this._setState(State.ERROR, reason);
           this.disconnect();
           if (this.onError) {
-            try {
-              this.onError(reason);
-            } catch {
-            }
+            try { this.onError(reason); } catch { /* safety */ }
           }
         }
         break;
     }
   }
+
   _startPingInterval() {
     this._stopPingInterval();
+    // Send a ping every 2 seconds for RTT measurement
     this._rttTimer = setInterval(() => {
       this._sendPing();
     }, PING_INTERVAL_MS);
   }
+
   _sendPing() {
     if (!this._dc || this._dc.readyState !== "open") return;
     const seq = ++this._pingSeq;
@@ -631,19 +888,21 @@ var GvPlayer = class {
     try {
       this._dc.send(JSON.stringify({
         cmd: "ping",
-        seq,
-        client_ts: clientTs
+        seq: seq,
+        client_ts: clientTs,
       }));
     } catch {
-      console.warn("DC send(ping) failed \u2014 channel closing");
+      console.warn("DC send(ping) failed — channel closing");
     }
   }
+
   _stopPingInterval() {
     if (this._rttTimer !== null) {
       clearInterval(this._rttTimer);
       this._rttTimer = null;
     }
   }
+
   /** @param {string} raw */
   _normaliseUrl(raw) {
     let u = raw.trim();
@@ -652,6 +911,7 @@ var GvPlayer = class {
     }
     return u.replace(/\/+$/, "");
   }
+
   // ── Keyboard input (RetroArch binary mask format) ──────────
   /** Accumulates key state into a 16-bit RetroArch joypad mask
    *  and sends binary [u8 seat][u16 LE state] on every change.
@@ -659,38 +919,26 @@ var GvPlayer = class {
    *  Select=2, B=0, A=8.
    *  KEEP IN SYNC: libretro-runner/src/lib.rs — JoypadButton enum. */
   _setupKeyboardInput() {
+    // Full 16-bit default mapping.
+    // Bits: B=0, Y=1, Select=2, Start=3, Up=4, Down=5, Left=6, Right=7,
+    //       A=8, X=9, L=10, R=11, L2=12, R2=13, L3=14, R3=15
     const DEFAULT_BIT_MAP = Object.freeze({
       // D-pad
-      ArrowUp: 4,
-      ArrowDown: 5,
-      ArrowLeft: 6,
-      ArrowRight: 7,
-      w: 4,
-      a: 6,
-      s: 5,
-      d: 7,
+      ArrowUp: 4, ArrowDown: 5, ArrowLeft: 6, ArrowRight: 7,
+      w: 4, a: 6, s: 5, d: 7,
       // Face buttons (SNES layout: B=bottom, A=right, Y=left, X=top)
-      z: 0,
-      x: 8,
-      // B, A
-      c: 9,
-      v: 1,
-      // X, Y
+      z: 0, x: 8,                 // B, A
+      c: 9, v: 1,                 // X, Y
       // Shoulder
-      f: 10,
-      g: 11,
-      // L, R
-      r: 12,
-      t: 13,
-      // L2, R2
+      f: 10, g: 11,               // L, R
+      r: 12, t: 13,               // L2, R2
       // Start / Select
-      q: 3,
-      e: 2,
-      Enter: 3,
-      " ": 3,
-      Shift: 2
-      // Select
+      q: 3, e: 2,
+      Enter: 3, ' ': 3,
+      Shift: 2,                   // Select
     });
+
+    // Load saved remapping from localStorage, fall back to defaults
     let BIT_MAP = { ...DEFAULT_BIT_MAP };
     try {
       const saved = localStorage.getItem("gv-keymap");
@@ -700,45 +948,58 @@ var GvPlayer = class {
           Object.assign(BIT_MAP, parsed);
         }
       }
-    } catch (_) {
-    }
+    } catch (_) { /* ignore corrupt storage */ }
+
+    // Expose for remapping UI
     this._bitMap = BIT_MAP;
     this._defaultBitMap = DEFAULT_BIT_MAP;
+
+    /** @returns {Record<string, number>} current key→bit mapping */
+
     this._inputState = 0;
+
     const sendMask = () => {
       if (!this._dc || this._dc.readyState !== "open") {
+        // DC not open yet — silently skip (this fires every frame during connect)
         return;
       }
       try {
         const s = this._inputState;
-        this._dc.send(new Uint8Array([this._seat, s & 255, s >> 8]).buffer);
+        this._dc.send(new Uint8Array([this._seat, s & 0xFF, s >> 8]).buffer);
       } catch (e) {
-        console.warn("[INPUT] sendMask failed \u2014 DC may be closed:", e?.message || e);
+        console.warn("[INPUT] sendMask failed — DC may be closed:", e?.message || e);
+        // Close the DC so the reconnect flow picks up the failure
         if (this._dc) this._dc.close();
       }
     };
+    // Expose sendMask so gamepad can reuse the same DataChannel sender
     this._sendMask = sendMask;
+
     const handler = (e) => {
       const bit = BIT_MAP[e.key];
-      if (bit === void 0) return;
+      if (bit === undefined) return;
       e.preventDefault();
       if (e.type === "keydown") {
-        this._inputState |= 1 << bit;
+        this._inputState |= (1 << bit);
       } else {
         this._inputState &= ~(1 << bit);
       }
       sendMask();
     };
+
     this._keyHandler = handler;
     document.addEventListener("keydown", handler);
     document.addEventListener("keyup", handler);
-    this._blurHandler = () => {
-      this._inputState = 0;
-      sendMask();
-    };
+
+    // Reset state on blur (stuck keys if user tabs away)
+    this._blurHandler = () => { this._inputState = 0; sendMask(); };
     window.addEventListener("blur", this._blurHandler);
+    // Expose getter for remap UI
+    /** @returns {Record<string, number>} */
     this.getKeyMapping = () => BIT_MAP;
+
   }
+
   _removeKeyboardInput() {
     if (this._keyHandler) {
       document.removeEventListener("keydown", this._keyHandler);
@@ -750,11 +1011,16 @@ var GvPlayer = class {
       this._blurHandler = null;
     }
   }
+
   // ── Gamepad input ───────────────────────────────────────────
   /**
    * Poll navigator.getGamepads() on every rAF frame and merge
-   * gamepad state into the shared RetroArch joypad mask.
-   * Keyboard bits are preserved — gamepad only touches GAMEPAD_MASK bits.
+   * each connected gamepad's state into its port's RetroArch joypad mask.
+   *
+   * Gamepad[0] merges into the shared `_inputState` on seat 0 along with
+   * keyboard input (GAMEPAD_MASK bits only).
+   * Gamepad[i] for i>0 sends on its own seat (this._seat + i) directly
+   * over the DataChannel, one 3-byte packet per port per change.
    *
    * Button → bit mapping (KEEP IN SYNC with
    * libretro-runner/src/lib.rs — JoypadButton enum):
@@ -763,95 +1029,281 @@ var GvPlayer = class {
    */
   _setupGamepadInput() {
     if (typeof navigator === "undefined" || !navigator.getGamepads) return;
+
     this._gamepadActive = true;
-    this._gamepadState = 0;
+    this._gamepadStates = [];
+
     const poll = () => {
       if (!this._gamepadActive) return;
-      const gp = navigator.getGamepads()?.[0];
-      if (!gp) {
+
+      const gps = navigator.getGamepads();
+      if (!gps) {
         this._gamepadRAF = requestAnimationFrame(poll);
         return;
       }
-      let state = 0;
+
       const m = this._gamepadMapping;
-      if (gp.buttons[m.dpadUp]?.pressed || gp.axes[m.leftStickY] < -m.axisThreshold) state |= 1 << 4;
-      if (gp.buttons[m.dpadDown]?.pressed || gp.axes[m.leftStickY] > m.axisThreshold) state |= 1 << 5;
-      if (gp.buttons[m.dpadLeft]?.pressed || gp.axes[m.leftStickX] < -m.axisThreshold) state |= 1 << 6;
-      if (gp.buttons[m.dpadRight]?.pressed || gp.axes[m.leftStickX] > m.axisThreshold) state |= 1 << 7;
-      if (gp.buttons[m.start]?.pressed) state |= 1 << 3;
-      if (gp.buttons[m.select]?.pressed) state |= 1 << 2;
-      if (gp.buttons[m.a]?.pressed) state |= 1 << 8;
-      if (gp.buttons[m.b]?.pressed) state |= 1 << 0;
-      if (state !== this._gamepadState) {
-        this._gamepadState = state;
-        this._inputState = this._inputState & ~GAMEPAD_MASK | state;
-        this._sendMask?.();
+
+      for (let i = 0; i < gps.length; i++) {
+        const gp = gps[i];
+        if (!gp) continue;
+
+        let state = 0;
+        // D-pad: use configured button indices; fall back to left stick axes
+        if (gp.buttons[m.dpadUp]?.pressed    || gp.axes[m.leftStickY] < -m.axisThreshold) state |= (1 << 4); // Up
+        if (gp.buttons[m.dpadDown]?.pressed  || gp.axes[m.leftStickY] >  m.axisThreshold) state |= (1 << 5); // Down
+        if (gp.buttons[m.dpadLeft]?.pressed  || gp.axes[m.leftStickX] < -m.axisThreshold) state |= (1 << 6); // Left
+        if (gp.buttons[m.dpadRight]?.pressed || gp.axes[m.leftStickX] >  m.axisThreshold) state |= (1 << 7); // Right
+
+        // Face / shoulder / start / select — use configured button indices
+        if (gp.buttons[m.start]?.pressed)  state |= (1 << 3); // Start
+        if (gp.buttons[m.select]?.pressed) state |= (1 << 2); // Select
+        if (gp.buttons[m.a]?.pressed)      state |= (1 << 8); // A (cross / bottom)
+        if (gp.buttons[m.b]?.pressed)      state |= (1 << 0); // B (circle / right)
+
+        const prev = this._gamepadStates[i] ?? 0;
+        if (state === prev) continue;
+        this._gamepadStates[i] = state;
+
+        if (i === 0) {
+          // Gamepad 0: merge into shared _inputState, reuse _sendMask
+          this._inputState = (this._inputState & ~GAMEPAD_MASK) | state;
+          this._sendMask?.();
+        } else {
+          // Gamepad i>0: send on its own seat directly
+          if (this._dc && this._dc.readyState === "open") {
+            try {
+              this._dc.send(new Uint8Array([this._seat + i, state & 0xFF, state >> 8]).buffer);
+            } catch (e) {
+              console.warn("[INPUT] gamepad[" + i + "] send failed:", e?.message || e);
+              if (this._dc) this._dc.close();
+            }
+          }
+        }
       }
+
       this._gamepadRAF = requestAnimationFrame(poll);
     };
     this._gamepadRAF = requestAnimationFrame(poll);
   }
+
   _removeGamepadInput() {
     this._gamepadActive = false;
     if (this._gamepadRAF !== null) {
       cancelAnimationFrame(this._gamepadRAF);
       this._gamepadRAF = null;
     }
+    this._gamepadStates = [];
   }
+
   // ── Key remapping ────────────────────────────────────────────
+
   /** Update a key mapping and persist to localStorage. */
   setKeyMapping(key, bit) {
     this._bitMap[key] = bit;
     try {
       localStorage.setItem("gv-keymap", JSON.stringify(this._bitMap));
-    } catch (_) {
-    }
+    } catch (_) { /* ignore */ }
   }
+
   /** Reset all key mappings to defaults. */
   resetKeymap() {
     this._bitMap = { ...this._defaultBitMap };
-    try {
-      localStorage.removeItem("gv-keymap");
-    } catch (_) {
-    }
+    try { localStorage.removeItem("gv-keymap"); } catch (_) {}
     return this._bitMap;
   }
+
   // ── Cleanup ──────────────────────────────────────────────────
-};
+}
+
+// ── Auto-connect bootstrap (browser only) ──────────────────────────────
+
 if (typeof window !== "undefined" && typeof document !== "undefined") {
   const params = new URLSearchParams(location.search);
   const workerParam = params.get("worker");
+
   if (workerParam) {
-    const video2 = (
-      /** @type {HTMLVideoElement} */
-      document.getElementById("video")
-    );
-    if (video2) {
-      const player = new GvPlayer(video2);
-      const statusEl2 = document.getElementById("status");
+    const video = /** @type {HTMLVideoElement} */ (document.getElementById("video"));
+    if (video) {
+      const player = new GvPlayer(video);
+
+      const statusEl = document.getElementById("status");
+
       player.onStateChange = (state, detail) => {
-        if (statusEl2) {
-          statusEl2.textContent = state + (detail ? `: ${detail}` : "");
-          if (state === State.ERROR) statusEl2.classList.add("error");
+        if (statusEl) {
+          statusEl.textContent = state + (detail ? `: ${detail}` : "");
+          if (state === State.ERROR) statusEl.classList.add("error");
         }
       };
+
       player.connect(workerParam).catch((err) => {
         console.error("[gv] auto-connect failed:", err?.message || err, err?.stack);
-        if (statusEl2) {
-          statusEl2.textContent = `error: ${err.message || err}`;
-          statusEl2.classList.add("error");
+        if (statusEl) {
+          statusEl.textContent = `error: ${err.message || err}`;
+          statusEl.classList.add("error");
         }
       });
+
+      // Expose for debugging (console access)
       window.gvPlayer = player;
     }
   }
 }
+// ── player-entry.js — mode detection + connection glue ────────────
+import { GvPlayer, State, classifyRoute, inspectRoute } from './index.js';
 
-// player-entry.js
-var MODE = location.pathname.startsWith("/player") ? "direct" : "relay";
-console.log("[gv] mode:", MODE);
-var video = document.getElementById("video");
-var statusEl = document.getElementById("status");
-var routeEl = document.getElementById("route-indicator");
-var connectingOverlay = document.getElementById("connecting-overlay");
-var connectingDetail = document.getElementById("connecting-detail");
+const MODE = location.pathname.startsWith('/player') ? 'direct' : 'relay';
+console.log('[gv] mode:', MODE);
+
+const video = document.getElementById('video');
+const statusEl = document.getElementById('status');
+const routeEl = document.getElementById('route-indicator');
+const connectingOverlay = document.getElementById('connecting-overlay');
+const connectingDetail = document.getElementById('connecting-detail');
+
+function setStatus(msg, cls) {
+  if (statusEl) { statusEl.textContent = msg; statusEl.className = cls || ''; }
+}
+
+function hideConnecting() {
+  if (connectingOverlay) {
+    connectingOverlay.classList.add('hidden');
+  }
+}
+
+const DEFAULT_ICE = [
+  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
+];
+
+async function fetchIceConfig() {
+  try {
+    const resp = await fetch('/api/ice-config');
+    if (resp.ok) {
+      const cfg = await resp.json();
+      if (Array.isArray(cfg.iceServers) && cfg.iceServers.length > 0) {
+        return cfg.iceServers;
+      }
+    }
+    console.warn('[gv] /api/ice-config returned HTTP', resp.status);
+  } catch (e) {
+    console.warn('[gv] /api/ice-config unreachable:', e?.message || e);
+  }
+  return DEFAULT_ICE;
+}
+
+// ── Direct mode: connect to worker via same-origin SDP ───────────
+async function directConnect() {
+  const q = new URLSearchParams(location.search);
+  const peerToken = q.get('peer_token') || '';
+  const role = q.get('role') || 'player';
+  const seat = parseInt(q.get('seat') || '0');
+
+  const ICE = await fetchIceConfig();
+  const playerOptions = { seat, iceServers: ICE };
+  const player = new GvPlayer(video, playerOptions);
+  _playerRef = player;
+  player._peerToken = peerToken;
+  player._seat = seat;
+  player._role = role;
+
+  player.onStateChange = (s, d) => {
+    if (s === State.CONNECTED) {
+      setStatus('connected', 'ok');
+      hideConnecting();
+    }
+    else if (s === State.ERROR) setStatus(d || 'error', 'err');
+    else setStatus(s);
+  };
+  player._onRoute = (route, detail) => {
+    console.log('[gv] route:', route, detail);
+    if (routeEl) {
+      const labels = { local: 'LAN', direct: 'Direct', relay: 'Relay', failed: 'Failed' };
+      routeEl.textContent = labels[route] || route;
+    }
+  };
+
+  setStatus('signaling…');
+  try {
+    const pc = player._createPeerConnection();
+    // _createPeerConnection already creates the DC with auth+input handlers.
+    // Chain sendMask on top of the existing onopen (don't overwrite).
+    const dc = player._dc;
+    const prevOnOpen = dc.onopen;
+    dc.onopen = () => {
+      if (prevOnOpen) prevOnOpen();
+      if (player._sendMask) player._sendMask();
+    };
+    player._setState(State.CONNECTING);
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    await player._waitForIceGatheringComplete();
+
+    setStatus('connecting…');
+    const resp = await fetch('/sdp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sdp: pc.localDescription.sdp, peer_token: peerToken, peer_role: role, peer_seat: seat }),
+    });
+    if (!resp.ok) { setStatus('SDP failed: ' + resp.status, 'err'); return; }
+    const answer = await resp.json();
+    const clean = answer.sdp.split('\n').filter(l => !l.trimStart().startsWith('a=extmap:')).join('\n');
+    await pc.setRemoteDescription({ type: 'answer', sdp: clean });
+    console.log('[gv] WebRTC connected via direct SDP');
+  } catch (e) {
+    setStatus(e.message, 'err');
+    console.error(e);
+  }
+}
+
+// ── Relay mode: connect through gv-web's relay API ───────────────
+async function relayConnect() {
+  const q = new URLSearchParams(location.search);
+  const serverId = q.get('server_id') || '';
+  const gameId = location.pathname.split('/').pop();
+  const joinToken = q.get('join') || '';
+
+  const ICE = await fetchIceConfig();
+  const player = new GvPlayer(video, { iceServers: ICE });
+  _playerRef = player;
+  player.onStateChange = (s, d) => {
+    if (s === State.CONNECTED) {
+      setStatus('connected', 'ok');
+      hideConnecting();
+    }
+    else if (s === State.ERROR) setStatus(d || 'error', 'err');
+    else setStatus(s);
+  };
+  player._onRoute = (route, detail) => {
+    if (routeEl) {
+      const labels = { local: 'LAN', direct: 'Direct', relay: 'Relay', failed: 'Failed' };
+      routeEl.textContent = labels[route] || route;
+    }
+  };
+
+  setStatus('connecting…');
+  try {
+    if (joinToken) {
+      // Guest: resolve room token
+      const joinResp = await fetch('/api/room/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_token: joinToken }),
+      });
+      const joinData = await joinResp.json();
+      if (!joinResp.ok) throw new Error(joinData.error || 'Join failed');
+      player._peerToken = joinData.peer_token;
+      player._seat = joinData.seat;
+      player._role = joinData.role;
+    }
+
+    setStatus('signaling…');
+    const hostToken = joinToken ? null : crypto.randomUUID();
+    await player.connectViaRelay(serverId, gameId, hostToken, null, joinToken, player._peerToken);
+  } catch (e) {
+    setStatus(e.message, 'err');
+    console.error(e);
+  }
+}
+
+// ── Save/load buttons ──────────────────────────────────────────────\nlet _playerRef = null;\nfunction getPlayer() { return _playerRef; }\n\nfunction sendDC(cmd) {\n  const p = getPlayer();\n  if (!p || !p._dc || p._dc.readyState !== \"open\") return false;\n  p._dc.send(JSON.stringify(cmd));\n  return true;\n}\n\nconst saveBtn = document.getElementById('save-btn');\nconst loadBtn = document.getElementById('load-btn');\nif (saveBtn) saveBtn.onclick = () => sendDC({ cmd: \"save_state\" });\nif (loadBtn) loadBtn.onclick = () => sendDC({ cmd: \"load_state\" });\n\n// ── Boot ──────────────────────────────────────────────────────────\n(async () => {\n  if (!video) return;\n  if (MODE === 'direct') await directConnect();\n  else await relayConnect();\n})();

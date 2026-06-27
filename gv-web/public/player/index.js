@@ -624,8 +624,20 @@ export class GvPlayer {
 
     // Flush any accumulated input state and send auth when the DataChannel opens
     this._dc.onopen = () => {
+      // Count connected gamepads for local_players seat offset
+      // Minimum 1 (keyboard on seat 0), maximum capped at 4 (libretro port limit)
+      let localPlayers = 1;
+      try {
+        const gps = navigator.getGamepads();
+        if (gps) {
+          let count = 0;
+          for (const gp of gps) { if (gp) count++; }
+          localPlayers = Math.max(1, Math.min(count, 4));
+        }
+      } catch (_) { /* Gamepad API may not be available */ }
+
       // Send auth message first — must be the first message on the channel
-      const authCmd = { cmd: "auth" };
+      const authCmd = { cmd: "auth", local_players: localPlayers };
       if (this._peerToken) authCmd.peer_token = this._peerToken;
       if (this._hostToken && !this._peerToken) authCmd.host_token = this._hostToken;
       if (authCmd.peer_token || authCmd.host_token) {
@@ -1003,8 +1015,12 @@ export class GvPlayer {
   // ── Gamepad input ───────────────────────────────────────────
   /**
    * Poll navigator.getGamepads() on every rAF frame and merge
-   * gamepad state into the shared RetroArch joypad mask.
-   * Keyboard bits are preserved — gamepad only touches GAMEPAD_MASK bits.
+   * each connected gamepad's state into its port's RetroArch joypad mask.
+   *
+   * Gamepad[0] merges into the shared `_inputState` on seat 0 along with
+   * keyboard input (GAMEPAD_MASK bits only).
+   * Gamepad[i] for i>0 sends on its own seat (this._seat + i) directly
+   * over the DataChannel, one 3-byte packet per port per change.
    *
    * Button → bit mapping (KEEP IN SYNC with
    * libretro-runner/src/lib.rs — JoypadButton enum):
@@ -1015,37 +1031,57 @@ export class GvPlayer {
     if (typeof navigator === "undefined" || !navigator.getGamepads) return;
 
     this._gamepadActive = true;
-    this._gamepadState = 0;
+    this._gamepadStates = [];
 
     const poll = () => {
       if (!this._gamepadActive) return;
 
-      const gp = navigator.getGamepads()?.[0];
-      if (!gp) {
+      const gps = navigator.getGamepads();
+      if (!gps) {
         this._gamepadRAF = requestAnimationFrame(poll);
         return;
       }
 
-      let state = 0;
       const m = this._gamepadMapping;
-      // D-pad: use configured button indices; fall back to left stick axes
-      if (gp.buttons[m.dpadUp]?.pressed    || gp.axes[m.leftStickY] < -m.axisThreshold) state |= (1 << 4); // Up
-      if (gp.buttons[m.dpadDown]?.pressed  || gp.axes[m.leftStickY] >  m.axisThreshold) state |= (1 << 5); // Down
-      if (gp.buttons[m.dpadLeft]?.pressed  || gp.axes[m.leftStickX] < -m.axisThreshold) state |= (1 << 6); // Left
-      if (gp.buttons[m.dpadRight]?.pressed || gp.axes[m.leftStickX] >  m.axisThreshold) state |= (1 << 7); // Right
 
-      // Face / shoulder / start / select — use configured button indices
-      if (gp.buttons[m.start]?.pressed)  state |= (1 << 3); // Start
-      if (gp.buttons[m.select]?.pressed) state |= (1 << 2); // Select
-      if (gp.buttons[m.a]?.pressed)      state |= (1 << 8); // A (cross / bottom)
-      if (gp.buttons[m.b]?.pressed)      state |= (1 << 0); // B (circle / right)
+      for (let i = 0; i < gps.length; i++) {
+        const gp = gps[i];
+        if (!gp) continue;
 
-      if (state !== this._gamepadState) {
-        this._gamepadState = state;
-        // Merge: keep keyboard bits, replace gamepad-owned bits
-        this._inputState = (this._inputState & ~GAMEPAD_MASK) | state;
-        this._sendMask?.();
+        let state = 0;
+        // D-pad: use configured button indices; fall back to left stick axes
+        if (gp.buttons[m.dpadUp]?.pressed    || gp.axes[m.leftStickY] < -m.axisThreshold) state |= (1 << 4); // Up
+        if (gp.buttons[m.dpadDown]?.pressed  || gp.axes[m.leftStickY] >  m.axisThreshold) state |= (1 << 5); // Down
+        if (gp.buttons[m.dpadLeft]?.pressed  || gp.axes[m.leftStickX] < -m.axisThreshold) state |= (1 << 6); // Left
+        if (gp.buttons[m.dpadRight]?.pressed || gp.axes[m.leftStickX] >  m.axisThreshold) state |= (1 << 7); // Right
+
+        // Face / shoulder / start / select — use configured button indices
+        if (gp.buttons[m.start]?.pressed)  state |= (1 << 3); // Start
+        if (gp.buttons[m.select]?.pressed) state |= (1 << 2); // Select
+        if (gp.buttons[m.a]?.pressed)      state |= (1 << 8); // A (cross / bottom)
+        if (gp.buttons[m.b]?.pressed)      state |= (1 << 0); // B (circle / right)
+
+        const prev = this._gamepadStates[i] ?? 0;
+        if (state === prev) continue;
+        this._gamepadStates[i] = state;
+
+        if (i === 0) {
+          // Gamepad 0: merge into shared _inputState, reuse _sendMask
+          this._inputState = (this._inputState & ~GAMEPAD_MASK) | state;
+          this._sendMask?.();
+        } else {
+          // Gamepad i>0: send on its own seat directly
+          if (this._dc && this._dc.readyState === "open") {
+            try {
+              this._dc.send(new Uint8Array([this._seat + i, state & 0xFF, state >> 8]).buffer);
+            } catch (e) {
+              console.warn("[INPUT] gamepad[" + i + "] send failed:", e?.message || e);
+              if (this._dc) this._dc.close();
+            }
+          }
+        }
       }
+
       this._gamepadRAF = requestAnimationFrame(poll);
     };
     this._gamepadRAF = requestAnimationFrame(poll);
@@ -1057,6 +1093,7 @@ export class GvPlayer {
       cancelAnimationFrame(this._gamepadRAF);
       this._gamepadRAF = null;
     }
+    this._gamepadStates = [];
   }
 
   // ── Key remapping ────────────────────────────────────────────

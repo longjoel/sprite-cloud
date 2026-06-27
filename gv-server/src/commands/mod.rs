@@ -302,6 +302,7 @@ async fn handle_start_game(
         dc: tokio::sync::Mutex::new(None),
         guests: tokio::sync::Mutex::new(Vec::new()),
         host_connected: std::sync::atomic::AtomicBool::new(false),
+        local_players: std::sync::atomic::AtomicU32::new(1),
         core_loaded: std::sync::atomic::AtomicBool::new(false),
         core_loading: std::sync::atomic::AtomicBool::new(false),
         core_ready_notify: tokio::sync::Notify::new(),
@@ -642,10 +643,11 @@ async fn handle_guest_sdp(
 
     tracing::info!("[SDP] guest exchange OK ({} chars)", answer.len());
 
-    // Seat = existing guests + 1  (host is seat 0, first guest is seat 1)
+    // Seat = existing guests + local_players (host takes seats 0..local_players-1)
+    let local_players = session.local_players.load(std::sync::atomic::Ordering::Relaxed);
     let seat = {
         let guests = session.guests.lock().await;
-        guests.len() as u32 + 1
+        guests.len() as u32 + local_players
     };
 
     // Store guest peer
@@ -980,6 +982,11 @@ fn wire_dc_handler(session: &Arc<GameSession>) {
                         match cmd {
                             "auth" => {
                                 tracing::info!("[DC] auth received, sending ack");
+                                // Extract local_players for multi-gamepad seat offset
+                                if let Some(lp) = val.get("local_players").and_then(|v| v.as_u64()) {
+                                    session.local_players.store(lp as u32, std::sync::atomic::Ordering::Relaxed);
+                                    tracing::info!("[DC] host reported local_players={}", lp);
+                                }
                                 let ack = serde_json::json!({"cmd": "auth_ok"});
                                 let _ = dc.send_text(ack.to_string()).await;
                                 // Store DC for crash notification, mark host connected
