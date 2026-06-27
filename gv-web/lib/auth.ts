@@ -3,7 +3,7 @@ import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -72,36 +72,6 @@ function recordFailure(ip: string) {
   if (e) e.failures += 1;
 }
 
-// ── Bootstrap from legacy env vars (migration path) ────────────────────
-
-async function ensureAdminBootstrapped(): Promise<void> {
-  const [row] = await db.select({ count: sql<number>`count(*)` }).from(users);
-  if (Number(row?.count ?? 0) > 0) return;
-
-  const legacyUser = process.env.LAN_USER || "admin";
-  const legacyPass = process.env.LAN_PASS || "admin";
-  const legacyHash = process.env.LAN_PASS_HASH;
-
-  let hash: string;
-  if (legacyHash) {
-    hash = legacyHash;
-  } else {
-    hash = await bcrypt.hash(legacyPass, 10);
-  }
-
-  await db.insert(users).values({
-    email: `${legacyUser}@vault.local`,
-    name: legacyUser,
-    passwordHash: hash,
-  });
-
-  console.log(JSON.stringify({
-    service: "gv-web",
-    msg: "bootstrapped first user from legacy env vars",
-    email: `${legacyUser}@vault.local`,
-  }));
-}
-
 // ── Auth config ────────────────────────────────────────────────────────
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
@@ -152,11 +122,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.id = token.sub;
       }
       return session;
-    },
-  },
-  events: {
-    async signIn() {
-      await ensureAdminBootstrapped();
     },
   },
 });

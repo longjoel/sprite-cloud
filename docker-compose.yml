@@ -34,9 +34,6 @@ services:
       AUTH_GITHUB_ID: ${AUTH_GITHUB_ID:-}
       AUTH_GITHUB_SECRET: ${AUTH_GITHUB_SECRET:-}
       DATABASE_URL: ${DATABASE_URL:-postgresql://games_vault@127.0.0.1:5433/games_vault}
-      LAN_USER: ${LAN_USER:-}
-      LAN_PASS_HASH: ${LAN_PASS_HASH:-}
-      LAN_PASS: ${LAN_PASS:-}
       GV_ICE_STUN_URLS: ${GV_ICE_STUN_URLS:-stun:stun.l.google.com:19302}
       GV_ICE_TURN_URLS: ${GV_ICE_TURN_URLS:-}
       GV_ICE_TURN_USERNAME: ${GV_ICE_TURN_USERNAME:-}
