@@ -463,7 +463,7 @@ export class GvPlayer {
 
     // ── SDP exchange ──────────────────────────────────────────────
 
-    if (sdpAnswer) {
+    if (sdpAnswer && this._pc) {
       // Pre-baked answer from start_game (host path) — PC already has
       // local description set by the caller. Just set remote.
       this._phaseLog("relay", "prebaked-answer", { chars: sdpAnswer.length });
