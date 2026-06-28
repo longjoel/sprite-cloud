@@ -120,9 +120,9 @@ tar czf "$TMP_TAR" \
   -C "$WEB_DIR/.next" static \
   -C "$WEB_DIR/.next" runtime-version.json \
   -C "$WEB_DIR" public/player \
-  -C "$WEB_DIR" public manifest.json \
-  -C "$WEB_DIR" public sw.js \
-  -C "$WEB_DIR" public icons 2>/dev/null || true
+  -C "$WEB_DIR" public/manifest.json \
+  -C "$WEB_DIR" public/sw.js \
+  -C "$WEB_DIR" public/icons 2>/dev/null || true
 
 # Also include package.json for version info
 tar czf "$TMP_TAR" \
@@ -130,9 +130,9 @@ tar czf "$TMP_TAR" \
   -C "$WEB_DIR/.next" static \
   -C "$WEB_DIR/.next" runtime-version.json \
   -C "$WEB_DIR" public/player \
-  -C "$WEB_DIR" public manifest.json \
-  -C "$WEB_DIR" public sw.js \
-  -C "$WEB_DIR" public icons \
+  -C "$WEB_DIR" public/manifest.json \
+  -C "$WEB_DIR" public/sw.js \
+  -C "$WEB_DIR" public/icons \
   -C "$WEB_DIR" package.json
 
 log "payload size: $(du -h "$TMP_TAR" | cut -f1)"
@@ -149,23 +149,12 @@ cat "$TMP_TAR" | ssh "$VPS_USER@$VPS_HOST" "docker exec -i $CONTAINER tar xzf - 
 
 # Fix tar prefix: -C "$WEB_DIR/.next" static puts static/ at root, but Next.js
 # standalone expects .next/static/. Move it into place.
-# Also move public-root files (manifest, sw, icons) into public/.
 ssh "$VPS_USER@$VPS_HOST" "docker exec $CONTAINER sh -c '
   if [ -d $APP_DIR/static ] && [ ! -d $APP_DIR/.next/static ]; then
     mv $APP_DIR/static $APP_DIR/.next/static
   fi
   if [ -f $APP_DIR/runtime-version.json ] && [ ! -f $APP_DIR/.next/runtime-version.json ]; then
     mv $APP_DIR/runtime-version.json $APP_DIR/.next/runtime-version.json
-  fi
-  # PWA / public-root assets
-  mkdir -p $APP_DIR/public
-  for f in manifest.json sw.js; do
-    if [ -f $APP_DIR/\$f ] && [ ! -f $APP_DIR/public/\$f ]; then
-      mv $APP_DIR/\$f $APP_DIR/public/\$f
-    fi
-  done
-  if [ -d $APP_DIR/icons ] && [ ! -d $APP_DIR/public/icons ]; then
-    mv $APP_DIR/icons $APP_DIR/public/icons
   fi
 '"
 
