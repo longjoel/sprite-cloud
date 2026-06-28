@@ -349,7 +349,9 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
       }
     } catch (err) {
       console.error("[gv] startGame/join error:", err?.message || err);
-      callbacks.onError?.(err.message || String(err));
+      const msg = err?.message || String(err);
+      player._showStatus(msg, { color: "#b8964a" });
+      callbacks.onError?.(msg);
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         doReconnect();
       }
@@ -366,6 +368,8 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
       console.log("[gv] connectViaRelay returned");
     } catch (err) {
       console.error("[gv] connectViaRelay error:", err?.message || err, err?.stack);
+      const msg = err?.message || String(err);
+      player._showStatus(msg, { color: "#b8964a" });
       // If this was a reconnection attempt and it failed (session gone),
       // fall back to start_game on the next retry.
       if (isReconnect) {
@@ -375,7 +379,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
         sdpAnswer = null;
         startGameToken = null;
       }
-      callbacks.onError?.(err.message || String(err));
+      callbacks.onError?.(msg);
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         doReconnect();
       }
@@ -385,12 +389,14 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
   const doReconnect = () => {
     reconnectAttempts++;
     if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
+      player._showStatus("Reconnect attempt " + reconnectAttempts + "/" + MAX_RECONNECT_ATTEMPTS + "\u2026");
       callbacks.onReconnecting?.(reconnectAttempts);
       reconnectTimer = setTimeout(() => {
         player.disconnect();
         doConnect();
       }, RECONNECT_DELAY_MS);
     } else {
+      player._showStatus("Connection lost\ntry again", { color: "#b8964a" });
       callbacks.onReconnectFailed?.();
     }
   };

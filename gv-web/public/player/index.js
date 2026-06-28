@@ -269,10 +269,16 @@ export class GvPlayer {
     /** @private @type {number | null} rAF handle for gamepad poll */
     this._gamepadRAF = null;
 
-    /** @private @type {boolean} play deferred until user gesture (Safari iOS) */
+    /** @type {boolean} play deferred until user gesture (Safari iOS) */
     this._playbackDeferred = false;
     /** @private @type {Function | null} bound gesture handler */
     this._gestureHandler = null;
+
+    // ── Status overlay ─────────────────────────────────────────────────
+    /** @private @type {HTMLDivElement | null} injected overlay */
+    this._statusOverlay = null;
+    /** @private @type {NodeJS.Timeout | null} timer for clearing temporary status */
+    this._statusTimer = null;
   }
 
   /**
@@ -296,6 +302,72 @@ export class GvPlayer {
   /** Current connection state (one of State.*). */
   get state() {
     return this._state;
+  }
+
+  // ── Status overlay ──────────────────────────────────────────────────
+
+  /**
+   * Inject or return the status overlay <div>. Creates it lazily on first call.
+   * @returns {HTMLDivElement}
+   */
+  _ensureOverlay() {
+    if (this._statusOverlay) return this._statusOverlay;
+    const div = document.createElement("div");
+    div.id = "gv-status";
+    Object.assign(div.style, {
+      position: "absolute",
+      inset: "0",
+      display: "none",
+      alignItems: "center",
+      justifyContent: "center",
+      background: "rgba(26,20,16,0.85)",
+      color: "#e8dcc8",
+      fontFamily: "\"Geist Mono\", \"Fira Code\", monospace",
+      fontSize: "16px",
+      zIndex: "10",
+      pointerEvents: "none",
+    });
+    // Inject into the video's parent, positioned over the video
+    const video = this._video;
+    if (video.parentElement) {
+      video.parentElement.style.position =
+        video.parentElement.style.position || "relative";
+      video.parentElement.appendChild(div);
+    } else {
+      video.insertAdjacentElement("afterend", div);
+    }
+    this._statusOverlay = div;
+    return div;
+  }
+
+  /**
+   * Set the overlay message. Shows the overlay with the given text and
+   * optional style overrides. Pass message="" to hide.
+   * @param {string} message — status text (empty to hide)
+   * @param {{ color?: string, spinner?: boolean }} [opts]
+   */
+  _showStatus(message, opts) {
+    const overlay = this._ensureOverlay();
+    if (this._statusTimer) { clearTimeout(this._statusTimer); this._statusTimer = null; }
+    if (!message) {
+      overlay.style.display = "none";
+      return;
+    }
+    overlay.textContent = opts?.spinner ? message + "\u2026" : message;
+    overlay.style.display = "flex";
+    if (opts?.color) overlay.style.color = opts.color;
+    else overlay.style.color = "#e8dcc8";
+  }
+
+  /**
+   * Show a temporary status message that auto-clears after `ms` milliseconds.
+   * @param {string} message
+   * @param {number} ms
+   */
+  _flashStatus(message, ms) {
+    this._showStatus(message);
+    if (this._statusTimer) clearTimeout(this._statusTimer);
+    this._statusTimer = setTimeout(() => this._showStatus(""), ms);
   }
 
   /** Latest worker stats from DataChannel (or empty objects). */
@@ -695,6 +767,21 @@ export class GvPlayer {
   _setState(state, detail) {
     if (state === this._state) return;
     this._state = state;
+    // Update the on-screen overlay
+    switch (state) {
+      case State.CONNECTING:
+        this._showStatus("Connecting\u2026", { spinner: false });
+        break;
+      case State.CONNECTED:
+        this._flashStatus("Connected.", 1500);
+        break;
+      case State.ERROR:
+        this._showStatus(detail || "Connection error", { color: "#b8964a" });
+        break;
+      case State.IDLE:
+        this._showStatus("");
+        break;
+    }
     if (this.onStateChange) {
       try { this.onStateChange(state, detail); } catch { /* safety */ }
     }
@@ -726,6 +813,10 @@ export class GvPlayer {
       this._mediaStream = null;
     }
     this._video.srcObject = null;
+    if (this._statusTimer) { clearTimeout(this._statusTimer); this._statusTimer = null; }
+    if (this._statusOverlay) {
+      this._statusOverlay.style.display = "none";
+    }
     if (this._pc) {
       this._pc.onconnectionstatechange = null;
       this._pc.oniceconnectionstatechange = null;
