@@ -259,6 +259,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
   let isReconnect = !!new URLSearchParams(window.location.search).get("host_token") || !!hostTokenParam;
 
   const doConnect = async () => {
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     callbacks.onStateChange?.("connecting");
     callbacks?.onProgress?.("handshaking");
 
@@ -340,9 +341,11 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
           // Page-refresh reconnection: skip start_game, go straight to
           // connectViaRelay with a fresh SDP offer.
           // Server detects !host_connected and swaps in a fresh PC.
+          // Don't persistUrl here — the URL already has a short code.
+          // If reconnect fails and we fall back to start_game below,
+          // persistUrl will be called in that path.
           console.log("[gv] reconnection mode — skipping start_game");
           gameStarted = true;
-          persistUrl();
         } else {
           // Host: generate SDP offer first, then include it in start_game.
           // The server does SDP exchange inline, and the poll returns the answer.
