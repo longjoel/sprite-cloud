@@ -497,7 +497,7 @@ export default function GamePlayer({
       {!connected && !showDisconnect && (
         <div className={styles.centerMessage}>
           <p className={styles.loadingText}>
-            {gameName ? `Starting ${gameName}` : "Starting game"}
+            {hostToken ? "Reconnecting\u2026" : gameName ? `Starting ${gameName}` : "Starting game"}
           </p>
           <div className={styles.pipeline}>
             {PIPELINE_STEPS.map((step) => {
