@@ -126,6 +126,8 @@ const MAX_PENDING_PINGS = 20;
 const RELAY_POLL_MS = 100;
 /** Max time to wait for relay SDP answer (ms). */
 const RELAY_TIMEOUT_MS = 30_000;
+/** Max time for a host reconnect — session is either alive (fast) or dead. */
+const RECONNECT_RELAY_TIMEOUT_MS = 5_000;
 
 /** Bits in the RetroArch mask that the gamepad can set.
  *  Keyboard and gamepad share the same mask; gamepad-owned bits
@@ -522,8 +524,12 @@ export class GvPlayer {
       // Poll for the worker's SDP answer.
       // Use the start_game pollToken if available (ties to the session),
       // otherwise fall back to the sdp_offer's workerToken.
+      // Host reconnects get a short timeout — the session is either alive
+      // (answer in ~300ms) or dead (cancelled on DC close), no point waiting.
+      const isReconnect = !pollToken && !sdpAnswer && hostToken;
+      const pollTimeout = isReconnect ? RECONNECT_RELAY_TIMEOUT_MS : undefined;
       const pollStart = Date.now();
-      let answerSdp = await this._pollForAnswer(serverId, pollToken || workerToken);
+      let answerSdp = await this._pollForAnswer(serverId, pollToken || workerToken, pollTimeout);
       this._phaseLog("relay", "answer", { ms: Date.now() - pollStart, chars: answerSdp.length });
 
       // Normalize extmap: webrtc-rs 0.17.1 sometimes assigns different extmap IDs
@@ -887,10 +893,11 @@ export class GvPlayer {
    * @param {string} workerToken
    * @returns {Promise<string>} the SDP answer
    */
-  async _pollForAnswer(serverId, workerToken) {
+  async _pollForAnswer(serverId, workerToken, timeoutMs) {
     const start = Date.now();
+    const maxWait = timeoutMs || RELAY_TIMEOUT_MS;
 
-    while (Date.now() - start < RELAY_TIMEOUT_MS) {
+    while (Date.now() - start < maxWait) {
       const resp = await fetch(
         `/api/server/notify?server_id=${encodeURIComponent(serverId)}&worker_token=${encodeURIComponent(workerToken)}`,
       );

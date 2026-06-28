@@ -95,6 +95,7 @@ var Gv = (() => {
   var MAX_PENDING_PINGS = 20;
   var RELAY_POLL_MS = 100;
   var RELAY_TIMEOUT_MS = 3e4;
+  var RECONNECT_RELAY_TIMEOUT_MS = 5e3;
   var GAMEPAD_MASK = 1 << 0 | 1 << 2 | 1 << 3 | 1 << 4 | 1 << 5 | 1 << 6 | 1 << 7 | 1 << 8;
   var DEFAULT_GAMEPAD_MAPPING = Object.freeze({
     dpadUp: 12,
@@ -294,7 +295,9 @@ var Gv = (() => {
           throw new Error("sdp_offer response missing worker_token");
         }
         const pollStart = Date.now();
-        let answerSdp = await this._pollForAnswer(serverId, pollToken || workerToken);
+        const isReconnect = !pollToken && !sdpAnswer && hostToken;
+        const pollTimeout = isReconnect ? RECONNECT_RELAY_TIMEOUT_MS : void 0;
+        let answerSdp = await this._pollForAnswer(serverId, pollToken || workerToken, pollTimeout);
         this._phaseLog("relay", "answer", { ms: Date.now() - pollStart, chars: answerSdp.length });
         answerSdp = answerSdp.split("\n").filter((line) => !line.trimStart().startsWith("a=extmap:")).join("\n");
         await this._pc.setRemoteDescription(
@@ -562,9 +565,10 @@ var Gv = (() => {
      * @param {string} workerToken
      * @returns {Promise<string>} the SDP answer
      */
-    async _pollForAnswer(serverId, workerToken) {
+    async _pollForAnswer(serverId, workerToken, timeoutMs) {
       const start = Date.now();
-      while (Date.now() - start < RELAY_TIMEOUT_MS) {
+      const maxWait = timeoutMs || RELAY_TIMEOUT_MS;
+      while (Date.now() - start < maxWait) {
         const resp = await fetch(
           `/api/server/notify?server_id=${encodeURIComponent(serverId)}&worker_token=${encodeURIComponent(workerToken)}`
         );
