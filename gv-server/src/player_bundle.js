@@ -326,6 +326,9 @@ var Gv = (() => {
         this._gestureHandler = null;
       }
       this._playbackDeferred = false;
+      this._roomToken = null;
+      this._hostToken = null;
+      this._peerToken = null;
       if (this._dc) {
         this._dc.onmessage = null;
         this._dc.onopen = null;

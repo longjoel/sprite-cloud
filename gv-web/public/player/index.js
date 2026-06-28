@@ -574,6 +574,11 @@ export class GvPlayer {
       this._gestureHandler = null;
     }
     this._playbackDeferred = false;
+    // Clear session tokens to prevent stale values from leaking
+    // into reconnect attempts (e.g., old room_token treated as guest join).
+    this._roomToken = null;
+    this._hostToken = null;
+    this._peerToken = null;
     // Detach event handlers before closing to prevent stale callbacks
     // from firing on a null this._pc / this._dc after reconnect.
     if (this._dc) {
