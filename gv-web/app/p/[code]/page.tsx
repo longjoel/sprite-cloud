@@ -117,7 +117,7 @@ export default function ShortCodePage() {
       serverId={state.serverId}
       hostToken={state.hostToken ?? undefined}
       joinToken={state.roomToken ?? undefined}
-      initialPipeline={{ ice: "done", server: "done", game: "done", worker: "active" }}
+      initialPipeline={{ ice: "done", server: "done" }}
       initialStatus="connecting"
     />
   );
