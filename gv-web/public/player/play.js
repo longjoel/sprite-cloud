@@ -343,15 +343,16 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
         };
 
         if (isReconnect) {
-          // Page-refresh reconnection: skip start_game, go straight to
-          // connectViaRelay with a fresh SDP offer.
-          // Server detects !host_connected and swaps in a fresh PC.
-          // Don't persistUrl here — the URL already has a short code.
-          // If reconnect fails and we fall back to start_game below,
-          // persistUrl will be called in that path.
-          console.log("[gv] reconnection mode — skipping start_game");
-          gameStarted = true;
-        } else {
+          // Page-refresh reconnection: the old session is almost certainly
+          // gone (DC close → cancel within milliseconds). Creating a PC,
+          // posting sdp_offer, and polling just wastes 5+ seconds and leaks
+          // _roomToken into retry paths. Skip it — start_game creates a
+          // fresh session with the same game_id, so the short code still
+          // resolves correctly.  persistUrl is skipped via wasReconnect.
+          console.log("[gv] page refresh detected — skipping reconnect, starting fresh game");
+          isReconnect = false;
+          // Fall through to start_game below
+        } else if (!gameStarted) {
           // Host: generate SDP offer first, then include it in start_game.
           // The server does SDP exchange inline, and the poll returns the answer.
           console.log("[gv] generating SDP offer for start_game...");
