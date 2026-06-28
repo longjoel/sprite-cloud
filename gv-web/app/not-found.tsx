@@ -1,18 +1,13 @@
+"use client";
+
+import { ErrorPage } from "@/components/ErrorPage";
+
 export default function NotFound() {
   return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        height: "100vh",
-        background: "var(--color-mahogany)",
-        fontFamily: "var(--font-mono)",
-      }}
-    >
-      <h1 style={{ color: "var(--color-cream)", fontSize: "var(--font-size-h1)" }}>
-        404 — Not Found
-      </h1>
-    </div>
+    <ErrorPage
+      code={404}
+      title="ROM not found"
+      message="The page you're looking for doesn't exist. It may have been moved, deleted, or the cartridge was never inserted."
+    />
   );
 }
