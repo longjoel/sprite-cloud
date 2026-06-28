@@ -258,8 +258,12 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
   // Falls back to start_game if the session is gone (e.g. server restarted).
   let isReconnect = !!new URLSearchParams(window.location.search).get("host_token") || !!hostTokenParam;
   const wasReconnect = isReconnect; // snapshot: true if this page load came from a short code
+  let connecting = false; // guard against concurrent doConnect() calls
 
   const doConnect = async () => {
+    if (connecting) { console.log("[gv] doConnect already in progress — skipping"); return; }
+    connecting = true;
+    try {
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     callbacks.onStateChange?.("connecting");
     callbacks?.onProgress?.("handshaking");
@@ -407,9 +411,11 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
         doReconnect();
       }
     }
+    } finally { connecting = false; }
   };
 
   const doReconnect = () => {
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     reconnectAttempts++;
     if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
       player._showStatus("Reconnect attempt " + reconnectAttempts + "/" + MAX_RECONNECT_ATTEMPTS + "\u2026");
