@@ -211,6 +211,23 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
   let iceConfigPromise = fetchIceConfig();
   player = new GvPlayer(video);  // temp, gets iceServers patched async
   console.log("[gv] GvPlayer created, calling doConnect");
+
+  // ── Touch controls ────────────────────────────────────────────────
+  let _touchGamepad = null;
+  try {
+    if (window.TouchGamepad) {
+      _touchGamepad = new window.TouchGamepad(video, { layout: 'auto' });
+      _touchGamepad.onInput = (buttons, axes) => {
+        if (player && player._sendInput) {
+          player._sendInput({ index: 0, buttons, axes });
+        }
+      };
+      _touchGamepad.show();
+      console.log("[gv] touch gamepad initialized");
+    }
+  } catch (e) {
+    console.warn("[gv] touch gamepad init failed:", e?.message || e);
+  }
   let reconnectAttempts = 0;
   let reconnectTimer = null;
   let startGameToken = null;
