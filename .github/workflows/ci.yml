@@ -38,9 +38,6 @@ jobs:
 
   web:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: gv-web
     steps:
       - uses: actions/checkout@v4
 
@@ -56,7 +53,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
-      - name: Install web dependencies
+      - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Build gv-web
