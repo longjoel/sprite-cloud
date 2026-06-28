@@ -52,10 +52,11 @@ function validatePayload(type: string, payload: unknown): { ok: true; payload: R
 
   switch (type) {
     case CMD_START_GAME: {
-      if (!hasOnlyKeys(payload, ["game_id", "host_token", "sdp"])) return { ok: false, error: "payload has unexpected fields" };
+      if (!hasOnlyKeys(payload, ["game_id", "host_token", "sdp", "lan"])) return { ok: false, error: "payload has unexpected fields" };
       if (typeof payload.game_id !== "string" || payload.game_id.length === 0) return { ok: false, error: "payload.game_id required" };
       if (payload.host_token !== undefined && typeof payload.host_token !== "string") return { ok: false, error: "payload.host_token must be string" };
       if (payload.sdp !== undefined && typeof payload.sdp !== "string") return { ok: false, error: "payload.sdp must be string" };
+      if (payload.lan !== undefined && typeof payload.lan !== "boolean") return { ok: false, error: "payload.lan must be boolean" };
       return { ok: true, payload };
     }
     case CMD_STOP_GAME: {
@@ -64,7 +65,7 @@ function validatePayload(type: string, payload: unknown): { ok: true; payload: R
       return { ok: true, payload };
     }
     case CMD_SDP_OFFER: {
-      if (!hasOnlyKeys(payload, ["game_id", "sdp", "host_token", "room_token", "peer_token"])) return { ok: false, error: "payload has unexpected fields" };
+      if (!hasOnlyKeys(payload, ["game_id", "sdp", "host_token", "room_token", "peer_token", "lan"])) return { ok: false, error: "payload has unexpected fields" };
       if (typeof payload.game_id !== "string" || payload.game_id.length === 0) return { ok: false, error: "payload.game_id required" };
       if (typeof payload.sdp !== "string" || payload.sdp.length === 0) return { ok: false, error: "payload.sdp required" };
       if (payload.host_token !== undefined && typeof payload.host_token !== "string") return { ok: false, error: "payload.host_token must be string" };
@@ -216,6 +217,27 @@ export async function POST(request: NextRequest) {
   if (body.type === CMD_START_GAME) {
     const sp = payloadResult.payload;
     if (typeof sp.game_id === "string") {
+      // ── LAN detection: check if client is on the same subnet as gv-server ──
+      const clientIp =
+        request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+        request.headers.get("x-real-ip") ||
+        "";
+      const lanIpsRaw = process.env.GV_SERVER_LAN_IPS || "";
+      let isLan = false;
+      if (clientIp && lanIpsRaw) {
+        const lanIps = lanIpsRaw.split(",").map((s) => s.trim()).filter(Boolean);
+        const clientPrefix = clientIp.split(".").slice(0, 3).join(".");
+        isLan = lanIps.some((lanIp) => {
+          if (lanIp === clientIp) return true;
+          const lanPrefix = lanIp.split(".").slice(0, 3).join(".");
+          return lanPrefix === clientPrefix;
+        });
+      }
+      if (isLan) {
+        console.log("[COMMAND] LAN detected for", clientIp, "— enabling direct ICE");
+        enrichedPayload = { ...sp, lan: true };
+      }
+
       // Look up the game and its file on this server
       const [gameFile] = await db
         .select({
@@ -235,9 +257,10 @@ export async function POST(request: NextRequest) {
 
       if (gameFile) {
         enrichedPayload = {
-          ...sp,
+          ...enrichedPayload,
           rom_path: gameFile.romPath,
           platform: gameFile.platform,
+          game_name: gameFile.gameName,
         };
       } else {
         return NextResponse.json(
