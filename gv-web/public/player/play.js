@@ -351,8 +351,9 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
           // resolves correctly.  persistUrl is skipped via wasReconnect.
           console.log("[gv] page refresh detected — skipping reconnect, starting fresh game");
           isReconnect = false;
-          // Fall through to start_game below
-        } else if (!gameStarted) {
+          // Fall through to start_game below (use `if`, not `else if`)
+        }
+        if (!gameStarted) {
           // Host: generate SDP offer first, then include it in start_game.
           // The server does SDP exchange inline, and the poll returns the answer.
           console.log("[gv] generating SDP offer for start_game...");
