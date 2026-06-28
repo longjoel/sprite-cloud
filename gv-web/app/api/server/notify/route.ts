@@ -302,6 +302,38 @@ export async function POST(request: NextRequest) {
 
 // ── GET — browser polls for worker URL / SDP answer ─────────────────────
 
+interface NotifyRow {
+  sessionId: string;
+  workerUrl: string | null;
+  gameId: string | null;
+  status: string | null;
+  sdpAnswer: string | null;
+  roomToken: string | null;
+  cmdResult: unknown;
+}
+
+function processRow(row: NotifyRow | undefined): NextResponse {
+  // Fail fast: if the command has a terminal error, surface it.
+  if (row?.cmdResult && typeof row.cmdResult === "object" && (row.cmdResult as any).error) {
+    const err = (row.cmdResult as any).error;
+    const msg = (row.cmdResult as any).message;
+    return NextResponse.json({ error: err, message: msg || undefined });
+  }
+
+  if (!row || !row.workerUrl) {
+    return NextResponse.json({ worker_url: null });
+  }
+
+  return NextResponse.json({
+    session_id: row.sessionId,
+    worker_url: row.workerUrl,
+    game_id: row.gameId,
+    status: row.status,
+    sdp_answer: row.sdpAnswer ?? null,
+    room_token: row.roomToken ?? null,
+  });
+}
+
 export async function GET(request: NextRequest) {
   const serverId = request.nextUrl.searchParams.get("server_id");
   if (!serverId) {
@@ -315,7 +347,11 @@ export async function GET(request: NextRequest) {
 
   // Return the session whose server_id matches AND whose command has
   // the same worker_token — this proves the caller created the command.
-  const [session] = await db
+  // Also check the command's result for terminal errors (session gone, etc.)
+  //
+  // Two-phase lookup because sdp_offer commands have different workerTokens
+  // than the start_game command the session is tied to.
+  const [row] = await db
     .select({
       sessionId: sessions.id,
       workerUrl: sessions.workerUrl,
@@ -323,6 +359,7 @@ export async function GET(request: NextRequest) {
       status: sessions.status,
       sdpAnswer: sessions.sdpAnswer,
       roomToken: sessions.roomToken,
+      cmdResult: commands.result,
     })
     .from(sessions)
     .innerJoin(commands, eq(commands.id, sessions.commandId))
@@ -335,16 +372,45 @@ export async function GET(request: NextRequest) {
     .orderBy(sessions.createdAt)
     .limit(1);
 
-  if (!session || !session.workerUrl) {
-    return NextResponse.json({ worker_url: null });
+  // If the workerToken didn't match via start_game's commandId, try
+  // finding the session by server + game (sdp_offer workerToken path).
+  if (!row) {
+    // Look up the command's game_id from the sdp_offer workerToken
+    const [cmd] = await db
+      .select({ gameId: commands.payload })
+      .from(commands)
+      .where(eq(commands.workerToken, workerToken))
+      .limit(1);
+    if (cmd) {
+      const payload = cmd.gameId as Record<string, unknown> | null;
+      const gameId = payload?.game_id as string | undefined;
+      if (gameId) {
+        const [fallback] = await db
+          .select({
+            sessionId: sessions.id,
+            workerUrl: sessions.workerUrl,
+            gameId: sessions.gameId,
+            status: sessions.status,
+            sdpAnswer: sessions.sdpAnswer,
+            roomToken: sessions.roomToken,
+            cmdResult: commands.result,
+          })
+          .from(sessions)
+          .innerJoin(commands, eq(commands.id, sessions.commandId))
+          .where(
+            and(
+              eq(sessions.serverId, serverId),
+              eq(sessions.gameId, gameId),
+            ),
+          )
+          .orderBy(sessions.createdAt)
+          .limit(1);
+        if (fallback) {
+          return processRow(fallback);
+        }
+      }
+    }
   }
 
-  return NextResponse.json({
-    session_id: session.sessionId,
-    worker_url: session.workerUrl,
-    game_id: session.gameId,
-    status: session.status,
-    sdp_answer: session.sdpAnswer ?? null,
-    room_token: session.roomToken ?? null,
-  });
+  return processRow(row);
 }
