@@ -10,6 +10,30 @@ const routeEl = document.getElementById('route-indicator');
 const connectingOverlay = document.getElementById('connecting-overlay');
 const connectingDetail = document.getElementById('connecting-detail');
 
+// ── Touch controls ──────────────────────────────────────────────────
+
+let _touchGamepad = null;
+
+function initTouchControls() {
+  if (_touchGamepad) return;
+  const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  if (!hasTouch) return;
+
+  import('./touch-gamepad.js').then(mod => {
+    const TouchGamepad = mod.TouchGamepad || window.TouchGamepad || (mod.default && mod.default.TouchGamepad);
+    if (!TouchGamepad) { console.warn('[gv] TouchGamepad not found in module'); return; }
+    _touchGamepad = new TouchGamepad(video, { layout: 'auto' });
+    _touchGamepad.onInput = (buttons, axes) => {
+      const p = _playerRef;
+      if (p && p._sendInput) {
+        p._sendInput({ index: 0, buttons, axes });
+      }
+    };
+    _touchGamepad.show();
+    console.log('[gv] touch gamepad initialized');
+  }).catch(e => console.warn('[gv] touch gamepad load failed:', e?.message || e));
+}
+
 function setStatus(msg, cls) {
   if (statusEl) { statusEl.textContent = msg; statusEl.className = cls || ''; }
 }
@@ -54,6 +78,8 @@ async function directConnect() {
   player._peerToken = peerToken;
   player._seat = seat;
   player._role = role;
+
+  initTouchControls();
 
   player.onStateChange = (s, d) => {
     if (s === State.CONNECTED) {
@@ -115,6 +141,9 @@ async function relayConnect() {
   const ICE = await fetchIceConfig();
   const player = new GvPlayer(video, { iceServers: ICE });
   _playerRef = player;
+
+  initTouchControls();
+
   player.onStateChange = (s, d) => {
     if (s === State.CONNECTED) {
       setStatus('connected', 'ok');
