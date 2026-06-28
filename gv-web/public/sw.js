@@ -2,7 +2,7 @@
 // Cache-first for static assets; network-first for API calls.
 // Makes the PWA installable and provides an offline shell.
 
-const CACHE_VERSION = "gv-v2";
+const CACHE_VERSION = "gv-v3";
 const STATIC_CACHE = CACHE_VERSION + "-static";
 
 // Assets to pre-cache on install (app shell + player)
