@@ -70,7 +70,17 @@ export async function verifyBearerToken(
 }
 
 export function unauthorizedResponse(): Response {
-  return Response.json({ error: "unauthorized" }, { status: 401 });
+  return Response.json(
+    { error: "unauthorized", redirect_to: "/unauthorized" },
+    { status: 401 },
+  );
+}
+
+export function forbiddenResponse(): Response {
+  return Response.json(
+    { error: "forbidden", redirect_to: "/forbidden" },
+    { status: 403 },
+  );
 }
 
 // ── Admin-only bearer verification ────────────────────────────────────

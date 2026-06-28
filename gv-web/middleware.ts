@@ -24,5 +24,13 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/player/:path*", "/api/:path*", "/signin", "/setup"],
+  matcher: [
+    "/player/:path*",
+    "/api/:path*",
+    "/signin",
+    "/setup",
+    // Error pages
+    "/unauthorized",
+    "/forbidden",
+  ],
 };
