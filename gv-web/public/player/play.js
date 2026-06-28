@@ -212,10 +212,12 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
   player = new GvPlayer(video);  // temp, gets iceServers patched async
   console.log("[gv] GvPlayer created, calling doConnect");
 
-  // ── Touch controls ────────────────────────────────────────────────
+  // ── Touch controls (phone/tablet only) ──────────────────────────
   let _touchGamepad = null;
   try {
-    if (window.TouchGamepad) {
+    const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    const isMobile = window.matchMedia('(pointer: coarse)').matches;
+    if (hasTouch && isMobile && window.TouchGamepad) {
       _touchGamepad = new window.TouchGamepad(video, { layout: 'auto' });
       _touchGamepad.onInput = (buttons, axes) => {
         if (player && player._sendInput) {

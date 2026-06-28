@@ -17,7 +17,8 @@ let _touchGamepad = null;
 function initTouchControls() {
   if (_touchGamepad) return;
   const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-  if (!hasTouch) return;
+  const isMobile = window.matchMedia('(pointer: coarse)').matches;
+  if (!hasTouch || !isMobile) return;
 
   import('./touch-gamepad.js').then(mod => {
     const TouchGamepad = mod.TouchGamepad || window.TouchGamepad || (mod.default && mod.default.TouchGamepad);
