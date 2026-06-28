@@ -257,6 +257,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
   // Skip start_game — the server session is still alive.
   // Falls back to start_game if the session is gone (e.g. server restarted).
   let isReconnect = !!new URLSearchParams(window.location.search).get("host_token") || !!hostTokenParam;
+  const wasReconnect = isReconnect; // snapshot: true if this page load came from a short code
 
   const doConnect = async () => {
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
@@ -363,7 +364,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
           startGameToken = sgResult.workerToken;
           sdpAnswer = sgResult.sdpAnswer;
           gameStarted = true;
-          persistUrl();
+          if (!wasReconnect) { persistUrl(); }
           console.log("[gv] startGame complete, sdpAnswer:", !!sdpAnswer);
         }
       } else {
