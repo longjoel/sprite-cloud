@@ -234,8 +234,9 @@ async fn handle_start_game(
     let platform = cmd.payload.get("platform").and_then(|v| v.as_str());
     let rom_path = cmd.payload.get("rom_path").and_then(|v| v.as_str());
     let sdp_offer = cmd.payload.get("sdp").and_then(|v| v.as_str());
+    let is_lan = cmd.payload.get("lan").and_then(|v| v.as_bool()).unwrap_or(false);
 
-    tracing::info!("[POLL] start_game game={game_id} session={session_id} sdp={}", sdp_offer.is_some());
+    tracing::info!("[POLL] start_game game={game_id} session={session_id} sdp={} lan={is_lan}", sdp_offer.is_some());
 
     // Kill existing session for this game_id
     if let Some(old) = sessions.remove(game_id) {
@@ -274,16 +275,33 @@ async fn handle_start_game(
         None => None,
     };
 
-    // Acquire WebRTC stack from pool
-    let stack = match pool.acquire().await {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!("[SESSION] pool.acquire failed: {e}");
-            let _ = client.command_result(
-                &cmd.id, &cmd.lease_token,
-                &serde_json::json!({"error": "webrtc_build_failed", "message": e}),
-            ).await;
-            return;
+    // Acquire WebRTC stack — use pool for remote (TURN), build fresh for LAN (direct)
+    let stack = if is_lan {
+        match webrtc::build_session_pc_lan().await {
+            Ok(s) => {
+                tracing::info!("[SESSION] LAN direct — built fresh PC with All policy + STUN only");
+                s
+            }
+            Err(e) => {
+                tracing::error!("[SESSION] LAN PC build failed: {e}");
+                let _ = client.command_result(
+                    &cmd.id, &cmd.lease_token,
+                    &serde_json::json!({"error": "webrtc_build_failed", "message": e}),
+                ).await;
+                return;
+            }
+        }
+    } else {
+        match pool.acquire().await {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("[SESSION] pool.acquire failed: {e}");
+                let _ = client.command_result(
+                    &cmd.id, &cmd.lease_token,
+                    &serde_json::json!({"error": "webrtc_build_failed", "message": e}),
+                ).await;
+                return;
+            }
         }
     };
 
@@ -368,21 +386,39 @@ async fn handle_start_game(
                         elapsed
                     );
                     if attempt < max_attempts {
-                        // Acquire fresh PC from pool and swap into session
-                        match pool.acquire().await {
-                            Ok(fresh) => {
-                                tracing::info!("[SESSION] SDP retry: swapped in fresh PC from pool");
-                                // Swap tracks too — the streaming loop references them
-                                *session.video_track.lock().unwrap() = fresh.video_track;
-                                *session.audio_track.lock().unwrap() = fresh.audio_track;
-                                *session.pc.lock().unwrap() = fresh.pc;
-                                // Re-wire DC handler on the new PC
-                                wire_dc_handler(&session);
-                                tokio::time::sleep(Duration::from_millis(500)).await;
+                        if is_lan {
+                            // For LAN connections, build fresh PC instead of pool acquire
+                            match webrtc::build_session_pc_lan().await {
+                                Ok(fresh) => {
+                                    tracing::info!("[SESSION] SDP retry (LAN): built fresh PC");
+                                    *session.video_track.lock().unwrap() = fresh.video_track;
+                                    *session.audio_track.lock().unwrap() = fresh.audio_track;
+                                    *session.pc.lock().unwrap() = fresh.pc;
+                                    wire_dc_handler(&session);
+                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                }
+                                Err(e2) => {
+                                    tracing::error!("[SESSION] SDP retry (LAN): build failed: {e2}");
+                                    break;
+                                }
                             }
-                            Err(e2) => {
-                                tracing::error!("[SESSION] SDP retry: pool.acquire failed: {e2}");
-                                break;
+                        } else {
+                            // Acquire fresh PC from pool and swap into session
+                            match pool.acquire().await {
+                                Ok(fresh) => {
+                                    tracing::info!("[SESSION] SDP retry: swapped in fresh PC from pool");
+                                    // Swap tracks too — the streaming loop references them
+                                    *session.video_track.lock().unwrap() = fresh.video_track;
+                                    *session.audio_track.lock().unwrap() = fresh.audio_track;
+                                    *session.pc.lock().unwrap() = fresh.pc;
+                                    // Re-wire DC handler on the new PC
+                                    wire_dc_handler(&session);
+                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                }
+                                Err(e2) => {
+                                    tracing::error!("[SESSION] SDP retry: pool.acquire failed: {e2}");
+                                    break;
+                                }
                             }
                         }
                     }
@@ -612,14 +648,30 @@ async fn handle_guest_sdp(
 ) {
     tracing::info!("[SDP] guest SDP exchange (peer_token={})", &peer_token[..peer_token.len().min(8)]);
 
-    // Build a fresh PC with TURN for guest. Pool PCs may have stale ICE state.
-    let stack = match webrtc::build_session_pc().await {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!("[SDP] guest PC build failed: {e}");
-            let _ = client.command_result(&cmd.id, &cmd.lease_token,
-                &serde_json::json!({"error":"pc_build_failed","message":e})).await;
-            return;
+    // Build a fresh PC — with TURN for remote, without TURN for LAN guests
+    let is_lan = cmd.payload.get("lan").and_then(|v| v.as_bool()).unwrap_or(false);
+    let stack = if is_lan {
+        match webrtc::build_session_pc_lan().await {
+            Ok(s) => {
+                tracing::info!("[SDP] guest LAN — built fresh PC with All policy + STUN only");
+                s
+            }
+            Err(e) => {
+                tracing::error!("[SDP] guest LAN PC build failed: {e}");
+                let _ = client.command_result(&cmd.id, &cmd.lease_token,
+                    &serde_json::json!({"error":"pc_build_failed","message":e})).await;
+                return;
+            }
+        }
+    } else {
+        match webrtc::build_session_pc().await {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("[SDP] guest PC build failed: {e}");
+                let _ = client.command_result(&cmd.id, &cmd.lease_token,
+                    &serde_json::json!({"error":"pc_build_failed","message":e})).await;
+                return;
+            }
         }
     };
 

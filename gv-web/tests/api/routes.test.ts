@@ -643,7 +643,7 @@ describe("GET /api/commands/[id]/result", () => {
 describe("GET /api/ice-config", () => {
   it("returns Google STUN by default when no env vars are set", async () => {
     const { GET } = await import("@/app/api/ice-config/route");
-    const resp = await GET();
+    const resp = await GET(new Request("http://localhost/api/ice-config"));
     expect(resp.status).toBe(200);
     const body = await resp.json();
     expect(body.iceServers).toHaveLength(1);
@@ -656,7 +656,7 @@ describe("GET /api/ice-config", () => {
     process.env.GV_ICE_TRANSPORT_POLICY = "relay";
     try {
       const { GET } = await import("@/app/api/ice-config/route");
-      const resp = await GET();
+      const resp = await GET(new Request("http://localhost/api/ice-config"));
       expect(resp.status).toBe(200);
       const body = await resp.json();
       expect(body.iceTransportPolicy).toBe("relay");

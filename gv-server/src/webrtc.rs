@@ -372,6 +372,90 @@ pub async fn build_session_pc_stun_only() -> Result<WebRtcStack, String> {
     build_session_pc_with_turn(false).await
 }
 
+/// Build a WebRTC stack for LAN direct connection — All transport policy + no TURN.
+/// Used when the browser is on the same LAN as gv-server, so host candidates
+/// are reachable directly. Skips the pool (pool PCs are built with global policy
+/// which may be "relay") and builds fresh with `All` policy + STUN only.
+pub async fn build_session_pc_lan() -> Result<WebRtcStack, String> {
+    use std::sync::Arc as _Arc;
+    use webrtc::api::interceptor_registry::register_default_interceptors;
+    use webrtc::api::media_engine::MediaEngine;
+    use webrtc::api::setting_engine::SettingEngine;
+    use webrtc::api::APIBuilder;
+    use webrtc::ice::network_type::NetworkType;
+    use webrtc::ice::mdns::MulticastDnsMode;
+
+    let mut media_engine = MediaEngine::default();
+    media_engine
+        .register_default_codecs()
+        .map_err(|e| format!("register codecs: {e}"))?;
+    let mut registry = webrtc::interceptor::registry::Registry::new();
+    registry = register_default_interceptors(registry, &mut media_engine)
+        .map_err(|e| format!("interceptors: {e}"))?;
+    let mut se = SettingEngine::default();
+    se.set_ip_filter(Box::new(|ip: std::net::IpAddr| ip.is_ipv4()));
+    se.set_network_types(vec![NetworkType::Udp4, NetworkType::Tcp4]);
+    se.set_ice_multicast_dns_mode(MulticastDnsMode::QueryOnly);
+    let api = APIBuilder::new()
+        .with_setting_engine(se)
+        .with_media_engine(media_engine)
+        .with_interceptor_registry(registry)
+        .build();
+
+    // STUN-only (no TURN), All transport policy
+    let ice_servers = vec![webrtc::ice_transport::ice_server::RTCIceServer {
+        urls: vec!["stun:stun.l.google.com:19302".to_string()],
+        username: String::new(),
+        credential: String::new(),
+    }];
+
+    let pc = _Arc::new(
+        api.new_peer_connection(RTCConfiguration {
+            ice_servers,
+            ice_transport_policy: RTCIceTransportPolicy::All,
+            ..Default::default()
+        })
+        .await
+        .map_err(|e| format!("peer connection (lan): {e}"))?,
+    );
+
+    let video_track = _Arc::new(TrackLocalStaticSample::new(
+        RTCRtpCodecCapability {
+            mime_type: MIME_TYPE_H264.to_owned(),
+            clock_rate: VP8_CLOCK_RATE,
+            channels: 0,
+            sdp_fmtp_line: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f".to_string(),
+            rtcp_feedback: vec![],
+        },
+        VIDEO_TRACK_ID.to_owned(),
+        STREAM_ID.to_owned(),
+    ));
+    pc.add_track(_Arc::clone(&video_track) as _Arc<dyn TrackLocal + Send + Sync>)
+        .await
+        .map_err(|e| format!("add video track (lan): {e}"))?;
+
+    let audio_track = _Arc::new(TrackLocalStaticSample::new(
+        RTCRtpCodecCapability {
+            mime_type: MIME_TYPE_OPUS.to_owned(),
+            clock_rate: AUDIO_SAMPLE_RATE,
+            channels: AUDIO_CHANNELS,
+            sdp_fmtp_line: OPUS_SDP_FMTP.to_string(),
+            rtcp_feedback: vec![],
+        },
+        AUDIO_TRACK_ID.to_owned(),
+        STREAM_ID.to_owned(),
+    ));
+    pc.add_track(_Arc::clone(&audio_track) as _Arc<dyn TrackLocal + Send + Sync>)
+        .await
+        .map_err(|e| format!("add audio track (lan): {e}"))?;
+
+    Ok(WebRtcStack {
+        pc,
+        video_track,
+        audio_track,
+    })
+}
+
 async fn build_session_pc_with_turn(include_turn: bool) -> Result<WebRtcStack, String> {
     let InternalWebRtcStack {
         pc,
