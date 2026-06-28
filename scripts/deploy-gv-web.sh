@@ -141,6 +141,17 @@ ssh "$VPS_USER@$VPS_HOST" "docker exec $CONTAINER rm -rf $APP_DIR/.next && docke
 # Extract into the container
 cat "$TMP_TAR" | ssh "$VPS_USER@$VPS_HOST" "docker exec -i $CONTAINER tar xzf - -C $APP_DIR/"
 
+# Fix tar prefix: -C "$WEB_DIR/.next" static puts static/ at root, but Next.js
+# standalone expects .next/static/. Move it into place.
+ssh "$VPS_USER@$VPS_HOST" "docker exec $CONTAINER sh -c '
+  if [ -d $APP_DIR/static ] && [ ! -d $APP_DIR/.next/static ]; then
+    mv $APP_DIR/static $APP_DIR/.next/static
+  fi
+  if [ -f $APP_DIR/runtime-version.json ] && [ ! -f $APP_DIR/.next/runtime-version.json ]; then
+    mv $APP_DIR/runtime-version.json $APP_DIR/.next/runtime-version.json
+  fi
+'"
+
 log "payload extracted into $CONTAINER:$APP_DIR/"
 
 # ── restart ────────────────────────────────────────────────────────────
