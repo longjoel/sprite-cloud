@@ -63,7 +63,7 @@ export async function GET(
 
   // Guest: look up the active session's room_token
   const [activeSession] = await db
-    .select({ roomToken: sessions.roomToken })
+    .select({ roomToken: sessions.roomToken, status: sessions.status })
     .from(sessions)
     .where(
       and(
@@ -71,22 +71,44 @@ export async function GET(
         eq(sessions.gameId, entry.gameId),
         eq(sessions.hostToken, entry.hostToken),
         isNotNull(sessions.roomToken),
-        inArray(sessions.status, ["ready", "connected", "playing"]),
+        inArray(sessions.status, ["spawning", "ready", "connected", "playing"]),
       ),
     )
     .orderBy(sessions.createdAt)
     .limit(1);
 
-  if (!activeSession?.roomToken) {
+  if (activeSession?.roomToken) {
+    return NextResponse.json({
+      game_id: entry.gameId,
+      server_id: entry.serverId,
+      room_token: activeSession.roomToken,
+    });
+  }
+
+  // No active session — check if any session existed (ended/crashed)
+  const [anySession] = await db
+    .select({ status: sessions.status })
+    .from(sessions)
+    .where(
+      and(
+        eq(sessions.serverId, entry.serverId),
+        eq(sessions.gameId, entry.gameId),
+        eq(sessions.hostToken, entry.hostToken),
+        isNotNull(sessions.roomToken),
+      ),
+    )
+    .orderBy(sessions.createdAt)
+    .limit(1);
+
+  if (anySession) {
     return NextResponse.json(
-      { error: "no active session — waiting for host" },
-      { status: 404 },
+      { error: "session ended — ask the host to restart" },
+      { status: 410 },
     );
   }
 
-  return NextResponse.json({
-    game_id: entry.gameId,
-    server_id: entry.serverId,
-    room_token: activeSession.roomToken,
-  });
+  return NextResponse.json(
+    { error: "no active session — waiting for host" },
+    { status: 404 },
+  );
 }

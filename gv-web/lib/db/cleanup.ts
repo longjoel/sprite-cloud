@@ -25,7 +25,7 @@ export async function cleanupOnce() {
     const timeoutCutoff = new Date(now - SESSION_STATE_TIMEOUT_MS);
     await db
       .update(sessions)
-      .set({ status: "timed_out", endedAt: new Date(), roomToken: null })
+      .set({ status: "timed_out", endedAt: new Date() })
       .where(
         and(
           lt(sessions.stateEnteredAt, timeoutCutoff),
