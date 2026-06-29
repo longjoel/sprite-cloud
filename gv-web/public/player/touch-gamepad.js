@@ -201,10 +201,11 @@
     // Drag state
     this._dragTarget = null;
     this._dragStart = null;
-    this._longPressTimer = null;
-    this._fingerStart = null;
     this._editMode = false;
     this._showHandles = false;
+
+    // Lock button (normalised position — top-right corner of canvas)
+    this._lockBtn = { x: 0.91, y: 0.01, w: 0.07, h: 0.07 };
 
     this.onInput = null;
 
@@ -286,7 +287,6 @@
   TouchGamepad.prototype.enterEditMode = function () {
     this._editMode = true;
     this._showHandles = true;
-    if (this._longPressTimer) { clearTimeout(this._longPressTimer); this._longPressTimer = null; }
     this._scheduleRender();
   };
 
@@ -295,6 +295,12 @@
     this._showHandles = false;
     this._saveLayout();
     this._scheduleRender();
+  };
+
+  /** Check if a normalised point hits the lock/unlock button. */
+  TouchGamepad.prototype._hitLockBtn = function (nx, ny) {
+    var lb = this._lockBtn;
+    return nx >= lb.x && nx <= lb.x + lb.w && ny >= lb.y && ny <= lb.y + lb.h;
   };
 
   // ── Show / hide / toggle ────────────────────────────────────────────
@@ -339,7 +345,6 @@
     }
     this._canvas = null;
     this._ctx = null;
-    if (this._longPressTimer) clearTimeout(this._longPressTimer);
   };
 
   // ── Canvas setup ────────────────────────────────────────────────────
@@ -465,16 +470,29 @@
   };
 
   // ── Touch handlers ──────────────────────────────────────────────────
+  //
+  // Locked (default):   all touches → gameplay input
+  // Unlocked:           lock button → lock (exit edit); zones → drag/resize;
+  //                     empty space → lock; everything else blocked
 
   TouchGamepad.prototype._onTouchStart = function (e) {
     e.preventDefault();
-    var self = this;
 
     for (var i = 0; i < e.changedTouches.length; i++) {
       var t = e.changedTouches[i];
       var n = this._touchToNorm(t);
 
-      // Edit mode: resize handle hit
+      // Lock button hit — toggle edit mode (works in both locked/unlocked)
+      if (this._hitLockBtn(n.x, n.y)) {
+        if (this._editMode) {
+          this.exitEditMode();
+        } else {
+          this.enterEditMode();
+        }
+        continue;
+      }
+
+      // Edit mode (unlocked): resize handle or zone drag
       if (this._showHandles) {
         var rz = this._findTouchZone(n);
         if (rz && rz.kind === 'resize') {
@@ -494,45 +512,30 @@
       }
 
       var zone = this._findTouchZone(n);
-      if (!zone) {
-        if (this._editMode && !this._showHandles) {
-          this._fingerStart = {
-            fingerId: t.identifier, nx: n.x, ny: n.y, time: Date.now(),
+
+      // Edit mode: touch on a zone → start drag (move)
+      if (this._editMode && zone && zone.kind !== 'resize') {
+        var tg2 = this._getZoneForDrag(zone);
+        if (tg2) {
+          this._dragTarget = zone;
+          this._dragStart = {
+            fingerId: t.identifier,
+            nx: n.x, ny: n.y,
+            tx: tg2.x, ty: tg2.y, tw: tg2.w, th: tg2.h,
+            mode: 'move',
           };
         }
+        this._scheduleRender();
         continue;
       }
 
-      // Record for long-press
-      this._fingerStart = {
-        fingerId: t.identifier, nx: n.x, ny: n.y,
-        time: Date.now(), zone: zone,
-      };
+      // Edit mode: touch on empty space → lock (no-op until touchend)
+      if (this._editMode && !zone) {
+        continue; // handled in touchend as tap-to-lock
+      }
 
-      // Long-press timer → edit mode
-      if (this._longPressTimer) clearTimeout(this._longPressTimer);
-      this._longPressTimer = setTimeout(function () {
-        self._editMode = true;
-        self._showHandles = true;
-        self._longPressTimer = null;
-        if (self._fingerStart && self._fingerStart.zone) {
-          var z = self._fingerStart.zone;
-          var tg2 = self._getZoneForDrag(z);
-          if (tg2) {
-            self._dragTarget = z;
-            self._dragStart = {
-              fingerId: self._fingerStart.fingerId,
-              nx: self._fingerStart.nx, ny: self._fingerStart.ny,
-              tx: tg2.x, ty: tg2.y, tw: tg2.w, th: tg2.h,
-              mode: 'move',
-            };
-          }
-        }
-        self._scheduleRender();
-      }, LONG_PRESS_MS);
-
-      // Apply input immediately (not in edit mode)
-      if (!this._editMode) {
+      // Locked mode: zone hit → gameplay input
+      if (!this._editMode && zone && zone.kind !== 'resize') {
         this._applyZoneInput(zone, n);
         this._emitState();
       }
@@ -542,7 +545,7 @@
   TouchGamepad.prototype._onTouchMove = function (e) {
     e.preventDefault();
 
-    // Dragging a zone
+    // Dragging a zone (unlocked mode)
     if (this._dragTarget && this._dragStart) {
       for (var i = 0; i < e.changedTouches.length; i++) {
         var t = e.changedTouches[i];
@@ -567,39 +570,25 @@
       return;
     }
 
-    // Track active touches for input
+    // Locked mode: track active touches for input
     if (!this._editMode) {
       this._clearInputs();
       for (var j = 0; j < e.touches.length; j++) {
         var t2 = e.touches[j];
         var n2 = this._touchToNorm(t2);
+        // Skip lock button touches in input processing
+        if (this._hitLockBtn(n2.x, n2.y)) continue;
         var zone2 = this._findTouchZone(n2);
-        if (zone2) {
+        if (zone2 && zone2.kind !== 'resize') {
           this._applyZoneInput(zone2, n2);
         }
       }
       this._emitState();
     }
-
-    // Cancel long-press if finger left zone
-    if (this._fingerStart && this._longPressTimer) {
-      for (var k = 0; k < e.changedTouches.length; k++) {
-        if (e.changedTouches[k].identifier === this._fingerStart.fingerId) {
-          var nn = this._touchToNorm(e.changedTouches[k]);
-          var zz = this._findTouchZone(nn);
-          if (!zz || zz.kind !== this._fingerStart.zone.kind ||
-              (zz.index !== this._fingerStart.zone.index)) {
-            clearTimeout(this._longPressTimer);
-            this._longPressTimer = null;
-          }
-          break;
-        }
-      }
-    }
   };
 
   TouchGamepad.prototype._onTouchEnd = function (e) {
-    // End drag
+    // End drag (unlocked mode)
     if (this._dragTarget && this._dragStart) {
       for (var i = 0; i < e.changedTouches.length; i++) {
         if (e.changedTouches[i].identifier === this._dragStart.fingerId) {
@@ -611,48 +600,33 @@
       }
     }
 
-    // Tap on empty space → exit edit mode
-    if (this._editMode && !this._dragTarget && this._fingerStart) {
+    // Unlocked: tap on empty space (not lock btn, not a zone) → lock
+    if (this._editMode && !this._dragTarget) {
       for (var j = 0; j < e.changedTouches.length; j++) {
-        if (e.changedTouches[j].identifier === this._fingerStart.fingerId) {
-          var elapsed = Date.now() - this._fingerStart.time;
-          var n = this._touchToNorm(e.changedTouches[j]);
-          var dx2 = n.x - this._fingerStart.nx;
-          var dy2 = n.y - this._fingerStart.ny;
-          var dist = Math.sqrt(dx2 * dx2 + dy2 * dy2);
-          if (elapsed < LONG_PRESS_MS && dist < 0.03 && !this._findTouchZone(n)) {
-            this.exitEditMode();
-          }
+        var nn = this._touchToNorm(e.changedTouches[j]);
+        if (this._hitLockBtn(nn.x, nn.y)) continue; // lock button was already handled
+        var zz = this._findTouchZone(nn);
+        if (!zz || zz.kind === 'resize') {
+          this.exitEditMode();
           break;
         }
       }
     }
 
-    // Cancel long-press
-    if (this._fingerStart) {
-      for (var k = 0; k < e.changedTouches.length; k++) {
-        if (e.changedTouches[k].identifier === this._fingerStart.fingerId) {
-          if (this._longPressTimer) {
-            clearTimeout(this._longPressTimer);
-            this._longPressTimer = null;
-          }
-          this._fingerStart = null;
-          break;
+    // Recalculate inputs from remaining touches (locked mode)
+    if (!this._editMode) {
+      this._clearInputs();
+      for (var m = 0; m < e.touches.length; m++) {
+        var tm = e.touches[m];
+        var nm = this._touchToNorm(tm);
+        if (this._hitLockBtn(nm.x, nm.y)) continue;
+        var zm = this._findTouchZone(nm);
+        if (zm && zm.kind !== 'resize') {
+          this._applyZoneInput(zm, nm);
         }
       }
+      this._emitState();
     }
-
-    // Recalculate inputs from remaining touches
-    this._clearInputs();
-    for (var m = 0; m < e.touches.length; m++) {
-      var tm = e.touches[m];
-      var nm = this._touchToNorm(tm);
-      var zm = this._findTouchZone(nm);
-      if (zm && !this._editMode) {
-        this._applyZoneInput(zm, nm);
-      }
-    }
-    this._emitState();
     this._scheduleRender();
   };
 
@@ -912,6 +886,30 @@
       }
     }
 
+    // ── Lock / unlock button ───────────────────────────────────────
+    // Always rendered (both modes), small icon in top-right corner
+    var lb = this._lockBtn;
+    var lbx = lb.x * cw, lby = lb.y * ch, lbw = lb.w * cw, lbh = lb.h * ch;
+    var isEdit = this._editMode;
+
+    // Semi-transparent background circle
+    var lbr = Math.min(lbw, lbh) / 2;
+    var lbcx = lbx + lbw / 2, lbcy = lby + lbh / 2;
+    ctx.fillStyle = isEdit ? 'rgba(255,120,60,0.55)' : 'rgba(255,255,255,0.18)';
+    ctx.beginPath();
+    ctx.arc(lbcx, lbcy, lbr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = isEdit ? 'rgba(255,140,80,0.5)' : 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Lock icon
+    ctx.fillStyle = isEdit ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.35)';
+    ctx.font = Math.floor(lbr * 1.1) + 'px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(isEdit ? '🔓' : '🔒', lbcx, lbcy);
+
     // ── Edit mode banner ────────────────────────────────────────────
     if (this._showHandles) {
       ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -920,7 +918,7 @@
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText('Edit — drag to move, corner handles to resize. Tap outside to exit.', 8, 12);
+      ctx.fillText('Unlocked — drag zones, corner handles to resize. Tap 🔓 to lock.', 8, 12);
     }
 
     this._animId = requestAnimationFrame(this._render);
