@@ -40,7 +40,7 @@ jobs:
       - name: Upload binary as release asset
         uses: actions/upload-artifact@v4
         with:
-          name: gv-server-${{ matrix.arch }}
+          name: ${{ matrix.arch }}
           path: target/${{ matrix.target }}/release/gv-server
 
   create-release:
