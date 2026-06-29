@@ -17,6 +17,9 @@ COPY gv-web-standalone/ ./gv-web/
 # Static assets served by Next.js
 COPY gv-web/public/ ./gv-web/public/
 
+# Next.js build static assets (JS chunks, CSS) — not in standalone output
+COPY gv-web/.next/static/ ./gv-web/gv-web/.next/static/
+
 # Production entrypoint (applies DB schema, starts node server.js)
 COPY docker/gv-web/entrypoint.prod.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
