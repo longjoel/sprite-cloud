@@ -16,7 +16,7 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Duration;
 
-use gv_core::{OutputShm, InputShm, map_shm, unlink_shm, CMD_SET_INPUT, CMD_SAVE_STATE, CMD_LOAD_STATE, CMD_SAVE_SRAM, CMD_LOAD_SRAM, CMD_RESET};
+use gv_core::{OutputShm, InputShm, map_shm, unlink_shm, CMD_SET_INPUT, CMD_SAVE_STATE, CMD_LOAD_STATE, CMD_SAVE_SRAM, CMD_LOAD_SRAM};
 
 use crate::session::GameSession;
 
@@ -134,21 +134,14 @@ pub struct CoreFrame {
 }
 
 pub enum CoreCommand {
-    SetJoypad { port: u32, button: libretro_runner::JoypadButton, pressed: bool },
     SetInput { port: u32, state: u16 },
     SaveState,
     LoadState { data: Vec<u8> },
-    SaveSram,
-    LoadSram { data: Vec<u8> },
-    Reset,
-    DiskEject,
-    DiskInsert { index: u32 },
 }
 
 pub enum CoreResponse {
     SaveStateResult { data: Vec<u8>, ok: bool },
     LoadStateResult { ok: bool },
-    SramData { data: Vec<u8> },
 }
 
 // ── gv-core binary location ────────────────────────────────────────
@@ -352,13 +345,9 @@ pub async fn load_core_into_session(
                         inp.cmd_type.store(CMD_SET_INPUT, Ordering::Relaxed);
                         inp.cmd_ready.store(true, Ordering::Release);
                     }
-                    CoreCommand::SetJoypad { .. } => {
-                        // Joypad commands are unused; ignore
-                    }
                     CoreCommand::SaveState => {
                         inp.cmd_type.store(CMD_SAVE_STATE, Ordering::Relaxed);
                         inp.cmd_ready.store(true, Ordering::Release);
-                        // Wait for response
                         std::thread::sleep(Duration::from_millis(100));
                         let ok = out.response_ok.load(Ordering::Relaxed);
                         let len = out.response_data_len.load(Ordering::Relaxed) as usize;
@@ -366,7 +355,6 @@ pub async fn load_core_into_session(
                         let _ = resp_tx.send(CoreResponse::SaveStateResult { data, ok });
                     }
                     CoreCommand::LoadState { data } => {
-                        // Write state data to output shm so gv-core can read it
                         let len = data.len().min(gv_core::MAX_RESPONSE);
                         unsafe {
                             std::ptr::copy_nonoverlapping(
@@ -376,45 +364,12 @@ pub async fn load_core_into_session(
                             );
                         }
                         out.response_data_len.store(len as u32, Ordering::Relaxed);
-                        // Signal gv-core to load
                         inp.cmd_type.store(CMD_LOAD_STATE, Ordering::Relaxed);
                         inp.cmd_ready.store(true, Ordering::Release);
                         std::thread::sleep(Duration::from_millis(100));
                         let ok = out.response_ok.load(Ordering::Relaxed);
                         let _ = resp_tx.send(CoreResponse::LoadStateResult { ok });
                     }
-                    CoreCommand::SaveSram => {
-                        inp.cmd_type.store(CMD_SAVE_SRAM, Ordering::Relaxed);
-                        inp.cmd_ready.store(true, Ordering::Release);
-                        std::thread::sleep(Duration::from_millis(100));
-                        let ok = out.response_ok.load(Ordering::Relaxed);
-                        let len = out.response_data_len.load(Ordering::Relaxed) as usize;
-                        let data = if ok && len > 0 {
-                            out.response_data[..len.min(gv_core::MAX_RESPONSE)].to_vec()
-                        } else {
-                            vec![]
-                        };
-                        let _ = resp_tx.send(CoreResponse::SramData { data });
-                    }
-                    CoreCommand::LoadSram { data } => {
-                        let len = data.len().min(gv_core::MAX_RESPONSE);
-                        unsafe {
-                            std::ptr::copy_nonoverlapping(
-                                data.as_ptr(),
-                                out.response_data.as_ptr() as *mut u8,
-                                len,
-                            );
-                        }
-                        out.response_data_len.store(len as u32, Ordering::Relaxed);
-                        inp.cmd_type.store(CMD_LOAD_SRAM, Ordering::Relaxed);
-                        inp.cmd_ready.store(true, Ordering::Release);
-                        // Don't wait — load happens inline, no response needed
-                    }
-                    CoreCommand::Reset => {
-                        inp.cmd_type.store(CMD_RESET, Ordering::Relaxed);
-                        inp.cmd_ready.store(true, Ordering::Release);
-                    }
-                    _ => {}
                 }
             }
 

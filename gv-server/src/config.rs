@@ -96,27 +96,6 @@ pub fn gst_video_bitrate_kbps() -> u32 {
     *V
 }
 
-/// VP8 cpu-used: 0 (best quality) … 16 (fastest).
-pub fn gst_video_cpu_used() -> i32 {
-    use std::sync::LazyLock;
-    static V: LazyLock<i32> = LazyLock::new(|| env_or("GV_GST_VIDEO_CPU_USED", 4));
-    *V
-}
-
-/// VP8 encoder threads. GV_GST_VIDEO_THREADS, default 4.
-pub fn gst_video_threads() -> u32 {
-    use std::sync::LazyLock;
-    static V: LazyLock<u32> = LazyLock::new(|| env_or("GV_GST_VIDEO_THREADS", 4));
-    *V
-}
-
-/// Encoder deadline: 0 (best) or 1 (realtime). GV_GST_VIDEO_DEADLINE, default 1.
-pub fn gst_video_deadline() -> u32 {
-    use std::sync::LazyLock;
-    static V: LazyLock<u32> = LazyLock::new(|| env_or("GV_GST_VIDEO_DEADLINE", 1));
-    *V
-}
-
 /// Keyframe max distance in frames. GV_GST_VIDEO_KEYFRAME_MAX_DIST, default 30 (0.5s @ 60fps).
 pub fn gst_video_keyframe_max_dist() -> u32 {
     use std::sync::LazyLock;

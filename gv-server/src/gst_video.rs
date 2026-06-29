@@ -12,25 +12,10 @@ use gstreamer as gst;
 use gstreamer::prelude::*;
 use gstreamer_app as gst_app;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VideoCodec {
-    H264,
-}
-
-impl VideoCodec {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::H264 => "h264",
-        }
-    }
-}
-
 pub struct GstVideoEncoder {
     pipeline: gst::Pipeline,
     appsrc: gst_app::AppSrc,
     appsink: gst_app::AppSink,
-    codec: VideoCodec,
-    encoder_name: String,
     /// Original core resolution (e.g., 256×240 for NES).
     core_width: u32,
     core_height: u32,
@@ -50,7 +35,6 @@ impl GstVideoEncoder {
         core_width: u32,
         core_height: u32,
         fps: f64,
-        codec: VideoCodec,
     ) -> Result<Self, String> {
         let scale_height = crate::config::gst_video_scale_height();
         let max_scale = crate::config::gst_video_max_scale().max(1);
@@ -67,7 +51,7 @@ impl GstVideoEncoder {
             16_666_667
         };
 
-        let (pipeline, encoder_name) = {
+        let (pipeline, _encoder_name) = {
             let available = crate::encoder_probe::probe_h264_encoders();
             build_h264_pipeline(output_width, output_height, &available)?
         };
@@ -100,23 +84,19 @@ impl GstVideoEncoder {
 
         if scale_factor > 1 {
             tracing::info!(
-                "[GST-video] {}×{} →{}× → {}×{} codec={} encoder={} bitrate={}kbps",
+                "[GST-video] {}×{} →{}× → {}×{} bitrate={}kbps",
                 core_width,
                 core_height,
                 scale_factor,
                 output_width,
                 output_height,
-                codec.label(),
-                encoder_name,
                 crate::config::gst_video_bitrate_kbps(),
             );
         } else {
             tracing::info!(
-                "[GST-video] {}×{} codec={} encoder={} bitrate={}kbps",
+                "[GST-video] {}×{} bitrate={}kbps",
                 output_width,
                 output_height,
-                codec.label(),
-                encoder_name,
                 crate::config::gst_video_bitrate_kbps(),
             );
         }
@@ -125,8 +105,6 @@ impl GstVideoEncoder {
             pipeline,
             appsrc,
             appsink,
-            codec,
-            encoder_name,
             core_width,
             core_height,
             output_width,
@@ -212,15 +190,6 @@ impl GstVideoEncoder {
     }
     pub fn scale_factor(&self) -> u32 {
         self.scale_factor
-    }
-    pub fn codec(&self) -> VideoCodec {
-        self.codec
-    }
-    pub fn encoder_name(&self) -> &str {
-        &self.encoder_name
-    }
-    pub fn stats(&self) -> (u64, u64) {
-        (self.frames_pushed, self.frames_pulled)
     }
 }
 

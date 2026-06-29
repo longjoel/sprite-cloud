@@ -40,16 +40,6 @@ const STREAM_ID: &str = "stream";
 const VP8_CLOCK_RATE: u32 = 90_000;
 const ICE_GATHERING_TIMEOUT_SECS: u64 = 30;
 
-// ── Codec enum ───────────────────────────────────────────────────────────────
-
-/// Video codec to use for the WebRTC track.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VideoCodec {
-    H264,
-}
-
-// ── ICE config ───────────────────────────────────────────────────────────────
-
 #[derive(Debug, Clone, PartialEq)]
 struct IceServer {
     urls: Vec<String>,
@@ -317,52 +307,12 @@ pub struct WebRtcStack {
     pub audio_track: Arc<TrackLocalStaticSample>,
 }
 
-/// Build a WebRTC stack (PC + tracks) and pre-gather ICE candidates.
-/// Without pre-gathering, set_remote_description during SDP exchange triggers
-/// ICE pairing before local candidates are ready, causing slow connections.
-pub async fn build_session_pc_gathered() -> Result<WebRtcStack, String> {
-    let stack = build_session_pc().await?;
-
-    // Trigger ICE gathering on the session PC so local candidates are
-    // ready before the SDP exchange pairs them with remote candidates.
-    let dummy_offer = stack.pc.create_offer(None).await
-        .map_err(|e| format!("pre-gather create_offer: {e}"))?;
-    stack.pc.set_local_description(dummy_offer).await
-        .map_err(|e| format!("pre-gather set_local: {e}"))?;
-
-    let (gtx, mut grx) = tokio::sync::mpsc::channel::<()>(1);
-    stack.pc.on_ice_gathering_state_change(Box::new({
-        let gtx = gtx.clone();
-        move |state: RTCIceGathererState| {
-            let gtx = gtx.clone();
-            Box::pin(async move {
-                if state == RTCIceGathererState::Complete {
-                    let _ = gtx.try_send(());
-                }
-            })
-        }
-    }));
-
-    let start = std::time::Instant::now();
-    let _ = tokio::time::timeout(Duration::from_secs(10), grx.recv()).await;
-    tracing::info!("[SESSION] ICE pre-gather done in {:?}", start.elapsed());
-
-    Ok(stack)
-}
-
-/// Build a WebRTC stack (PC + tracks) without pre-gathering.
-/// Use `build_session_pc_gathered` for the hot path.
+/// Build a WebRTC stack (PC + tracks) with TURN enabled.
 pub async fn build_session_pc() -> Result<WebRtcStack, String> {
     build_session_pc_with_turn(true).await
 }
 
-/// Build a WebRTC stack without TURN servers — for guest LAN connections.
-/// Prevents TURN allocation conflicts when multiple peers are behind the same NAT.
-pub async fn build_session_pc_stun_only() -> Result<WebRtcStack, String> {
-    build_session_pc_with_turn(false).await
-}
-
-/// Build a WebRTC stack for LAN direct connection — All transport policy + no TURN.
+/// Build a WebRTC stack (PC + tracks).
 /// Used when the browser is on the same LAN as gv-server, so host candidates
 /// are reachable directly. Skips the pool (pool PCs are built with global policy
 /// which may be "relay") and builds fresh with `All` policy + STUN only.

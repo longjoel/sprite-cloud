@@ -8,9 +8,8 @@ use std::time::Duration;
 
 use webrtc::media::Sample;
 
-use crate::core_bridge::{CoreCommand, CoreFrame, CoreResponse};
 use crate::gst_audio::GstAudioEncoder;
-use crate::gst_video::{GstVideoEncoder, VideoCodec};
+use crate::gst_video::GstVideoEncoder;
 use crate::session::GameSession;
 
 // ── Test pattern ─────────────────────────────────────────────────────
@@ -53,7 +52,7 @@ async fn probe_and_rebuild_encoder(session: &GameSession, frame_width: u32, fram
             tracing::info!("[STREAM] Creating video encoder: {frame_width}×{frame_height} @ {fps:.1}fps");
         }
         drop(enc_guard);
-        let new_enc = GstVideoEncoder::new_with_codec(frame_width, frame_height, fps, VideoCodec::H264)
+        let new_enc = GstVideoEncoder::new_with_codec(frame_width, frame_height, fps)
             .map_err(|e| format!("encoder create/rebuild failed: {e}"))?;
         *session.video_enc.lock().await = Some(Arc::new(tokio::sync::Mutex::new(new_enc)));
 
