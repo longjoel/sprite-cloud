@@ -910,7 +910,7 @@ async fn handle_scan_paths(
                     &ext_lower,
                     &dirs::cache_dir()
                         .unwrap_or_default()
-                        .join("games-vault")
+                        .join("sprite-cloud")
                         .join("dat"),
                 ).await {
                     match &mut combined {

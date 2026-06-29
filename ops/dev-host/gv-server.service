@@ -1,13 +1,13 @@
 [Unit]
-Description=Games Vault Server
+Description=Sprite Cloud Server
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=games-vault
-Group=games-vault
-EnvironmentFile=/etc/games-vault.env
+User=sprite-cloud
+Group=sprite-cloud
+EnvironmentFile=/etc/sprite-cloud.env
 Environment="XDG_CONFIG_HOME=/etc"
 ExecStartPre=/usr/bin/mkdir -p /tmp/gv-sessions
 ExecStart=/usr/local/bin/gv-server start
@@ -18,7 +18,7 @@ LimitNOFILE=65536
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/var/lib/games-vault /tmp/gv-sessions
+ReadWritePaths=/var/lib/sprite-cloud /tmp/gv-sessions
 PrivateDevices=no
 DeviceAllow=/dev/dri rw
 

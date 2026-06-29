@@ -1,14 +1,14 @@
-# Games Vault Contributor License Agreement
+# Sprite Cloud Contributor License Agreement
 
 Version 1.0
 
-This Contributor License Agreement ("Agreement") governs contributions submitted to the Games Vault project.
+This Contributor License Agreement ("Agreement") governs contributions submitted to the Sprite Cloud project.
 
 ## 1. Parties
 
 "You" means the individual or legal entity submitting a contribution.
 
-"Project" means Games Vault.
+"Project" means Sprite Cloud.
 
 "Maintainer" means **Joel Longanecker**, the copyright holder and licensor of the Project.
 
@@ -50,7 +50,7 @@ The Maintainer is not required to accept, use, publish, or maintain any Contribu
 For now, agreement is recorded by including the following line in each pull request description:
 
 ```text
-I agree to the Games Vault Contributor License Agreement in CLA.md.
+I agree to the Sprite Cloud Contributor License Agreement in CLA.md.
 ```
 
 For larger or company contributions, the Maintainer may require a separately signed individual or corporate CLA.

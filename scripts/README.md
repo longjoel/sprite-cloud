@@ -1,4 +1,4 @@
-# Games Vault scripts
+# Sprite Cloud scripts
 
 Keep this directory boring. Scripts here should be reusable release/dev entrypoints, not one-off experiments.
 
@@ -18,7 +18,7 @@ Keep this directory boring. Scripts here should be reusable release/dev entrypoi
 ## Public install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/longjoel/games-vault/main/scripts/install.sh \
+curl -sSL https://raw.githubusercontent.com/longjoel/sprite-cloud/main/scripts/install.sh \
   | sh -s -- --web-url https://your-gateway.example --rom-dir /path/to/roms
 ```
 

@@ -25,7 +25,7 @@ pub struct PlatformManifest {
     pub audio_channels: u16,
 }
 
-/// Every platform known to Games Vault.
+/// Every platform known to Sprite Cloud.
 ///
 /// Order: more-specific entries before broader ones to preserve
 /// first-match-wins semantics (e.g. "Game Boy Advance" before

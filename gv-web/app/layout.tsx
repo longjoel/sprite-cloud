@@ -11,7 +11,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Games Vault",
+  title: "Sprite Cloud",
   description: "Retro game library and browser-based streaming",
   manifest: "/manifest.json",
   appleWebApp: {

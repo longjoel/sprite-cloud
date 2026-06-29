@@ -66,7 +66,7 @@ export default function SignInPage() {
   return (
     <div style={styles.page}>
       <div style={styles.card}>
-        <h1 style={styles.title}>Games Vault</h1>
+        <h1 style={styles.title}>Sprite Cloud</h1>
 
         {/* Tabs */}
         <div style={styles.tabs}>

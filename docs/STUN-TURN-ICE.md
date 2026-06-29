@@ -1,6 +1,6 @@
 # STUN, TURN & ICE Setup Guide
 
-**Self-hosting Games Vault means running a WebRTC gateway.**  
+**Self-hosting Sprite Cloud means running a WebRTC gateway.**  
 This guide covers everything you need so peers can connect through NATs, firewalls,
 and Docker containers — the stuff that makes you mutter *"this is bananas."*
 
@@ -92,7 +92,7 @@ max-port=65535
 
 # Long-term credentials
 user=gv:your-secure-password-here
-realm=games-vault
+realm=sprite-cloud
 
 # Use fingerprint for compatibility
 fingerprint
@@ -121,7 +121,7 @@ ufw allow 3478/tcp
 ufw allow 49152:65535/udp
 ```
 
-### 3.4 Environment Variables for Games Vault
+### 3.4 Environment Variables for Sprite Cloud
 
 Set these in your `docker-compose.yml` under the gv-web service:
 

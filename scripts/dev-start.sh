@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ── Games Vault — dev environment launcher ──────────────────────────────
+# ── Sprite Cloud — dev environment launcher ──────────────────────────────
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -8,7 +8,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # ── Defaults (all overridable via env) ─────────────────────────────────
 PG_PORT="${GV_PG_PORT:-5433}"
 PG_DB="${GV_PG_DB:-gv_web_dev}"
-PG_USER="${GV_PG_USER:-games-vault}"
+PG_USER="${GV_PG_USER:-sprite-cloud}"
 WEB_PORT="${GV_WEB_PORT:-3000}"
 LOG_DIR="${GV_LOG_DIR:-/dev/shm/gv-logs}"
 ROM_ROOTS="${GV_ROM_ROOTS:-/srv/storage/games/roms}"
@@ -16,8 +16,8 @@ SERVER_BIN="${GV_SERVER_BIN:-/usr/local/bin/gv-server}"
 CORES_DIR="${GV_CORES_DIR:-/srv/storage/games/cores}"
 SAVE_DIR="${GV_SAVE_DIR:-/srv/storage/games/saves}"
 SYSTEM_DIR="${GV_SYSTEM_DIR:-/srv/storage/games/system}"
-CFG_DIR="${GV_CFG_DIR:-/etc/games-vault}"
-GV_USER="${GV_USER:-games-vault}"
+CFG_DIR="${GV_CFG_DIR:-/etc/sprite-cloud}"
+GV_USER="${GV_USER:-sprite-cloud}"
 
 mkdir -p "$LOG_DIR"
 
@@ -53,7 +53,7 @@ cmd_killall() {
 # ── Status ──────────────────────────────────────────────────────────────
 cmd_status() {
     echo ""
-    echo "=== Games Vault ==="
+    echo "=== Sprite Cloud ==="
     if pg_isready -h 127.0.0.1 -p "$PG_PORT" >/dev/null 2>&1; then
         echo -e "  Postgres  ${GREEN}ok${NC}  :$PG_PORT/$PG_DB"
     else
@@ -182,10 +182,10 @@ cmd_start() {
     # ── gv-server config ────────────────────────────────────────────
     if [ ! -f "$CFG_DIR/config.toml" ]; then
         # Try to copy from root's config (one-time migration)
-        if [ -f "$HOME/.config/games-vault/config.toml" ]; then
+        if [ -f "$HOME/.config/sprite-cloud/config.toml" ]; then
             log "Migrating config to $CFG_DIR/config.toml..."
             mkdir -p "$CFG_DIR"
-            cp "$HOME/.config/games-vault/config.toml" "$CFG_DIR/config.toml"
+            cp "$HOME/.config/sprite-cloud/config.toml" "$CFG_DIR/config.toml"
             chown -R "$GV_USER:$GV_USER" "$CFG_DIR"
             chmod 750 "$CFG_DIR"
         else

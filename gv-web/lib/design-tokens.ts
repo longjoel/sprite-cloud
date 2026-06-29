@@ -1,5 +1,5 @@
 /**
- * Games Vault Design Tokens
+ * Sprite Cloud Design Tokens
  *
  * 1960s Neo-Futurism — warm wood tones, brass trim, neon accents.
  * "Games Humidor" — not a cold vault, a warm cabinet.
@@ -175,7 +175,7 @@ export type Tokens = typeof tokens;
  * Generate once, paste into the CSS file.
  */
 export function cssCustomProperties(): string {
-  const lines: string[] = ["/* Games Vault Design Tokens — generated from lib/design-tokens.ts */"];
+  const lines: string[] = ["/* Sprite Cloud Design Tokens — generated from lib/design-tokens.ts */"];
 
   for (const [name, value] of Object.entries(colors)) {
     lines.push(`  --color-${name}: ${value};`);

@@ -8,7 +8,7 @@
 Not "retro" as in pixelated 1980s games. **Retro-futurism** — the future
 as imagined in 1964. The World's Fair, not the arcade.
 
-Games Vault should feel like a **physical object**. A piece of furniture.
+Sprite Cloud should feel like a **physical object**. A piece of furniture.
 A control panel. Not software that happens to be dark themed.
 
 ## Principles

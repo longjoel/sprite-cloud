@@ -19,7 +19,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "gv-server", about = "Games Vault server")]
+#[command(name = "gv-server", about = "Sprite Cloud server")]
 struct Cli {
     #[command(subcommand)]
     command: Command,

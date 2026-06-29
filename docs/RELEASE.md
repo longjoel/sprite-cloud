@@ -1,6 +1,6 @@
 # Release System
 
-Games Vault release flow builds one host binary (`gv-server`) plus the `gv-web` production bundle/container.
+Sprite Cloud release flow builds one host binary (`gv-server`) plus the `gv-web` production bundle/container.
 
 ## Artifacts
 
@@ -51,8 +51,8 @@ export GV_WEB_HEALTH_URL=https://your-gateway.example/api/health
 
 | Location | Meaning |
 |---|---|
-| `/var/lib/games-vault/RELEASE_COMMIT` | Host deployed SHA |
-| `/var/lib/games-vault/RELEASE_MANIFEST.json` | Host artifact manifest |
+| `/var/lib/sprite-cloud/RELEASE_COMMIT` | Host deployed SHA |
+| `/var/lib/sprite-cloud/RELEASE_MANIFEST.json` | Host artifact manifest |
 | `/docker/gv-web/RELEASE_COMMIT` | Gateway deployed SHA |
 | `/docker/gv-web/RELEASE_MANIFEST.json` | Gateway release manifest |
 | `.release/RELEASE_COMMIT` | Local build SHA |

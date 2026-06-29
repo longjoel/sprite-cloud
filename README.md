@@ -1,8 +1,8 @@
-# Games Vault
+# Sprite Cloud
 
 Self-hosted retro game library and browser streaming.
 
-Games Vault has three roles:
+Sprite Cloud has three roles:
 
 | Role | Runs where | What it does |
 |---|---|---|
@@ -48,7 +48,7 @@ cargo run -p gv-server -- start
 ## One-liner host install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/longjoel/games-vault/main/scripts/install.sh | sh -s -- --web-url https://your-gateway.example --rom-dir /path/to/roms
+curl -sSL https://raw.githubusercontent.com/longjoel/sprite-cloud/main/scripts/install.sh | sh -s -- --web-url https://your-gateway.example --rom-dir /path/to/roms
 ```
 
 The installer detects Linux distro/arch, installs system dependencies, downloads `gv-server` from GitHub Releases, writes config, and installs a systemd service.
@@ -57,7 +57,7 @@ The installer detects Linux distro/arch, installs system dependencies, downloads
 
 ## Manual host config
 
-`gv-server pair` writes credentials to `~/.config/games-vault/config.toml` or `/etc/games-vault/config.toml` depending on install mode.
+`gv-server pair` writes credentials to `~/.config/sprite-cloud/config.toml` or `/etc/sprite-cloud/config.toml` depending on install mode.
 
 A minimal config looks like:
 
@@ -94,9 +94,9 @@ Auth is DB-backed email/password. The first admin account is created through the
 
 ## License
 
-Games Vault is licensed under the **GNU Affero General Public License v3.0 or later**. See [LICENSE](LICENSE).
+Sprite Cloud is licensed under the **GNU Affero General Public License v3.0 or later**. See [LICENSE](LICENSE).
 
-That means you may self-host, study, modify, and redistribute Games Vault, but if you run a modified version as a network service, you must offer the corresponding source code to users of that service.
+That means you may self-host, study, modify, and redistribute Sprite Cloud, but if you run a modified version as a network service, you must offer the corresponding source code to users of that service.
 
 Commercial licensing is available separately for organizations that need terms outside the AGPL. Contributions require agreement to the [Contributor License Agreement](CLA.md) so the project can maintain a dual-license model.
 

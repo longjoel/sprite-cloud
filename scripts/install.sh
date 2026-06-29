@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Games Vault — one-liner self-hosted install
+# Sprite Cloud — one-liner self-hosted install
 #   curl -sSL https://... | sh            # system-wide (needs sudo)
 #   curl -sSL https://... | sh -s -- --rootless  # user-only (no sudo)
 set -euo pipefail
@@ -47,7 +47,7 @@ UNAME_S=$(uname -s)
 UNAME_M=$(uname -m)
 
 if [ "$UNAME_S" != "Linux" ]; then
-  err "Games Vault requires Linux (detected: $UNAME_S)"
+  err "Sprite Cloud requires Linux (detected: $UNAME_S)"
 fi
 
 case "$UNAME_M" in
@@ -87,8 +87,8 @@ if $ROOTLESS; then
   MODE="rootless (user)"
   SUDO=""
   BIN_DIR="${HOME}/.local/bin"
-  CONFIG_DIR="${HOME}/.config/games-vault"
-  DATA_DIR="${HOME}/.local/share/games-vault"
+  CONFIG_DIR="${HOME}/.config/sprite-cloud"
+  DATA_DIR="${HOME}/.local/share/sprite-cloud"
   SYSTEMD_DIR="${HOME}/.config/systemd/user"
   SYSTEMCTL="systemctl --user"
   SU_CMD=""  # no user switch needed
@@ -103,18 +103,18 @@ else
     err "sudo not found — run as root or use --rootless"
   fi
   BIN_DIR="/usr/local/bin"
-  CONFIG_DIR="/etc/games-vault"
-  DATA_DIR="/var/lib/games-vault"
+  CONFIG_DIR="/etc/sprite-cloud"
+  DATA_DIR="/var/lib/sprite-cloud"
   SYSTEMD_DIR="/etc/systemd/system"
   SYSTEMCTL="sudo systemctl"
-  SU_CMD="games-vault:games-vault"
+  SU_CMD="sprite-cloud:sprite-cloud"
 fi
 
 CORES_DIR="${DATA_DIR}/cores"
 CONFIG_FILE="${CONFIG_DIR}/config.toml"
 BIN_PATH="${BIN_DIR}/gv-server"
 
-printf "${BOLD}Games Vault — Self-Hosted Install${NC}\n"
+printf "${BOLD}Sprite Cloud — Self-Hosted Install${NC}\n"
 printf "  Mode:   ${CYAN}%s${NC}\n" "$MODE"
 printf "  OS:     ${GREEN}%s${NC}\n" "$OS_ID"
 printf "  Arch:   ${GREEN}%s${NC}\n" "$ARCH"
@@ -148,12 +148,12 @@ fi
 
 # ── Create directories ─────────────────────────────────────────────────
 if ! $ROOTLESS; then
-  if ! id games-vault >/dev/null 2>&1; then
-    log "Creating games-vault user…"
-    $SUDO useradd -r -s /usr/sbin/nologin -m -d "$DATA_DIR" games-vault
-    ok "user games-vault created"
+  if ! id sprite-cloud >/dev/null 2>&1; then
+    log "Creating sprite-cloud user…"
+    $SUDO useradd -r -s /usr/sbin/nologin -m -d "$DATA_DIR" sprite-cloud
+    ok "user sprite-cloud created"
   else
-    ok "user games-vault already exists"
+    ok "user sprite-cloud already exists"
   fi
 fi
 
@@ -166,7 +166,7 @@ fi
 ok "directories created"
 
 # ── Download binary ────────────────────────────────────────────────────
-BIN_URL="${GV_BIN_URL:-https://github.com/longjoel/games-vault/releases/latest/download/gv-server-${ARCH}}"
+BIN_URL="${GV_BIN_URL:-https://github.com/longjoel/sprite-cloud/releases/latest/download/gv-server-${ARCH}}"
 
 log "Downloading gv-server ($ARCH)…"
 $SUDO curl -sSL "$BIN_URL" -o "$BIN_PATH"
@@ -222,7 +222,7 @@ if $ROOTLESS; then
   # User-level service — runs as current user, no hardening directives
   cat > "$SERVICE_FILE" << EOF
 [Unit]
-Description=Games Vault Server (user)
+Description=Sprite Cloud Server (user)
 After=network-online.target
 Wants=network-online.target
 
@@ -242,14 +242,14 @@ EOF
 else
   $SUDO tee "$SERVICE_FILE" > /dev/null << EOF
 [Unit]
-Description=Games Vault Server
+Description=Sprite Cloud Server
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=games-vault
-Group=games-vault
+User=sprite-cloud
+Group=sprite-cloud
 Environment="XDG_CONFIG_HOME=/etc"
 Environment="GV_CORES_DIR=${CORES_DIR}"
 Environment="RUST_LOG=info"
@@ -278,7 +278,7 @@ ok "systemd service installed (disabled — pair first)"
 # ── Done ───────────────────────────────────────────────────────────────
 echo ""
 printf "${GREEN}${BOLD}========================================${NC}\n"
-printf "${GREEN}${BOLD}  Games Vault installed!${NC}\n"
+printf "${GREEN}${BOLD}  Sprite Cloud installed!${NC}\n"
 printf "${GREEN}${BOLD}========================================${NC}\n"
 echo ""
 printf "  Next steps:\n"

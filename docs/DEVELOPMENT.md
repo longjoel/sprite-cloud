@@ -3,7 +3,7 @@
 ## Repository structure
 
 ```text
-games-vault/
+sprite-cloud/
 ├── gv-web/             Next.js gateway app and browser player assets
 │   ├── app/            App router pages and API routes
 │   ├── lib/            Auth, DB, command/session helpers

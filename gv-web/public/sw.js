@@ -1,4 +1,4 @@
-// ── sw.js — Games Vault service worker ──────────────────────────────
+// ── sw.js — Sprite Cloud service worker ──────────────────────────────
 // Cache-first for static assets; network-first for API calls.
 // Makes the PWA installable and provides an offline shell.
 

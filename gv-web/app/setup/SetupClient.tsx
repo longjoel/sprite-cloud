@@ -57,7 +57,7 @@ export default function SetupClient({
   return (
     <div style={styles.page}>
       <div style={styles.card}>
-        <h1 style={styles.title}>Games Vault</h1>
+        <h1 style={styles.title}>Sprite Cloud</h1>
         <p style={styles.subtitle}>First-run setup</p>
 
         <form onSubmit={handleSubmit} style={styles.form}>
