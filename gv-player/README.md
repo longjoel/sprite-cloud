@@ -1,6 +1,6 @@
 # gv-player
 
-Browser-side WebRTC player assets for Games Vault.
+Browser-side WebRTC player assets for Sprite Cloud.
 
 The current player is served by `gv-web` from `gv-web/public/player/`. This package remains in the workspace for compatibility while the player code is consolidated into the gateway app.
 

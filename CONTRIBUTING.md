@@ -1,8 +1,8 @@
-# Contributing to Games Vault
+# Contributing to Sprite Cloud
 
-Thanks for helping build Games Vault.
+Thanks for helping build Sprite Cloud.
 
-Games Vault is open source under the **GNU Affero General Public License v3.0 or later**. Because the project may also offer commercial licensing, contributions require agreement to the project CLA.
+Sprite Cloud is open source under the **GNU Affero General Public License v3.0 or later**. Because the project may also offer commercial licensing, contributions require agreement to the project CLA.
 
 ## Before opening a PR
 
@@ -11,7 +11,7 @@ Games Vault is open source under the **GNU Affero General Public License v3.0 or
 3. Make sure your PR description includes:
 
 ```text
-I agree to the Games Vault Contributor License Agreement in CLA.md.
+I agree to the Sprite Cloud Contributor License Agreement in CLA.md.
 ```
 
 Do not submit code you cannot license under the CLA.
@@ -68,7 +68,7 @@ Do **not** open public issues for vulnerabilities. See [`SECURITY.md`](SECURITY.
 
 ## Pull request checklist
 
-- [ ] I agree to the Games Vault Contributor License Agreement in `CLA.md`.
+- [ ] I agree to the Sprite Cloud Contributor License Agreement in `CLA.md`.
 - [ ] I did not commit secrets, ROMs, BIOS files, generated bundles, or build artifacts.
 - [ ] I updated docs for user-visible behavior changes.
 - [ ] I ran the relevant tests/builds.

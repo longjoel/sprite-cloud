@@ -1,6 +1,6 @@
 # ops/ — Production templates
 
-Repo-tracked templates for deploying Games Vault. The files here are the **source of truth** for service wiring — if a box's config diverges from what's here, the box is wrong.
+Repo-tracked templates for deploying Sprite Cloud. The files here are the **source of truth** for service wiring — if a box's config diverges from what's here, the box is wrong.
 
 ## What lives here
 
@@ -8,7 +8,7 @@ Repo-tracked templates for deploying Games Vault. The files here are the **sourc
 ops/
 ├── dev-host/                   dev/self-host gv-server host
 │   ├── gv-server.service       systemd unit
-│   └── games-vault.env.example environment template
+│   └── sprite-cloud.env.example environment template
 ├── vps/                        Gateway Docker host
 │   ├── docker-compose.yml      gv-web compose file
 │   └── .env.example            environment template
@@ -33,12 +33,12 @@ sudo cp ops/dev-host/gv-server.service /etc/systemd/system/
 sudo systemctl daemon-reload
 
 # environment (fill in real values from secrets)
-sudo cp ops/dev-host/games-vault.env.example /etc/games-vault.env
-sudo $EDITOR /etc/games-vault.env
+sudo cp ops/dev-host/sprite-cloud.env.example /etc/sprite-cloud.env
+sudo $EDITOR /etc/sprite-cloud.env
 
 # config
-sudo mkdir -p /etc/games-vault
-# write /etc/games-vault/config.toml with web URL, auth, ROM roots
+sudo mkdir -p /etc/sprite-cloud
+# write /etc/sprite-cloud/config.toml with web URL, auth, ROM roots
 ```
 
 ### VPS

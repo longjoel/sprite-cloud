@@ -32,7 +32,7 @@ elif [ "$user_count" = "0" ]; then
   SETUP_CODE=$(node -e "console.log(require('crypto').randomBytes(8).toString('hex'))")
   echo "$SETUP_CODE" > "$SETUP_CODE_FILE"
   printf '\n╔══════════════════════════════════════════════╗\n'
-  printf '║         Games Vault — First Run             ║\n'
+  printf '║         Sprite Cloud — First Run             ║\n'
   printf '╠══════════════════════════════════════════════╣\n'
   SETUP_URL="${AUTH_URL:-${NEXTAUTH_URL:-}}"
   printf "║  Setup code: %-30s ║\n" "$SETUP_CODE"

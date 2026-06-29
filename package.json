@@ -1,5 +1,5 @@
 {
-  "name": "games-vault",
+  "name": "sprite-cloud",
   "private": true,
   "scripts": {
     "dev": "pnpm --filter gv-web dev",

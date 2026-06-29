@@ -60,7 +60,7 @@ services:
       - ./target/release/gv-server:/usr/local/bin/gv-server:ro
       - ./test-data/cores:/cores:rw
       # Host config
-      - /etc/games-vault/config.toml:/etc/games-vault/config.toml:ro
+      - /etc/sprite-cloud/config.toml:/etc/sprite-cloud/config.toml:ro
       # ROMs
       - /srv/storage/games/roms:/srv/storage/games/roms:ro
       # Saves + system dirs

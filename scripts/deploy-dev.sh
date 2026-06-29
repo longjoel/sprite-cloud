@@ -20,7 +20,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 BIN_DIR="${GV_DEV_BIN_DIR:-/usr/local/bin}"
-RELEASE_STATE_DIR="${GV_DEV_STATE_DIR:-/var/lib/games-vault}"
+RELEASE_STATE_DIR="${GV_DEV_STATE_DIR:-/var/lib/sprite-cloud}"
 SERVICE_NAME="${GV_DEV_SERVICE:-gv-server.service}"
 WEB_HEALTH_URL="${GV_LOCAL_HEALTH_URL:-http://localhost:3000/api/health}"
 

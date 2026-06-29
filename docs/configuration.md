@@ -1,6 +1,6 @@
 # Configuration Reference
 
-Configuration for the current Games Vault architecture: `gv-web` gateway + `gv-server` host runtime.
+Configuration for the current Sprite Cloud architecture: `gv-web` gateway + `gv-server` host runtime.
 
 ## gv-web gateway
 
@@ -31,8 +31,8 @@ Default config locations:
 
 | Install mode | Path |
 |---|---|
-| user/rootless | `~/.config/games-vault/config.toml` |
-| system service | `/etc/games-vault/config.toml` when `XDG_CONFIG_HOME=/etc` |
+| user/rootless | `~/.config/sprite-cloud/config.toml` |
+| system service | `/etc/sprite-cloud/config.toml` when `XDG_CONFIG_HOME=/etc` |
 
 Example:
 

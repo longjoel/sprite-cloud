@@ -105,7 +105,7 @@ export default function ShortCodePage() {
             : "This short code doesn't match any active game. The link may have expired."}
         </div>
         <a href="/" style={{ marginTop: 16, padding: "6px 24px", border: "1px solid var(--color-bamboo, #4a3a28)", color: "var(--color-muted, #b8a888)", fontSize: 12, fontFamily: "monospace", textDecoration: "none", textTransform: "uppercase", letterSpacing: "0.1em" }}>
-          Games Vault
+          Sprite Cloud
         </a>
       </main>
     );

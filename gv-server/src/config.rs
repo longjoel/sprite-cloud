@@ -39,7 +39,7 @@ pub struct Rom {
 
 fn config_path() -> PathBuf {
     let mut path = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
-    path.push("games-vault");
+    path.push("sprite-cloud");
     path.push("config.toml");
     path
 }

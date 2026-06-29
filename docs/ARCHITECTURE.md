@@ -1,6 +1,6 @@
 # Architecture
 
-Games Vault is a self-hosted game library and browser streaming stack. The current architecture has three runtime roles and no separate worker binary.
+Sprite Cloud is a self-hosted game library and browser streaming stack. The current architecture has three runtime roles and no separate worker binary.
 
 ## Runtime roles
 

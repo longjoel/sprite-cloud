@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Games Vault is pre-1.0. Security fixes are applied to the latest `main` branch unless otherwise stated in a release note.
+Sprite Cloud is pre-1.0. Security fixes are applied to the latest `main` branch unless otherwise stated in a release note.
 
 ## Reporting a vulnerability
 

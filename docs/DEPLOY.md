@@ -1,6 +1,6 @@
 # Deployment Guide
 
-Production Games Vault has two roles:
+Production Sprite Cloud has two roles:
 
 | Role | Runs where | Purpose |
 |---|---|---|
@@ -103,7 +103,7 @@ sudo systemctl enable --now gv-server
 
 ## Host config
 
-`/etc/games-vault/config.toml` for system services:
+`/etc/sprite-cloud/config.toml` for system services:
 
 ```toml
 [gv_web]

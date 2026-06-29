@@ -201,7 +201,7 @@ export default function LibraryClient({ games, serverIds, session }: LibraryClie
   return (
     <main style={styles.main}>
       <div style={styles.topBar}>
-        <h1 style={styles.title}>Games Vault</h1>
+        <h1 style={styles.title}>Sprite Cloud</h1>
         {session ? (
           <div style={styles.userInfo}>
             <span style={styles.userName}>

@@ -1,4 +1,4 @@
-# Games Vault — Quickstart
+# Sprite Cloud — Quickstart
 
 Three roles. Pick yours.
 
@@ -34,8 +34,8 @@ You need a Linux machine with your ROM files. The host streams games to players 
 curl -fsSL https://get.gamesvault.app | sh
 
 # For now: build from source
-git clone https://github.com/longjoel/games-vault
-cd games-vault
+git clone https://github.com/longjoel/sprite-cloud
+cd sprite-cloud
 cargo build --release -p gv-core -p gv-server
 sudo cp target/release/gv-server /usr/local/bin/
 ```
@@ -62,7 +62,7 @@ sudo pacman -S gst-plugins-bad gst-plugins-good gst-plugins-ugly
 3. Run it on your host machine
 ```
 
-This saves your server's credentials to `~/.config/games-vault/config.toml`.
+This saves your server's credentials to `~/.config/sprite-cloud/config.toml`.
 
 ### 3. Point at your ROMs
 
@@ -98,8 +98,8 @@ The gateway is the web interface — sign-up, library, pairing, and command rout
 ### 1. Clone and start
 
 ```bash
-git clone https://github.com/longjoel/games-vault
-cd games-vault
+git clone https://github.com/longjoel/sprite-cloud
+cd sprite-cloud
 ```
 
 Create a `docker-compose.yml` in a deploy directory:

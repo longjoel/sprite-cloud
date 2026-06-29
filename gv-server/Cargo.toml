@@ -2,7 +2,7 @@
 name = "gv-server"
 version = "0.3.0"
 edition = "2024"
-description = "Games Vault server — in-process game streaming with GStreamer + WebRTC"
+description = "Sprite Cloud server — in-process game streaming with GStreamer + WebRTC"
 license = "AGPL-3.0-or-later"
 
 [lib]

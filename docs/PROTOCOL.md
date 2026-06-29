@@ -1,4 +1,4 @@
-# Games Vault Protocol
+# Sprite Cloud Protocol
 
 Current architecture: `gv-web` gateway, `gv-server` host runtime, and browser player.
 
