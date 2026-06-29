@@ -20,12 +20,22 @@ if ! ldd /usr/local/bin/gv-server >/dev/null 2>&1; then
   ldd /usr/local/bin/gv-server || true
 fi
 
-# Wait for gv-web to be healthy
-echo "[gv-server] waiting for gv-web..."
-until curl -sf http://localhost:3000/api/health >/dev/null 2>&1; do
-  sleep 1
-done
-echo "[gv-server] gv-web is healthy"
+# ── One-liner pairing mode ───────────────────────────────────────────
+# If GV_PAIR_CODE and GV_WEB_URL are set, auto-pair before starting.
+# This lets users run a single `docker run` command without pre-creating config.
+if [ -n "${GV_PAIR_CODE:-}" ] && [ -n "${GV_WEB_URL:-}" ]; then
+  echo "[gv-server] auto-pairing with code $GV_PAIR_CODE → $GV_WEB_URL"
+  gv-server pair "$GV_PAIR_CODE" --gv-web-url "$GV_WEB_URL"
+fi
+
+# ── Wait for gv-web ─────────────────────────────────────────────────
+if [ "${GV_SKIP_WEB_WAIT:-0}" != "1" ]; then
+  echo "[gv-server] waiting for gv-web..."
+  until curl -sf http://localhost:3000/api/health >/dev/null 2>&1; do
+    sleep 1
+  done
+  echo "[gv-server] gv-web is healthy"
+fi
 
 # Ensure core + save directories exist
 mkdir -p /cores /saves /system

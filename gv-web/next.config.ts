@@ -14,6 +14,8 @@ const CSP = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // Instrumentation hook (instrumentation.ts) runs at startup — generates
+  // the setup code for first-run admin creation on both dev and production.
   // ESLint is intentionally disabled during builds. TypeScript (npx tsc --noEmit)
   // is the enforcement gate for code quality. ESLint would require configuring a
   // full rule set for this project, and the recurring "ESLint must be installed"

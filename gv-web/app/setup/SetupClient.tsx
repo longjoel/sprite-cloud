@@ -27,7 +27,7 @@ export default function SetupClient({
     }
 
     if (!code.trim()) {
-      setError("Setup code is required — check docker logs gv-web-gv-web-1");
+      setError("Setup code is required — it was printed to the server console on startup");
       return;
     }
 
@@ -111,9 +111,7 @@ export default function SetupClient({
         </form>
 
         <p style={styles.hint}>
-          The setup code is printed in the server logs.
-          <br />
-          Run: <code style={styles.code}>docker logs gv-web-gv-web-1</code>
+          The setup code is printed in the server console logs on first startup.
         </p>
       </div>
     </div>
@@ -193,13 +191,5 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: "16px",
     fontFamily: "'Geist', sans-serif",
     lineHeight: "1.6",
-  },
-  code: {
-    background: "#1a1410",
-    padding: "1px 6px",
-    borderRadius: "2px",
-    fontFamily: "'Geist Mono', monospace",
-    fontSize: "11px",
-    color: "#b8964a",
   },
 };

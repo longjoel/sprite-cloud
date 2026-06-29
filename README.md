@@ -23,12 +23,12 @@ For the user-facing guide, see **[QUICKSTART.md](QUICKSTART.md)**.
 cd gv-web
 pnpm install
 cp .env.example .env.local
-# Fill DATABASE_URL and AUTH_SECRET.
+# Edit .env.local — fill in DATABASE_URL and AUTH_SECRET at minimum.
 pnpm exec drizzle-kit push
 pnpm dev
 ```
 
-Open `http://localhost:3000/setup`, use the setup code printed by the server/container logs, then create the first admin account.
+Open `http://localhost:3000/setup`. On first run, the server prints a setup code to the console — use that code to create the first admin account.
 
 ### Pair and run a host
 
@@ -54,6 +54,26 @@ curl -sSL https://raw.githubusercontent.com/longjoel/sprite-cloud/main/scripts/i
 The installer detects Linux distro/arch, installs system dependencies, downloads `gv-server` from GitHub Releases, writes config, and installs a systemd service.
 
 > Current state: release artifacts still need CI publishing before the one-liner is useful for public users. Until then, build from source as shown in [QUICKSTART.md](QUICKSTART.md).
+
+## Docker host
+
+Run a gv-server host in a container, auto-pairing on first start:
+
+```bash
+docker run -d \
+  --name sprite-cloud-host \
+  --network host \
+  -v /path/to/roms:/roms:ro \
+  -v sprite-cloud-saves:/saves \
+  -e GV_PAIR_CODE=ABCD-EFGH \
+  -e GV_WEB_URL=https://your-gateway.example \
+  -e GV_ROM_ROOTS=/roms \
+  ghcr.io/longjoel/sprite-cloud/gv-server:latest
+```
+
+The container pairs automatically on first run (reads `GV_PAIR_CODE` + `GV_WEB_URL`). On subsequent starts it reuses the saved credentials. Generate a pairing code from your gateway dashboard (Settings → Hosts).
+
+> Note: Docker images are not yet published. Until CI is set up, use `docker compose` from the repo root (see `docker-compose.yml`).
 
 ## Manual host config
 
