@@ -218,14 +218,19 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
     const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     const isMobile = window.matchMedia('(pointer: coarse)').matches;
     if (hasTouch && isMobile && window.TouchGamepad) {
-      _touchGamepad = new window.TouchGamepad(video, { layout: 'auto' });
+      // Read preset + layout from video dataset (set by GamePlayer React component)
+      const preset = video.dataset.gvPreset || 'nes';
+      const layout = video.dataset.gvLayout || 'auto';
+      _touchGamepad = new window.TouchGamepad(video, { preset, layout });
       _touchGamepad.onInput = (buttons, axes) => {
         if (player && player._sendInput) {
           player._sendInput({ index: 0, buttons, axes });
         }
       };
       _touchGamepad.show();
-      console.log("[gv] touch gamepad initialized");
+      // Expose globally so GamePlayer.tsx toggle button can control it
+      window.__gvTouchGamepad = _touchGamepad;
+      console.log("[gv] touch gamepad v2 initialized — preset:", preset, "layout:", layout);
     }
   } catch (e) {
     console.warn("[gv] touch gamepad init failed:", e?.message || e);

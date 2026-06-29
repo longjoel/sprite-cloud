@@ -64,6 +64,13 @@ interface PlayerCallbacks {
 declare global {
   interface Window {
     gvPlay?: GvPlay;
+    __gvTouchGamepad?: {
+      toggle: () => void;
+      isVisible: () => boolean;
+      setPreset: (preset: string) => void;
+      show: () => void;
+      hide: () => void;
+    };
   }
 }
 
@@ -118,6 +125,10 @@ export default function GamePlayer({
   const [showRemap, setShowRemap] = useState(false);
   const [remapWaiting, setRemapWaiting] = useState<string | null>(null);
   const [showRoomControls, setShowRoomControls] = useState(false);
+  const [touchGamepadVisible, setTouchGamepadVisible] = useState(() => {
+    try { return localStorage.getItem('gv:touch-visible') !== '0'; }
+    catch { return true; }
+  });
 
   const [pipeline, setPipeline] = useState<Record<string, StepState>>(
     () => mergePipeline(defaultPipeline(), initialPipeline),
@@ -332,6 +343,30 @@ export default function GamePlayer({
     };
   }, []);
 
+  // ── Touch gamepad toggle ─────────────────────────────────────────
+
+  const toggleTouchGamepad = useCallback(() => {
+    const tg = window.__gvTouchGamepad;
+    if (tg) {
+      if (tg.isVisible()) {
+        tg.hide();
+        setTouchGamepadVisible(false);
+      } else {
+        tg.show();
+        setTouchGamepadVisible(true);
+      }
+    }
+  }, []);
+
+  // Set video dataset attributes for touch-gamepad.js to read
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !connected) return;
+    // Default to 'nes' preset — can be overridden per-game later via a prop
+    v.dataset.gvPreset = 'nes';
+    v.dataset.gvLayout = 'auto';
+  }, [connected]);
+
   // ── Fullscreen ────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -486,6 +521,9 @@ export default function GamePlayer({
           </Button>
           <Button variant="secondary" size="sm" onClick={() => { setShowSlots(!showSlots); handleListSaves(); }}>
             💾 Saves
+          </Button>
+          <Button variant="secondary" size="sm" onClick={toggleTouchGamepad} title={touchGamepadVisible ? "Hide touch controls" : "Show touch controls"}>
+            {touchGamepadVisible ? "🎮" : "🎮‍💨"}
           </Button>
           <Button variant="secondary" size="sm" onClick={toggleFullscreen}>
             {isFullscreen ? "↙" : "⛶"}
