@@ -14,14 +14,12 @@ use gstreamer_app as gst_app;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoCodec {
-    Vp8,
     H264,
 }
 
 impl VideoCodec {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Vp8 => "vp8",
             Self::H264 => "h264",
         }
     }
@@ -48,10 +46,6 @@ pub struct GstVideoEncoder {
 }
 
 impl GstVideoEncoder {
-    pub fn new(core_width: u32, core_height: u32, fps: f64) -> Result<Self, String> {
-        Self::new_with_codec(core_width, core_height, fps, VideoCodec::Vp8)
-    }
-
     pub fn new_with_codec(
         core_width: u32,
         core_height: u32,
@@ -73,13 +67,9 @@ impl GstVideoEncoder {
             16_666_667
         };
 
-        let (pipeline, encoder_name) = match codec {
-            VideoCodec::Vp8 => build_vp8_pipeline(output_width, output_height)?,
-            VideoCodec::H264 => {
-                let available =
-                    crate::encoder_probe::probe_h264_encoders();
-                build_h264_pipeline(output_width, output_height, &available)?
-            }
+        let (pipeline, encoder_name) = {
+            let available = crate::encoder_probe::probe_h264_encoders();
+            build_h264_pipeline(output_width, output_height, &available)?
         };
 
         let appsrc = pipeline
@@ -241,41 +231,6 @@ impl Drop for GstVideoEncoder {
 }
 
 // ── Pipeline builders ───────────────────────────────────────────────────────
-
-fn build_vp8_pipeline(
-    output_width: u32,
-    output_height: u32,
-) -> Result<(gst::Pipeline, String), String> {
-    let cpu = crate::config::gst_video_cpu_used();
-    let threads = crate::config::gst_video_threads();
-    let bitrate = crate::config::gst_video_bitrate_kbps();
-    let deadline = crate::config::gst_video_deadline();
-    let kf_dist = crate::config::gst_video_keyframe_max_dist();
-
-    let pipeline_str = format!(
-        "appsrc name=video_src is-live=true format=time \
-         ! videoconvert \
-         ! video/x-raw,format=I420,width={w},height={h} \
-         ! vp8enc \
-           name=vp8enc \
-           deadline={deadline} \
-           cpu-used={cpu} \
-           threads={threads} \
-           keyframe-max-dist={kf} \
-           target-bitrate={br} \
-           error-resilient=partitions \
-         ! appsink name=video_sink sync=false async=false drop=true max-buffers=4",
-        w = output_width,
-        h = output_height,
-        deadline = deadline,
-        cpu = cpu,
-        threads = threads,
-        kf = kf_dist,
-        br = bitrate,
-    );
-
-    launch_pipeline(&pipeline_str).map(|p| (p, "vp8enc".into()))
-}
 
 fn build_h264_pipeline(
     output_width: u32,

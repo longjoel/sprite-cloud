@@ -14,7 +14,7 @@ use std::time::Duration;
 use tokio::sync::Mutex as AsyncMutex;
 
 use webrtc::api::interceptor_registry::register_default_interceptors;
-use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_H264, MIME_TYPE_OPUS, MIME_TYPE_VP8};
+use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_H264, MIME_TYPE_OPUS};
 use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::APIBuilder;
 use webrtc::ice_transport::ice_server::RTCIceServer;
@@ -45,7 +45,6 @@ const ICE_GATHERING_TIMEOUT_SECS: u64 = 30;
 /// Video codec to use for the WebRTC track.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoCodec {
-    Vp8,
     H264,
 }
 
@@ -138,7 +137,7 @@ fn ice_config() -> IceConfig {
 // ── Internal helpers ─────────────────────────────────────────────────────────
 
 /// Build a fully-configured RTCPeerConnection with video + audio tracks.
-async fn build_webrtc_stack(video_codec: VideoCodec, include_turn: bool) -> Result<InternalWebRtcStack, String> {
+async fn build_webrtc_stack(include_turn: bool) -> Result<InternalWebRtcStack, String> {
     let mut media_engine = MediaEngine::default();
     media_engine
         .register_default_codecs()
@@ -187,20 +186,11 @@ async fn build_webrtc_stack(video_codec: VideoCodec, include_turn: bool) -> Resu
 
     let video_track = Arc::new(TrackLocalStaticSample::new(
         RTCRtpCodecCapability {
-            mime_type: match video_codec {
-                VideoCodec::Vp8 => MIME_TYPE_VP8,
-                VideoCodec::H264 => MIME_TYPE_H264,
-            }
-            .to_owned(),
+            mime_type: MIME_TYPE_H264.to_owned(),
             clock_rate: VP8_CLOCK_RATE,
             channels: 0,
-            sdp_fmtp_line: match video_codec {
-                VideoCodec::Vp8 => String::new(),
-                VideoCodec::H264 => {
-                    "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
-                        .to_string()
-                }
-            },
+            sdp_fmtp_line: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
+                .to_string(),
             rtcp_feedback: vec![],
         },
         VIDEO_TRACK_ID.to_owned(),
@@ -461,7 +451,7 @@ async fn build_session_pc_with_turn(include_turn: bool) -> Result<WebRtcStack, S
         pc,
         video_track,
         audio_track,
-    } = build_webrtc_stack(VideoCodec::H264, include_turn).await?;
+    } = build_webrtc_stack(include_turn).await?;
 
     // DC is created by browser as "diagnostics" (non-negotiated).
     // We receive it via ondatachannel — handled by the caller.
