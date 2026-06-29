@@ -14,8 +14,8 @@ WORKDIR /app
 # can cd /app/gv-web && node server.js
 COPY gv-web-standalone/ ./gv-web/
 
-# Static assets served by Next.js
-COPY gv-web/public/ ./gv-web/public/
+# Static assets served by Next.js (must be next to server.js in standalone)
+COPY gv-web/public/ ./gv-web/gv-web/public/
 
 # Next.js build static assets (JS chunks, CSS) — not in standalone output
 COPY gv-web/.next/static/ ./gv-web/gv-web/.next/static/
