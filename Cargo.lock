@@ -119,9 +119,9 @@ dependencies = [
 
 [[package]]
 name = "arc-swap"
-version = "1.9.1"
+version = "1.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a3a1fd6f75306b68087b831f025c712524bcb19aad54e557b1129cfa0a2b207"
+checksum = "c049c0be4daef0b145cb3555416b3b8ef5b7888a38aea1a3a155801fe7b0810b"
 dependencies = [
  "rustversion",
 ]
@@ -801,7 +801,7 @@ dependencies = [
 [[package]]
 name = "dtls"
 version = "0.17.1"
-source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=main#e9fe1bc4207a0c6b8d28d5583a118419be60f3c2"
+source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=fix%2Fudp-mux-ufrag#23260290325f3d139287937939904aa6474b62c0"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -1656,7 +1656,7 @@ dependencies = [
 [[package]]
 name = "interceptor"
 version = "0.17.1"
-source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=main#e9fe1bc4207a0c6b8d28d5583a118419be60f3c2"
+source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=fix%2Fudp-mux-ufrag#23260290325f3d139287937939904aa6474b62c0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -2690,7 +2690,7 @@ dependencies = [
 [[package]]
 name = "rtcp"
 version = "0.17.1"
-source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=main#e9fe1bc4207a0c6b8d28d5583a118419be60f3c2"
+source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=fix%2Fudp-mux-ufrag#23260290325f3d139287937939904aa6474b62c0"
 dependencies = [
  "bytes",
  "thiserror 1.0.69",
@@ -2700,7 +2700,7 @@ dependencies = [
 [[package]]
 name = "rtp"
 version = "0.17.1"
-source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=main#e9fe1bc4207a0c6b8d28d5583a118419be60f3c2"
+source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=fix%2Fudp-mux-ufrag#23260290325f3d139287937939904aa6474b62c0"
 dependencies = [
  "bytes",
  "memchr",
@@ -2822,7 +2822,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 [[package]]
 name = "sdp"
 version = "0.17.1"
-source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=main#e9fe1bc4207a0c6b8d28d5583a118419be60f3c2"
+source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=fix%2Fudp-mux-ufrag#23260290325f3d139287937939904aa6474b62c0"
 dependencies = [
  "rand 0.9.4",
  "substring",
@@ -3117,7 +3117,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 [[package]]
 name = "stun"
 version = "0.17.1"
-source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=main#e9fe1bc4207a0c6b8d28d5583a118419be60f3c2"
+source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=fix%2Fudp-mux-ufrag#23260290325f3d139287937939904aa6474b62c0"
 dependencies = [
  "base64",
  "crc",
@@ -3619,7 +3619,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 [[package]]
 name = "turn"
 version = "0.17.1"
-source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=main#e9fe1bc4207a0c6b8d28d5583a118419be60f3c2"
+source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=fix%2Fudp-mux-ufrag#23260290325f3d139287937939904aa6474b62c0"
 dependencies = [
  "async-trait",
  "base64",
@@ -3859,7 +3859,7 @@ dependencies = [
 [[package]]
 name = "webrtc"
 version = "0.17.1"
-source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=main#e9fe1bc4207a0c6b8d28d5583a118419be60f3c2"
+source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=fix%2Fudp-mux-ufrag#23260290325f3d139287937939904aa6474b62c0"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -3901,7 +3901,7 @@ dependencies = [
 [[package]]
 name = "webrtc-data"
 version = "0.17.1"
-source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=main#e9fe1bc4207a0c6b8d28d5583a118419be60f3c2"
+source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=fix%2Fudp-mux-ufrag#23260290325f3d139287937939904aa6474b62c0"
 dependencies = [
  "bytes",
  "log",
@@ -3915,7 +3915,7 @@ dependencies = [
 [[package]]
 name = "webrtc-ice"
 version = "0.17.1"
-source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=main#e9fe1bc4207a0c6b8d28d5583a118419be60f3c2"
+source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=fix%2Fudp-mux-ufrag#23260290325f3d139287937939904aa6474b62c0"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -3939,7 +3939,7 @@ dependencies = [
 [[package]]
 name = "webrtc-mdns"
 version = "0.17.1"
-source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=main#e9fe1bc4207a0c6b8d28d5583a118419be60f3c2"
+source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=fix%2Fudp-mux-ufrag#23260290325f3d139287937939904aa6474b62c0"
 dependencies = [
  "log",
  "socket2 0.5.10",
@@ -3951,7 +3951,7 @@ dependencies = [
 [[package]]
 name = "webrtc-media"
 version = "0.17.1"
-source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=main#e9fe1bc4207a0c6b8d28d5583a118419be60f3c2"
+source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=fix%2Fudp-mux-ufrag#23260290325f3d139287937939904aa6474b62c0"
 dependencies = [
  "byteorder",
  "bytes",
@@ -3981,7 +3981,7 @@ dependencies = [
 [[package]]
 name = "webrtc-sctp"
 version = "0.17.1"
-source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=main#e9fe1bc4207a0c6b8d28d5583a118419be60f3c2"
+source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=fix%2Fudp-mux-ufrag#23260290325f3d139287937939904aa6474b62c0"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -3998,7 +3998,7 @@ dependencies = [
 [[package]]
 name = "webrtc-srtp"
 version = "0.17.1"
-source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=main#e9fe1bc4207a0c6b8d28d5583a118419be60f3c2"
+source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=fix%2Fudp-mux-ufrag#23260290325f3d139287937939904aa6474b62c0"
 dependencies = [
  "aead",
  "aes",
@@ -4041,7 +4041,7 @@ dependencies = [
 [[package]]
 name = "webrtc-util"
 version = "0.17.1"
-source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=main#e9fe1bc4207a0c6b8d28d5583a118419be60f3c2"
+source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=fix%2Fudp-mux-ufrag#23260290325f3d139287937939904aa6474b62c0"
 dependencies = [
  "async-trait",
  "bitflags 1.3.2",

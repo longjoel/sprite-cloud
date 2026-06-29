@@ -2,19 +2,19 @@
 resolver = "2"
 members = ["gv-server", "gv-core", "libretro-runner"]
 
-# Patch webrtc-rs crates from fork (makes RTCIceCandidatePair field public, trace logging)
+# Patch webrtc-rs crates from fork (UDPMux ufrag fix — PR: fix/udp-mux-ufrag)
 [patch.crates-io]
-webrtc = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
-webrtc-ice = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
-turn = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
-stun = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
-sdp = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
-webrtc-mdns = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
-rtp = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
-rtcp = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
-webrtc-srtp = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
-dtls = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
-webrtc-sctp = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
-interceptor = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
-webrtc-media = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
-webrtc-util = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "main" }
+webrtc = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "fix/udp-mux-ufrag" }
+webrtc-ice = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "fix/udp-mux-ufrag" }
+turn = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "fix/udp-mux-ufrag" }
+stun = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "fix/udp-mux-ufrag" }
+sdp = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "fix/udp-mux-ufrag" }
+webrtc-mdns = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "fix/udp-mux-ufrag" }
+rtp = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "fix/udp-mux-ufrag" }
+rtcp = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "fix/udp-mux-ufrag" }
+webrtc-srtp = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "fix/udp-mux-ufrag" }
+dtls = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "fix/udp-mux-ufrag" }
+webrtc-sctp = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "fix/udp-mux-ufrag" }
+interceptor = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "fix/udp-mux-ufrag" }
+webrtc-media = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "fix/udp-mux-ufrag" }
+webrtc-util = { git = "https://github.com/longjoel/webrtc-rs-fork", branch = "fix/udp-mux-ufrag" }
