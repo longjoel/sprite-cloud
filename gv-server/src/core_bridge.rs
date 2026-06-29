@@ -325,7 +325,7 @@ pub async fn load_core_into_session(
         let _out_mmap = out_mmap; // keep mmap alive for lifetime of thread
         let _in_mmap = in_mmap;   // keep mmap alive for lifetime of thread
         let mut frame_num: u64 = 0;
-        let frame_interval = Duration::from_secs_f64(1.0 / fps.max(1.0));
+        let _frame_interval = Duration::from_secs_f64(1.0 / fps.max(1.0));
 
         loop {
             // Check cancel

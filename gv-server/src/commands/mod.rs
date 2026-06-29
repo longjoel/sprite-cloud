@@ -230,7 +230,7 @@ async fn handle_start_game(
 ) {
     let game_id = cmd.payload.get("game_id").and_then(|v| v.as_str()).unwrap_or("unknown");
     let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
-    let host_token = cmd.payload.get("host_token").and_then(|v| v.as_str());
+    let _host_token = cmd.payload.get("host_token").and_then(|v| v.as_str());
     let platform = cmd.payload.get("platform").and_then(|v| v.as_str());
     let rom_path = cmd.payload.get("rom_path").and_then(|v| v.as_str());
     let sdp_offer = cmd.payload.get("sdp").and_then(|v| v.as_str());
@@ -351,7 +351,7 @@ async fn handle_start_game(
 
     // Spawn streaming loop
     let stream_session = Arc::clone(&session);
-    let stream_cancel = session.cancel.clone();
+    let _stream_cancel = session.cancel.clone();
     tokio::spawn(async move {
         streaming::run_stream(stream_session).await;
     });
@@ -744,8 +744,8 @@ async fn wire_dc_handler_for_guest(
     };
 
     let peer_token = peer_token.to_string();
-    let pt_for_close = peer_token.clone();
-    let session_for_close = Arc::clone(&session);
+    let _pt_for_close = peer_token.clone();
+    let _session_for_close = Arc::clone(&session);
     let pc_for_ice = Arc::clone(&pc);
     let session_for_ice = Arc::clone(&session);
     let pt_for_ice = peer_token.clone();
