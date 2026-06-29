@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "room not found" }, { status: 404 });
   }
 
-  if (session.status === "stopped" || session.status === "ended") {
+  if (session.status === "stopped" || session.status === "ended" || session.status === "timed_out") {
     return NextResponse.json({ error: "session ended" }, { status: 410 });
   }
 

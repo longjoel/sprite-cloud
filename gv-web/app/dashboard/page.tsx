@@ -133,7 +133,7 @@ export default async function DashboardPage() {
     .limit(20);
 
   const dashboardNow = Date.now();
-  const staleOpenSessionCutoff = new Date(dashboardNow - DASHBOARD_FRESH_SESSION_MS);
+  const staleOpenSessionCutoff = new Date(dashboardNow - DASHBOARD_FRESH_SESSION_MS).toISOString();
   const [freshOpenRow] = await db
     .select({ count: count(sessions.id) })
     .from(sessions)

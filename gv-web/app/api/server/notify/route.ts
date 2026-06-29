@@ -118,7 +118,6 @@ export async function POST(request: NextRequest) {
         .set({
           status: SESSION_ENDED,
           endedAt: new Date(),
-          roomToken: null,
           stateEnteredAt: new Date(),
         })
         .where(eq(sessions.id, session.id));
@@ -211,6 +210,14 @@ export async function POST(request: NextRequest) {
         stateEnteredAt: new Date(),
       })
       .where(eq(sessions.id, bySession.id));
+
+    // Also store SDP answer on the command (per-guest isolation)
+    if (body.sdp_answer) {
+      await db
+        .update(commands)
+        .set({ sdpAnswer: body.sdp_answer })
+        .where(eq(commands.id, body.command_id));
+    }
   } else {
     // Not found by session_id or command_id (e.g. sdp_offer after start_game).
     // Find the most recent session for this game_id+server_id, but reject
@@ -255,6 +262,14 @@ export async function POST(request: NextRequest) {
           stateEnteredAt: new Date(),
         })
         .where(eq(sessions.id, byGame.id));
+
+      // Also store SDP answer on the command (per-guest isolation)
+      if (body.sdp_answer) {
+        await db
+          .update(commands)
+          .set({ sdpAnswer: body.sdp_answer })
+          .where(eq(commands.id, body.command_id));
+      }
     } else {
       // No session at all — create one (legacy / edge case)
       await db.insert(sessions).values({
@@ -375,9 +390,12 @@ export async function GET(request: NextRequest) {
   // If the workerToken didn't match via start_game's commandId, try
   // finding the session by server + game (sdp_offer workerToken path).
   if (!row) {
-    // Look up the command's game_id from the sdp_offer workerToken
+    // Look up the command's game_id and sdp_answer from the sdp_offer workerToken
     const [cmd] = await db
-      .select({ gameId: commands.payload })
+      .select({ 
+        gameId: commands.payload, 
+        sdpAnswerCmd: commands.sdpAnswer,
+      })
       .from(commands)
       .where(eq(commands.workerToken, workerToken))
       .limit(1);
@@ -406,6 +424,10 @@ export async function GET(request: NextRequest) {
           .orderBy(sessions.createdAt)
           .limit(1);
         if (fallback) {
+          // Use per-command SDP answer for guest isolation (prevents cross-guest answer leakage)
+          if (cmd.sdpAnswerCmd) {
+            fallback.sdpAnswer = cmd.sdpAnswerCmd;
+          }
           return processRow(fallback);
         }
       }

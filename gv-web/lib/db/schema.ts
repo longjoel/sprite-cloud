@@ -86,6 +86,7 @@ export const commands = pgTable("commands", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
   lastError: text("last_error"),
   result: jsonb("result"),
+  sdpAnswer: text("sdp_answer"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
