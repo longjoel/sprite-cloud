@@ -13,6 +13,9 @@ env:
 jobs:
   rust:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
@@ -40,15 +43,44 @@ jobs:
       - name: Smoke test libretro-runner
         run: cargo test -p libretro-runner --test smoke -- --test-threads=1
 
-      - name: Upload gv-server binary
-        uses: actions/upload-artifact@v4
+      # ── Docker: gv-server ────────────────────────────────────────
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
         with:
-          name: gv-server-binary
-          path: target/release/gv-server
-          retention-days: 1
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata (gv-server)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_PREFIX }}/gv-server
+          tags: |
+            type=sha,prefix=,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Place binary for Docker context
+        run: cp target/release/gv-server ./gv-server
+
+      - name: Build and push gv-server
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/gv-server/Dockerfile.ci
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 
   web:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
@@ -70,41 +102,10 @@ jobs:
       - name: Build gv-web
         run: pnpm build
 
-      - name: Upload gv-web standalone output
-        uses: actions/upload-artifact@v4
-        with:
-          name: gv-web-standalone
-          path: gv-web/.next/standalone/gv-web
-          retention-days: 1
+      # ── Docker: gv-web ──────────────────────────────────────────
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-  docker:
-    name: Build and push Docker images
-    needs: [rust, web]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-
-      # ── gv-server: place binary at repo root ──────────────────────
-      - name: Download gv-server binary
-        uses: actions/download-artifact@v4
-        with:
-          name: gv-server-binary
-          path: .
-
-      - name: Mark gv-server executable
-        run: chmod +x gv-server
-
-      # ── gv-web: place standalone output at repo root ──────────────
-      - name: Download gv-web standalone
-        uses: actions/download-artifact@v4
-        with:
-          name: gv-web-standalone
-          path: gv-web-standalone
-
-      # ── Login ─────────────────────────────────────────────────────
       - name: Log in to GitHub Container Registry
         if: github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
@@ -113,18 +114,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── Metadata ──────────────────────────────────────────────────
-      - name: Docker metadata (gv-server)
-        id: meta-server
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_PREFIX }}/gv-server
-          tags: |
-            type=sha,prefix=,format=short
-            type=raw,value=latest,enable={{is_default_branch}}
-
       - name: Docker metadata (gv-web)
-        id: meta-web
+        id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE_PREFIX }}/gv-web
@@ -132,15 +123,8 @@ jobs:
             type=sha,prefix=,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
-      # ── Build and push ────────────────────────────────────────────
-      - name: Build and push gv-server
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/gv-server/Dockerfile.ci
-          push: ${{ github.ref == 'refs/heads/main' }}
-          tags: ${{ steps.meta-server.outputs.tags }}
-          labels: ${{ steps.meta-server.outputs.labels }}
+      - name: Place standalone output for Docker context
+        run: cp -r gv-web/.next/standalone/gv-web ./gv-web-standalone
 
       - name: Build and push gv-web
         uses: docker/build-push-action@v6
@@ -148,5 +132,5 @@ jobs:
           context: .
           file: docker/gv-web/Dockerfile.ci
           push: ${{ github.ref == 'refs/heads/main' }}
-          tags: ${{ steps.meta-web.outputs.tags }}
-          labels: ${{ steps.meta-web.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
