@@ -112,13 +112,15 @@ export default function ShortCodePage() {
   }
 
   return (
-    <GamePlayer
-      gameId={state.gameId}
-      serverId={state.serverId}
-      hostToken={state.hostToken ?? undefined}
-      joinToken={state.roomToken ?? undefined}
-      initialPipeline={{ ice: "done", server: "done" }}
-      initialStatus="connecting"
-    />
+    <main style={{ width: "100vw", height: "100vh", position: "relative", overflow: "hidden" }}>
+      <GamePlayer
+        gameId={state.gameId}
+        serverId={state.serverId}
+        hostToken={state.hostToken ?? undefined}
+        joinToken={state.roomToken ?? undefined}
+        initialPipeline={{ ice: "done", server: "done" }}
+        initialStatus="connecting"
+      />
+    </main>
   );
 }
