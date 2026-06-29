@@ -53,8 +53,6 @@ curl -sSL https://raw.githubusercontent.com/longjoel/sprite-cloud/main/scripts/i
 
 The installer detects Linux distro/arch, installs system dependencies, downloads `gv-server` from GitHub Releases, writes config, and installs a systemd service.
 
-> Current state: release artifacts still need CI publishing before the one-liner is useful for public users. Until then, build from source as shown in [QUICKSTART.md](QUICKSTART.md).
-
 ## Docker host
 
 Run a gv-server host in a container, auto-pairing on first start:
@@ -72,8 +70,6 @@ docker run -d \
 ```
 
 The container pairs automatically on first run (reads `GV_PAIR_CODE` + `GV_WEB_URL`). On subsequent starts it reuses the saved credentials. Generate a pairing code from your gateway dashboard (Settings → Hosts).
-
-> Note: Docker images are not yet published. Until CI is set up, use `docker compose` from the repo root (see `docker-compose.yml`).
 
 ## Manual host config
 
