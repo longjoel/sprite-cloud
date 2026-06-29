@@ -469,8 +469,8 @@ export default function GamePlayer({
         }
       `}</style>
 
-      <Script src="/player/touch-gamepad.js" />
-      <Script src="/player/play.js" type="module" onLoad={() => setScriptReady(true)} />
+      <Script src="/player/touch-gamepad.js?v=2" />
+      <Script src="/player/play.js?v=2" type="module" onLoad={() => setScriptReady(true)} />
 
       <video ref={videoRef} autoPlay playsInline muted className={styles.video} />
 
