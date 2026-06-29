@@ -157,7 +157,7 @@ async fn drain_to_track_audio(session: &GameSession, mut audio_ts: u32) -> u32 {
 
 pub async fn run_stream(session: Arc<GameSession>) {
     let fps = *session.core_fps.lock().await;
-    let _frame_interval = Duration::from_secs_f64(1.0 / fps.max(1.0));
+    let frame_interval = Duration::from_secs_f64(1.0 / fps.max(1.0));
     let mut frame_num: u64 = 0;
     let mut audio_ts: u32 = 0;
     let mut audio_acc: Vec<i16> = Vec::new();
