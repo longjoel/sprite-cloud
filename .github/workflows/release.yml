@@ -76,5 +76,5 @@ jobs:
           draft: ${{ github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/v') }}
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
           files: |
-            gv-server-x86_64
-            gv-server-x86_64.sha256
+            gv-server-*
+            *.sha256
