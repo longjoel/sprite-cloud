@@ -439,7 +439,7 @@ export default function GamePlayer({
 
   // ── Share ─────────────────────────────────────────────────────────
 
-  const shareUrlSet = useRef(false);
+  const [shortCode, setShortCode] = useState<string | null>(null);
 
   useEffect(() => {
     if (!connected) return;
@@ -458,10 +458,24 @@ export default function GamePlayer({
         if (!resp.ok) return;
         const data = await resp.json();
         setRoomToken(data.room_token);
-        shareUrlSet.current = true;
+
+        // Create a short code for the share link
+        const scResp = await fetch("/api/room/shorten", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            game_id: gameId,
+            host_token: hostToken || crypto.randomUUID(),
+            server_id: serverId,
+          }),
+        });
+        if (scResp.ok) {
+          const scData = await scResp.json();
+          setShortCode(scData.code);
+        }
       } catch { /* best-effort */ }
     })();
-  }, [connected, gameId, serverId, roomToken]);
+  }, [connected, gameId, serverId, hostToken, roomToken]);
 
   // ── Render ────────────────────────────────────────────────────────
 
@@ -695,12 +709,12 @@ export default function GamePlayer({
               <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "disk_insert", index: 0 }); showToast("Disk 0 inserted", true); }}>
                 💿 Insert 0
               </Button>
-              {roomToken && (
+              {shortCode && (
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={() => {
-                    const url = `${window.location.origin}/play/${gameId}?join=${roomToken}`;
+                    const url = `${window.location.origin}/p/${shortCode}`;
                     navigator.clipboard.writeText(url).then(
                       () => showToast("Share link copied!", true),
                       () => showToast("Copy failed", false)
