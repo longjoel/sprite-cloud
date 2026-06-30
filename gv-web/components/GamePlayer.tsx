@@ -88,6 +88,7 @@ interface GamePlayerProps {
   initialPipeline?: Record<string, StepState>;
   initialStatus?: string;
   hidePipeline?: boolean;   // suppress internal pipeline loading (page has its own overlay)
+  onPipelineChange?: (pipeline: Record<string, StepState>) => void;
 }
 
 // ── Component ─────────────────────────────────────────────────────────
@@ -104,6 +105,7 @@ export default function GamePlayer({
   initialPipeline,
   initialStatus,
   hidePipeline,
+  onPipelineChange,
 }: GamePlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<any>(null);
@@ -140,6 +142,11 @@ export default function GamePlayer({
 
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedRef = useRef(false);
+
+  // ── Notify parent when pipeline changes ────────────────────────────
+  useEffect(() => {
+    onPipelineChange?.(pipeline);
+  }, [pipeline, onPipelineChange]);
 
   // ── Pipeline helpers ──────────────────────────────────────────────
 

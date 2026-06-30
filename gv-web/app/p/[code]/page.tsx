@@ -3,20 +3,16 @@
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import GamePlayer from "@/components/GamePlayer";
+import BokehLoading from "@/components/BokehLoading";
+import type { StepState } from "@/components/GamePlayerPipeline";
 
 // ── /p/[code] — resolve short code → loading screen → player ────────
 //
 // Shows a full-screen loading animation with game info while the
-// WebRTC connection establishes (~8s ICE gathering). Fades to the
-// game when connected.
-
-const LOADING_MESSAGES = [
-  "Resolving game…",
-  "Loading core…",
-  "Establishing connection…",
-  "ICE gathering…",
-  "Almost ready…",
-];
+// WebRTC connection establishes.  A bokeh particle field reacts to
+// real pipeline progress (ICE → Server → Core → Encode → SDP → Media →
+// Connected) — particles bloom with each completed stage.  Fades to
+// the game when connected.
 
 const COVER_FALLBACK = (
   <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="rgba(184, 150, 74, 0.3)" strokeWidth="1.5">
@@ -29,7 +25,6 @@ export default function ShortCodePage() {
   const { code } = useParams<{ code: string }>();
 
   const [phase, setPhase] = useState<"resolve" | "connecting" | "playing" | "error">("resolve");
-  const [messageIdx, setMessageIdx] = useState(0);
   const [fadeOut, setFadeOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gameMeta, setGameMeta] = useState<{
@@ -37,20 +32,13 @@ export default function ShortCodePage() {
     gameName?: string; platform?: string; coverUrl?: string;
   } | null>(null);
 
+  const [pipeline, setPipeline] = useState<Record<string, StepState>>({});
+
   const onConnected = useCallback(() => {
     setPhase("playing");
     // Small delay then trigger fade-out of overlay
     setTimeout(() => setFadeOut(true), 600);
   }, []);
-
-  // Cycle loading messages
-  useEffect(() => {
-    if (phase !== "connecting") return;
-    const interval = setInterval(() => {
-      setMessageIdx((i) => (i + 1) % LOADING_MESSAGES.length);
-    }, 1800);
-    return () => clearInterval(interval);
-  }, [phase]);
 
   // Resolve short code → get game metadata + start connecting
   useEffect(() => {
@@ -107,6 +95,10 @@ export default function ShortCodePage() {
     return () => { cancelled = true; clearTimeout(timeout); };
   }, [code]);
 
+  const handlePipelineChange = useCallback((p: Record<string, StepState>) => {
+    setPipeline(p);
+  }, []);
+
   // ── Error ──────────────────────────────────────────────────────────
   if (phase === "error") {
     return (
@@ -140,6 +132,7 @@ export default function ShortCodePage() {
             initialPipeline={{ ice: "done", server: "done" }}
             initialStatus="connecting"
             hidePipeline
+            onPipelineChange={handlePipelineChange}
           />
         )}
 
@@ -153,47 +146,35 @@ export default function ShortCodePage() {
               pointerEvents: phase === "playing" ? "none" : "auto",
             }}
           >
-            {/* Cover art or fallback */}
-            {gameMeta?.coverUrl ? (
-              <img src={gameMeta.coverUrl} alt="" style={s.cover(!!gameMeta.gameName)} />
-            ) : (
-              <div style={s.coverPlaceholder(!!gameMeta?.gameName)}>{COVER_FALLBACK}</div>
-            )}
+            {/* Bokeh particle field — reacts to real pipeline progress */}
+            <BokehLoading
+              pipeline={pipeline}
+              resolving={phase === "resolve"}
+              fadeOut={fadeOut}
+              width="100%"
+              height="100%"
+            />
 
-            {/* Game title + platform badge */}
-            {gameMeta?.gameName && (
-              <div style={s.meta}>
-                <h1 style={s.title}>{gameMeta.gameName}</h1>
-                {gameMeta.platform && (
-                  <span style={s.badge}>{gameMeta.platform}</span>
-                )}
-              </div>
-            )}
+            {/* Foreground: cover art + title + platform badge */}
+            <div style={s.foreground}>
+              {gameMeta?.coverUrl ? (
+                <img src={gameMeta.coverUrl} alt="" style={s.cover(!!gameMeta.gameName)} />
+              ) : (
+                <div style={s.coverPlaceholder(!!gameMeta?.gameName)}>{COVER_FALLBACK}</div>
+              )}
 
-            {/* Progress bar */}
-            <div style={s.progressWrap}>
-              <div style={s.progressTrack}>
-                <div style={{
-                  ...s.progressFill,
-                  width: phase === "connecting" ? `${20 + messageIdx * 18}%` : "100%",
-                }} />
-              </div>
-              <p style={s.message}>
-                {phase === "resolve" ? "Resolving…" : LOADING_MESSAGES[messageIdx]}
+              {gameMeta?.gameName && (
+                <div style={s.meta}>
+                  <h1 style={s.title}>{gameMeta.gameName}</h1>
+                  {gameMeta.platform && (
+                    <span style={s.badge}>{gameMeta.platform}</span>
+                  )}
+                </div>
+              )}
+
+              <p style={s.tagline}>
+                {phase === "resolve" ? "Resolving…" : "Loading…"}
               </p>
-            </div>
-
-            {/* Dots */}
-            <div style={s.dots}>
-              {LOADING_MESSAGES.map((_, i) => (
-                <div
-                  key={i}
-                  style={{
-                    ...s.dot,
-                    background: i <= messageIdx ? "var(--color-brass, #b8964a)" : "rgba(255,255,255,0.06)",
-                  }}
-                />
-              ))}
             </div>
           </div>
         )}
@@ -210,9 +191,13 @@ const s = {
   overlay: {
     position: "absolute", inset: 0, zIndex: 10,
     background: "linear-gradient(135deg, #0a0f14 0%, #1a1410 50%, #0d1117 100%)",
+    fontFamily: "system-ui, sans-serif",
+  },
+  foreground: {
+    position: "absolute", inset: 0, zIndex: 1,
     display: "flex", flexDirection: "column", alignItems: "center",
     justifyContent: "center", gap: 20, padding: 32,
-    fontFamily: "system-ui, sans-serif",
+    pointerEvents: "none" as const,
   },
   cover: (hasTitle: boolean) => ({
     width: 160, height: 224, objectFit: "cover" as const,
@@ -238,12 +223,10 @@ const s = {
     border: "1px solid rgba(184,150,74,0.2)", borderRadius: 4,
     textTransform: "uppercase" as const, letterSpacing: "0.08em",
   },
-  progressWrap: { width: 240, display: "flex", flexDirection: "column" as const, gap: 10 },
-  progressTrack: { width: "100%", height: 3, background: "rgba(255,255,255,0.06)", borderRadius: 2, overflow: "hidden" },
-  progressFill: { height: "100%", background: "linear-gradient(90deg, var(--color-brass, #b8964a), var(--color-cream, #e8dcc8))", borderRadius: 2, transition: "width 0.8s ease" },
-  message: { color: "var(--color-muted, #b8a888)", fontSize: 13, margin: 0, textAlign: "center" as const, opacity: 0.65 },
-  dots: { display: "flex", gap: 6 },
-  dot: { width: 6, height: 6, borderRadius: "50%", transition: "background 0.4s ease" },
+  tagline: {
+    color: "var(--color-muted, #b8a888)", fontSize: 12,
+    margin: 0, opacity: 0.5, letterSpacing: "0.06em",
+  },
   error: { minHeight: "100vh", background: "var(--color-mahogany, #1a1410)", display: "flex", flexDirection: "column" as const, alignItems: "center", justifyContent: "center", gap: 16, padding: 32, fontFamily: "system-ui, sans-serif" },
   errorIcon: { fontSize: "clamp(3rem, 10vw, 6rem)", fontWeight: 700, color: "var(--color-brass, #b8964a)", lineHeight: 1 },
   errorTitle: { fontSize: 14, color: "var(--color-cream, #e8dcc8)", textTransform: "uppercase" as const, letterSpacing: "0.08em" },
