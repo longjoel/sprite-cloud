@@ -83,6 +83,7 @@ interface GamePlayerProps {
   hostToken?: string;       // pre-existing host token for reconnection
   joinToken?: string;       // pre-existing room token for guest join
   onClose?: () => void;
+  onConnected?: () => void; // fired when WebRTC connects
   sessionId?: string;
   initialPipeline?: Record<string, StepState>;
   initialStatus?: string;
@@ -97,6 +98,7 @@ export default function GamePlayer({
   hostToken,
   joinToken: joinTokenProp,
   onClose,
+  onConnected,
   sessionId,
   initialPipeline,
   initialStatus,
@@ -248,6 +250,7 @@ export default function GamePlayer({
             setTimeout(() => advanceStep("connected"), 300);
             setError(null);
             setConnected(true);
+            onConnected?.();
             setShowDisconnect(false);
           }
           if (state === "error") {
@@ -469,8 +472,8 @@ export default function GamePlayer({
         }
       `}</style>
 
-      <Script src="/player/touch-gamepad.js?v=2" />
-      <Script src="/player/play.js?v=2" type="module" onLoad={() => setScriptReady(true)} />
+      <Script src="/player/touch-gamepad-v2.js" />
+      <Script src="/player/play-v2.js" type="module" onLoad={() => setScriptReady(true)} />
 
       <video ref={videoRef} autoPlay playsInline muted className={styles.video} />
 

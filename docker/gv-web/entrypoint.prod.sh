@@ -50,4 +50,4 @@ else
 fi
 
 echo "[gv-web] starting production server..."
-exec node /app/gv-web/gv-web/server.js
+exec node /app/gv-web/server.js

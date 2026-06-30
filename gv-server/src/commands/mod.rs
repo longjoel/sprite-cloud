@@ -237,6 +237,7 @@ async fn handle_start_game(
     let is_lan = cmd.payload.get("lan").and_then(|v| v.as_bool()).unwrap_or(false);
 
     tracing::info!("[POLL] start_game game={game_id} session={session_id} sdp={} lan={is_lan}", sdp_offer.is_some());
+    let t_total = std::time::Instant::now();
 
     // Kill existing session for this game_id
     if let Some(old) = sessions.remove(game_id) {
@@ -245,6 +246,7 @@ async fn handle_start_game(
     }
 
     // Resolve ROM path
+    let t0 = std::time::Instant::now();
     let content_path = rom_path.and_then(|rel| {
         for root in rom_roots {
             let full = std::path::Path::new(root).join(rel);
@@ -257,6 +259,7 @@ async fn handle_start_game(
     });
 
     // Resolve (and download if needed) core from platform
+    let t1 = std::time::Instant::now();
     let core_path = match platform
         .and_then(|p| crate::platform::core_for_platform(p))
     {
@@ -304,6 +307,7 @@ async fn handle_start_game(
             }
         }
     };
+    let t2 = std::time::Instant::now();
 
     // Compute ROM hash for save persistence
     let rom_hash = content_path.as_deref()
@@ -333,6 +337,7 @@ async fn handle_start_game(
         core_width: tokio::sync::Mutex::new(0),
         core_height: tokio::sync::Mutex::new(0),
         core_fps: tokio::sync::Mutex::new(0.0),
+        core_sample_rate: tokio::sync::Mutex::new(48000.0),
         frames_encoded: std::sync::atomic::AtomicU64::new(0),
     });
 
@@ -358,6 +363,7 @@ async fn handle_start_game(
 
     // Store session (clone before moving into HashMap)
     sessions.insert(game_id.to_string(), Arc::clone(&session));
+    let t3 = std::time::Instant::now();
 
     // Notify gv-web — include SDP answer if offer was provided
     if let Some(offer) = sdp_offer {
@@ -456,6 +462,16 @@ async fn handle_start_game(
             tracing::info!("[SESSION] game ready: {game_id}");
         }
     }
+
+    let total = t_total.elapsed();
+    tracing::info!(
+        "[TIMING] start_game total={total:.3?} | rom={:.3?} core={:.3?} webrtc={:.3?} load={:.3?} sdp={:.3?}",
+        t1.duration_since(t0),
+        t2.duration_since(t1),
+        t3.duration_since(t2),
+        t3.duration_since(t2),
+        total.saturating_sub(t3.duration_since(t_total)),
+    );
 }
 
 async fn handle_stop_game(

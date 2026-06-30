@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { commands, gameFiles, games, peerTokens, serverMembers, servers, sessions } from "@/lib/db/schema";
 import { ACTIVE_SESSION_STATES, CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, CMD_BROWSE_FILES, CMD_SCAN_PATHS } from "@/lib/constants";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { applyRateLimit } from "@/lib/rate-limit";
 import { recordLaunchEvent } from "@/lib/launch-events";
 import { waitForSdpAnswer } from "@/lib/pending-sdp";
@@ -215,6 +215,7 @@ export async function POST(request: NextRequest) {
   let enrichedPayload: Record<string, unknown> = payloadResult.payload;
 
   if (body.type === CMD_START_GAME) {
+    const t0 = Date.now();
     const sp = payloadResult.payload;
     if (typeof sp.game_id === "string") {
       // ── LAN detection: check if client is on the same subnet as gv-server ──
@@ -332,6 +333,69 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "sign in first" }, { status: 401 });
     }
     const uid: string = userId;
+
+    // ── Reconnect: if an active session already exists for this user + game,
+    //     convert the start_game into an sdp_offer to avoid tearing down
+    //     the running core and going through ICE gathering again. ──────
+    if (enrichedPayload.sdp) {
+      const [existing] = await db
+        .select({ id: sessions.id, commandId: sessions.commandId, roomToken: sessions.roomToken })
+        .from(sessions)
+        .where(
+          and(
+            eq(sessions.userId, uid),
+            eq(sessions.serverId, serverId),
+            eq(sessions.gameId, enrichedPayload.game_id as string),
+            inArray(sessions.status, ["spawning", "ready", "connected", "playing"]),
+          ),
+        )
+        .orderBy(sessions.createdAt)
+        .limit(1);
+
+      if (existing) {
+        // Active session found — reuse it via sdp_offer instead of killing + restarting.
+        console.log("[COMMAND] reusing active session", existing.id, "— converting start_game to sdp_offer");
+
+        // NOTE: we do NOT include peer_token — this is a HOST reconnect,
+        // not a guest join. Including peer_token would cause gv-server to
+        // route the SDP exchange through handle_guest_sdp (building a new
+        // PC with host track copies) instead of handle_sdp_offer's host
+        // reconnection path (swapping the session PC in place).
+        await db.update(commands).set({
+          type: CMD_SDP_OFFER,
+          payload: {
+            game_id: enrichedPayload.game_id,
+            sdp: enrichedPayload.sdp,
+            host_token: hostToken,
+          },
+        }).where(eq(commands.id, cmd.id));
+
+        // Issue a new host peer_token for this reconnect
+        hostPeerToken = crypto.randomBytes(16).toString("hex");
+        await db.insert(peerTokens).values({
+          sessionId: existing.id,
+          token: hostPeerToken,
+          seat: 0,
+          role: "host",
+        });
+
+        await recordLaunchEvent({
+          commandId: cmd.id,
+          sessionId: existing.id,
+          serverId,
+          gameId: enrichedPayload.game_id as string,
+          source: "gv-web",
+          event: "host_reconnect",
+          detail: {},
+        });
+
+        // Return immediately — no need to long-poll for SDP answer on reconnect
+        return NextResponse.json(
+          { id: cmd.id, worker_token: workerToken, host_peer_token: hostPeerToken },
+          { status: 201 },
+        );
+      }
+    }
 
     // End any active sessions owned by the same host_token.
     // This implements "starting a new game kills the old one."

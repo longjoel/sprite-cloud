@@ -57,7 +57,7 @@ async fn probe_and_rebuild_encoder(session: &GameSession, frame_width: u32, fram
         *session.video_enc.lock().await = Some(Arc::new(tokio::sync::Mutex::new(new_enc)));
 
         if needs_create {
-            let sample_rate: f64 = 48000.0;
+            let sample_rate = *session.core_sample_rate.lock().await;
             match GstAudioEncoder::new(sample_rate, 2) {
                 Ok(aenc) => {
                     *session.audio_enc.lock().await = Some(Arc::new(tokio::sync::Mutex::new(Some(aenc))));

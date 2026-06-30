@@ -18,7 +18,8 @@ const MAX_HEIGHT: usize = 480;
 /// Max pixels in output buffer (RGB24 bytes).
 pub const MAX_PIXELS: usize = MAX_WIDTH * MAX_HEIGHT * 3;
 /// Max audio samples in output buffer (stereo i16).
-pub const MAX_AUDIO: usize = 4096;
+/// 16384 samples = ~170ms at 48kHz stereo, covers high-rate cores without truncation.
+pub const MAX_AUDIO: usize = 16384;
 /// Max response data size (for save states).
 pub const MAX_RESPONSE: usize = 256 * 1024; // 256KB
 

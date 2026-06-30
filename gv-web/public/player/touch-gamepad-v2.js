@@ -106,12 +106,12 @@
         });
       }
     } else {
-      // ── Vertical: controls below video ──
-      // Control bar occupies bottom 28% of container
-      var barTop = 0.72;
-      var barH = 0.28;
+      // ── Vertical: controls below video (canvas = dedicated control area) ──
+      // Full canvas height is used — no sub-region needed
+      var barTop = 0.0;
+      var barH = 1.0;
 
-      dpad = { x: 0.03, y: barTop + 0.02, w: 0.24, h: barH - 0.04 };
+      dpad = { x: 0.03, y: 0.08, w: 0.24, h: 0.52 };
 
       // Face buttons: horizontal row in center of control bar
       var vbw = 0.12, vbh = 0.16;
@@ -206,6 +206,8 @@
 
     // Lock button (normalised position — top-right corner of canvas)
     this._lockBtn = { x: 0.91, y: 0.01, w: 0.07, h: 0.07 };
+    // Close button — to the left of the lock button
+    this._closeBtn = { x: 0.82, y: 0.01, w: 0.07, h: 0.07 };
 
     this.onInput = null;
 
@@ -306,6 +308,12 @@
     return nx >= lb.x && nx <= lb.x + lb.w && ny >= lb.y && ny <= lb.y + lb.h;
   };
 
+  /** Check if a normalised point hits the close button. */
+  TouchGamepad.prototype._hitCloseBtn = function (nx, ny) {
+    var cb = this._closeBtn;
+    return nx >= cb.x && nx <= cb.x + cb.w && ny >= cb.y && ny <= cb.y + cb.h;
+  };
+
   // ── Show / hide / toggle ────────────────────────────────────────────
 
   TouchGamepad.prototype.show = function () {
@@ -324,6 +332,9 @@
     this._visible = false;
     if (this._canvas) this._canvas.style.display = 'none';
     if (this._animId) { cancelAnimationFrame(this._animId); this._animId = null; }
+    // Reset video styles from vertical mode
+    this._video.style.maxHeight = '';
+    this._video.style.objectFit = '';
     this._clearInputs();
     this._emitState();
     if (this._layoutName === 'auto') {
@@ -359,10 +370,6 @@
     }
     this._canvas = document.createElement('canvas');
     this._canvas.style.position = 'absolute';
-    this._canvas.style.top = '0';
-    this._canvas.style.left = '0';
-    this._canvas.style.width = '100%';
-    this._canvas.style.height = '100%';
     this._canvas.style.touchAction = 'none';
     this._canvas.style.pointerEvents = 'auto';
     this._canvas.style.zIndex = '10';
@@ -393,9 +400,41 @@
 
   TouchGamepad.prototype._resizeCanvas = function () {
     if (!this._canvas) return;
-    var parent = this._canvas.parentNode;
-    var w = parent.clientWidth;
-    var h = parent.clientHeight;
+    var orientation = this._resolveOrientation();
+    var w, h;
+
+    if (orientation === 'vertical') {
+      // Vertical: video top half, canvas bottom half (dedicated control area)
+      this._canvas.style.position = 'fixed';
+      this._canvas.style.bottom = '0';
+      this._canvas.style.left = '0';
+      this._canvas.style.top = 'auto';
+      this._canvas.style.width = '100vw';
+      this._canvas.style.height = '50vh';
+      this._canvas.style.zIndex = '10';
+      // Shrink video to top half
+      this._video.style.maxHeight = '50vh';
+      this._video.style.objectFit = 'contain';
+      w = Math.round(global.innerWidth);
+      h = Math.round(global.innerHeight * 0.5);
+    } else {
+      // Horizontal: canvas overlays video exactly
+      this._canvas.style.position = 'absolute';
+      this._canvas.style.bottom = 'auto';
+      this._canvas.style.zIndex = '10';
+      // Reset video styles from vertical mode
+      this._video.style.maxHeight = '';
+      this._video.style.objectFit = '';
+      var vr = this._video.getBoundingClientRect();
+      var pr = this._canvas.parentNode.getBoundingClientRect();
+      this._canvas.style.left = (vr.left - pr.left) + 'px';
+      this._canvas.style.top = (vr.top - pr.top) + 'px';
+      w = Math.round(vr.width);
+      h = Math.round(vr.height);
+      this._canvas.style.width = w + 'px';
+      this._canvas.style.height = h + 'px';
+    }
+
     if (w !== this._canvas.width || h !== this._canvas.height) {
       this._canvas.width = w;
       this._canvas.height = h;
@@ -537,6 +576,12 @@
         continue;
       }
 
+      // Close button hit — hide gamepad
+      if (this._hitCloseBtn(n.x, n.y)) {
+        this.hide();
+        continue;
+      }
+
       // Edit mode (unlocked): resize handle or zone drag
       if (this._showHandles) {
         var rz = this._findTouchZone(n);
@@ -631,6 +676,7 @@
         var n2 = this._touchToNorm(t2);
         // Skip lock button touches in input processing
         if (this._hitLockBtn(n2.x, n2.y)) continue;
+        if (this._hitCloseBtn(n2.x, n2.y)) continue;
         var zone2 = this._findTouchZone(n2);
         if (zone2 && zone2.kind !== 'resize') {
           this._applyZoneInput(zone2, n2);
@@ -663,6 +709,7 @@
       for (var j = 0; j < changedTouches.length; j++) {
         var nn = this._touchToNorm(changedTouches[j]);
         if (this._hitLockBtn(nn.x, nn.y)) continue; // lock button was already handled
+        if (this._hitCloseBtn(nn.x, nn.y)) continue;
         var zz = this._findTouchZone(nn);
         if (!zz || zz.kind === 'resize') {
           this.exitEditMode();
@@ -678,6 +725,7 @@
         var tm = allTouches[m];
         var nm = this._touchToNorm(tm);
         if (this._hitLockBtn(nm.x, nm.y)) continue;
+        if (this._hitCloseBtn(nm.x, nm.y)) continue;
         var zm = this._findTouchZone(nm);
         if (zm && zm.kind !== 'resize') {
           this._applyZoneInput(zm, nm);
@@ -799,12 +847,14 @@
     var d = this._dpad;
     var dx = d.x * cw, dy = d.y * ch, dw = d.w * cw, dh = d.h * ch;
     var cx = dx + dw / 2, cy = dy + dh / 2;
+    // Use the smaller dimension so the dpad stays circular regardless of aspect ratio
+    var dpadR = Math.min(dw, dh) / 2;
 
     ctx.fillStyle = 'rgba(255,255,255,' + baseAlpha + ')';
     ctx.strokeStyle = 'rgba(255,255,255,' + (baseAlpha + 0.15) + ')';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.ellipse(cx, cy, dw / 2, dh / 2, 0, 0, Math.PI * 2);
+    ctx.arc(cx, cy, dpadR, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
 
@@ -821,7 +871,6 @@
     for (var di = 0; di < 4; di++) {
       if (!this._dpadActive[di]) continue;
       ctx.fillStyle = 'rgba(100,180,255,0.5)';
-      var halfW = dw / 2, halfH = dh / 2;
       var arcS, arcE;
       if (di === 0) { arcS = -Math.PI * 0.75; arcE = -Math.PI * 0.25; }
       else if (di === 1) { arcS = Math.PI * 0.25; arcE = Math.PI * 0.75; }
@@ -829,22 +878,22 @@
       else { arcS = -Math.PI * 0.25; arcE = Math.PI * 0.25; }
       ctx.beginPath();
       ctx.moveTo(cx, cy);
-      ctx.arc(cx, cy, Math.min(halfW, halfH) * 0.65, arcS, arcE);
+      ctx.arc(cx, cy, dpadR * 0.65, arcS, arcE);
       ctx.closePath();
       ctx.fill();
     }
 
     // Arrow indicators
     ctx.fillStyle = 'rgba(255,255,255,' + (baseAlpha + 0.3) + ')';
-    var arrowSize = Math.min(dw, dh) * 0.22;
+    var arrowSize = dpadR * 0.44;
     ctx.font = arrowSize + 'px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    var ayo = dh * 0.25, axo = dw * 0.25;
-    ctx.fillText('\u25B2', cx, cy - ayo);
-    ctx.fillText('\u25BC', cx, cy + ayo);
-    ctx.fillText('\u25C0', cx - axo, cy);
-    ctx.fillText('\u25B6', cx + axo, cy);
+    var arrowOff = dpadR * 0.50;
+    ctx.fillText('\u25B2', cx, cy - arrowOff);
+    ctx.fillText('\u25BC', cx, cy + arrowOff);
+    ctx.fillText('\u25C0', cx - arrowOff, cy);
+    ctx.fillText('\u25B6', cx + arrowOff, cy);
 
     // Dpad resize handles (edit mode)
     if (this._showHandles) {
@@ -972,6 +1021,24 @@
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(isEdit ? '🔓' : '🔒', lbcx, lbcy);
+
+    // ── Close button ──────────────────────────────────────────────────
+    var cb = this._closeBtn;
+    var cbx = cb.x * cw, cby = cb.y * ch, cbw = cb.w * cw, cbh = cb.h * ch;
+    var cbr = Math.min(cbw, cbh) / 2;
+    var cbcx = cbx + cbw / 2, cbcy = cby + cbh / 2;
+    ctx.fillStyle = 'rgba(255,60,60,0.45)';
+    ctx.beginPath();
+    ctx.arc(cbcx, cbcy, cbr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,80,80,0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.font = Math.floor(cbr * 1.0) + 'px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('✕', cbcx, cbcy);
 
     // ── Edit mode banner ────────────────────────────────────────────
     if (this._showHandles) {

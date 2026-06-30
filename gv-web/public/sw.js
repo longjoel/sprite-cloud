@@ -1,33 +1,26 @@
 // ── sw.js — Sprite Cloud service worker ──────────────────────────────
-// Cache-first for static assets; network-first for API calls.
-// Makes the PWA installable and provides an offline shell.
+// Network-first for all requests; cache fallback only when offline.
+// Never caches navigation (HTML) requests — those always go to the network.
+// This prevents stale cache errors on deploy.
 
-const CACHE_VERSION = "gv-v4";
+const CACHE_VERSION = "gv-v17";
 const STATIC_CACHE = CACHE_VERSION + "-static";
 
-// Assets to pre-cache on install (app shell + player)
-const PRE_CACHE = [
-  "/",
-  "/dashboard",
-  "/player/player-bundle.js",
-  "/player/index.js",
-  "/player/play.js",
-  "/player/player-entry.js",
-  "/player/touch-gamepad.js",
-  "/player/index.html",
-  "/manifest.json",
+// Static assets safe to cache (JS bundles, images, manifests)
+const CACHEABLE_EXTENSIONS = [
+  ".js", ".css", ".png", ".svg", ".ico", ".webp",
+  ".woff", ".woff2", ".json",
 ];
 
-// Install: pre-cache shell assets
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(STATIC_CACHE).then((cache) => {
-      return cache.addAll(PRE_CACHE).catch((err) => {
-        // Some paths may 404 (e.g. /dashboard when not authed) — that's OK
-        console.log("[gv sw] pre-cache partial:", err.message);
-      });
-    })
-  );
+function isCacheableAsset(url) {
+  if (url.origin !== self.location.origin) return false;
+  // Never cache navigation (HTML pages) — they change on deploy
+  const mode = (typeof Request !== "undefined" && event && event.request && event.request.mode);
+  return CACHEABLE_EXTENSIONS.some((ext) => url.pathname.endsWith(ext));
+}
+
+// Install: no pre-caching — cache fills on first real fetch
+self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
@@ -43,38 +36,38 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
-// Fetch: cache-first for static, network-first for API
+// Fetch: network-first for cacheable assets, pass-through for everything else
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
-  // Don't cache API / Next.js data requests
+  // Never intercept navigation / API / data requests
   if (
+    event.request.mode === "navigate" ||
     url.pathname.startsWith("/api/") ||
-    url.pathname.startsWith("/_next/data/") ||
+    url.pathname.startsWith("/_next/") ||
     url.pathname.startsWith("/sdp")
   ) {
     return; // Let browser handle normally
   }
 
-  // Cache-first for static assets
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
+  // Only cache static assets with known extensions
+  if (!isCacheableAsset(url)) return;
 
-      return fetch(event.request).then((response) => {
-        // Only cache same-origin GET requests
-        if (
-          response.ok &&
-          event.request.method === "GET" &&
-          url.origin === self.location.origin
-        ) {
+  // Network-first: try network, fall back to cache
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok && event.request.method === "GET") {
           const clone = response.clone();
           caches.open(STATIC_CACHE).then((cache) => {
             cache.put(event.request, clone);
           });
         }
         return response;
-      });
-    })
+      })
+      .catch(() => {
+        // Offline fallback: serve from cache if available
+        return caches.match(event.request);
+      })
   );
 });
