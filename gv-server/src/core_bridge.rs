@@ -22,6 +22,102 @@ use crate::session::GameSession;
 
 use crate::saves;
 
+// ── Zip extraction helper ──────────────────────────────────────────────
+
+/// Extract the first ROM file from a .zip archive to a temp file.
+/// Caches by game_id in /tmp/gv-workers/. Second play skips extraction entirely.
+fn ensure_extracted_rom(rom_path: &str, game_id: &str) -> String {
+    use std::io::Read;
+
+    let path = std::path::Path::new(rom_path);
+    if !path.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("zip")).unwrap_or(false) {
+        return rom_path.to_string();
+    }
+
+    // ── Cache check: skip extraction if already done ─────────────────
+    let cache_dir = std::path::PathBuf::from("/tmp/gv-workers");
+    let _ = std::fs::create_dir_all(&cache_dir);
+    if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+        for entry in entries.flatten() {
+            let fname = entry.file_name();
+            let fname = fname.to_string_lossy();
+            if fname.starts_with(game_id) && !fname.ends_with(".tmp") {
+                let cached = entry.path();
+                if cached.is_file() && cached.metadata().map(|m| m.len() > 0).unwrap_or(false) {
+                    tracing::info!("[CORE] using cached ROM: {}", cached.display());
+                    return cached.to_string_lossy().to_string();
+                }
+            }
+        }
+    }
+
+    // ── Extract from zip ─────────────────────────────────────────────
+        let file = match std::fs::File::open(path) {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::warn!("[CORE] zip extraction: cannot open {}: {e}", rom_path);
+                return rom_path.to_string();
+            }
+        };
+        let mut archive = match zip::ZipArchive::new(std::io::BufReader::new(file)) {
+            Ok(a) => a,
+            Err(e) => {
+                tracing::warn!("[CORE] zip extraction: cannot read zip {}: {e}", rom_path);
+                return rom_path.to_string();
+            }
+        };
+
+        let rom_exts = [
+            "nes", "sfc", "smc", "gb", "gbc", "gba", "gen", "md", "smd",
+            "a26", "a52", "a78", "lnx", "n64", "z64", "v64", "nds", "vb",
+            "sms", "gg", "32x", "pce", "ngp", "ngc", "ws", "wsc", "iso",
+            "cue", "cso", "fds", "min", "mdf", "cdi", "gdi",
+        ];
+
+        let mut best_idx: Option<usize> = None;
+
+        for i in 0..archive.len() {
+            let Ok(entry) = archive.by_index(i) else { continue };
+            if entry.is_dir() { continue; }
+            let name = entry.name().to_lowercase();
+            if best_idx.is_none() { best_idx = Some(i); }
+            let ext = std::path::Path::new(&name).extension().and_then(|e| e.to_str()).unwrap_or("");
+            if rom_exts.contains(&ext) { best_idx = Some(i); break; }
+        }
+
+        if let Some(idx) = best_idx {
+            if let Ok(mut entry) = archive.by_index(idx) {
+                let inner_name = entry.name();
+                let inner_ext = std::path::Path::new(inner_name).extension().and_then(|e| e.to_str()).unwrap_or("bin");
+                let tmp_dir = std::path::PathBuf::from("/tmp/gv-workers");
+                let _ = std::fs::create_dir_all(&tmp_dir);
+                // Use game_id for clean filename (avoids spaces/parens/special chars)
+                let tmp_path = tmp_dir.join(format!("{game_id}.{inner_ext}"));
+                match std::fs::File::create(&tmp_path) {
+                    Ok(mut out) => {
+                        match std::io::copy(&mut entry, &mut out) {
+                            Ok(_) => {
+                                tracing::info!("[CORE] extracted {} → {}", rom_path, tmp_path.display());
+                                return tmp_path.to_string_lossy().to_string();
+                            }
+                            Err(e) => {
+                                tracing::warn!("[CORE] zip extraction: copy failed {}: {e}", rom_path);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("[CORE] zip extraction: cannot create tmp file {}: {e}", tmp_path.display());
+                    }
+                }
+            } else {
+                tracing::warn!("[CORE] zip extraction: cannot read entry at index {idx} from {rom_path}");
+            }
+        } else {
+            tracing::warn!("[CORE] zip extraction: no entries found in {}", rom_path);
+        }
+    rom_path.to_string()
+}
+
 // ── Core download (unchanged) ──────────────────────────────────────
 
 fn resolve_core_path(core_filename: &str) -> PathBuf {
@@ -193,6 +289,8 @@ pub async fn load_core_into_session(
     };
 
     let rom_path = content_path.unwrap_or("");
+    // Extract zip ROMs so gv-core gets raw ROM data
+    let actual_rom_path = ensure_extracted_rom(rom_path, game_id);
     let out_name = format!("gv-out-{game_id}");
     let in_name = format!("gv-in-{game_id}");
 
@@ -211,10 +309,10 @@ pub async fn load_core_into_session(
 
     // Find gv-core binary
     let core_bin = find_gv_core_binary();
-    tracing::info!("[CORE] spawning {} {} {} {}", core_bin.display(), core_path_str, rom_path, game_id);
+    tracing::info!("[CORE] spawning {} {} {} {}", core_bin.display(), core_path_str, actual_rom_path, game_id);
 
     let mut child = match std::process::Command::new(&core_bin)
-        .args([&core_path_str, rom_path, &out_name, &in_name])
+        .args([&core_path_str, &actual_rom_path, &out_name, &in_name])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -232,14 +330,17 @@ pub async fn load_core_into_session(
     let mut width: u32 = 0;
     let mut height: u32 = 0;
     let mut fps: f64 = 0.0;
-    for _ in 0..50 { // 5 second timeout
+    let mut core_sample_rate: f64 = 48000.0;
+    for _ in 0..30 { // 3 second timeout
         let bw = out.base_width.load(Ordering::Relaxed);
         let bh = out.base_height.load(Ordering::Relaxed);
         let fx = out.fps_x1000.load(Ordering::Relaxed);
+        let sr = out.sample_rate.load(Ordering::Relaxed);
         if bw > 0 && bh > 0 && fx > 0 {
             width = bw;
             height = bh;
             fps = fx as f64 / 1000.0;
+            core_sample_rate = sr as f64;
             break;
         }
         // Check if child died early
@@ -269,7 +370,7 @@ pub async fn load_core_into_session(
     tracing::info!("[CORE] child ready: {width}×{height} @ {fps:.1}fps");
 
     // ── Auto-load SRAM if a battery save exists ──────────────────────
-    let rom_hash = saves::hash_rom(std::path::Path::new(rom_path));
+    let rom_hash = saves::hash_rom(std::path::Path::new(&actual_rom_path));
     if let Some(ref hash) = rom_hash {
         let sram_file = saves::sram_path(hash);
         if sram_file.exists() {
@@ -306,6 +407,8 @@ pub async fn load_core_into_session(
     *session.core_width.lock().await = width;
     *session.core_height.lock().await = height;
     *session.core_fps.lock().await = fps;
+    // Clamp absurd sample rates (SameBoy reports 2MHz) to 48000
+    *session.core_sample_rate.lock().await = if core_sample_rate > 192000.0 { 48000.0 } else { core_sample_rate };
     *session.core_frame_rx.lock().await = Some(frame_rx);
     *session.core_cmd_tx.lock().await = Some(cmd_tx);
     *session.core_response_rx.lock().await = Some(response_rx);

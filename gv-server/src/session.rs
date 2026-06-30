@@ -69,5 +69,7 @@ pub struct GameSession {
     pub core_width: Mutex<u32>,
     pub core_height: Mutex<u32>,
     pub core_fps: Mutex<f64>,
+    /// Core audio sample rate in Hz (from retro_get_system_av_info).
+    pub core_sample_rate: Mutex<f64>,
     pub frames_encoded: std::sync::atomic::AtomicU64,
 }

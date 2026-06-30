@@ -43,14 +43,14 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         short_name: "Game Boy Color",
         aliases: &["Nintendo - Game Boy Color"],
         extensions: &["gbc"],
-        core: "mgba_libretro.so",
+        core: "sameboy_libretro.so",
         audio_channels: 1,
     },
     PlatformManifest {
         short_name: "Game Boy",
         aliases: &["Nintendo - Game Boy"],
         extensions: &["gb"],
-        core: "mgba_libretro.so",
+        core: "sameboy_libretro.so",
         audio_channels: 1,
     },
     // ── Nintendo — NES ────────────────────────────────────────────
@@ -327,12 +327,64 @@ pub fn dat_system_name(ext: &str) -> Option<&'static str> {
         .and_then(|p| p.aliases.first().copied())
 }
 
+/// Peek inside a .zip file and return the extension of the first entry
+/// that maps to a known ROM platform. Returns `None` if the zip can't be
+/// read, is empty, or contains only entries with unrecognised extensions
+/// (typical of MAME / FBNeo arcade ROMs).
+fn peek_zip_extension(path: &std::path::Path) -> Option<String> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file)).ok()?;
+
+    for i in 0..archive.len() {
+        let entry = archive.by_index(i).ok()?;
+        // Skip directories
+        if entry.is_dir() {
+            continue;
+        }
+        let name = entry.name();
+        let inner_path = std::path::Path::new(name);
+        if let Some(ext) = inner_path.extension().and_then(|e| e.to_str()) {
+            let ext_lower = ext.to_lowercase();
+            if by_extension(&ext_lower).is_some() {
+                return Some(ext_lower);
+            }
+        }
+    }
+
+    None
+}
+
 /// Detect a platform name from a file path.
 ///
-/// Tries the extension first, falls back to parent directory name
-/// (RetroArch-style: "Nintendo - Game Boy" → "Game Boy").
+/// For `.zip` files, peeks inside to find a known ROM extension before
+/// falling back. Otherwise tries the extension first, then parent directory
+/// name (RetroArch-style: "Nintendo - Game Boy" → "Game Boy").
 pub fn detect_platform_name(path: &std::path::Path) -> Option<String> {
     let ext = path.extension()?.to_str()?.to_lowercase();
+
+    // ── .zip files: inspect contents ──────────────────────────────────
+    if ext == "zip" {
+        // Try inner extension first (e.g. game.zip containing game.nes → NES)
+        if let Some(inner_ext) = peek_zip_extension(path) {
+            if let Some(pm) = by_extension(&inner_ext) {
+                return Some(pm.short_name.to_string());
+            }
+        }
+        // Fallback: parent directory name
+        let parent = path.parent()?.file_name()?.to_str()?;
+        if let Some(system) = parent.split(" - ").nth(1) {
+            if let Some(pm) = PLATFORMS
+                .iter()
+                .find(|p| p.short_name == system || p.aliases.contains(&system))
+            {
+                return Some(pm.short_name.to_string());
+            }
+        }
+        // Last resort — assume Arcade (FBNeo)
+        return Some("Arcade".to_string());
+    }
+
+    // ── Normal extension-based detection ──────────────────────────────
     if let Some(pm) = by_extension(&ext) {
         return Some(pm.short_name.to_string());
     }
@@ -340,7 +392,12 @@ pub fn detect_platform_name(path: &std::path::Path) -> Option<String> {
     // Fallback: parent directory name
     let parent = path.parent()?.file_name()?.to_str()?;
     if let Some(system) = parent.split(" - ").nth(1) {
-        return Some(system.to_string());
+        if let Some(pm) = PLATFORMS
+            .iter()
+            .find(|p| p.short_name == system || p.aliases.contains(&system))
+        {
+            return Some(pm.short_name.to_string());
+        }
     }
 
     None
@@ -392,7 +449,7 @@ mod tests {
     fn core_by_short_name() {
         assert_eq!(core_for_platform("NES"), Some("nestopia_libretro.so"));
         assert_eq!(core_for_platform("SNES"), Some("snes9x_libretro.so"));
-        assert_eq!(core_for_platform("Game Boy"), Some("mgba_libretro.so"));
+        assert_eq!(core_for_platform("Game Boy"), Some("sameboy_libretro.so"));
         assert_eq!(
             core_for_platform("Game Boy Advance"),
             Some("mgba_libretro.so")
@@ -423,7 +480,7 @@ mod tests {
             core_for_platform("Game Boy Advance"),
             Some("mgba_libretro.so")
         );
-        assert_eq!(core_for_platform("Game Boy"), Some("mgba_libretro.so"));
+        assert_eq!(core_for_platform("Game Boy"), Some("sameboy_libretro.so"));
     }
 
     // ── Coverage ───────────────────────────────────────────────────
@@ -529,5 +586,52 @@ mod tests {
                 p.short_name
             );
         }
+    }
+
+    /// .zip files containing a known ROM should detect the inner platform.
+    #[test]
+    fn detect_platform_from_zip_contents() {
+        use std::io::Write;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("game.zip");
+
+        // Build a tiny zip with a .nes file inside
+        let file = std::fs::File::create(&zip_path).unwrap();
+        let mut archive = zip::ZipWriter::new(file);
+        let options =
+            zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        archive.start_file("Super Mario Bros.nes", options).unwrap();
+        archive.write_all(b"fake rom content").unwrap();
+        archive.finish().unwrap();
+
+        assert_eq!(
+            detect_platform_name(&zip_path),
+            Some("NES".into())
+        );
+    }
+
+    /// .zip with no known inner extension → falls back to parent dir, then Arcade.
+    #[test]
+    fn detect_platform_from_zip_mame_style() {
+        use std::io::Write;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("sf2.zip");
+
+        // MAME-style zip: raw bin files with numeric extensions
+        let file = std::fs::File::create(&zip_path).unwrap();
+        let mut archive = zip::ZipWriter::new(file);
+        let options =
+            zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        archive.start_file("sf2.03", options).unwrap();
+        archive.write_all(b"fake").unwrap();
+        archive.finish().unwrap();
+
+        // No known inner extension, no RetroArch-style parent dir → Arcade
+        assert_eq!(
+            detect_platform_name(&zip_path),
+            Some("Arcade".into())
+        );
     }
 }

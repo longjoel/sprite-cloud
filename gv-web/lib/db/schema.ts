@@ -250,3 +250,40 @@ export const shortCodes = pgTable("short_codes", {
   serverId: text("server_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// ── Favorites (user-bookmarked games) ────────────────────────────────
+
+export const favorites = pgTable(
+  "favorites",
+  {
+    userId: uuid("user_id")
+      .references(() => users.id)
+      .notNull(),
+    gameId: uuid("game_id")
+      .references(() => games.id)
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    pk: unique("favorites_user_game").on(table.userId, table.gameId),
+  }),
+);
+
+// ── Recent plays (per-user launch history) ───────────────────────────
+
+export const recentPlays = pgTable(
+  "recent_plays",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .references(() => users.id)
+      .notNull(),
+    gameId: uuid("game_id")
+      .references(() => games.id)
+      .notNull(),
+    playedAt: timestamp("played_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    idxUserPlayed: index("idx_recent_plays_user_played").on(table.userId, table.playedAt.desc()),
+  }),
+);

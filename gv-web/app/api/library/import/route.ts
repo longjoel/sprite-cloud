@@ -100,8 +100,23 @@ export async function POST(request: NextRequest) {
     if (existingRows.length > 0) {
       gameId = existingRows[0].id;
       // Update name if source is 'import' and we have a better name
+      const updates: Record<string, string> = {};
       if (existingRows[0].nameSource === "import" && name !== existingRows[0].name) {
-        await db.update(games).set({ name }).where(eq(games.id, gameId));
+        updates.name = name;
+      }
+      // Update platform if it changed (e.g. zip-contents detection fix)
+      try {
+        const [existing] = await db
+          .select({ platform: games.platform })
+          .from(games)
+          .where(eq(games.id, gameId))
+          .limit(1);
+        if (existing && existing.platform !== file.platform) {
+          updates.platform = file.platform;
+        }
+      } catch { /* platform column may not exist yet */ }
+      if (Object.keys(updates).length > 0) {
+        await db.update(games).set(updates).where(eq(games.id, gameId));
       }
     } else {
       const [created] = await db

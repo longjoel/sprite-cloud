@@ -17,6 +17,7 @@
   object-fit: contain;
   image-rendering: pixelated;
   background: #000;
+  pointer-events: none;  /* let touches pass through to canvas overlay */
 }
 
 .topBar {

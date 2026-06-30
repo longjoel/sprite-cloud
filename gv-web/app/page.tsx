@@ -1,7 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { serverMembers, servers, users } from "@/lib/db/schema";
-import { listGames } from "@/lib/games";
 import { eq, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import LibraryClient from "@/components/LibraryClient";
@@ -33,12 +32,8 @@ export default async function Home() {
     serverIds = memberships.map((m) => m.serverId);
   }
 
-  // Only return games from servers the user is a member of
-  const games = await listGames(serverIds);
-
   return (
     <LibraryClient
-      games={games}
       serverIds={serverIds}
       session={{ user: session.user }}
     />

@@ -477,31 +477,6 @@ export class GvPlayer {
         new RTCSessionDescription({ type: "answer", sdp: normalized }),
       );
       this._phaseLog("remote", "set", { ms: Date.now() - this._connectStart });
-    } else if (this._pc && this._pc.localDescription) {
-      // ── PC already has localDescription (start_game sent SDP offer).
-      //     The server is doing the SDP exchange inline — just poll for
-      //     the answer.  Don't create a new PC / POST a second sdp_offer;
-      //     that would race with the server's in-flight exchange. ──────
-      this._phaseLog("relay", "local-desc-ready", { hasPC: true });
-      const isReconnect = !pollToken && !sdpAnswer && hostToken;
-      const pollTimeout = isReconnect ? RECONNECT_RELAY_TIMEOUT_MS : undefined;
-      const pollStart = Date.now();
-      const token = pollToken;
-      if (!token) {
-        throw new Error("no poll token for reconnection answer polling");
-      }
-      let answerSdp = await this._pollForAnswer(serverId, token, pollTimeout);
-      this._phaseLog("relay", "answer", { ms: Date.now() - pollStart, chars: answerSdp.length });
-
-      answerSdp = answerSdp
-        .split("\n")
-        .filter((line) => !line.trimStart().startsWith("a=extmap:"))
-        .join("\n");
-
-      await this._pc.setRemoteDescription(
-        new RTCSessionDescription({ type: "answer", sdp: answerSdp }),
-      );
-      this._phaseLog("remote", "set", { ms: Date.now() - this._connectStart });
     } else {
       // Original flow: create offer, POST sdp_offer, poll for answer
       this._createPeerConnection();
