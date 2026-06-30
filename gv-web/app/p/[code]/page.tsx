@@ -139,6 +139,7 @@ export default function ShortCodePage() {
             onConnected={onConnected}
             initialPipeline={{ ice: "done", server: "done" }}
             initialStatus="connecting"
+            hidePipeline
           />
         )}
 
