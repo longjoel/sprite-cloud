@@ -3,7 +3,7 @@
 // Never caches navigation (HTML) requests — those always go to the network.
 // This prevents stale cache errors on deploy.
 
-const CACHE_VERSION = "gv-v17";
+const CACHE_VERSION = "gv-v18";
 const STATIC_CACHE = CACHE_VERSION + "-static";
 
 // Static assets safe to cache (JS bundles, images, manifests)

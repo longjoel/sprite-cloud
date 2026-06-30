@@ -87,6 +87,7 @@ interface GamePlayerProps {
   sessionId?: string;
   initialPipeline?: Record<string, StepState>;
   initialStatus?: string;
+  hidePipeline?: boolean;   // suppress internal pipeline loading (page has its own overlay)
 }
 
 // ── Component ─────────────────────────────────────────────────────────
@@ -102,6 +103,7 @@ export default function GamePlayer({
   sessionId,
   initialPipeline,
   initialStatus,
+  hidePipeline,
 }: GamePlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<any>(null);
@@ -534,8 +536,8 @@ export default function GamePlayer({
         </div>
       </div>
 
-      {/* Pipeline loading */}
-      {!connected && !showDisconnect && (
+      {/* Pipeline loading — suppressed when page has its own overlay */}
+      {!hidePipeline && !connected && !showDisconnect && (
         <div className={styles.centerMessage}>
           <p className={styles.loadingText}>
             {hostToken ? "Reconnecting\u2026" : gameName ? `Starting ${gameName}` : "Starting game"}
