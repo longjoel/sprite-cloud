@@ -126,6 +126,8 @@ export async function POST(request: NextRequest) {
   if (body.type === CMD_SDP_OFFER) {
     const sdpPayload = body.payload as Record<string, unknown> | undefined;
     const roomToken = sdpPayload?.room_token as string | undefined;
+    const peerToken = sdpPayload?.peer_token as string | undefined;
+    console.log("[COMMAND] sdp_offer received — room_token:", !!roomToken, "peer_token:", !!peerToken);
     if (roomToken) {
       // Resolve room_token → active session → server_id
       const [roomSession] = await db
@@ -274,6 +276,7 @@ export async function POST(request: NextRequest) {
     // Enrich with peer_role/peer_seat from peerTokens DB
     const sp = payloadResult.payload;
     const peerToken = sp.peer_token as string | undefined;
+    console.log("[COMMAND] sdp_offer enrichment — peer_token:", !!peerToken);
     if (peerToken) {
       const [peer] = await db
         .select({ role: peerTokens.role, seat: peerTokens.seat })
@@ -300,6 +303,8 @@ export async function POST(request: NextRequest) {
       workerToken,
     })
     .returning({ id: commands.id });
+
+  console.log("[COMMAND] inserted", body.type, "cmd:", cmd.id, "has_peer:", !!enrichedPayload.peer_token, "has_host:", !!enrichedPayload.host_token);
 
   await recordLaunchEvent({
     commandId: cmd.id,
