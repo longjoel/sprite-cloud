@@ -17,17 +17,11 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/gv-web/node_modules ./gv-web/node_modules
 COPY --from=deps /app/gv-player/node_modules ./gv-player/node_modules
-# Copy source + pre-built .next (built locally before tar)
+# Copy source
 COPY . .
 WORKDIR /app/gv-web
 ENV NEXT_TELEMETRY_DISABLED=1
-# If .next doesn't exist (fallback), build inside Docker; otherwise skip
-RUN if [ -d .next/standalone ]; then \
-      echo "[build] using pre-built .next"; \
-    else \
-      echo "[build] .next missing — building now"; \
-      npx next build; \
-    fi
+RUN npx next build
 
 FROM node:22-slim AS runner
 ARG GV_WEB_GIT_SHA=unknown
