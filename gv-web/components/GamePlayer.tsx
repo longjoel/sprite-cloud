@@ -4,15 +4,15 @@ import Script from "next/script";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useInterval } from "@/lib/poll";
-import { Badge, Button, Toast } from "@/components/ui";
+import { Button, Toast } from "@/components/ui";
 import RemapPanel from "./GamePlayerRemapPanel";
+import OptionsOverlay from "./OptionsOverlay";
 import styles from "./GamePlayer.module.css";
 import {
   type StepState,
   PIPELINE_STEPS,
   defaultPipeline,
   mergePipeline,
-  routeVariant,
   dotColor,
   dotChar,
   labelColor,
@@ -70,6 +70,7 @@ declare global {
       setPreset: (preset: string) => void;
       show: () => void;
       hide: () => void;
+      enterEditMode: () => void;
     };
   }
 }
@@ -133,6 +134,8 @@ export default function GamePlayer({
   const [showRemap, setShowRemap] = useState(false);
   const [remapWaiting, setRemapWaiting] = useState<string | null>(null);
   const [showRoomControls, setShowRoomControls] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
+  const [snapshotFlash, setSnapshotFlash] = useState(false);
   const [touchGamepadVisible, setTouchGamepadVisible] = useState(() => {
     // Hide by default on desktop (non-touch), show on mobile
     try {
@@ -464,6 +467,68 @@ export default function GamePlayer({
     gvPlay.listSaves(playerRef.current);
   };
 
+  // ── Snapshot ──────────────────────────────────────────────────────
+
+  const handleSnapshot = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) {
+      showToast("Video not ready", false);
+      return;
+    }
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0);
+      const dataUrl = canvas.toDataURL("image/png");
+      // Download
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      a.download = `sprite-cloud-${ts}.png`;
+      a.click();
+      showToast("Snapshot saved", true);
+    } catch (e: any) {
+      showToast("Snapshot failed: " + (e?.message || "unknown"), false);
+    }
+  }, [showToast]);
+
+  // ── Reposition / Reset controllers ────────────────────────────────
+
+  const handleReposition = useCallback(() => {
+    const tg = window.__gvTouchGamepad;
+    if (!tg) {
+      // Auto-show gamepad first, then enter edit mode
+      showToast("Show gamepad first — tap 🎮 in Keys", false);
+      return;
+    }
+    if (!tg.isVisible()) tg.show();
+    setTouchGamepadVisible(true);
+    setTimeout(() => tg.enterEditMode?.(), 150);
+  }, [showToast]);
+
+  const handleResetPosition = useCallback(() => {
+    try {
+      localStorage.removeItem("gv:touch-layouts-v2");
+      showToast("Controller layout reset", true);
+    } catch { /* noop */ }
+    // Reload layout in gamepad
+    const tg = window.__gvTouchGamepad;
+    if (tg?.isVisible()) {
+      tg.hide();
+      setTimeout(() => tg.show(), 100);
+    }
+  }, [showToast]);
+
+  // ── Restart game ──────────────────────────────────────────────────
+
+  const handleRestart = useCallback(() => {
+    sendDC({ cmd: "reset" });
+    showToast("Restarting…", true);
+  }, [sendDC, showToast]);
+
   // ── Share ─────────────────────────────────────────────────────────
 
   const [shortCode, setShortCode] = useState<string | null>(null);
@@ -544,43 +609,24 @@ export default function GamePlayer({
         </div>
       )}
 
-      {/* Bottom bar */}
-      <div
-        className={styles.bottomBar}
-        style={{
-          opacity: connected && controlsVisible ? 1 : 0,
-          pointerEvents: connected && controlsVisible ? "auto" : "none",
-        }}
-      >
-        <span className={styles.hint}>
-          Arrows = Move &nbsp;|&nbsp; Z = A &nbsp;|&nbsp; X = B &nbsp;|&nbsp; Enter = Start
-        </span>
-        {route && (
-          <Badge variant={routeVariant(route)} title={routeDetail || route}>
-            {route}
-          </Badge>
-        )}
-        <div className={styles.bottomRight}>
-          <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "save_state" }); showToast("Saved", true); }}>
-            💾 Save
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "load_state" }); showToast("Loaded", true); }}>
-            📂 Load
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => setShowRemap(!showRemap)}>
-            🎮 Keys
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => setShowRoomControls(!showRoomControls)}>
-            ⚙ Room
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => { setShowSlots(!showSlots); handleListSaves(); }}>
-            💾 Saves
-          </Button>
-          <Button variant="secondary" size="sm" onClick={toggleFullscreen}>
-            {isFullscreen ? "↙" : "⛶"}
-          </Button>
-        </div>
-      </div>
+      {/* Options toggle + overlay — replaces old bottom bar */}
+      {connected && (
+        <OptionsOverlay
+          visible={showOptions}
+          onToggle={() => setShowOptions((v) => !v)}
+          onSave={() => { sendDC({ cmd: "save_state" }); showToast("Saved", true); }}
+          onLoad={() => { sendDC({ cmd: "load_state" }); showToast("Loaded", true); }}
+          onSnapshot={handleSnapshot}
+          onFullscreen={toggleFullscreen}
+          isFullscreen={isFullscreen}
+          onReposition={handleReposition}
+          onResetPosition={handleResetPosition}
+          onRestart={handleRestart}
+          onOpenSaves={() => { setShowSlots(!showSlots); handleListSaves(); }}
+          onOpenKeys={() => setShowRemap(!showRemap)}
+          onOpenRoom={() => setShowRoomControls(!showRoomControls)}
+        />
+      )}
 
       {/* Pipeline loading — suppressed when page has its own overlay */}
       {!hidePipeline && !connected && !showDisconnect && (
