@@ -63,15 +63,14 @@ export async function GET(request: Request) {
     iceServers.push({ urls: stunUrls.length === 1 ? stunUrls[0] : stunUrls });
   }
 
-  if (turnUrls.length > 0) {
-    const server: { urls: string | string[]; username?: string; credential?: string } = {
+  if (turnUrls.length > 0 && turnUsername && turnCredential) {
+    iceServers.push({
       urls: turnUrls.length === 1 ? turnUrls[0] : turnUrls,
-    };
-    if (turnUsername && turnCredential) {
-      server.username = turnUsername;
-      server.credential = turnCredential;
-    }
-    iceServers.push(server);
+      username: turnUsername,
+      credential: turnCredential,
+    });
+  } else if (turnUrls.length > 0) {
+    console.warn("[ice-config] TURN URL(s) configured but missing username/credential — TURN skipped");
   }
 
   if (iceServers.length === 0) {
