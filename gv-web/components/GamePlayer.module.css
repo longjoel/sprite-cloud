@@ -40,6 +40,45 @@
   font-family: var(--font-mono);
 }
 
+/* Persistent game info chip — always visible during gameplay */
+.gameInfo {
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-6);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 12px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(184, 150, 74, 0.15);
+  border-radius: var(--radius-sm);
+  backdrop-filter: blur(4px);
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+
+.gameInfoName {
+  font-size: var(--font-size-md);
+  color: var(--color-cream);
+  font-family: var(--font-mono);
+  line-height: 1;
+}
+
+.gameInfoBadge {
+  display: inline-block;
+  padding: 1px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-brass);
+  border: 1px solid rgba(184, 150, 74, 0.25);
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: var(--font-mono);
+  line-height: 1.4;
+}
+
 .bottomBar {
   position: absolute;
   bottom: 0;
