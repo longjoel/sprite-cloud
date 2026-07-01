@@ -138,10 +138,9 @@ export default function GamePlayer({
     try {
       const saved = localStorage.getItem('gv:touch-visible');
       if (saved !== null) return saved !== '0';
-      // Default: only show on touch devices
-      return typeof window !== 'undefined' && (
-        'ontouchstart' in window || navigator.maxTouchPoints > 0
-      );
+      // Only auto-show on touch-first devices (phone/tablet, not desktop with touch monitor)
+      const hasTouch = typeof window !== 'undefined' && 'ontouchstart' in window;
+      return hasTouch && window.matchMedia('(pointer: coarse)').matches;
     } catch { return false; }
   });
 
