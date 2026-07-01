@@ -15,10 +15,9 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   title: "Sprite Cloud",
   description: "Retro game library and browser-based streaming",
-  manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
-    title: "Vault",
+    title: "Sprite Cloud",
     statusBarStyle: "black-translucent",
   },
   other: {
@@ -35,6 +34,11 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.unregister()})})}`,
+          }}
+        />
       </head>
       <body>
         <SpriteCloudProvider>

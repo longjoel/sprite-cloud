@@ -59,6 +59,59 @@
   background: var(--color-sky-high);
 }
 
+/* ── Name marquee — scrolls long names on hover ─────────────────── */
+
+.game-tile-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-tile:hover .game-tile-name {
+  text-overflow: clip;
+  animation: marquee 3s linear infinite;
+}
+
+.game-tile:hover .game-tile-name.no-overflow {
+  animation: none;
+  text-overflow: ellipsis;
+}
+
+@keyframes marquee {
+  0%   { transform: translateX(0); }
+  10%  { transform: translateX(0); }
+  90%  { transform: translateX(calc(-100% + 100%)); }
+  100% { transform: translateX(0); }
+}
+
+/* ── Edit button — appears on tile hover ────────────────────────── */
+
+.game-tile-edit-btn {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--color-sky-high);
+  border-radius: 2px;
+  color: var(--color-cloud-dim);
+  cursor: pointer;
+  padding: 4px;
+  line-height: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 2;
+}
+
+.game-tile:hover .game-tile-edit-btn {
+  opacity: 1;
+}
+
+.game-tile-edit-btn:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
 /* ── Responsive — fewer columns on mobile ────────────────────────── */
 
 @media (max-width: 640px) {
