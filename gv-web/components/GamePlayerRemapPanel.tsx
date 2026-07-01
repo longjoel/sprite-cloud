@@ -15,8 +15,8 @@ const remapStyles: Record<string, React.CSSProperties> = {
     left: "50%",
     transform: "translate(-50%, -50%)",
     background: "rgba(0,0,0,0.95)",
-    border: "1px solid var(--color-bamboo)",
-    borderRadius: "var(--radius-md)",
+    border: "1px solid var(--color-border-default)",
+    borderRadius: "2px",
     padding: "var(--space-6)",
     zIndex: 27,
     maxWidth: 380,
@@ -29,13 +29,13 @@ const remapStyles: Record<string, React.CSSProperties> = {
     marginBottom: "var(--space-4)",
     fontFamily: "var(--font-mono)",
     fontSize: "var(--font-size-sm)",
-    color: "var(--color-muted)",
+    color: "var(--color-text-secondary)",
   },
   waiting: {
     textAlign: "center" as const,
     fontFamily: "var(--font-mono)",
     fontSize: "var(--font-size-sm)",
-    color: "var(--color-brass)",
+    color: "var(--color-accent)",
     marginBottom: "var(--space-3)",
   },
   grid: {
@@ -48,21 +48,21 @@ const remapStyles: Record<string, React.CSSProperties> = {
     justifyContent: "space-between",
     alignItems: "center",
     padding: "var(--space-2) var(--space-3)",
-    background: "var(--color-walnut)",
-    border: "1px solid var(--color-bamboo)",
-    borderRadius: "var(--radius-sm)",
-    color: "var(--color-cream)",
+    background: "var(--color-surface-raised)",
+    border: "1px solid var(--color-border-default)",
+    borderRadius: "2px",
+    color: "var(--color-text-primary)",
     cursor: "pointer",
     fontFamily: "var(--font-mono)",
     fontSize: "var(--font-size-xs)",
   },
   cellLabel: { fontWeight: 600 },
-  cellKey: { color: "var(--color-cyan)", fontSize: 10 },
+  cellKey: { color: "var(--color-accent)", fontSize: 10 },
   resetBtn: {
     background: "none",
-    border: "1px solid var(--color-bamboo)",
-    borderRadius: "var(--radius-sm)",
-    color: "var(--color-muted)",
+    border: "1px solid var(--color-border-default)",
+    borderRadius: "2px",
+    color: "var(--color-text-secondary)",
     cursor: "pointer",
     fontSize: 10,
     padding: "2px 6px",
@@ -71,7 +71,7 @@ const remapStyles: Record<string, React.CSSProperties> = {
   closeBtn: {
     background: "none",
     border: "none",
-    color: "var(--color-muted)",
+    color: "var(--color-text-secondary)",
     cursor: "pointer",
     fontSize: 14,
   },
@@ -149,7 +149,7 @@ export default function RemapPanel({
                 ...remapStyles.cell,
                 outline:
                   waiting === bitStr
-                    ? "2px solid var(--color-brass)"
+                    ? "2px solid var(--color-accent)"
                     : undefined,
               }}
               onClick={() => setWaiting(bitStr)}
