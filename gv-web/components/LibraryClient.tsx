@@ -602,6 +602,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
                 isFavorite={favoriteIds.has(game.id)}
                 onPlay={handlePlay}
                 onToggleFavorite={session ? handleToggleFavorite : undefined}
+                onEdit={startRename}
               />
             ))}
           </div>
@@ -653,6 +654,44 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
         </div>
       </Modal>
 
+      {/* ── Rename modal ────────────────────────────────────────── */}
+      <Modal open={editingGame !== null} onClose={cancelRename} title="Rename game">
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
+          <input
+            type="text"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onKeyDown={(e) => editingGame && handleEditKey(e, editingGame)}
+            autoFocus
+            disabled={editSaving}
+            style={{
+              padding: "10px 14px",
+              background: "var(--color-sky-high)",
+              border: "2px solid var(--color-sky-high)",
+              borderRadius: "var(--radius-sm)",
+              color: "var(--color-cloud)",
+              fontSize: "var(--font-size-base)",
+              fontFamily: "var(--font-mono)",
+              outline: "none",
+            }}
+            onFocus={(e) => { e.target.style.borderColor = "var(--color-accent)"; }}
+            onBlur={(e) => { e.target.style.borderColor = "var(--color-sky-high)"; }}
+          />
+          <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "flex-end" }}>
+            <Button variant="secondary" onClick={cancelRename}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => editingGame && saveRename(editingGame)}
+              disabled={editSaving || !editName.trim()}
+            >
+              {editSaving ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
     </main>
   );
 }
@@ -698,7 +737,7 @@ const styles: Record<string, React.CSSProperties> = {
   // Picker
   pickerRow: {
     display: "flex", alignItems: "center", gap: "var(--space-4)",
-    padding: "var(--space-4) 0", borderBottom: "1px solid var(--color-bamboo)",
+    padding: "var(--space-4) 0", borderBottom: "1px solid var(--color-sky-high)",
   },
-  pickerName: { flex: 1, fontSize: "var(--font-size-md)", color: "var(--color-cream)", fontFamily: "var(--font-mono)" },
+  pickerName: { flex: 1, fontSize: "var(--font-size-md)", color: "var(--color-cloud)", fontFamily: "var(--font-mono)" },
 };

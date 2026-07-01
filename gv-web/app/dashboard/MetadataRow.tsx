@@ -24,7 +24,7 @@ const S: Record<string, React.CSSProperties> = {
   },
   metaValue: {
     padding: "2px 0",
-    color: "var(--color-cream)",
+    color: "var(--color-cloud)",
     wordBreak: "break-all" as const,
   },
 };

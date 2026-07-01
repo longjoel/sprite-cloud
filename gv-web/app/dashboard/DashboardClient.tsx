@@ -337,8 +337,8 @@ const S: Record<string, React.CSSProperties> = {
   panel: {
     marginBottom: "var(--space-8)",
     padding: "var(--space-6)",
-    background: "var(--color-teak)",
-    border: "1px solid var(--color-bamboo)",
+    background: "var(--color-sky-mid)",
+    border: "1px solid var(--color-sky-high)",
     borderRadius: "var(--radius-md)",
   },
   panelBadge: {
@@ -364,14 +364,14 @@ const S: Record<string, React.CSSProperties> = {
   th: {
     textAlign: "left" as const,
     padding: "var(--space-4) var(--space-5)",
-    borderBottom: "1px solid var(--color-bamboo)",
+    borderBottom: "1px solid var(--color-sky-high)",
     fontSize: "var(--font-size-sm)",
     color: "var(--color-muted)",
     fontFamily: "var(--font-mono)",
   },
   td: {
     padding: "var(--space-4) var(--space-5)",
-    borderBottom: "1px solid var(--color-teak)",
+    borderBottom: "1px solid var(--color-sky-mid)",
     fontSize: "var(--font-size-base)",
   },
   statusDot: {
@@ -383,13 +383,13 @@ const S: Record<string, React.CSSProperties> = {
   },
   editableName: {
     cursor: "pointer",
-    borderBottom: "1px dashed var(--color-bamboo)",
+    borderBottom: "1px dashed var(--color-sky-high)",
   },
   inlineForm: { display: "inline" },
   inlineInput: {
     padding: "2px 6px",
-    background: "var(--color-walnut)",
-    color: "var(--color-cream)",
+    background: "var(--color-sky-high)",
+    color: "var(--color-cloud)",
     border: "1px solid var(--color-accent)",
     fontFamily: "var(--font-mono)",
     fontSize: "var(--font-size-base)",
@@ -398,7 +398,7 @@ const S: Record<string, React.CSSProperties> = {
   },
   actionRow: { display: "flex", gap: "var(--space-3)" },
   confirmBox: {
-    background: "var(--color-teak)",
+    background: "var(--color-sky-mid)",
     border: "1px solid var(--color-error)",
     borderRadius: "var(--radius-md)",
     padding: "var(--space-6)",
@@ -415,8 +415,8 @@ const S: Record<string, React.CSSProperties> = {
   },
   confirmInput: {
     padding: "var(--space-2) var(--space-4)",
-    background: "var(--color-walnut)",
-    color: "var(--color-cream)",
+    background: "var(--color-sky-high)",
+    color: "var(--color-cloud)",
     border: "1px solid var(--color-error)",
     fontFamily: "var(--font-mono)",
     fontSize: "var(--font-size-base)",
@@ -441,7 +441,7 @@ const S: Record<string, React.CSSProperties> = {
   pairingCommand: {
     marginTop: "var(--space-5)",
     padding: "var(--space-5)",
-    background: "var(--color-mahogany)",
+    background: "var(--color-sky-deep)",
     border: "1px solid var(--color-accent)",
     borderRadius: "var(--radius-md)",
   },

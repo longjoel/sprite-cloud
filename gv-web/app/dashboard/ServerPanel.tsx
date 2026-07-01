@@ -242,11 +242,11 @@ export default function ServerPanel({ serverId, romRoots }: Props) {
         )}
       </section>
 
-      {/* File tree */}
+      {/* File tree — directories only with file counts */}
       {tree && !results && (
         <section style={S.section}>
           <h2 style={S.h2}>Files</h2>
-          <TreeView node={tree} checked={checked} onToggle={toggle} />
+          <DirList tree={tree} checked={checked} onToggle={toggle} />
           {checked.size > 0 && (
             <Button
               variant="primary"
@@ -487,53 +487,67 @@ function MetadataRow({ label, value, muted }: { label: string; value: string; mu
   );
 }
 
-function TreeView({
-  node,
+/** Count file nodes recursively. */
+function countFiles(node: TreeNode): number {
+  if (node.type === "file") return 1;
+  if (!node.children) return 0;
+  return node.children.reduce((sum, child) => sum + countFiles(child), 0);
+}
+
+/** Flat list of directories with file counts — no raw file entries. */
+function DirList({
+  tree,
   checked,
   onToggle,
-  depth = 0,
 }: {
-  node: TreeNode;
+  tree: TreeNode;
   checked: Set<string>;
   onToggle: (path: string) => void;
-  depth?: number;
 }) {
+  // Build a flat list of dirs with their full path and file count.
+  const entries: Array<{ path: string; name: string; fileCount: number }> = [];
+
+  function walk(node: TreeNode, parentPath: string) {
+    if (node.type !== "dir") return;
+    const fullPath = parentPath ? `${parentPath}/${node.name}` : node.name;
+    const fileCount = countFiles(node);
+    entries.push({ path: fullPath, name: node.name, fileCount });
+
+    if (node.children) {
+      for (const child of node.children) {
+        walk(child, fullPath);
+      }
+    }
+  }
+
+  walk(tree, tree.name || "");
+
+  if (entries.length === 0) {
+    return <p style={S.empty}>No directories found.</p>;
+  }
+
   return (
-    <div>
-      <div
-        style={{ ...S.treeRow, paddingLeft: depth * 16 + 8 }}
-        onClick={() => node.type === "dir" && onToggle(node.name)}
-      >
-        {node.type === "dir" && (
-          <span style={S.checkbox}>
-            {checked.has(node.name) ? "☑" : "☐"}
-          </span>
-        )}
-        <span style={S.treeIcon}>
-          {node.type === "dir"
-            ? "📁"
-            : node.type === "error"
-              ? "⚠"
-              : "📄"}
-        </span>
-        <span
+    <div style={{ maxHeight: 400, overflowY: "auto" }}>
+      {entries.map((entry) => (
+        <div
+          key={entry.path}
           style={{
-            ...S.treeName,
-            color:
-              node.type === "error" ? "var(--color-error)" : undefined,
+            ...S.dirRow,
+            background: checked.has(entry.path)
+              ? "rgba(56,189,248,0.08)"
+              : "transparent",
           }}
+          onClick={() => onToggle(entry.path)}
         >
-          {node.name}
-        </span>
-      </div>
-      {node.children?.map((child, i) => (
-        <TreeView
-          key={`${child.name}-${i}`}
-          node={child}
-          checked={checked}
-          onToggle={onToggle}
-          depth={depth + 1}
-        />
+          <span style={S.checkbox}>
+            {checked.has(entry.path) ? "☑" : "☐"}
+          </span>
+          <span style={S.treeIcon}>📁</span>
+          <span style={{ ...S.treeName, flex: 1 }}>{entry.name}</span>
+          <span style={S.fileCount}>
+            {entry.fileCount} file{entry.fileCount !== 1 ? "s" : ""}
+          </span>
+        </div>
       ))}
     </div>
   );
@@ -629,23 +643,31 @@ const S: Record<string, React.CSSProperties> = {
     alignItems: "center",
     gap: "var(--space-4)",
     padding: "var(--space-4) 0",
-    borderBottom: "1px solid var(--color-teak)",
+    borderBottom: "1px solid var(--color-sky-high)",
   },
   path: {
     fontSize: "var(--font-size-base)",
     color: "var(--color-info)",
     flex: 1,
   },
-  treeRow: {
+  dirRow: {
     display: "flex",
     alignItems: "center",
     gap: "var(--space-3)",
-    padding: "3px 0",
+    padding: "6px 8px",
     cursor: "pointer",
     fontSize: "var(--font-size-base)",
+    borderRadius: "2px",
+    transition: "background 0.1s",
   },
   treeIcon: { fontSize: "var(--font-size-base)" },
-  treeName: { fontSize: "var(--font-size-base)" },
+  treeName: { fontSize: "var(--font-size-base)", color: "var(--color-cloud)" },
+  fileCount: {
+    fontSize: "var(--font-size-xs)",
+    color: "var(--color-cloud-dim)",
+    fontFamily: "var(--font-mono)",
+    whiteSpace: "nowrap",
+  },
   checkbox: {
     width: 16,
     fontSize: "var(--font-size-sm)",
@@ -655,14 +677,14 @@ const S: Record<string, React.CSSProperties> = {
   th: {
     textAlign: "left" as const,
     padding: "var(--space-3) var(--space-5)",
-    borderBottom: "1px solid var(--color-bamboo)",
+    borderBottom: "1px solid var(--color-sky-high)",
     fontSize: "var(--font-size-sm)",
     color: "var(--color-muted)",
     fontFamily: "var(--font-mono)",
   },
   td: {
     padding: "var(--space-3) var(--space-5)",
-    borderBottom: "1px solid var(--color-teak)",
+    borderBottom: "1px solid var(--color-sky-high)",
     fontSize: "var(--font-size-base)",
   },
   fileName: { fontSize: "var(--font-size-sm)", color: "var(--color-info)" },
@@ -694,13 +716,13 @@ const S: Record<string, React.CSSProperties> = {
   },
   metaValue: {
     padding: "2px 0",
-    color: "var(--color-cream)",
+    color: "var(--color-cloud)",
     wordBreak: "break-all" as const,
   },
   coreSelect: {
-    background: "var(--color-walnut)",
-    color: "var(--color-cream)",
-    border: "1px solid var(--color-bamboo)",
+    background: "var(--color-sky-mid)",
+    color: "var(--color-cloud)",
+    border: "1px solid var(--color-sky-high)",
     borderRadius: "var(--radius-sm)",
     padding: "2px 6px",
     fontSize: "var(--font-size-sm)",

@@ -23,6 +23,15 @@ const nextConfig: NextConfig = {
   eslint: { ignoreDuringBuilds: true },
   async headers() {
     return [
+      // Aggressive no-cache for all HTML pages — mobile browsers are stubborn
+      {
+        source: "/:path((?!api|_next|player|favicon).*)",
+        headers: [
+          { key: "Cache-Control", value: "no-store, no-cache, must-revalidate, proxy-revalidate" },
+          { key: "Pragma", value: "no-cache" },
+          { key: "Expires", value: "0" },
+        ],
+      },
       {
         source: "/player/:path*",
         headers: [
