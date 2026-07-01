@@ -131,6 +131,9 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   const [searchInput, setSearchInput] = useState("");
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
+  // Platform filter: empty = show all, non-empty = only selected
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(new Set());
+
   const [allGames, setAllGames] = useState<Game[]>([]);
   const [allTotal, setAllTotal] = useState(0);
   const [allLoading, setAllLoading] = useState(false);
@@ -404,6 +407,24 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   const currentLoading = tab === "all" ? allLoading : tab === "favorites" ? favLoading : recentLoading;
   const hasMore = currentGames.length < currentTotal;
 
+  // Unique platforms from all games (for filter checkboxes)
+  const uniquePlatforms = [...new Set(allGames.map((g) => g.platform))].sort();
+
+  // Toggle a platform in/out of the filter set
+  const togglePlatform = useCallback((platform: string) => {
+    setSelectedPlatforms((prev) => {
+      const next = new Set(prev);
+      if (next.has(platform)) next.delete(platform);
+      else next.add(platform);
+      return next;
+    });
+  }, []);
+
+  // Apply platform filter (empty set = show all)
+  const filteredGames = selectedPlatforms.size === 0
+    ? currentGames
+    : currentGames.filter((g) => selectedPlatforms.has(g.platform));
+
   // ── Render ──────────────────────────────────────────────────────
 
   return (
@@ -467,7 +488,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
               width: "100%",
               maxWidth: 480,
               padding: "10px 14px",
-              marginBottom: "var(--space-6)",
+              marginBottom: "var(--space-5)",
               background: "var(--color-sky-high)",
               border: "2px solid var(--color-sky-high)",
               borderRadius: "var(--radius-sm)",
@@ -486,14 +507,94 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
           />
         )}
 
+        {/* Platform filter checkboxes (All tab only) */}
+        {tab === "all" && uniquePlatforms.length > 0 && (
+          <div style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "var(--space-3)",
+            marginBottom: "var(--space-6)",
+            alignItems: "center",
+          }}>
+            <span style={{
+              fontSize: "var(--font-size-xs)",
+              color: "var(--color-cloud-dim)",
+              fontFamily: "var(--font-mono)",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+              marginRight: "var(--space-2)",
+            }}>
+              Platforms
+            </span>
+            {uniquePlatforms.map((platform) => {
+              const checked = selectedPlatforms.has(platform);
+              return (
+                <label
+                  key={platform}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "4px 10px",
+                    background: checked ? "rgba(56,189,248,0.12)" : "transparent",
+                    border: checked
+                      ? "1px solid rgba(56,189,248,0.3)"
+                      : "1px solid var(--color-sky-high)",
+                    borderRadius: "2px",
+                    cursor: "pointer",
+                    fontSize: "var(--font-size-xs)",
+                    fontFamily: "var(--font-mono)",
+                    color: checked ? "var(--color-accent)" : "var(--color-cloud-dim)",
+                    transition: "all 0.15s",
+                    userSelect: "none",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => togglePlatform(platform)}
+                    style={{
+                      accentColor: "var(--color-accent)",
+                      margin: 0,
+                      width: 12,
+                      height: 12,
+                      cursor: "pointer",
+                    }}
+                  />
+                  {platform}
+                </label>
+              );
+            })}
+            {selectedPlatforms.size > 0 && (
+              <button
+                onClick={() => setSelectedPlatforms(new Set())}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--color-cloud-dim)",
+                  fontSize: "var(--font-size-xs)",
+                  fontFamily: "var(--font-mono)",
+                  cursor: "pointer",
+                  padding: "4px 6px",
+                  textDecoration: "underline",
+                }}
+              >
+                clear
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Game grid */}
-        {currentGames.length === 0 && !currentLoading ? (
+        {filteredGames.length === 0 && !currentLoading ? (
           <p style={styles.empty}>
-            {tab === "all" ? "No games found." : tab === "favorites" ? "No favorites yet." : "No recent plays."}
+            {selectedPlatforms.size > 0
+              ? "No games match the selected platforms."
+              : tab === "all" ? "No games found." : tab === "favorites" ? "No favorites yet." : "No recent plays."}
           </p>
         ) : (
           <div className="game-tile-grid">
-            {currentGames.map((game) => (
+            {filteredGames.map((game) => (
               <GameTile
                 key={game.id}
                 game={game}
