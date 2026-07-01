@@ -11,7 +11,6 @@ use gstreamer::prelude::*;
 #[derive(Debug, Clone)]
 pub struct H264EncoderInfo {
     pub factory_name: String,
-    pub long_name: String,
     pub rank: i32,
     pub is_hardware: bool,
     pub accepts_dmabuf: bool,
@@ -44,7 +43,6 @@ pub fn probe_h264_encoders() -> Vec<H264EncoderInfo> {
 
             encoders.push(H264EncoderInfo {
                 factory_name: name.to_string(),
-                long_name: factory.longname().to_string(),
                 rank: i32::from(factory.rank()),
                 is_hardware: *is_hardware,
                 accepts_dmabuf,

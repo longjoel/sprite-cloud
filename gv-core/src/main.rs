@@ -41,12 +41,12 @@ fn downsample_audio(input: &[i16], ratio: f64, channels: usize) -> Vec<i16> {
         let mut sum: [i64; 2] = [0, 0];
         for f in in_start..in_end {
             let base = f * channels;
-            for c in 0..channels.min(2) {
-                sum[c] += input[base + c] as i64;
+            for (_c, acc) in sum.iter_mut().enumerate().take(channels.min(2)) {
+                *acc += input[base + _c] as i64;
             }
         }
-        for c in 0..channels.min(2) {
-            out.push((sum[c] / count) as i16);
+        for (_c, acc) in sum.iter().enumerate().take(channels.min(2)) {
+            out.push((*acc / count) as i16);
         }
     }
     out
@@ -130,19 +130,19 @@ fn main() {
                     core.set_input(port, state);
                 }
                 gv_core::CMD_SAVE_STATE => {
-                    let slot = inp.slot.load(Ordering::Relaxed);
+                    let _slot = inp.slot.load(Ordering::Relaxed);
                     let data = core.save_state().unwrap_or_default();
                     let len = data.len().min(gv_core::MAX_RESPONSE);
                     // Write response data
                     let resp_ptr = out.response_data.as_ptr() as *mut u8;
                     unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), resp_ptr, len) };
                     out.response_data_len.store(len as u32, Ordering::Relaxed);
-                    out.response_ok.store(data.len() > 0, Ordering::Relaxed);
+                    out.response_ok.store(!data.is_empty(), Ordering::Relaxed);
                 }
                 gv_core::CMD_LOAD_STATE => {
                     let len = out.response_data_len.load(Ordering::Relaxed) as usize;
                     let data = &out.response_data[..len.min(gv_core::MAX_RESPONSE)];
-                    let ok = core.load_state(&data);
+                    let ok = core.load_state(data);
                     out.response_ok.store(ok, Ordering::Relaxed);
                 }
                 gv_core::CMD_SAVE_SRAM => {
@@ -193,7 +193,7 @@ fn main() {
             // SameBoy outputs at ~2 MHz; GStreamer's audioresample
             // chokes on 43:1 ratios. Decimate here so the pipeline
             // never sees more than 48 kHz.
-            let (audio, effective_rate) = if sample_rate > 48000.0 {
+            let (audio, _effective_rate) = if sample_rate > 48000.0 {
                 let ratio = sample_rate / 48000.0;
                 let down = downsample_audio(&raw_audio, ratio, 2);
                 if down.is_empty() {
