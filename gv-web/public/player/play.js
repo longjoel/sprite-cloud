@@ -227,7 +227,10 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
           console.log('[GPAD] → _sendInput dispatched');
         }
       };
-      _touchGamepad.show();
+      // Only auto-show on touch devices; desktop users toggle via 🎮 button
+      var shouldShow = (typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0));
+      try { shouldShow = shouldShow || localStorage.getItem('gv:touch-visible') === '1'; } catch (_) {}
+      if (shouldShow) _touchGamepad.show();
       // Expose globally so GamePlayer.tsx toggle button can control it
       window.__gvTouchGamepad = _touchGamepad;
       console.log("[gv] touch gamepad v2 initialized — preset:", preset, "layout:", layout);
