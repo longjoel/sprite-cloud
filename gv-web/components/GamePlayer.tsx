@@ -682,7 +682,7 @@ export default function GamePlayer({
       {showDisconnect && (
         <div className={styles.overlay}>
           <div className={styles.overlayPanel}>
-            {reconnectAttempt < 5 ? (
+            {reconnectAttempt < 3 ? (
               <>
                 <p className={styles.overlayTitle}>Connection lost</p>
                 <p className={styles.overlaySub}>{reconnectMsg || "Reconnecting…"}</p>
@@ -690,10 +690,43 @@ export default function GamePlayer({
             ) : (
               <>
                 <p className={styles.overlayTitle}>Reconnection failed</p>
-                <p className={styles.overlaySub}>Refresh the page to try again</p>
-                <Button variant="secondary" onClick={() => window.location.reload()}>
-                  Refresh
-                </Button>
+                <p className={styles.overlaySub}>What would you like to do?</p>
+                <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "center", marginTop: "var(--space-5)" }}>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      onClose?.();
+                    }}
+                  >
+                    ← Abort
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => window.location.reload()}
+                  >
+                    ↻ Retry
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={async () => {
+                      // Kill the current session, then reload to start fresh
+                      try {
+                        await fetch("/api/server/command", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            server_id: serverId,
+                            type: "stop_game",
+                            payload: { game_id: gameId },
+                          }),
+                        });
+                      } catch { /* best-effort */ }
+                      window.location.reload();
+                    }}
+                  >
+                    ✕ Fail
+                  </Button>
+                </div>
               </>
             )}
           </div>
