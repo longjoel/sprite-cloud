@@ -1,6 +1,6 @@
 [package]
 name = "gv-server"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 description = "Sprite Cloud server — in-process game streaming with GStreamer + WebRTC"
 license = "AGPL-3.0-or-later"
