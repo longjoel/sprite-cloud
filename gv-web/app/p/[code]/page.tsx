@@ -74,12 +74,11 @@ export default function ShortCodePage() {
         let platform = "";
         let coverUrl = "";
         try {
-          const metaResp = await fetch(`/api/games?search=${encodeURIComponent(gameId)}&limit=1`);
-          const metaData = await metaResp.json().catch(() => ({}));
-          if (metaData.games?.[0]) {
-            gameName = metaData.games[0].name || "";
-            platform = metaData.games[0].platform || "";
-            coverUrl = metaData.games[0].cover_url || "";
+          const metaResp = await fetch(`/api/games/${encodeURIComponent(gameId)}`);
+          if (metaResp.ok) {
+            const metaData = await metaResp.json();
+            gameName = metaData.name || "";
+            platform = metaData.platform || "";
           }
         } catch { /* optional */ }
 
