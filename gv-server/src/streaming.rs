@@ -81,8 +81,8 @@ async fn push_video_frame(session: &GameSession, pixels: &[u8], w: u32, h: u32, 
 
 async fn push_audio(session: &GameSession, audio_data: &[i16], audio_acc: &mut Vec<i16>) {
     let aenc_guard = session.audio_enc.lock().await;
-    if let Some(ref aenc_arc) = *aenc_guard {
-        if let Some(ref mut enc) = *aenc_arc.lock().await {
+    if let Some(ref aenc_arc) = *aenc_guard
+        && let Some(ref mut enc) = *aenc_arc.lock().await {
             let mut buf = std::mem::take(audio_acc);
             buf.extend_from_slice(audio_data);
             let chunk = (enc.sample_rate() as f64 * 0.02).round() as usize * enc.channels() as usize;
@@ -93,7 +93,6 @@ async fn push_audio(session: &GameSession, audio_data: &[i16], audio_acc: &mut V
             }
             *audio_acc = buf;
         }
-    }
 }
 
 /// Drain encoded video from GStreamer → WebRTC video track.
@@ -114,7 +113,7 @@ async fn drain_to_track_video(session: &GameSession, timestamp_us: u32) {
                     packet_timestamp: timestamp_us,
                     ..Default::default()
                 };
-                let track = session.video_track.lock().unwrap().clone();
+                let track = session.video_track.lock().expect("mutex poisoned").clone();
                 let _ = track.write_sample(&sample).await;
             }
             None => break,
@@ -142,7 +141,7 @@ async fn drain_to_track_audio(session: &GameSession, mut audio_ts: u32) -> u32 {
                         packet_timestamp: audio_ts,
                         ..Default::default()
                     };
-                    let track = session.audio_track.lock().unwrap().clone();
+                    let track = session.audio_track.lock().expect("mutex poisoned").clone();
                     let _ = track.write_sample(&sample).await;
                     audio_ts = audio_ts.wrapping_add(960);
                 }
@@ -231,12 +230,11 @@ pub async fn run_stream(session: Arc<GameSession>) {
                 frame_num = frame_num.wrapping_add(1);
 
                 // ── Push to GStreamer ───────────────────────────────
-                if let Some((ref pixels, w, h)) = video_data {
-                    if let Err(e) = push_video_frame(&session, pixels, w, h, frame_num).await {
+                if let Some((ref pixels, w, h)) = video_data
+                    && let Err(e) = push_video_frame(&session, pixels, w, h, frame_num).await {
                         tracing::error!("[STREAM] {e}");
                         break;
                     }
-                }
 
                 if !audio_data.is_empty() {
                     push_audio(&session, &audio_data, &mut audio_acc).await;

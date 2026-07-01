@@ -245,13 +245,13 @@ async fn build_ice_prewarm_pc() -> Result<RTCPeerConnection, String> {
         })
         .collect();
 
-    Ok(api
+    api
         .new_peer_connection(RTCConfiguration {
             ice_servers,
             ..Default::default()
         })
         .await
-        .map_err(|e| format!("peer connection: {e}"))?)
+        .map_err(|e| format!("peer connection: {e}"))
 }
 
 /// Set remote offer, create local answer, and wait for ICE gathering.

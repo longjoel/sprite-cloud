@@ -27,7 +27,7 @@ use crate::saves;
 /// Extract the first ROM file from a .zip archive to a temp file.
 /// Caches by game_id in /tmp/gv-workers/. Second play skips extraction entirely.
 fn ensure_extracted_rom(rom_path: &str, game_id: &str) -> String {
-    use std::io::Read;
+    
 
     let path = std::path::Path::new(rom_path);
     if !path.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("zip")).unwrap_or(false) {

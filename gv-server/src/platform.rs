@@ -21,8 +21,6 @@ pub struct PlatformManifest {
     pub aliases: &'static [&'static str],
     pub extensions: &'static [&'static str],
     pub core: &'static str,
-    /// Audio channel count for this platform (1 = mono, 2 = stereo).
-    pub audio_channels: u16,
 }
 
 /// Every platform known to Sprite Cloud.
@@ -49,21 +47,18 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Nintendo - Game Boy Advance"],
         extensions: &["gba"],
         core: "mgba_libretro.so",
-        audio_channels: 1,
     },
     PlatformManifest {
         short_name: "Game Boy Color",
         aliases: &["Nintendo - Game Boy Color"],
         extensions: &["gbc"],
         core: "sameboy_libretro.so",
-        audio_channels: 1,
     },
     PlatformManifest {
         short_name: "Game Boy",
         aliases: &["Nintendo - Game Boy"],
         extensions: &["gb"],
         core: "sameboy_libretro.so",
-        audio_channels: 1,
     },
     // ── Nintendo — NES ────────────────────────────────────────────
     PlatformManifest {
@@ -71,14 +66,12 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Nintendo - Nintendo Entertainment System"],
         extensions: &["nes"],
         core: "nestopia_libretro.so",
-        audio_channels: 1,
     },
     PlatformManifest {
         short_name: "Family Computer Disk System",
         aliases: &["Nintendo - Family Computer Disk System"],
         extensions: &["fds"],
         core: "nestopia_libretro.so",
-        audio_channels: 1,
     },
     // ── Nintendo — SNES ───────────────────────────────────────────
     PlatformManifest {
@@ -86,7 +79,6 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Nintendo - Super Nintendo Entertainment System"],
         extensions: &["sfc", "smc"],
         core: "snes9x_libretro.so",
-        audio_channels: 2,
     },
     // ── Nintendo — N64 ────────────────────────────────────────────
     PlatformManifest {
@@ -94,7 +86,6 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Nintendo - Nintendo 64"],
         extensions: &["n64", "z64", "v64"],
         core: "mupen64plus_next_libretro.so",
-        audio_channels: 2,
     },
     // ── Nintendo — DS ─────────────────────────────────────────────
     PlatformManifest {
@@ -102,7 +93,6 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Nintendo - Nintendo DS"],
         extensions: &["nds"],
         core: "desmume_libretro.so",
-        audio_channels: 2,
     },
     // ── Nintendo — Virtual Boy ─────────────────────────────────────
     PlatformManifest {
@@ -110,7 +100,6 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Nintendo - Virtual Boy"],
         extensions: &["vb"],
         core: "mednafen_vb_libretro.so",
-        audio_channels: 2,
     },
     // ── Nintendo — Pokemon Mini ────────────────────────────────────
     PlatformManifest {
@@ -118,7 +107,6 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Nintendo - Pokemon Mini"],
         extensions: &["min"],
         core: "pokemini_libretro.so",
-        audio_channels: 1,
     },
     // ── Sega — Genesis / MS / GG / CD ──────────────────────────────
     PlatformManifest {
@@ -126,28 +114,24 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Sega - Mega Drive - Genesis"],
         extensions: &["gen", "md", "smd"],
         core: "genesis_plus_gx_libretro.so",
-        audio_channels: 2,
     },
     PlatformManifest {
         short_name: "Master System",
         aliases: &["Sega - Master System - Mark III"],
         extensions: &["sms"],
         core: "genesis_plus_gx_libretro.so",
-        audio_channels: 2,
     },
     PlatformManifest {
         short_name: "Game Gear",
         aliases: &["Sega - Game Gear"],
         extensions: &["gg"],
         core: "genesis_plus_gx_libretro.so",
-        audio_channels: 2,
     },
     PlatformManifest {
         short_name: "Sega CD",
         aliases: &["Sega - Sega CD - Mega CD"],
         extensions: &[], // detected via dir name, not extension
         core: "genesis_plus_gx_libretro.so",
-        audio_channels: 2,
     },
     // ── Sega — 32X ─────────────────────────────────────────────────
     PlatformManifest {
@@ -155,7 +139,6 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Sega - Sega 32X"],
         extensions: &["32x"],
         core: "picodrive_libretro.so",
-        audio_channels: 2,
     },
     // ── Sega — Saturn ──────────────────────────────────────────────
     PlatformManifest {
@@ -163,7 +146,6 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Sega - Saturn"],
         extensions: &["mdf"],
         core: "yabause_libretro.so",
-        audio_channels: 2,
     },
     // ── Sega — Dreamcast ───────────────────────────────────────────
     PlatformManifest {
@@ -171,7 +153,6 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Sega - Dreamcast"],
         extensions: &["cdi", "gdi"],
         core: "flycast_libretro.so",
-        audio_channels: 2,
     },
     // ── Sony — PlayStation ─────────────────────────────────────────
     PlatformManifest {
@@ -179,7 +160,6 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Sony - PlayStation"],
         extensions: &["iso", "cue"],
         core: "pcsx_rearmed_libretro.so",
-        audio_channels: 2,
     },
     // ── Sony — PlayStation Portable ────────────────────────────────
     PlatformManifest {
@@ -187,7 +167,6 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Sony - PlayStation Portable", "PlayStation Portable"],
         extensions: &["cso"],
         core: "ppsspp_libretro.so",
-        audio_channels: 2,
     },
     // ── Atari — 2600 / 5200 / 7800 / Lynx ──────────────────────────
     PlatformManifest {
@@ -195,28 +174,24 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Atari - 2600"],
         extensions: &["a26"],
         core: "stella2014_libretro.so",
-        audio_channels: 1,
     },
     PlatformManifest {
         short_name: "Atari 5200",
         aliases: &["Atari - 5200"],
         extensions: &["a52"],
         core: "a5200_libretro.so",
-        audio_channels: 1,
     },
     PlatformManifest {
         short_name: "Atari 7800",
         aliases: &["Atari - 7800"],
         extensions: &["a78"],
         core: "prosystem_libretro.so",
-        audio_channels: 1,
     },
     PlatformManifest {
         short_name: "Atari Lynx",
         aliases: &["Atari - Lynx"],
         extensions: &["lnx"],
         core: "handy_libretro.so",
-        audio_channels: 1,
     },
     // ── NEC — PC Engine / TurboGrafx ───────────────────────────────
     PlatformManifest {
@@ -229,7 +204,6 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         ],
         extensions: &["pce"],
         core: "mednafen_pce_fast_libretro.so",
-        audio_channels: 2,
     },
     // ── SNK — Neo Geo Pocket / CD ──────────────────────────────────
     PlatformManifest {
@@ -237,21 +211,18 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["SNK - Neo Geo Pocket"],
         extensions: &["ngp"],
         core: "mednafen_ngp_libretro.so",
-        audio_channels: 2,
     },
     PlatformManifest {
         short_name: "Neo Geo Pocket Color",
         aliases: &["SNK - Neo Geo Pocket Color"],
         extensions: &["ngc"],
         core: "mednafen_ngp_libretro.so",
-        audio_channels: 2,
     },
     PlatformManifest {
         short_name: "Neo Geo CD",
         aliases: &["SNK - Neo Geo CD"],
         extensions: &[], // detected via dir name
         core: "neocd_libretro.so",
-        audio_channels: 2,
     },
     // ── Bandai — WonderSwan ────────────────────────────────────────
     PlatformManifest {
@@ -259,14 +230,12 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Bandai - WonderSwan"],
         extensions: &["ws"],
         core: "mednafen_wswan_libretro.so",
-        audio_channels: 1,
     },
     PlatformManifest {
         short_name: "WonderSwan Color",
         aliases: &["Bandai - WonderSwan Color"],
         extensions: &["wsc"],
         core: "mednafen_wswan_libretro.so",
-        audio_channels: 1,
     },
     // ── Arcade ────────────────────────────────────────────────────
     PlatformManifest {
@@ -274,7 +243,6 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &[],
         extensions: &["zip"],
         core: "fbneo_libretro.so",
-        audio_channels: 1,
     },
 ];
 
@@ -308,22 +276,6 @@ pub fn core_for_platform(name: &str) -> Option<String> {
     }
     tracing::debug!("[PLATFORM] no mapping for: {name}");
     None
-}
-
-/// Map a platform name to its audio channel count (1 = mono, 2 = stereo).
-///
-/// Falls back to 2 (stereo) for unknown platforms — stereo is always safe
-/// (mono → stereo duplication is handled by the audio pipeline).
-pub fn channels_for_platform(name: &str) -> u16 {
-    for p in PLATFORMS {
-        if p.short_name == name {
-            return p.audio_channels;
-        }
-        if p.aliases.contains(&name) {
-            return p.audio_channels;
-        }
-    }
-    2 // fallback: assume stereo for unknown platforms
 }
 
 /// Find the DAT system name (first alias) for a file extension.
@@ -374,21 +326,19 @@ pub fn detect_platform_name(path: &std::path::Path) -> Option<String> {
     // ── .zip files: inspect contents ──────────────────────────────────
     if ext == "zip" {
         // Try inner extension first (e.g. game.zip containing game.nes → NES)
-        if let Some(inner_ext) = peek_zip_extension(path) {
-            if let Some(pm) = by_extension(&inner_ext) {
+        if let Some(inner_ext) = peek_zip_extension(path)
+            && let Some(pm) = by_extension(&inner_ext) {
                 return Some(pm.short_name.to_string());
             }
-        }
         // Fallback: parent directory name
         let parent = path.parent()?.file_name()?.to_str()?;
-        if let Some(system) = parent.split(" - ").nth(1) {
-            if let Some(pm) = PLATFORMS
+        if let Some(system) = parent.split(" - ").nth(1)
+            && let Some(pm) = PLATFORMS
                 .iter()
                 .find(|p| p.short_name == system || p.aliases.contains(&system))
             {
                 return Some(pm.short_name.to_string());
             }
-        }
         // Last resort — assume Arcade (FBNeo)
         return Some("Arcade".to_string());
     }
@@ -400,14 +350,13 @@ pub fn detect_platform_name(path: &std::path::Path) -> Option<String> {
 
     // Fallback: parent directory name
     let parent = path.parent()?.file_name()?.to_str()?;
-    if let Some(system) = parent.split(" - ").nth(1) {
-        if let Some(pm) = PLATFORMS
+    if let Some(system) = parent.split(" - ").nth(1)
+        && let Some(pm) = PLATFORMS
             .iter()
             .find(|p| p.short_name == system || p.aliases.contains(&system))
         {
             return Some(pm.short_name.to_string());
         }
-    }
 
     None
 }

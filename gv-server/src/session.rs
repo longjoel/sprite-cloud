@@ -17,18 +17,15 @@ use crate::core_bridge::{CoreCommand, CoreFrame, CoreResponse};
 use crate::gst_audio::GstAudioEncoder;
 use crate::gst_video::GstVideoEncoder;
 
-/// A connected guest peer with their own PC and input seat.
+/// A connected guest peer with their own PC.
 pub struct GuestPeer {
     pub pc: Arc<RTCPeerConnection>,
-    pub seat: u32,
     pub peer_token: String,
 }
 
 pub struct GameSession {
     /// Human-friendly identifier for logging.
     pub game_id: String,
-    /// gv-web session UUID (for notify / generation tracking).
-    pub session_id: String,
     /// Cancel token — signals the streaming loop and fan-out to stop.
     pub cancel: tokio_util::sync::CancellationToken,
 
@@ -52,7 +49,6 @@ pub struct GameSession {
     // ── Core (libretro) ─────────────────────────────────────────────
     pub core_loaded: AtomicBool,
     pub core_loading: AtomicBool,
-    pub core_ready_notify: tokio::sync::Notify,
     pub core_cmd_tx: Mutex<Option<std::sync::mpsc::SyncSender<CoreCommand>>>,
     pub core_frame_rx: Mutex<Option<std::sync::mpsc::Receiver<CoreFrame>>>,
     pub core_response_rx: Mutex<Option<std::sync::mpsc::Receiver<CoreResponse>>>,
@@ -71,5 +67,4 @@ pub struct GameSession {
     pub core_fps: Mutex<f64>,
     /// Core audio sample rate in Hz (from retro_get_system_av_info).
     pub core_sample_rate: Mutex<f64>,
-    pub frames_encoded: std::sync::atomic::AtomicU64,
 }
