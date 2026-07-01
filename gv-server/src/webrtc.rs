@@ -312,6 +312,72 @@ pub async fn build_session_pc() -> Result<WebRtcStack, String> {
     build_session_pc_with_turn(true).await
 }
 
+/// Build a bare PeerConnection WITHOUT any pre-added tracks.
+///
+/// Used for guest connections, where tracks are sourced from the session
+/// (shared with the host). Pool PCs come with their own tracks — adding
+/// session tracks on top produces 4-track PCs whose SDP answers have twice
+/// the m= sections as the browser's offer, breaking WebRTC negotiation.
+pub async fn build_pc_for_guest() -> Result<Arc<RTCPeerConnection>, String> {
+    use webrtc::api::interceptor_registry::register_default_interceptors;
+    use webrtc::api::media_engine::MediaEngine;
+    use webrtc::api::setting_engine::SettingEngine;
+    use webrtc::api::APIBuilder;
+
+    let mut media_engine = MediaEngine::default();
+    media_engine
+        .register_default_codecs()
+        .map_err(|e| format!("register codecs: {e}"))?;
+
+    let mut registry = webrtc::interceptor::registry::Registry::new();
+    registry = register_default_interceptors(registry, &mut media_engine)
+        .map_err(|e| format!("interceptors: {e}"))?;
+
+    let mut se = SettingEngine::default();
+    se.set_ip_filter(Box::new(|ip: IpAddr| ip.is_ipv4()));
+    se.set_network_types(vec![NetworkType::Udp4, NetworkType::Tcp4]);
+    se.set_ice_multicast_dns_mode(MulticastDnsMode::QueryOnly);
+
+    let api = APIBuilder::new()
+        .with_setting_engine(se)
+        .with_media_engine(media_engine)
+        .with_interceptor_registry(registry)
+        .build();
+
+    let ice_cfg = ice_config();
+    let mut ice_servers: Vec<RTCIceServer> = ice_cfg
+        .servers
+        .iter()
+        .map(|s| RTCIceServer {
+            urls: s.urls.clone(),
+            username: s.username.clone().unwrap_or_default(),
+            credential: s.credential.clone().unwrap_or_default(),
+        })
+        .collect();
+
+    // Always include a STUN server for srflx candidates
+    ice_servers.push(RTCIceServer {
+        urls: vec!["stun:stun.l.google.com:19302".to_string()],
+        username: String::new(),
+        credential: String::new(),
+    });
+
+    let ice_policy = match ice_cfg.transport_policy {
+        IceTransportPolicy::All => RTCIceTransportPolicy::All,
+        IceTransportPolicy::Relay => RTCIceTransportPolicy::Relay,
+    };
+
+    Ok(Arc::new(
+        api.new_peer_connection(RTCConfiguration {
+            ice_servers,
+            ice_transport_policy: ice_policy,
+            ..Default::default()
+        })
+        .await
+        .map_err(|e| format!("peer connection (guest): {e}"))?,
+    ))
+}
+
 /// Build a WebRTC stack (PC + tracks).
 /// Used when the browser is on the same LAN as gv-server, so host candidates
 /// are reachable directly. Skips the pool (pool PCs are built with global policy

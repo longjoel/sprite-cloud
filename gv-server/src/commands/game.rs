@@ -433,52 +433,43 @@ pub(super) async fn handle_sdp_offer(
     }
 }
 
-/// Guest SDP exchange — creates a new PC from pool, adds host tracks,
-/// does SDP exchange on the guest PC, sends answer back.
+/// Guest SDP exchange — builds a clean PC (no pre-added tracks), adds session
+/// tracks, does SDP exchange, stores the guest, and wires the DC handler.
+///
+/// IMPORTANT: never uses the pool — pool PCs come with pre-added tracks, and
+/// adding session tracks on top of them produces SDP answers with duplicate m=
+/// sections that break WebRTC negotiation with the guest browser.
 pub(super) async fn handle_guest_sdp(
     session: &Arc<GameSession>,
     sdp: &str,
     peer_token: &str,
     cmd: &gv_web::Command,
     client: &gv_web::GvWebClient,
-    pool: &webrtc::PcPool,
+    _pool: &webrtc::PcPool,
 ) {
-    // Helper to log errors — gv-web will time out the command if no answer arrives
     let report_error = |msg: &str| {
         tracing::error!("[SDP] guest error: {msg}");
     };
 
     tracing::info!("[SDP] guest SDP exchange (peer_token={})", &peer_token[..peer_token.len().min(8)]);
 
-    // Build a PC — use pool for remote, build fresh only for LAN (which is fast)
-    let is_lan = cmd.payload.get("lan").and_then(|v| v.as_bool()).unwrap_or(false);
-    let stack = if is_lan {
-        match webrtc::build_session_pc_lan().await {
-            Ok(s) => {
-                tracing::info!("[SDP] guest LAN — built fresh PC with All policy + STUN only");
-                s
-            }
-            Err(e) => {
-                tracing::error!("[SDP] guest LAN PC build failed: {e}");
-                report_error(&e);
-                return;
-            }
+    // Build a FRESH PC with NO pre-added tracks.
+    // Pool PCs carry their own video/audio tracks — adding session tracks on
+    // top creates a 4-track PC whose SDP answer has 4 m= sections against the
+    // browser's 2-media-section offer, breaking negotiation.
+    let pc = match webrtc::build_pc_for_guest().await {
+        Ok(pc) => {
+            tracing::info!("[SDP] guest built fresh PC (no pre-added tracks)");
+            pc
         }
-    } else {
-        match pool.acquire().await {
-            Ok(s) => {
-                tracing::info!("[SDP] guest acquired PC from pool");
-                s
-            }
-            Err(e) => {
-                tracing::error!("[SDP] guest pool.acquire failed: {e}");
-                report_error(&e);
-                return;
-            }
+        Err(e) => {
+            tracing::error!("[SDP] guest PC build failed: {e}");
+            report_error(&e);
+            return;
         }
     };
 
-    // Add host's video + audio tracks to the guest PC
+    // Add ONLY the session's video + audio tracks to the guest PC
     use ::webrtc::track::track_local::TrackLocal;
     let video_track = match session.video_track.lock() {
         Ok(t) => t.clone(),
@@ -494,11 +485,19 @@ pub(super) async fn handle_guest_sdp(
             return;
         }
     };
-    let _ = stack.pc.add_track(video_track as Arc<dyn TrackLocal + Send + Sync>).await;
-    let _ = stack.pc.add_track(audio_track as Arc<dyn TrackLocal + Send + Sync>).await;
+    if let Err(e) = pc.add_track(video_track as Arc<dyn TrackLocal + Send + Sync>).await {
+        tracing::error!("[SDP] guest add video track failed: {e}");
+        report_error(&e.to_string());
+        return;
+    }
+    if let Err(e) = pc.add_track(audio_track as Arc<dyn TrackLocal + Send + Sync>).await {
+        tracing::error!("[SDP] guest add audio track failed: {e}");
+        report_error(&e.to_string());
+        return;
+    }
 
     // SDP exchange on guest PC
-    let answer = match webrtc::exchange_sdp_on_pc(&stack.pc, sdp).await {
+    let answer = match webrtc::exchange_sdp_on_pc(&pc, sdp).await {
         Ok(a) => a,
         Err(e) => {
             tracing::error!("[SDP] guest exchange failed: {e}");
@@ -518,7 +517,7 @@ pub(super) async fn handle_guest_sdp(
 
     // Store guest peer
     let guest = Arc::new(crate::session::GuestPeer {
-        pc: stack.pc,
+        pc,
         peer_token: peer_token.to_string(),
     });
     session.guests.lock().await.push(Arc::clone(&guest));
