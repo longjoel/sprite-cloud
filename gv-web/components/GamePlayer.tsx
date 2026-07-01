@@ -537,6 +537,14 @@ export default function GamePlayer({
         )}
       </div>
 
+      {/* Persistent game info chip — always visible while connected */}
+      {connected && (gameName || platform) && (
+        <div className={styles.gameInfo}>
+          {gameName && <span className={styles.gameInfoName}>{gameName}</span>}
+          {platform && <span className={styles.gameInfoBadge}>{platform}</span>}
+        </div>
+      )}
+
       {/* Bottom bar */}
       <div
         className={styles.bottomBar}
