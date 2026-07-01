@@ -26,6 +26,18 @@ pub struct PlatformManifest {
 }
 
 /// Every platform known to Sprite Cloud.
+/// Server-specific core overrides set by the dashboard user.
+/// Key: platform short name (e.g. "Game Boy Color"), Value: core filename.
+static CORE_OVERRIDES: std::sync::LazyLock<std::sync::RwLock<std::collections::HashMap<String, String>>> =
+    std::sync::LazyLock::new(|| std::sync::RwLock::new(std::collections::HashMap::new()));
+
+/// Update core overrides (called after each verify response).
+pub fn update_core_overrides(overrides: std::collections::HashMap<String, String>) {
+    if let Ok(mut guard) = CORE_OVERRIDES.write() {
+        *guard = overrides;
+    }
+}
+
 ///
 /// Order: more-specific entries before broader ones to preserve
 /// first-match-wins semantics (e.g. "Game Boy Advance" before
@@ -182,7 +194,7 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         short_name: "Atari 2600",
         aliases: &["Atari - 2600"],
         extensions: &["a26"],
-        core: "stella_libretro.so",
+        core: "stella2014_libretro.so",
         audio_channels: 1,
     },
     PlatformManifest {
@@ -277,26 +289,23 @@ pub fn by_extension(ext: &str) -> Option<&'static PlatformManifest> {
 ///
 /// Returns `None` for unknown platforms so the worker can fall back
 /// to test pattern.
-pub fn core_for_platform(name: &str) -> Option<&'static str> {
-    // Env var override takes priority
+pub fn core_for_platform(name: &str) -> Option<String> {
+    // 1. Check server-specific overrides from dashboard
+    if let Some(core) = CORE_OVERRIDES.read().ok().and_then(|g| g.get(name).cloned()) {
+        return Some(core);
+    }
+    // 2. Check environment variable overrides (GV_CORE_OVERRIDE_*)
     let override_key = name.replace([' ', '-'], "_");
     let env_key = format!("GV_CORE_OVERRIDE_{override_key}");
     if let Ok(custom) = std::env::var(&env_key) {
-        // Leak is intentional — the override string lives for the
-        // process lifetime and is read once per worker spawn.
-        return Some(Box::leak(custom.into_boxed_str()));
+        return Some(custom);
     }
-
-    // Linear scan — first match wins
+    // 3. Linear scan — first match wins
     for p in PLATFORMS {
-        if p.short_name == name {
-            return Some(p.core);
-        }
-        if p.aliases.contains(&name) {
-            return Some(p.core);
+        if p.short_name == name || p.aliases.contains(&name) {
+            return Some(p.core.to_string());
         }
     }
-
     tracing::debug!("[PLATFORM] no mapping for: {name}");
     None
 }
@@ -447,11 +456,11 @@ mod tests {
 
     #[test]
     fn core_by_short_name() {
-        assert_eq!(core_for_platform("NES"), Some("nestopia_libretro.so"));
-        assert_eq!(core_for_platform("SNES"), Some("snes9x_libretro.so"));
-        assert_eq!(core_for_platform("Game Boy"), Some("sameboy_libretro.so"));
+        assert_eq!(core_for_platform("NES").as_deref(), Some("nestopia_libretro.so"));
+        assert_eq!(core_for_platform("SNES").as_deref(), Some("snes9x_libretro.so"));
+        assert_eq!(core_for_platform("Game Boy").as_deref(), Some("sameboy_libretro.so"));
         assert_eq!(
-            core_for_platform("Game Boy Advance"),
+            core_for_platform("Game Boy Advance").as_deref(),
             Some("mgba_libretro.so")
         );
     }
@@ -459,11 +468,11 @@ mod tests {
     #[test]
     fn core_by_dat_name() {
         assert_eq!(
-            core_for_platform("Nintendo - Nintendo Entertainment System"),
+            core_for_platform("Nintendo - Nintendo Entertainment System").as_deref(),
             Some("nestopia_libretro.so")
         );
         assert_eq!(
-            core_for_platform("Nintendo - Super Nintendo Entertainment System"),
+            core_for_platform("Nintendo - Super Nintendo Entertainment System").as_deref(),
             Some("snes9x_libretro.so")
         );
     }
@@ -477,10 +486,10 @@ mod tests {
     #[test]
     fn specific_platform_matches_before_broad() {
         assert_eq!(
-            core_for_platform("Game Boy Advance"),
+            core_for_platform("Game Boy Advance").as_deref(),
             Some("mgba_libretro.so")
         );
-        assert_eq!(core_for_platform("Game Boy"), Some("sameboy_libretro.so"));
+        assert_eq!(core_for_platform("Game Boy").as_deref(), Some("sameboy_libretro.so"));
     }
 
     // ── Coverage ───────────────────────────────────────────────────

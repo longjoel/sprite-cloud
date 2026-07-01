@@ -13,9 +13,11 @@ export function serverStatus(
 ): { label: string; color: string } {
   if (!lastSeenAt) return { label: "offline", color: "var(--color-error)" };
   const age = Date.now() - new Date(lastSeenAt).getTime();
-  if (age < 120_000)
+  if (age < 1_800_000)
     return { label: "online", color: "var(--color-success)" };
-  return { label: "stale", color: "var(--color-warning)" };
+  if (age < 86_400_000)
+    return { label: "idle", color: "var(--color-muted)" };
+  return { label: "offline", color: "var(--color-error)" };
 }
 
 export function timeAgo(ts: string | null): string {

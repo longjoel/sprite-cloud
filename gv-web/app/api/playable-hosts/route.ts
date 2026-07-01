@@ -18,10 +18,10 @@ function classifyStatus(lastSeenAt: Date | string | null): string {
 function classifyRouteHint(metadata: unknown): string {
   const meta = (metadata || {}) as Record<string, unknown>;
   const ice = meta.ice as Record<string, unknown> | undefined;
-  const lanAddrs = meta.lan_addresses;
+  const ifaces = meta.interfaces;
 
-  // Server on the LAN (has LAN addresses) → "local"
-  if (Array.isArray(lanAddrs) && lanAddrs.length > 0) return "local";
+  // Server on the LAN (has non-loopback interfaces) → "local"
+  if (Array.isArray(ifaces) && ifaces.length > 0) return "local";
 
   // Server with TURN configured → "relay"
   if (ice?.turn_configured) return "relay";

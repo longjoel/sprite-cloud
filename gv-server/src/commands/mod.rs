@@ -88,7 +88,7 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
     let client = gv_web::GvWebClient::new(cfg.gv_web.url.clone(), cfg.auth.clone());
 
     // Verify API key
-    let metadata = collect_metadata(&cfg);
+    let metadata = collect_metadata(&cfg).await;
     let verify = match client.verify_with_metadata(&metadata).await {
         Ok(v) => v,
         Err(e) => {
@@ -105,6 +105,11 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
         verify.server_id,
         verify.user_id
     );
+
+    // Apply any core overrides from the dashboard
+    if !verify.core_overrides.is_empty() {
+        crate::platform::update_core_overrides(verify.core_overrides);
+    }
 
     // GStreamer init (only once at startup)
     gstreamer::init().expect("GStreamer init failed");
@@ -181,7 +186,7 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                 } else if cmd.command_type == "scan_paths" {
                                     handle_scan_paths(
                                         cmd, &client, &rom_roots,
-                                        &scan_lock, &dat_index,
+                                        &scan_lock, &dat_index, &cfg.auth.server_id,
                                     ).await;
                                 }
                             }
@@ -264,7 +269,7 @@ async fn handle_start_game(
         .and_then(|p| crate::platform::core_for_platform(p))
     {
         Some(core_file) => {
-            match core_bridge::ensure_core(core_file, client.http_client()).await {
+            match core_bridge::ensure_core(&core_file, client.http_client()).await {
                 Ok(path) => {
                     tracing::info!("[SESSION] core resolved: {}", path.display());
                     Some(path)
@@ -882,6 +887,7 @@ async fn handle_scan_paths(
     rom_roots: &[String],
     scan_lock: &Arc<tokio::sync::Mutex<()>>,
     dat_index: &Arc<tokio::sync::RwLock<Option<dat::DatIndex>>>,
+    server_id: &str,
 ) {
     let paths: Vec<String> = cmd.payload
         .get("paths")
@@ -950,10 +956,36 @@ async fn handle_scan_paths(
     }
     drop(dat_lock);
 
-    let _ = client.command_result(
-        &cmd.id, &cmd.lease_token,
-        &serde_json::json!({"matches": matches}),
-    ).await;
+    // Auto-import scanned files into the library
+    let import_files: Vec<serde_json::Value> = matches.iter().map(|m| {
+        let file = &m["file"];
+        let match_name = m["match"]["name"].as_str();
+        let name = match_name.unwrap_or(file["file_name"].as_str().unwrap_or("unknown"));
+        serde_json::json!({
+            "name": name,
+            "platform": file["platform"].as_str().unwrap_or("Unknown"),
+            "rom_path": file["relative_path"].as_str().unwrap_or(""),
+            "file_name": file["file_name"].as_str().unwrap_or(""),
+            "file_size": file["file_size"].as_u64().unwrap_or(0),
+            "file_hash": file["sha256"].as_str().unwrap_or(""),
+        })
+    }).collect();
+
+    match client.import_library(server_id, &import_files).await {
+        Ok(()) => {
+            let _ = client.command_result(
+                &cmd.id, &cmd.lease_token,
+                &serde_json::json!({"matches": matches, "imported": import_files.len()}),
+            ).await;
+        }
+        Err(e) => {
+            tracing::warn!("[SCAN] auto-import failed: {e:#}");
+            let _ = client.command_result(
+                &cmd.id, &cmd.lease_token,
+                &serde_json::json!({"matches": matches, "import_error": e.to_string()}),
+            ).await;
+        }
+    }
 }
 
 // ── DC handler wiring ────────────────────────────────────────────────

@@ -407,8 +407,10 @@ pub async fn load_core_into_session(
     *session.core_width.lock().await = width;
     *session.core_height.lock().await = height;
     *session.core_fps.lock().await = fps;
-    // Clamp absurd sample rates (SameBoy reports 2MHz) to 48000
-    *session.core_sample_rate.lock().await = if core_sample_rate > 192000.0 { 48000.0 } else { core_sample_rate };
+    // Report the core's native sample rate — GStreamer's audioresample
+    // handles any rate correctly. SameBoy reports ~2MHz; clamping it
+    // causes resampler mismatch → static bursts.
+    *session.core_sample_rate.lock().await = core_sample_rate;
     *session.core_frame_rx.lock().await = Some(frame_rx);
     *session.core_cmd_tx.lock().await = Some(cmd_tx);
     *session.core_response_rx.lock().await = Some(response_rx);

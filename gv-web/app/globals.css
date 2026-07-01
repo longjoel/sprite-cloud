@@ -54,3 +54,15 @@
   --font-mono: "Geist Mono", "SF Mono", "Fira Code", monospace;
   --font-sans: "Geist", "SF Pro", system-ui, sans-serif;
 }
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-mahogany);
+  color: var(--color-cream);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  -webkit-font-smoothing: antialiased;
+}

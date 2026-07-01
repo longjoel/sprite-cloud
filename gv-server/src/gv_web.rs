@@ -26,6 +26,8 @@ pub struct VerifyResponse {
     pub user_id: String,
     #[allow(dead_code)]
     pub name: String,
+    #[serde(default)]
+    pub core_overrides: std::collections::HashMap<String, String>,
 }
 
 /// Release/build metadata for a deployed component.
@@ -51,6 +53,13 @@ pub struct VersionMetadata {
     pub runner: ComponentVersion,
 }
 
+/// A network interface on the server host.
+#[derive(Debug, Serialize)]
+pub struct InterfaceInfo {
+    pub name: String,
+    pub address: String,
+}
+
 /// Non-secret metadata reported by gv-server during verify.
 /// Excludes credentials, tokens, and other secrets.
 #[derive(Debug, Serialize)]
@@ -58,10 +67,13 @@ pub struct ServerMetadata {
     pub version: String,
     pub versions: VersionMetadata,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub lan_addresses: Vec<String>,
+    pub interfaces: Vec<InterfaceInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_ip: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub rom_roots: Vec<String>,
     pub ice: IceMetadata,
+    pub runtime: RuntimeMetadata,
 }
 
 /// ICE configuration summary for route/connectivity diagnostics.
@@ -74,6 +86,14 @@ pub struct IceMetadata {
     pub turn_urls: Vec<String>,
     pub turn_configured: bool,
     pub transport_policy: String,
+}
+
+/// Runtime configuration exposed for dashboard display.
+#[derive(Debug, Serialize)]
+pub struct RuntimeMetadata {
+    pub pc_pool_size: usize,
+    pub video_scale_height: u32,
+    pub video_max_scale: u32,
 }
 
 /// A single command from the queue.
@@ -477,5 +497,25 @@ impl GvWebClient {
                 );
             }
         }
+    }
+
+    /// POST /api/server/import — auto-import scanned game files into library.
+    pub async fn import_library(&self, server_id: &str, files: &[serde_json::Value]) -> anyhow::Result<()> {
+        let url = format!("{}/api/server/import", self.base_url);
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(&self.auth.api_key)
+            .json(&serde_json::json!({ "server_id": server_id, "files": files }))
+            .send()
+            .await
+            .context("POST /api/server/import")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("import failed: HTTP {status} — {body}");
+        }
+        Ok(())
     }
 }

@@ -12,12 +12,6 @@ import { eq, desc, count, and, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import DashboardClient from "./DashboardClient";
 import HealthCard from "./HealthCard";
-import {
-  readServerMetadata,
-  shortSha,
-  formatTimestamp,
-  webVersion,
-} from "./version-utils";
 
 const OPEN_SESSION_STATUSES = ["spawning", "ready", "connected", "playing"] as const;
 const DASHBOARD_FRESH_SESSION_MS = 5 * 60 * 1000;
@@ -134,20 +128,6 @@ export default async function DashboardPage() {
 
   const dashboardNow = Date.now();
   const staleOpenSessionCutoff = new Date(dashboardNow - DASHBOARD_FRESH_SESSION_MS).toISOString();
-  const [freshOpenRow] = await db
-    .select({ count: count(sessions.id) })
-    .from(sessions)
-    .where(
-      and(
-        sql`${sessions.serverId} = ANY(ARRAY[${sql.join(
-          serverIds.map((id) => sql`${id}::uuid`),
-          sql`, `,
-        )}]::uuid[])`,
-        sql`${sessions.status} IN ('spawning','ready','connected','playing')`,
-        sql`${sessions.stateEnteredAt} >= ${staleOpenSessionCutoff}`,
-      ),
-    );
-
   const [staleOpenRow] = await db
     .select({ count: count(sessions.id) })
     .from(sessions)
@@ -161,16 +141,6 @@ export default async function DashboardPage() {
         sql`${sessions.stateEnteredAt} < ${staleOpenSessionCutoff}`,
       ),
     );
-
-  const freshOpenCount = freshOpenRow?.count ?? 0;
-  const staleOpenCount = staleOpenRow?.count ?? 0;
-
-  // Stuck spawning — >60s old
-  const stuckSpawning = activeSessions.filter(
-    (s) =>
-      s.status === "spawning" &&
-      Date.now() - new Date(s.createdAt!).getTime() > 60_000,
-  );
 
   // ── Library stats — games by platform ────────────────────────────
   const platformCounts = await db
@@ -201,20 +171,17 @@ export default async function DashboardPage() {
     romRootsByServer[srv.id] = roots.map((r) => r.path);
   }
 
+  const staleOpenCount = staleOpenRow?.count ?? 0;
+
   const serverOnline =
     adminServers[0]?.lastSeenAt
-      ? now - new Date(adminServers[0].lastSeenAt).getTime() < 120_000
+      ? now - new Date(adminServers[0].lastSeenAt).getTime() < 1_800_000
       : false;
   const lastSeenSecs = adminServers[0]?.lastSeenAt
     ? Math.round((now - new Date(adminServers[0].lastSeenAt).getTime()) / 1000)
     : null;
 
-  const serverMetadata = adminServers.map((srv) => ({
-    id: srv.id,
-    name: srv.name || srv.id.slice(0, 8),
-    metadata: readServerMetadata(srv.metadata),
-  }));
-  const liveWebVersion = webVersion();
+  const serverName = adminServers[0]?.name || adminServers[0]?.id?.slice(0, 8) || "—";
 
   const sessionMap: Record<string, number> = {};
   for (const row of sessionCounts) {
@@ -223,126 +190,48 @@ export default async function DashboardPage() {
 
   return (
     <main style={S.main}>
-      <div style={S.header}>
-        <h1 style={S.h1}>Dashboard</h1>
-        <span style={S.refreshHint}>Refresh to update</span>
+      <div style={S.topBar}>
+        <h1 style={S.title}>Sprite Cloud</h1>
+        <div style={S.userInfo}>
+          <span style={S.userName}>
+            {session.user?.name || session.user?.email || "User"}
+          </span>
+          <a style={S.navLink} href="/">← Library</a>
+          <a style={S.navLink} href="/api/auth/signout">Sign out</a>
+        </div>
       </div>
+      <h2 style={S.sectionHeading}>Dashboard</h2>
 
       {/* ── Health ───────────────────────────────────────────────── */}
       <section style={S.section}>
         <h2 style={S.h2}>Health</h2>
         <div style={S.card}>
           <div style={S.healthRow}>
-            <HealthCard label="gv-web" value="up" ok={true} />
+            <HealthCard label="Web" value="up" ok={true} />
             <HealthCard label="DB" value="connected" ok={true} />
             <HealthCard
-              label="gv-server"
+              label={serverName}
               value={serverOnline ? "online" : "offline"}
               ok={serverOnline}
             />
             <HealthCard
-              label="last poll"
+              label="last seen"
               value={
                 lastSeenSecs !== null
-                  ? lastSeenSecs < 10
+                  ? lastSeenSecs < 60
                     ? "just now"
-                    : `${lastSeenSecs}s ago`
+                    : lastSeenSecs < 3600
+                      ? `${Math.round(lastSeenSecs / 60)}m ago`
+                      : `${Math.round(lastSeenSecs / 3600)}h ago`
                   : "never"
               }
-              ok={lastSeenSecs !== null && lastSeenSecs < 300}
+              ok={lastSeenSecs !== null && lastSeenSecs < 1_800_000}
             />
             <HealthCard
-              label="fresh sessions"
-              value={String(freshOpenCount)}
-              ok={stuckSpawning.length === 0 && staleOpenCount === 0}
-              warn={
-                staleOpenCount > 0
-                  ? `${staleOpenCount} stale open rows`
-                  : stuckSpawning.length > 0
-                    ? `${stuckSpawning.length} stuck`
-                    : undefined
-              }
+              label="games"
+              value={String(totalGames)}
+              ok={true}
             />
-          </div>
-        </div>
-      </section>
-
-
-      {/* ── Live versions ──────────────────────────────────────────── */}
-      <section style={S.section}>
-        <h2 style={S.h2}>Live versions</h2>
-        <div style={S.card}>
-          <div style={S.tableWrap}>
-            <table style={S.table}>
-              <thead>
-                <tr>
-                  <th style={S.th}>Scope</th>
-                  <th style={S.th}>Component</th>
-                  <th style={S.th}>Package</th>
-                  <th style={S.th}>Commit</th>
-                  <th style={S.th}>Built / released</th>
-                  <th style={S.th}>Path</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td style={S.td}>web</td>
-                  <td style={S.td}>gv-web</td>
-                  <td style={S.td}>
-                    <code style={S.code}>{liveWebVersion.package_version}</code>
-                  </td>
-                  <td style={S.td}>
-                    <code style={S.code}>{shortSha(liveWebVersion.git_sha)}</code>
-                  </td>
-                  <td style={S.td}>{formatTimestamp(liveWebVersion.released_at_utc)}</td>
-                  <td style={S.td}>
-                    <span style={S.muted}>container env</span>
-                  </td>
-                </tr>
-                {serverMetadata.flatMap((srv) => {
-                  const versions = srv.metadata.versions;
-                  if (!versions?.server && !versions?.worker && !versions?.runner) {
-                    return [
-                      <tr key={`${srv.id}-missing`}>
-                        <td style={S.td}>{srv.name}</td>
-                        <td style={S.td} colSpan={5}>
-                          <span style={S.muted}>No component versions reported yet.</span>
-                        </td>
-                      </tr>,
-                    ];
-                  }
-
-                  return ([
-                    ["server", versions?.server],
-                    ["worker", versions?.worker],
-                    ["runner", versions?.runner],
-                  ] as const)
-                    .filter(([, version]) => Boolean(version))
-                    .map(([component, version]) => (
-                      <tr key={`${srv.id}-${component}`}>
-                        <td style={S.td}>{srv.name}</td>
-                        <td style={S.td}>{component}</td>
-                        <td style={S.td}>
-                          <code style={S.code}>{version?.package_version ?? "—"}</code>
-                        </td>
-                        <td style={S.td}>
-                          <code style={S.code}>{shortSha(version?.git_sha)}</code>
-                        </td>
-                        <td style={S.td}>
-                          {formatTimestamp(version?.built_at_utc || version?.released_at_utc)}
-                        </td>
-                        <td style={S.td}>
-                          {version?.binary_path ? (
-                            <code style={S.code}>{version.binary_path}</code>
-                          ) : (
-                            <span style={S.muted}>—</span>
-                          )}
-                        </td>
-                      </tr>
-                    ));
-                })}
-              </tbody>
-            </table>
           </div>
         </div>
       </section>
@@ -557,25 +446,33 @@ export default async function DashboardPage() {
 
 const S: Record<string, React.CSSProperties> = {
   main: {
-    maxWidth: 960,
-    margin: "0 auto",
     padding: "var(--space-8)",
     fontFamily: "var(--font-mono)",
-    color: "var(--color-cream)",
     background: "var(--color-mahogany)",
+    color: "var(--color-cream)",
     minHeight: "100vh",
   },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "baseline",
-    marginBottom: "var(--space-8)",
+  topBar: {
+    display: "flex", justifyContent: "space-between", alignItems: "center",
+    marginBottom: "var(--space-8)", paddingBottom: "var(--space-4)",
+    borderBottom: "1px solid var(--color-bamboo)",
   },
-  h1: {
-    fontSize: "var(--font-size-h1)",
-    fontWeight: 600,
-    color: "var(--color-cream)",
-    margin: 0,
+  title: {
+    margin: 0, fontSize: "var(--font-size-h1)", color: "var(--color-brass)",
+    fontFamily: "var(--font-mono)",
+  },
+  userInfo: { display: "flex", alignItems: "center", gap: "var(--space-6)" },
+  userName: { fontSize: "var(--font-size-base)", color: "var(--color-muted)" },
+  navLink: {
+    color: "var(--color-info)",
+    textDecoration: "none",
+    fontSize: "var(--font-size-base)",
+    fontFamily: "var(--font-mono)",
+  },
+  sectionHeading: {
+    fontSize: "var(--font-size-h2)", color: "var(--color-muted)",
+    fontFamily: "var(--font-mono)", margin: "0 0 var(--space-8)",
+    fontWeight: 400,
   },
   h2: {
     fontSize: "var(--font-size-h2)",
@@ -615,10 +512,6 @@ const S: Record<string, React.CSSProperties> = {
     fontFamily: "var(--font-mono)",
   },
 
-  refreshHint: {
-    fontSize: "var(--font-size-xs)",
-    color: "var(--color-muted)",
-  },
   section: {
     marginBottom: "var(--space-8)",
   },
