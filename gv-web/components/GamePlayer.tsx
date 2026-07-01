@@ -576,9 +576,6 @@ export default function GamePlayer({
           <Button variant="secondary" size="sm" onClick={() => { setShowSlots(!showSlots); handleListSaves(); }}>
             💾 Saves
           </Button>
-          <Button variant="secondary" size="sm" onClick={toggleTouchGamepad} title={touchGamepadVisible ? "Hide touch controls" : "Show touch controls"}>
-            {touchGamepadVisible ? "🎮" : "🎮‍💨"}
-          </Button>
           <Button variant="secondary" size="sm" onClick={toggleFullscreen}>
             {isFullscreen ? "↙" : "⛶"}
           </Button>
@@ -732,17 +729,14 @@ export default function GamePlayer({
               <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "reset" }); showToast("Reset", true); }}>
                 ↺ Reset
               </Button>
-              <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "save_state" }); showToast("Saved", true); }}>
-                💾 Quick Save
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "load_state" }); showToast("Loaded", true); }}>
-                📂 Quick Load
-              </Button>
               <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "disk_eject" }); showToast("Disk ejected", true); }}>
                 💿 Eject
               </Button>
               <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "disk_insert", index: 0 }); showToast("Disk 0 inserted", true); }}>
                 💿 Insert 0
+              </Button>
+              <Button variant="secondary" size="sm" onClick={toggleTouchGamepad}>
+                {touchGamepadVisible ? "🎮 Hide Pad" : "🎮 Show Pad"}
               </Button>
               {shortCode && (
                 <Button
