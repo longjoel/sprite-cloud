@@ -25,7 +25,7 @@ interface Particle {
   spawnedAt: number; // step index that spawned this particle
 }
 
-const HUES = [36, 40, 44, 48, 30]; // warm gold → brass → amber
+const HUES = [195, 200, 205, 210, 190]; // sky blue → cyan → cool blue
 const MAX_PARTICLES = 120;
 const BASELINE_PARTICLES = 30;
 const BURST_PER_STEP = 18;

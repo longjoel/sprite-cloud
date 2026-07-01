@@ -15,7 +15,7 @@ import type { StepState } from "@/components/GamePlayerPipeline";
 // the game when connected.
 
 const COVER_FALLBACK = (
-  <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="rgba(184, 150, 74, 0.3)" strokeWidth="1.5">
+  <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="rgba(56, 189, 248, 0.25)" strokeWidth="1.5">
     <rect x="2" y="3" width="20" height="14" rx="2" />
     <path d="M8 21h8M12 17v4" />
   </svg>
@@ -193,7 +193,7 @@ export default function ShortCodePage() {
 const s = {
   overlay: {
     position: "absolute", inset: 0, zIndex: 10,
-    background: "linear-gradient(135deg, #0a0f14 0%, #1a1410 50%, #0d1117 100%)",
+    background: "linear-gradient(135deg, #060b14 0%, #0a0e1a 50%, #111827 100%)",
     fontFamily: "system-ui, sans-serif",
   },
   foreground: {
@@ -204,35 +204,35 @@ const s = {
   },
   cover: (hasTitle: boolean) => ({
     width: 160, height: 224, objectFit: "cover" as const,
-    borderRadius: 12, boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-    border: "1px solid rgba(184, 150, 74, 0.12)",
+    borderRadius: 2, boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+    border: "1px solid rgba(56, 189, 248, 0.12)",
     marginBottom: hasTitle ? 0 : 8,
   }),
   coverPlaceholder: (hasTitle: boolean) => ({
-    width: 160, height: 224, borderRadius: 12,
-    background: "linear-gradient(135deg, rgba(184,150,74,0.06), rgba(26,20,16,0.5))",
-    border: "1px solid rgba(184,150,74,0.1)",
+    width: 160, height: 224, borderRadius: 2,
+    background: "linear-gradient(135deg, rgba(56,189,248,0.05), rgba(10,14,26,0.4))",
+    border: "1px solid rgba(56, 189, 248, 0.08)",
     display: "flex", alignItems: "center", justifyContent: "center",
     marginBottom: hasTitle ? 0 : 8,
   }),
   meta: { textAlign: "center" as const, maxWidth: 300 },
   title: {
-    color: "var(--color-cream, #e8dcc8)", fontSize: 18,
+    color: "var(--color-text-primary)", fontSize: 18,
     fontWeight: 600, margin: 0, lineHeight: 1.3,
   },
   badge: {
     display: "inline-block", marginTop: 8, padding: "2px 10px",
-    fontSize: 11, fontWeight: 600, color: "var(--color-brass, #b8964a)",
-    border: "1px solid rgba(184,150,74,0.2)", borderRadius: 4,
+    fontSize: 11, fontWeight: 600, color: "var(--color-accent)",
+    border: "1px solid rgba(56, 189, 248, 0.18)", borderRadius: 2,
     textTransform: "uppercase" as const, letterSpacing: "0.08em",
   },
   tagline: {
-    color: "var(--color-muted, #b8a888)", fontSize: 12,
+    color: "var(--color-text-secondary)", fontSize: 12,
     margin: 0, opacity: 0.5, letterSpacing: "0.06em",
   },
-  error: { minHeight: "100vh", background: "var(--color-mahogany, #1a1410)", display: "flex", flexDirection: "column" as const, alignItems: "center", justifyContent: "center", gap: 16, padding: 32, fontFamily: "system-ui, sans-serif" },
-  errorIcon: { fontSize: "clamp(3rem, 10vw, 6rem)", fontWeight: 700, color: "var(--color-brass, #b8964a)", lineHeight: 1 },
-  errorTitle: { fontSize: 14, color: "var(--color-cream, #e8dcc8)", textTransform: "uppercase" as const, letterSpacing: "0.08em" },
-  errorDesc: { fontSize: 12, color: "var(--color-muted, #b8a888)", maxWidth: 360, textAlign: "center" as const, lineHeight: 1.6 },
-  errorLink: { marginTop: 16, padding: "8px 28px", border: "1px solid var(--color-bamboo, #4a3a28)", color: "var(--color-muted, #b8a888)", fontSize: 13, fontFamily: "monospace", textDecoration: "none", textTransform: "uppercase" as const, letterSpacing: "0.1em" },
+  error: { minHeight: "100vh", background: "var(--color-sky-deep)", display: "flex", flexDirection: "column" as const, alignItems: "center", justifyContent: "center", gap: 16, padding: 32, fontFamily: "system-ui, sans-serif" },
+  errorIcon: { fontSize: "clamp(3rem, 10vw, 6rem)", fontWeight: 700, color: "var(--color-accent)", lineHeight: 1 },
+  errorTitle: { fontSize: 14, color: "var(--color-text-primary)", textTransform: "uppercase" as const, letterSpacing: "0.08em" },
+  errorDesc: { fontSize: 12, color: "var(--color-text-secondary)", maxWidth: 360, textAlign: "center" as const, lineHeight: 1.6 },
+  errorLink: { marginTop: 16, padding: "8px 28px", border: "1px solid var(--color-border-default)", color: "var(--color-accent)", fontSize: 13, fontFamily: "monospace", textDecoration: "none", textTransform: "uppercase" as const, letterSpacing: "0.1em" },
 } as const;
