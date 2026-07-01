@@ -1,0 +1,143 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   OptionsOverlay — centered action cards, Metro dark cloud palette
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.82);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6, 14px);
+  max-width: min(480px, 90vw);
+  width: 100%;
+  padding: 0 8px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--space-4, 10px);
+}
+
+/* ── Action cards ─────────────────────────────────────────────────── */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 22px 12px 18px;
+  background: rgba(17, 24, 39, 0.92);
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  border-radius: 2px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.12s, border-color 0.12s, transform 0.1s;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-primary, #e5e7eb);
+  min-height: 90px;
+}
+
+.card:active {
+  background: rgba(30, 45, 65, 0.95);
+  border-color: rgba(56, 189, 248, 0.4);
+  transform: scale(0.97);
+}
+
+@media (hover: hover) {
+  .card:hover {
+    background: rgba(25, 38, 55, 0.95);
+    border-color: rgba(56, 189, 248, 0.32);
+  }
+}
+
+.cardIcon {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.cardLabel {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-secondary, #9ca3b8);
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* ── Danger variant (Restart) ─────────────────────────────────────── */
+
+.cardDanger {
+  border-color: rgba(248, 113, 113, 0.22);
+}
+
+.cardDanger .cardLabel,
+.cardDanger.cardLabel {
+  color: rgba(248, 140, 140, 0.9);
+}
+
+/* ── Toggle button (floating, when overlay is hidden) ─────────────── */
+
+.toggleBtn {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 15;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(17, 24, 39, 0.85);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 20px;
+  color: var(--color-text-primary, #e5e7eb);
+  transition: opacity 0.3s, background 0.12s;
+  font-family: var(--font-mono, monospace);
+}
+
+.toggleBtn:active {
+  background: rgba(30, 45, 65, 0.9);
+}
+
+@media (hover: hover) {
+  .toggleBtn:hover {
+    background: rgba(25, 38, 55, 0.9);
+  }
+}
+
+/* ── Snapshot flash ───────────────────────────────────────────────── */
+
+.flash {
+  position: absolute;
+  inset: 0;
+  background: white;
+  opacity: 0;
+  z-index: 32;
+  pointer-events: none;
+  animation: snapshotFlash 0.3s ease-out;
+}
+
+@keyframes snapshotFlash {
+  0% { opacity: 0.6; }
+  100% { opacity: 0; }
+}

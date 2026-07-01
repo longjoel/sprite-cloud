@@ -94,15 +94,13 @@
   gap: var(--space-4);
 }
 
+/* ── OLD bottom bar — replaced by OptionsOverlay ── */
 .hint {
-  font-size: var(--font-size-sm);
-  color: var(--color-text-secondary);
-  font-family: var(--font-mono);
+  display: none;
 }
 
 .bottomRight {
-  display: flex;
-  gap: var(--space-3);
+  display: none;
 }
 
 .centerMessage {
