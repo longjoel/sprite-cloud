@@ -441,11 +441,16 @@ pub(super) async fn handle_guest_sdp(
     peer_token: &str,
     cmd: &gv_web::Command,
     client: &gv_web::GvWebClient,
-    _pool: &webrtc::PcPool,
+    pool: &webrtc::PcPool,
 ) {
+    // Helper to log errors — gv-web will time out the command if no answer arrives
+    let report_error = |msg: &str| {
+        tracing::error!("[SDP] guest error: {msg}");
+    };
+
     tracing::info!("[SDP] guest SDP exchange (peer_token={})", &peer_token[..peer_token.len().min(8)]);
 
-    // Build a fresh PC — with TURN for remote, without TURN for LAN guests
+    // Build a PC — use pool for remote, build fresh only for LAN (which is fast)
     let is_lan = cmd.payload.get("lan").and_then(|v| v.as_bool()).unwrap_or(false);
     let stack = if is_lan {
         match webrtc::build_session_pc_lan().await {
@@ -455,18 +460,19 @@ pub(super) async fn handle_guest_sdp(
             }
             Err(e) => {
                 tracing::error!("[SDP] guest LAN PC build failed: {e}");
-                let _ = client.command_result(&cmd.id, &cmd.lease_token,
-                    &serde_json::json!({"error":"pc_build_failed","message":e})).await;
+                report_error(&e);
                 return;
             }
         }
     } else {
-        match webrtc::build_session_pc().await {
-            Ok(s) => s,
+        match pool.acquire().await {
+            Ok(s) => {
+                tracing::info!("[SDP] guest acquired PC from pool");
+                s
+            }
             Err(e) => {
-                tracing::error!("[SDP] guest PC build failed: {e}");
-                let _ = client.command_result(&cmd.id, &cmd.lease_token,
-                    &serde_json::json!({"error":"pc_build_failed","message":e})).await;
+                tracing::error!("[SDP] guest pool.acquire failed: {e}");
+                report_error(&e);
                 return;
             }
         }
@@ -474,8 +480,20 @@ pub(super) async fn handle_guest_sdp(
 
     // Add host's video + audio tracks to the guest PC
     use ::webrtc::track::track_local::TrackLocal;
-    let video_track = session.video_track.lock().expect("mutex poisoned").clone();
-    let audio_track = session.audio_track.lock().expect("mutex poisoned").clone();
+    let video_track = match session.video_track.lock() {
+        Ok(t) => t.clone(),
+        Err(_) => {
+            report_error("video_track mutex poisoned");
+            return;
+        }
+    };
+    let audio_track = match session.audio_track.lock() {
+        Ok(t) => t.clone(),
+        Err(_) => {
+            report_error("audio_track mutex poisoned");
+            return;
+        }
+    };
     let _ = stack.pc.add_track(video_track as Arc<dyn TrackLocal + Send + Sync>).await;
     let _ = stack.pc.add_track(audio_track as Arc<dyn TrackLocal + Send + Sync>).await;
 
@@ -484,8 +502,7 @@ pub(super) async fn handle_guest_sdp(
         Ok(a) => a,
         Err(e) => {
             tracing::error!("[SDP] guest exchange failed: {e}");
-            let _ = client.command_result(&cmd.id, &cmd.lease_token,
-                &serde_json::json!({"error":"sdp_handshake_failed","message":e})).await;
+            report_error(&e);
             return;
         }
     };
