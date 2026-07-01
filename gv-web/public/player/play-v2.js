@@ -227,8 +227,10 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
           console.log('[GPAD] → _sendInput dispatched');
         }
       };
-      // Only auto-show on touch devices; desktop users toggle via 🎮 button
-      var shouldShow = (typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0));
+      // Only auto-show on touch-first devices; desktop users toggle via 🎮 button
+      var hasTouch = typeof window !== 'undefined' && 'ontouchstart' in window;
+      var isTouchFirst = hasTouch && window.matchMedia('(pointer: coarse)').matches;
+      var shouldShow = isTouchFirst;
       try { shouldShow = shouldShow || localStorage.getItem('gv:touch-visible') === '1'; } catch (_) {}
       if (shouldShow) _touchGamepad.show();
       // Expose globally so GamePlayer.tsx toggle button can control it
