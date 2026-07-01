@@ -1251,8 +1251,7 @@ export class GvPlayer {
    * @param {{ index: number, buttons: boolean[], axes: number[] }} ev
    */
   _sendInput(ev) {
-    console.log('[GPAD] _sendInput called, _sendMask:', typeof this._sendMask, 'dc:', this._dc?.readyState, 'state:', ev.buttons?.slice(0,4).map(b=>b?1:0).join(''), 'dpad:', [ev.buttons?.[12],ev.buttons?.[13],ev.buttons?.[14],ev.buttons?.[15]].map(b=>b?1:0).join(''));
-    if (!this._sendMask) { console.log('[GPAD] _sendInput blocked — no _sendMask'); return; }
+    if (!this._sendMask) return;
     let state = 0;
     const b = ev.buttons || [];
     const a = ev.axes || [];
@@ -1273,14 +1272,11 @@ export class GvPlayer {
     if (b[14] || a[0] < -0.5) state |= (1 << 6);  // Left
     if (b[15] || a[0] >  0.5) state |= (1 << 7);  // Right
 
-    console.log('[GPAD] bitmask = 0x' + state.toString(16).padStart(3,'0'), 'index:', ev.index);
-
     if ((ev.index || 0) === 0) {
       // Merge into shared _inputState (preserve keyboard bits)
       const GAMEPAD_MASK = (1 << 0) | (1 << 2) | (1 << 3) | (1 << 4)
                          | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9);
       this._inputState = (this._inputState & ~GAMEPAD_MASK) | state;
-      console.log('[GPAD] calling _sendMask, dc readyState:', this._dc?.readyState);
       this._sendMask();
     } else if (this._dc && this._dc.readyState === 'open') {
       try {

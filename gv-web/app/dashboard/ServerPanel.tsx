@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { pollUntil } from "@/lib/poll";
-import { Badge, Button, Input } from "@/components/ui";
+import { Badge, Button } from "@/components/ui";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -17,7 +17,8 @@ interface ComponentVersion {
 
 interface ServerMetadata {
   version: string;
-  lan_addresses: string[];
+  interfaces: Array<{ name: string; address: string }>;
+  public_ip?: string;
   rom_roots: string[];
   ice: {
     stun_urls: string[];
@@ -29,6 +30,11 @@ interface ServerMetadata {
     server?: ComponentVersion;
     worker?: ComponentVersion;
     runner?: ComponentVersion;
+  };
+  runtime?: {
+    pc_pool_size: number;
+    video_scale_height: number;
+    video_max_scale: number;
   };
 }
 
@@ -69,10 +75,10 @@ export default function ServerPanel({ serverId, romRoots }: Props) {
   const [scanning, setScanning] = useState(false);
   const [results, setResults] = useState<ScanResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [added, setAdded] = useState(false);
-  const [importing, setImporting] = useState(false);
   const [metadata, setMetadata] = useState<ServerMetadata | null>(null);
+  const [coreOverrides, setCoreOverrides] = useState<Record<string, string>>({});
+  const [availableCores, setAvailableCores] = useState<string[]>([]);
 
   useEffect(() => {
     fetch(`/api/servers/${serverId}/metadata`)
@@ -82,6 +88,53 @@ export default function ServerPanel({ serverId, romRoots }: Props) {
       })
       .catch(() => {});
   }, [serverId]);
+
+  useEffect(() => {
+    fetch(`/api/servers/${serverId}/core-overrides`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.overrides) setCoreOverrides(d.overrides);
+      })
+      .catch(() => {});
+  }, [serverId]);
+
+  async function setCore(platform: string, core: string) {
+    const newOverrides = { ...coreOverrides, [platform]: core };
+    setCoreOverrides(newOverrides);
+    try {
+      await fetch(`/api/servers/${serverId}/core-overrides`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ overrides: newOverrides }),
+      });
+    } catch (e) {
+      console.error("Failed to save core override:", e);
+    }
+  }
+
+  // Known platforms and their default cores (sync with platform.rs)
+  const platformCores: Array<{ platform: string; defaultCore: string }> = [
+    { platform: "Game Boy", defaultCore: "gambatte_libretro.so" },
+    { platform: "Game Boy Color", defaultCore: "gambatte_libretro.so" },
+    { platform: "Game Boy Advance", defaultCore: "mgba_libretro.so" },
+    { platform: "NES", defaultCore: "nestopia_libretro.so" },
+    { platform: "SNES", defaultCore: "snes9x_libretro.so" },
+    { platform: "Genesis", defaultCore: "genesis_plus_gx_libretro.so" },
+    { platform: "Atari 2600", defaultCore: "stella2014_libretro.so" },
+  ];
+
+  // Common core options
+  const coreOptions: Array<{ value: string; label: string }> = [
+    { value: "gambatte_libretro.so", label: "Gambatte" },
+    { value: "sameboy_libretro.so", label: "SameBoy" },
+    { value: "mgba_libretro.so", label: "mGBA" },
+    { value: "nestopia_libretro.so", label: "Nestopia" },
+    { value: "fceumm_libretro.so", label: "FCEUmm" },
+    { value: "snes9x_libretro.so", label: "Snes9x" },
+    { value: "genesis_plus_gx_libretro.so", label: "Genesis Plus GX" },
+    { value: "stella2014_libretro.so", label: "Stella 2014" },
+    { value: "stella_libretro.so", label: "Stella (latest)" },
+  ];
 
   async function browse(path: string) {
     setBrowsing(true);
@@ -114,20 +167,24 @@ export default function ServerPanel({ serverId, romRoots }: Props) {
     setScanning(true);
     setError(null);
     setResults(null);
+    setAdded(false);
     try {
       const cmd = await enqueueCommand(serverId, "scan_paths", { paths });
-      const result = await pollResult(cmd.id);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = await pollResult(cmd.id, 120);
       const r = result as any;
+      const imported = r?.imported as number | undefined;
+      const importErr = r?.import_error as string | undefined;
       const matches = r?.matches as ScanResult[] | undefined;
-      const scanErr = r?.error as string | undefined;
-      if (matches) {
+      if (imported !== undefined) {
+        setAdded(true);
+        setError(`${imported} games imported to library.`);
+      } else if (importErr) {
+        setError(`Import failed: ${importErr}`);
+      } else if (matches) {
         setResults(matches);
-        await importFiles(matches);
-      } else if (scanErr) {
-        setError(scanErr);
       } else {
-        setError("Unexpected response from server.");
+        const err = r?.error as string | undefined;
+        setError(err || "Scan complete — no files found.");
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Scan failed.");
@@ -143,45 +200,6 @@ export default function ServerPanel({ serverId, romRoots }: Props) {
       else next.add(path);
       return next;
     });
-  }
-
-  async function importFiles(matches: typeof results) {
-    if (!matches) return;
-    setImporting(true);
-    setError(null);
-    try {
-      const files = matches.map((r) => ({
-        dat_name: r.match?.name ?? undefined,
-        name:
-          overrides[r.file.relative_path] ??
-          r.match?.name ??
-          r.file.file_name,
-        platform: r.file.platform ?? "Unknown",
-        rom_path: r.file.relative_path,
-        file_name: r.file.file_name,
-        file_size: r.file.file_size,
-      }));
-      const resp = await fetch("/api/library/import", {
-        method: "POST",
-        headers: csrfHeaders(),
-        body: JSON.stringify({ server_id: serverId, files }),
-      });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error || `HTTP ${resp.status}`);
-      }
-      const data = await resp.json();
-      setAdded(true);
-      setError(`${data.imported} imported, ${data.skipped} skipped`);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Import failed");
-    } finally {
-      setImporting(false);
-    }
-  }
-
-  async function importToLibrary() {
-    await importFiles(results);
   }
 
   return (
@@ -245,24 +263,26 @@ export default function ServerPanel({ serverId, romRoots }: Props) {
         </section>
       )}
 
-      {/* Scan results */}
+      {/* Scan results (server auto-imported) */}
       {results && (
         <section style={S.section}>
           <h2 style={S.h2}>Results ({results.length} files)</h2>
+          {added && (
+            <p style={S.note}>
+              <a href="/" style={S.link}>View library →</a>
+            </p>
+          )}
           <table style={S.table}>
             <thead>
               <tr>
                 <th style={S.th}>File</th>
                 <th style={S.th}>Platform</th>
-                <th style={S.th}>Match</th>
-                <th style={S.th} />
+                <th style={S.th}>DAT match</th>
               </tr>
             </thead>
             <tbody>
               {results.map((r) => {
                 const key = r.file.relative_path;
-                const name =
-                  overrides[key] ?? r.match?.name ?? r.file.file_name;
                 return (
                   <tr key={key}>
                     <td style={S.td}>
@@ -270,25 +290,10 @@ export default function ServerPanel({ serverId, romRoots }: Props) {
                     </td>
                     <td style={S.td}>{r.file.platform ?? "—"}</td>
                     <td style={S.td}>
-                      <Input
-                        value={name}
-                        onChange={(e) =>
-                          setOverrides((prev) => ({
-                            ...prev,
-                            [key]: e.target.value,
-                          }))
-                        }
-                        style={{
-                          padding: "2px 6px",
-                          fontSize: "var(--font-size-base)",
-                        }}
-                      />
-                    </td>
-                    <td style={S.td}>
                       {r.match ? (
-                        <Badge variant="success">✓ DAT</Badge>
+                        <Badge variant="success">{r.match.game_name || r.match.name}</Badge>
                       ) : (
-                        <span style={S.noMatch}>manual</span>
+                        <span style={S.noMatch}>—</span>
                       )}
                     </td>
                   </tr>
@@ -296,52 +301,48 @@ export default function ServerPanel({ serverId, romRoots }: Props) {
               })}
             </tbody>
           </table>
-          <Button
-            variant="primary"
-            size="md"
-            onClick={importToLibrary}
-            disabled={added || importing}
-            style={{ marginTop: "var(--space-5)" }}
-          >
-            {importing
-              ? "Importing..."
-              : added
-                ? "✓ Added"
-                : "Add to library"}
-          </Button>
-          {added && (
-            <p style={S.note}>
-              Games added.{" "}
-              <a href="/" style={S.link}>
-                View library
-              </a>
-            </p>
-          )}
         </section>
       )}
 
       {/* Connectivity */}
       {metadata && (
         <section style={S.section}>
-          <h2 style={S.h2}>Connectivity</h2>
+          <h2 style={S.h2}>Server</h2>
           <table style={S.metaTable}>
             <tbody>
               <MetadataRow label="Version" value={metadata.version} />
               <MetadataRow
-                label="LAN"
-                value={metadata.lan_addresses?.join(", ") || "—"}
+                label="Interfaces"
+                value={
+                  metadata.interfaces?.length
+                    ? metadata.interfaces
+                        .map((i) => `${i.name}: ${i.address}`)
+                        .join(", ")
+                    : "—"
+                }
+              />
+              <MetadataRow
+                label="Public IP"
+                value={metadata.public_ip || "—"}
+                muted={!metadata.public_ip}
               />
               <MetadataRow
                 label="STUN"
-                value={metadata.ice?.stun_urls?.join(", ") || "—"}
+                value={
+                  metadata.ice?.stun_urls?.length
+                    ? metadata.ice.stun_urls.join(", ")
+                    : "not configured"
+                }
+                muted={!metadata.ice?.stun_urls?.length}
               />
               <MetadataRow
                 label="TURN"
                 value={
                   metadata.ice?.turn_configured
-                    ? (metadata.ice?.turn_urls?.join(", ") || "—")
+                    ? metadata.ice?.turn_urls?.join(", ") || "—"
                     : "not configured"
                 }
+                muted={!metadata.ice?.turn_configured}
               />
               <MetadataRow
                 label="ICE policy"
@@ -411,17 +412,77 @@ export default function ServerPanel({ serverId, romRoots }: Props) {
             </table>
           </section>
         )}
+
+      {/* Runtime config */}
+      {metadata?.runtime && (
+        <section style={S.section}>
+          <h2 style={S.h2}>Runtime</h2>
+          <table style={S.metaTable}>
+            <tbody>
+              <MetadataRow label="Worker pool" value={String(metadata.runtime.pc_pool_size)} />
+              <MetadataRow label="Scale height" value={String(metadata.runtime.video_scale_height)} />
+              <MetadataRow label="Max scale" value={String(metadata.runtime.video_max_scale)} />
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {/* Cores — per-platform overrides */}
+      <section style={S.section}>
+        <h2 style={S.h2}>Cores</h2>
+        <table style={S.table}>
+          <thead>
+            <tr>
+              <th style={S.th}>Platform</th>
+              <th style={S.th}>Core</th>
+              <th style={S.th}>Override</th>
+            </tr>
+          </thead>
+          <tbody>
+            {platformCores.map((pc) => {
+              const current = coreOverrides[pc.platform] || pc.defaultCore;
+              const isOverridden = coreOverrides[pc.platform] !== undefined;
+              return (
+                <tr key={pc.platform}>
+                  <td style={S.td}>{pc.platform}</td>
+                  <td style={S.td}>
+                    <code style={{ ...S.fileName, color: isOverridden ? "var(--color-info)" : undefined }}>
+                      {current}
+                    </code>
+                  </td>
+                  <td style={S.td}>
+                    <select
+                      value={current}
+                      onChange={(e) => setCore(pc.platform, e.target.value)}
+                      style={S.coreSelect}
+                    >
+                      {coreOptions.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <p style={S.note}>
+          Changes take effect on the next game launch. Server uses defaults until overridden.
+        </p>
+      </section>
     </div>
   );
 }
 
 // ── Sub-components ────────────────────────────────────────────────────
 
-function MetadataRow({ label, value }: { label: string; value: string }) {
+function MetadataRow({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
   return (
     <tr>
       <td style={S.metaLabel}>{label}</td>
-      <td style={S.metaValue}>{value}</td>
+      <td style={{ ...S.metaValue, color: muted ? "var(--color-muted)" : undefined }}>{value}</td>
     </tr>
   );
 }
@@ -635,5 +696,15 @@ const S: Record<string, React.CSSProperties> = {
     padding: "2px 0",
     color: "var(--color-cream)",
     wordBreak: "break-all" as const,
+  },
+  coreSelect: {
+    background: "var(--color-walnut)",
+    color: "var(--color-cream)",
+    border: "1px solid var(--color-bamboo)",
+    borderRadius: "var(--radius-sm)",
+    padding: "2px 6px",
+    fontSize: "var(--font-size-sm)",
+    fontFamily: "var(--font-mono)",
+    cursor: "pointer",
   },
 };

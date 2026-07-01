@@ -63,10 +63,15 @@ async function handleVerify(
     }
   }
 
+  // Return core_overrides if stored in metadata
+  const meta = (server.metadata || {}) as Record<string, unknown>;
+  const coreOverrides = meta.core_overrides as Record<string, string> | undefined;
+
   return NextResponse.json({
     server_id: server.id,
     user_id: server.userId,
     name: server.name,
+    ...(coreOverrides ? { core_overrides: coreOverrides } : {}),
   });
 }
 

@@ -2,9 +2,8 @@
 //!
 //! Pipeline: appsrc → audioconvert → audioresample → opusenc → appsink
 //!
-//! Push interleaved i16 PCM at the core's native sample rate,
-//! pull Opus-encoded packets. GStreamer handles resampling to 48kHz,
-//! channel conversion, and Opus encoding with forward error correction.
+//! Push interleaved i16 PCM at 48 kHz (downsampled in gv-core),
+//! pull Opus-encoded packets.
 
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -33,7 +32,7 @@ impl GstAudioEncoder {
 
         let pipeline_str = format!(
             "appsrc name=audio_src is-live=true format=time \
-             ! audioconvert ! audioresample quality=0 \
+             ! audioconvert ! audioresample \
              ! audio/x-raw,rate=48000,channels=2 \
              ! opusenc \
                audio-type=restricted-lowdelay \

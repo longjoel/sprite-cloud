@@ -50,6 +50,10 @@
       face:   [{ label: '1' }, { label: '2' }, { label: '3' }, { label: '4' }],
       system: [{ label: 'COIN' }, { label: 'START' }],
     },
+    atari: {
+      face:   [{ label: 'FIRE' }],
+      system: [{ label: 'SELECT' }, { label: 'START' }],
+    },
   };
 
   // ── Default layout calculator ──────────────────────────────────────────
@@ -166,7 +170,12 @@
 
   function loadToggleState() {
     try { return localStorage.getItem(TOGGLE_KEY) !== '0'; }
-    catch (_) { return true; }
+    catch (_) {
+      // Default: show on touch devices, hide on desktop
+      return typeof window !== 'undefined' && (
+        'ontouchstart' in window || navigator.maxTouchPoints > 0
+      );
+    }
   }
 
   function saveToggleState(visible) {
@@ -505,7 +514,6 @@
 
     // Hit test: dpad
     var dpadHit = pointInRect(nx, ny, this._dpad);
-    console.log('[GPAD] findZone: nx=' + nx.toFixed(4) + ' ny=' + ny.toFixed(4) + ' dpadHit=' + dpadHit + ' _dpad=', JSON.stringify(this._dpad).replace(/\"/g,''));
     if (dpadHit) return { kind: 'dpad' };
 
     // Hit test: face buttons
@@ -564,7 +572,6 @@
     for (var i = 0; i < touches.length; i++) {
       var t = touches[i];
       var n = this._touchToNorm(t);
-      console.log('[GPAD] touchstart nxy=(' + n.x.toFixed(3) + ',' + n.y.toFixed(3) + ') cw=' + (this._canvas ? this._canvas.width : 0) + ' ch=' + (this._canvas ? this._canvas.height : 0));
 
       // Lock button hit — toggle edit mode (works in both locked/unlocked)
       if (this._hitLockBtn(n.x, n.y)) {
@@ -603,10 +610,6 @@
 
       var zone = this._findTouchZone(n);
 
-      console.log('[GPAD] zone result:', zone ? zone.kind + (zone.index !== undefined ? '[' + zone.index + ']' : '') : 'null',
-        'dpad=', JSON.stringify(this._dpad).replace(/\"/g,''), ' face[0]=', JSON.stringify(this._face[0]||{}).replace(/\"/g,''),
-        'sysLen=', this._system.length, ' sys[0]=', JSON.stringify(this._system[0]||{}).replace(/\"/g,''), ' sys[1]=', JSON.stringify(this._system[1]||{}).replace(/\"/g,''));
-
       // Edit mode: touch on a zone → start drag (move)
       if (this._editMode && zone && zone.kind !== 'resize') {
         var tg2 = this._getZoneForDrag(zone);
@@ -632,7 +635,6 @@
       if (!this._editMode && zone && zone.kind !== 'resize') {
         this._applyZoneInput(zone, n);
         this._emitState();
-        console.log('[GPAD] touch:', zone.kind, zone.index !== undefined ? zone.index : '', '→ emitted');
       }
     }
   };

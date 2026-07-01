@@ -8,7 +8,7 @@ use crate::gv_web;
 
 /// Collect non-secret server metadata for connectivity diagnostics
 /// and version reporting during pairing/startup verification.
-pub(crate) fn collect_metadata(cfg: &config::Config) -> gv_web::ServerMetadata {
+pub(crate) async fn collect_metadata(cfg: &config::Config) -> gv_web::ServerMetadata {
     let pkg_version = env!("CARGO_PKG_VERSION").to_string();
 
     let server_bin = std::env::current_exe()
@@ -44,10 +44,19 @@ pub(crate) fn collect_metadata(cfg: &config::Config) -> gv_web::ServerMetadata {
         },
     };
 
-    let lan_addresses: Vec<String> = std::iter::once(local_ip_address::local_ip())
+    let interfaces: Vec<gv_web::InterfaceInfo> = if_addrs::get_if_addrs()
+        .ok()
+        .into_iter()
         .flatten()
-        .map(|ip| ip.to_string())
+        .filter(|iface| !iface.is_loopback())
+        .filter(|iface| iface.addr.ip().is_ipv4())
+        .map(|iface| gv_web::InterfaceInfo {
+            name: iface.name,
+            address: iface.addr.ip().to_string(),
+        })
         .collect();
+
+    let public_ip = detect_public_ip().await;
 
     let rom_roots: Vec<String> = cfg
         .rom
@@ -80,11 +89,45 @@ pub(crate) fn collect_metadata(cfg: &config::Config) -> gv_web::ServerMetadata {
         transport_policy,
     };
 
+    let pool_size: usize = std::env::var("GV_PC_POOL_SIZE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(2);
+    let scale_height: u32 = std::env::var("GV_GST_VIDEO_SCALE_HEIGHT")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    let max_scale: u32 = std::env::var("GV_GST_VIDEO_MAX_SCALE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4);
+
+    let runtime = gv_web::RuntimeMetadata {
+        pc_pool_size: pool_size,
+        video_scale_height: scale_height,
+        video_max_scale: max_scale,
+    };
+
     gv_web::ServerMetadata {
         version: env!("CARGO_PKG_VERSION").to_string(),
         versions,
-        lan_addresses,
+        interfaces,
+        public_ip,
         rom_roots,
         ice,
+        runtime,
     }
+}
+
+async fn detect_public_ip() -> Option<String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .ok()?;
+    let resp = client
+        .get("https://api.ipify.org")
+        .send()
+        .await
+        .ok()?;
+    resp.text().await.ok().map(|s| s.trim().to_string())
 }

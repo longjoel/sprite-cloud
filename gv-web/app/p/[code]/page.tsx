@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import GamePlayer from "@/components/GamePlayer";
 import BokehLoading from "@/components/BokehLoading";
@@ -23,6 +23,7 @@ const COVER_FALLBACK = (
 
 export default function ShortCodePage() {
   const { code } = useParams<{ code: string }>();
+  const router = useRouter();
 
   const [phase, setPhase] = useState<"resolve" | "connecting" | "playing" | "error">("resolve");
   const [fadeOut, setFadeOut] = useState(false);
@@ -126,8 +127,11 @@ export default function ShortCodePage() {
           <GamePlayer
             gameId={gameMeta.gameId}
             serverId={gameMeta.serverId}
+            gameName={gameMeta.gameName}
+            platform={gameMeta.platform}
             hostToken={gameMeta.hostToken}
             joinToken={gameMeta.roomToken}
+            onClose={() => router.push("/")}
             onConnected={onConnected}
             initialPipeline={{ ice: "done", server: "done" }}
             initialStatus="connecting"

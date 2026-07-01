@@ -10,6 +10,48 @@ Initial public release preparation. The project is pre-1.0; all changes so far a
 
 ## Unreleased
 
+## v0.7.0 — 2026-06-30
+
+### Added
+
+- Per-server core override system: dashboard users can change which libretro core
+  each platform uses on a per-server basis
+  - `PUT /api/servers/[server_id]/core-overrides` API endpoint
+  - Cores section in ServerPanel with platform dropdowns
+  - gv-server resolves overrides via `core_for_platform()`, stored in server metadata
+- Public IP detection in gv-server (ipify.org) displayed in dashboard
+- Named network interfaces display in ServerPanel (eth0, wg0, etc.)
+- Runtime config display in dashboard (PC pool size, video scale height/max)
+- Server-authenticated ROM import endpoint (`POST /api/server/import`)
+
+### Changed
+
+- **GB/GBC core**: switched from Gambatte back to SameBoy
+  - Gambatte nightly build (`v0.5.0-netlink`) rejects all ROMs with
+    "ROM is missing or too small" — confirmed broken at buildbot source
+- **Audio**: capped native sample rate to 48 kHz in gv-core
+  - SameBoy outputs 2.1 MHz audio; GStreamer's audioresample choked on 43:1 ratios
+  - Bucket-average decimator in gv-core reduces to 48 kHz before shared memory
+  - Eliminates all audio stutter, bursty silence, and resampler CPU thrash
+- Atari 2600: switched from broken `stella_libretro.so` (v8, segfaults) to `stella2014_libretro.so`
+- Dashboard UI unified: library and settings share identical nav bar conventions
+- STUN/TURN display shows "not configured" explicitly when empty
+- Stale session thresholds: Online ≤30min, Idle ≤24h (was overly aggressive)
+- Removed broken "Live versions" table from dashboard
+- Removed unreachable "Tools" footer from library page
+- Gamepad overlay hidden on desktop by default, shows platform-appropriate buttons
+- gv-core binary now deployed alongside gv-server on VAULT
+
+### Fixed
+
+- 56 stale game sessions cleaned up (development cruft)
+- Phantom gv-server instance on VPS stealing commands from real VAULT server
+- White border on player page (CSS body margin reset)
+- Docker build cache masking Next.js changes (`--no-cache` forced rebuilds)
+- Server name in dashboard now uses `os.hostname()` (VAULT) instead of UUID prefix
+
+## v0.6.0 — 2026-06-27
+
 ### Added
 
 - AGPL-3.0-or-later license with dual-license CLA framework

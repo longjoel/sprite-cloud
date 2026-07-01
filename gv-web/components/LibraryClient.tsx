@@ -418,7 +418,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
             <span style={styles.userName}>
               {session.user?.name || session.user?.email || "User"}
             </span>
-            <a style={styles.link} href="/settings">Settings</a>
+            <a style={styles.link} href="/dashboard">Dashboard</a>
             <a style={styles.link} href="/api/auth/signout">Sign out</a>
           </div>
         ) : (
@@ -563,14 +563,6 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
         </div>
       </Modal>
 
-      {/* Dev shortcut */}
-      {session && (
-        <section style={styles.section}>
-          <h2 style={styles.h2}>Tools</h2>
-          <a style={styles.link} href="/dev">Dev Dashboard</a>
-        </section>
-      )}
-
     </main>
   );
 }
@@ -587,7 +579,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   topBar: {
     display: "flex", justifyContent: "space-between", alignItems: "center",
-    marginBottom: "var(--space-8)",
+    marginBottom: "var(--space-8)", paddingBottom: "var(--space-4)",
+    borderBottom: "1px solid var(--color-bamboo)",
   },
   title: {
     margin: 0, fontSize: "var(--font-size-h1)", color: "var(--color-brass)",

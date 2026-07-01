@@ -802,7 +802,7 @@ describe("GET /api/servers/[server_id]/metadata", () => {
       lastSeenAt: new Date().toISOString(),
       metadata: {
         version: "0.1.0",
-        lan_addresses: ["192.168.1.100"],
+        interfaces: [{ name: "eth0", address: "192.168.1.100" }],
         ice: {
           stun_urls: ["stun:stun.l.google.com:19302"],
           turn_urls: [],
@@ -875,14 +875,14 @@ describe("GET /api/playable-hosts", () => {
           serverId: "server-1",
           serverName: "Home PC",
           lastSeenAt: new Date(),
-          metadata: { lan_addresses: ["192.168.1.100"], ice: { turn_configured: false } },
+          metadata: { interfaces: [{ name: "eth0", address: "192.168.1.100" }], ice: { turn_configured: false } },
           gameFileId: "gf-1",
         },
         {
           serverId: "server-2",
           serverName: "Arcade Box",
           lastSeenAt: new Date(Date.now() - 120_000),
-          metadata: { lan_addresses: [], ice: { turn_configured: true } },
+          metadata: { interfaces: [], ice: { turn_configured: true } },
           gameFileId: null,
         },
       ]),
@@ -944,17 +944,17 @@ describe("GET /api/playable-hosts", () => {
       mockQueryBuilder([
         {
           serverId: "s1", serverName: "Local", lastSeenAt: new Date(),
-          metadata: { lan_addresses: ["192.168.1.100"], ice: { turn_configured: false } },
+          metadata: { interfaces: [{ name: "eth0", address: "192.168.1.100" }], ice: { turn_configured: false } },
           gameFileId: "gf1",
         },
         {
           serverId: "s2", serverName: "Direct", lastSeenAt: new Date(),
-          metadata: { lan_addresses: [], ice: { turn_configured: false } },
+          metadata: { interfaces: [], ice: { turn_configured: false } },
           gameFileId: "gf2",
         },
         {
           serverId: "s3", serverName: "Relay", lastSeenAt: new Date(),
-          metadata: { lan_addresses: [], ice: { turn_configured: true } },
+          metadata: { interfaces: [], ice: { turn_configured: true } },
           gameFileId: "gf3",
         },
       ]),

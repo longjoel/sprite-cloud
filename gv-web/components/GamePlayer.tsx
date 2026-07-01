@@ -80,6 +80,7 @@ interface GamePlayerProps {
   gameId: string;
   serverId: string;
   gameName?: string;
+  platform?: string;        // platform name for gamepad preset
   hostToken?: string;       // pre-existing host token for reconnection
   joinToken?: string;       // pre-existing room token for guest join
   onClose?: () => void;
@@ -97,6 +98,7 @@ export default function GamePlayer({
   gameId,
   serverId,
   gameName,
+  platform,
   hostToken,
   joinToken: joinTokenProp,
   onClose,
@@ -132,8 +134,15 @@ export default function GamePlayer({
   const [remapWaiting, setRemapWaiting] = useState<string | null>(null);
   const [showRoomControls, setShowRoomControls] = useState(false);
   const [touchGamepadVisible, setTouchGamepadVisible] = useState(() => {
-    try { return localStorage.getItem('gv:touch-visible') !== '0'; }
-    catch { return true; }
+    // Hide by default on desktop (non-touch), show on mobile
+    try {
+      const saved = localStorage.getItem('gv:touch-visible');
+      if (saved !== null) return saved !== '0';
+      // Default: only show on touch devices
+      return typeof window !== 'undefined' && (
+        'ontouchstart' in window || navigator.maxTouchPoints > 0
+      );
+    } catch { return false; }
   });
 
   const [pipeline, setPipeline] = useState<Record<string, StepState>>(
@@ -374,10 +383,22 @@ export default function GamePlayer({
   useEffect(() => {
     const v = videoRef.current;
     if (!v || !connected) return;
-    // Default to 'nes' preset — can be overridden per-game later via a prop
-    v.dataset.gvPreset = 'nes';
+    // Map platform name to gamepad preset
+    const presetMap: Record<string, string> = {
+      'NES': 'nes', 'SNES': 'nes', 'Game Boy': 'nes', 'Game Boy Color': 'nes',
+      'Game Boy Advance': 'nes', 'Family Computer Disk System': 'nes',
+      'Virtual Boy': 'nes', 'Pokemon Mini': 'nes', 'WonderSwan': 'nes',
+      'WonderSwan Color': 'nes', 'Neo Geo Pocket': 'nes', 'Neo Geo Pocket Color': 'nes',
+      'Nintendo 64': 'nes', 'Nintendo DS': 'nes',
+      'Genesis': 'genesis', 'Master System': 'genesis', 'Game Gear': 'genesis',
+      'Sega CD': 'genesis', 'Sega 32X': 'genesis', 'Saturn': 'genesis', 'Dreamcast': 'genesis',
+      'Atari 2600': 'atari', 'Atari 5200': 'atari', 'Atari 7800': 'atari', 'Atari Lynx': 'atari',
+      'Arcade': 'arcade', 'Neo Geo CD': 'arcade',
+      'PlayStation': 'nes', 'PSP': 'nes', 'PC Engine': 'nes',
+    };
+    v.dataset.gvPreset = presetMap[platform || ''] || 'nes';
     v.dataset.gvLayout = 'auto';
-  }, [connected]);
+  }, [connected, platform]);
 
   // ── Fullscreen ────────────────────────────────────────────────────
 
