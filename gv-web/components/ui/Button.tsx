@@ -12,25 +12,25 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantStyles: Record<Variant, React.CSSProperties> = {
   primary: {
-    background: "var(--color-brass)",
-    color: "var(--color-mahogany)",
-    border: "1px solid var(--color-brass)",
+    background: "var(--color-accent)",
+    color: "var(--color-bg-deep)",
+    border: "1px solid var(--color-accent)",
   },
   secondary: {
-    background: "var(--color-walnut)",
-    color: "var(--color-cream)",
-    border: "1px solid var(--color-bamboo)",
+    background: "var(--color-surface-raised)",
+    color: "var(--color-text-primary)",
+    border: "1px solid var(--color-border-default)",
   },
   ghost: {
     background: "none",
-    color: "var(--color-muted)",
+    color: "var(--color-text-secondary)",
     border: "none",
     padding: 0,
   },
   destructive: {
-    background: "var(--color-errorBg)",
-    color: "var(--color-error)",
-    border: "1px solid var(--color-error)",
+    background: "rgba(239,68,68,0.15)",
+    color: "#ef4444",
+    border: "1px solid #ef4444",
   },
 };
 
@@ -52,7 +52,7 @@ export default function Button({
       style={{
         fontFamily: "var(--font-mono)",
         cursor: "pointer",
-        borderRadius: "var(--radius-sm)",
+        borderRadius: "2px",
         transition: "opacity 0.15s",
         ...variantStyles[variant],
         ...sizeStyles[size],

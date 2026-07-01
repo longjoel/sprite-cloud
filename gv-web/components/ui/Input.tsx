@@ -15,7 +15,7 @@ export default function Input({ label, style, ...rest }: InputProps) {
             display: "block",
             fontSize: "var(--font-size-sm)",
             fontFamily: "var(--font-mono)",
-            color: "var(--color-muted)",
+            color: "var(--color-text-secondary)",
             marginBottom: "var(--space-2)",
           }}
         >
@@ -26,10 +26,10 @@ export default function Input({ label, style, ...rest }: InputProps) {
         style={{
           width: "100%",
           padding: "var(--space-3) var(--space-4)",
-          background: "var(--color-mahogany)",
-          border: "1px solid var(--color-bamboo)",
-          borderRadius: "var(--radius-sm)",
-          color: "var(--color-cream)",
+          background: "var(--color-bg-deep)",
+          border: "1px solid var(--color-border-default)",
+          borderRadius: "2px",
+          color: "var(--color-text-primary)",
           fontFamily: "var(--font-mono)",
           fontSize: "var(--font-size-base)",
           outline: "none",

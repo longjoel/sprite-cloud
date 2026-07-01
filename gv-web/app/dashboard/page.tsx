@@ -12,6 +12,7 @@ import { eq, desc, count, and, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import DashboardClient from "./DashboardClient";
 import HealthCard from "./HealthCard";
+import AppHeader from "@/components/fluent/AppHeader";
 
 const OPEN_SESSION_STATUSES = ["spawning", "ready", "connected", "playing"] as const;
 const DASHBOARD_FRESH_SESSION_MS = 5 * 60 * 1000;
@@ -190,16 +191,13 @@ export default async function DashboardPage() {
 
   return (
     <main style={S.main}>
-      <div style={S.topBar}>
-        <h1 style={S.title}>Sprite Cloud</h1>
-        <div style={S.userInfo}>
-          <span style={S.userName}>
-            {session.user?.name || session.user?.email || "User"}
-          </span>
-          <a style={S.navLink} href="/">← Library</a>
-          <a style={S.navLink} href="/api/auth/signout">Sign out</a>
-        </div>
-      </div>
+      <AppHeader
+        userName={session.user?.name || session.user?.email || undefined}
+        links={[
+          { label: "← Library", href: "/" },
+          { label: "Sign out", href: "/api/auth/signout" },
+        ]}
+      />
       <h2 style={S.sectionHeading}>Dashboard</h2>
 
       {/* ── Health ───────────────────────────────────────────────── */}
@@ -446,79 +444,41 @@ export default async function DashboardPage() {
 
 const S: Record<string, React.CSSProperties> = {
   main: {
-    padding: "var(--space-8)",
+    padding: "0",
     fontFamily: "var(--font-mono)",
-    background: "var(--color-mahogany)",
-    color: "var(--color-cream)",
+    background: "var(--color-sky-deep)",
+    color: "var(--color-cloud)",
     minHeight: "100vh",
   },
-  topBar: {
-    display: "flex", justifyContent: "space-between", alignItems: "center",
-    marginBottom: "var(--space-8)", paddingBottom: "var(--space-4)",
-    borderBottom: "1px solid var(--color-bamboo)",
-  },
-  title: {
-    margin: 0, fontSize: "var(--font-size-h1)", color: "var(--color-brass)",
-    fontFamily: "var(--font-mono)",
-  },
-  userInfo: { display: "flex", alignItems: "center", gap: "var(--space-6)" },
-  userName: { fontSize: "var(--font-size-base)", color: "var(--color-muted)" },
-  navLink: {
-    color: "var(--color-info)",
-    textDecoration: "none",
-    fontSize: "var(--font-size-base)",
-    fontFamily: "var(--font-mono)",
-  },
+  // AppHeader handles the top bar now
   sectionHeading: {
-    fontSize: "var(--font-size-h2)", color: "var(--color-muted)",
-    fontFamily: "var(--font-mono)", margin: "0 0 var(--space-8)",
+    fontSize: "var(--font-size-h2)",
+    color: "var(--color-cloud-dim)",
+    fontFamily: "var(--font-mono)",
+    margin: "24px 24px 16px",
     fontWeight: 400,
   },
   h2: {
-    fontSize: "var(--font-size-h2)",
-    fontWeight: 500,
-    color: "var(--color-brass)",
+    fontSize: "var(--font-size-lg)",
+    fontWeight: 600,
+    color: "var(--color-accent)",
     textTransform: "uppercase" as const,
     letterSpacing: "0.05em",
-    marginBottom: "var(--space-5)",
+    marginBottom: "var(--space-4)",
   },
   healthRow: {
     display: "flex",
     gap: "var(--space-5)",
     flexWrap: "wrap" as const,
   },
-  healthCard: {
-    border: "1px solid var(--color-bamboo)",
-    padding: "var(--space-4) var(--space-6)",
-    borderRadius: "var(--radius-md)",
-    minWidth: 110,
-    background: "var(--color-teak)",
-  },
-  healthLabel: {
-    fontSize: "var(--font-size-xs)",
-    color: "var(--color-muted)",
-    marginBottom: "var(--space-2)",
-    fontFamily: "var(--font-mono)",
-  },
-  healthValue: {
-    fontSize: "var(--font-size-lg)",
-    fontFamily: "var(--font-mono)",
-    fontWeight: 600,
-  },
-  healthWarn: {
-    marginTop: "var(--space-2)",
-    fontSize: "var(--font-size-xs)",
-    color: "var(--color-warning)",
-    fontFamily: "var(--font-mono)",
-  },
 
   section: {
-    marginBottom: "var(--space-8)",
+    margin: "0 24px 32px",
   },
   card: {
-    background: "var(--color-teak)",
-    border: "1px solid var(--color-bamboo)",
-    borderRadius: "var(--radius-md)",
+    background: "var(--color-sky-mid)",
+    border: "1px solid var(--color-sky-high)",
+    borderRadius: "var(--radius-sm)",
     padding: "var(--space-6)",
   },
   row: {
@@ -526,23 +486,23 @@ const S: Record<string, React.CSSProperties> = {
     justifyContent: "space-between",
     alignItems: "center",
     padding: "var(--space-2) 0",
-    borderBottom: "1px solid var(--color-walnut)",
+    borderBottom: "1px solid var(--color-sky-high)",
     fontSize: "var(--font-size-sm)",
   },
   label: {
-    color: "var(--color-muted)",
+    color: "var(--color-cloud-dim)",
     fontSize: "var(--font-size-sm)",
   },
   value: {
-    color: "var(--color-cream)",
+    color: "var(--color-cloud)",
     fontSize: "var(--font-size-sm)",
     fontFamily: "var(--font-mono)",
   },
   code: {
     fontSize: "var(--font-size-xs)",
     fontFamily: "var(--font-mono)",
-    color: "var(--color-cyan)",
-    background: "var(--color-mahogany)",
+    color: "var(--color-accent)",
+    background: "var(--color-sky-deep)",
     padding: "1px 4px",
     borderRadius: "var(--radius-sm)",
   },
@@ -551,7 +511,7 @@ const S: Record<string, React.CSSProperties> = {
     fontFamily: "var(--font-mono)",
     fontWeight: 600,
     padding: "1px 6px",
-    borderRadius: "var(--radius-pill)",
+    borderRadius: "var(--radius-sm)",
     textTransform: "uppercase" as const,
   },
   stats: {
@@ -568,17 +528,18 @@ const S: Record<string, React.CSSProperties> = {
   statCount: {
     fontSize: "var(--font-size-h3)",
     fontWeight: 700,
-    color: "var(--color-cream)",
+    color: "var(--color-accent)",
     fontFamily: "var(--font-mono)",
   },
   statLabel: {
     fontSize: "var(--font-size-xs)",
-    color: "var(--color-muted)",
+    color: "var(--color-cloud-dim)",
     textTransform: "uppercase" as const,
     letterSpacing: "0.03em",
   },
   tableWrap: {
     overflowX: "auto" as const,
+    marginTop: "var(--space-4)",
   },
   table: {
     width: "100%",
@@ -588,17 +549,17 @@ const S: Record<string, React.CSSProperties> = {
   th: {
     textAlign: "left" as const,
     padding: "var(--space-2) var(--space-4)",
-    color: "var(--color-muted)",
+    color: "var(--color-cloud-dim)",
     fontWeight: 500,
     textTransform: "uppercase" as const,
     fontSize: "var(--font-size-xs)",
     letterSpacing: "0.05em",
-    borderBottom: "1px solid var(--color-bamboo)",
+    borderBottom: "1px solid var(--color-sky-high)",
   },
   td: {
     padding: "var(--space-2) var(--space-4)",
-    borderBottom: "1px solid var(--color-walnut)",
-    color: "var(--color-cream)",
+    borderBottom: "1px solid var(--color-sky-high)",
+    color: "var(--color-cloud)",
   },
   statusDot: {
     display: "inline-block",
@@ -617,11 +578,11 @@ const S: Record<string, React.CSSProperties> = {
     fontFamily: "var(--font-mono)",
   },
   muted: {
-    color: "var(--color-muted)",
+    color: "var(--color-cloud-dim)",
     fontSize: "var(--font-size-xs)",
   },
   empty: {
-    color: "var(--color-muted)",
+    color: "var(--color-cloud-dim)",
     fontSize: "var(--font-size-sm)",
   },
 };

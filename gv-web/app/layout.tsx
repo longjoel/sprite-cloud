@@ -1,13 +1,15 @@
 import "@/lib/db/cleanup";
 import "@/app/globals.css";
+import "@/components/fluent/tiles.css";
 import type { Metadata, Viewport } from "next";
+import SpriteCloudProvider from "@/components/fluent/SpriteCloudProvider";
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: "#1a1410",
+  themeColor: "#0a0e1a",
 };
 
 export const metadata: Metadata = {
@@ -35,7 +37,9 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
       </head>
       <body>
-        {children}
+        <SpriteCloudProvider>
+          {children}
+        </SpriteCloudProvider>
         <script
           dangerouslySetInnerHTML={{
             __html: `

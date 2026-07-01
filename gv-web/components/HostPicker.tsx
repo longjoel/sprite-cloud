@@ -50,7 +50,7 @@ export default function HostPicker({
                 </Badge>
               )}
               {!host.has_game && (
-                <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-muted)" }}>
+                <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>
                   no game
                 </span>
               )}
@@ -79,7 +79,7 @@ export default function HostPicker({
 const styles: Record<string, React.CSSProperties> = {
   empty: {
     fontSize: "var(--font-size-base)",
-    color: "var(--color-muted)",
+    color: "var(--color-text-secondary)",
     fontStyle: "italic",
   },
   pickerRow: {
@@ -87,12 +87,12 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     gap: "var(--space-4)",
     padding: "var(--space-4) 0",
-    borderBottom: "1px solid var(--color-bamboo)",
+    borderBottom: "1px solid var(--color-border-default)",
   },
   pickerName: {
     flex: 1,
     fontSize: "var(--font-size-md)",
-    color: "var(--color-cream)",
+    color: "var(--color-text-primary)",
     fontFamily: "var(--font-mono)",
   },
 };

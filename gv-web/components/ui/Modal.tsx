@@ -27,7 +27,7 @@ export default function Modal({
         style={{
           position: "fixed",
           inset: 0,
-          background: "rgba(0,0,0,0.6)",
+          background: "rgba(0,0,0,0.65)",
           zIndex: 90,
         }}
       />
@@ -37,9 +37,9 @@ export default function Modal({
           top: "50%",
           left: "50%",
           transform: "translate(-50%, -50%)",
-          background: "var(--color-teak)",
-          border: "1px solid var(--color-brass)",
-          borderRadius: "var(--radius-md)",
+          background: "var(--color-surface-default)",
+          border: "1px solid var(--color-border-default)",
+          borderRadius: "2px",
           padding: "var(--space-7) var(--space-8)",
           zIndex: 95,
           minWidth: 320,
@@ -62,7 +62,7 @@ export default function Modal({
                 margin: 0,
                 fontSize: "var(--font-size-lg)",
                 fontFamily: "var(--font-mono)",
-                color: "var(--color-cream)",
+                color: "var(--color-text-primary)",
               }}
             >
               {title}
@@ -72,7 +72,7 @@ export default function Modal({
               style={{
                 background: "none",
                 border: "none",
-                color: "var(--color-muted)",
+                color: "var(--color-text-secondary)",
                 cursor: "pointer",
                 fontSize: "var(--font-size-lg)",
                 fontFamily: "var(--font-mono)",
