@@ -45,7 +45,6 @@ export default function SetupClient({
         return;
       }
 
-      // Auto sign in after setup
       await signIn("credentials", { email, password, redirect: false });
       window.location.href = "/";
     } catch {
@@ -96,7 +95,7 @@ export default function SetupClient({
             onChange={(e) => setCode(e.target.value)}
             style={{
               ...styles.input,
-              fontFamily: "'Geist Mono', monospace",
+              fontFamily: "var(--font-mono)",
               letterSpacing: "2px",
             }}
             required
@@ -118,7 +117,7 @@ export default function SetupClient({
   );
 }
 
-// ── Inline styles (Humidor palette) ───────────────────────────────────
+// ── Metro styles (dark cloud palette) ─────────────────────────────────
 
 const styles: Record<string, React.CSSProperties> = {
   page: {
@@ -126,31 +125,31 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    background: "#1a1410",
+    background: "var(--color-sky-deep)",
     padding: "16px",
   },
   card: {
     width: "100%",
     maxWidth: "360px",
-    background: "#2d2418",
-    border: "1px solid #b8964a",
-    borderRadius: "4px",
+    background: "var(--color-surface-default)",
+    border: "1px solid var(--color-border-default)",
+    borderRadius: "2px",
     padding: "32px 24px",
   },
   title: {
-    color: "#e8dcc8",
+    color: "var(--color-text-primary)",
     fontSize: "20px",
     fontWeight: 700,
     textAlign: "center",
     marginBottom: "4px",
-    fontFamily: "'Geist Mono', monospace",
+    fontFamily: "var(--font-mono)",
   },
   subtitle: {
-    color: "#b8a888",
+    color: "var(--color-text-secondary)",
     fontSize: "13px",
     textAlign: "center",
     marginBottom: "20px",
-    fontFamily: "'Geist', sans-serif",
+    fontFamily: "var(--font-sans)",
   },
   form: {
     display: "flex",
@@ -159,37 +158,38 @@ const styles: Record<string, React.CSSProperties> = {
   },
   input: {
     padding: "10px 12px",
-    background: "#1a1410",
-    border: "1px solid #4a3a28",
-    borderRadius: "4px",
-    color: "#e8dcc8",
+    background: "var(--color-bg-deep)",
+    border: "1px solid var(--color-border-default)",
+    borderRadius: "2px",
+    color: "var(--color-text-primary)",
     fontSize: "13px",
-    fontFamily: "'Geist', sans-serif",
+    fontFamily: "var(--font-sans)",
     outline: "none",
   },
   button: {
     padding: "10px 0",
-    background: "#b8964a",
-    color: "#1a1410",
+    background: "var(--color-accent)",
+    color: "var(--color-sky-deep)",
     border: "none",
-    borderRadius: "4px",
+    borderRadius: "2px",
     fontSize: "14px",
     fontWeight: 600,
     cursor: "pointer",
-    fontFamily: "'Geist', sans-serif",
+    fontFamily: "var(--font-sans)",
     marginTop: "4px",
   },
   error: {
-    color: "#ff4d4d",
+    color: "var(--color-error)",
     fontSize: "12px",
     textAlign: "center",
   },
   hint: {
-    color: "#6b6040",
+    color: "var(--color-text-secondary)",
     fontSize: "11px",
     textAlign: "center",
     marginTop: "16px",
-    fontFamily: "'Geist', sans-serif",
+    fontFamily: "var(--font-sans)",
     lineHeight: "1.6",
+    opacity: 0.6,
   },
 };

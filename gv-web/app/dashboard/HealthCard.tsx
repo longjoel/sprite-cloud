@@ -1,4 +1,4 @@
-// ── Health card component ──────────────────────────────────────────────
+// ── Health card component — Metro style ────────────────────────────
 
 import React from "react";
 
@@ -13,46 +13,42 @@ export default function HealthCard({ label, value, ok, warn }: HealthCardProps) 
   return (
     <div
       style={{
-        ...S.healthCard,
-        borderColor: ok ? "var(--color-success)" : "var(--color-error)",
+        border: `2px solid ${ok ? "var(--color-success)" : "var(--color-error)"}`,
+        padding: "12px 20px",
+        borderRadius: "var(--radius-sm)",
+        minWidth: 120,
+        background: ok ? "var(--color-successBg)" : "var(--color-errorBg)",
       }}
     >
-      <div style={S.healthLabel}>{label}</div>
+      <div style={S.label}>{label}</div>
       <div
         style={{
-          ...S.healthValue,
-          color: ok ? "var(--color-cream)" : "var(--color-error)",
+          ...S.value,
+          color: ok ? "var(--color-success)" : "var(--color-error)",
         }}
       >
         {value}
       </div>
-      {warn && <div style={S.healthWarn}>{warn}</div>}
+      {warn && <div style={S.warn}>{warn}</div>}
     </div>
   );
 }
 
-// ── Styles (shared with dashboard page) ────────────────────────────────
-
 const S: Record<string, React.CSSProperties> = {
-  healthCard: {
-    border: "1px solid var(--color-bamboo)",
-    padding: "var(--space-4) var(--space-6)",
-    borderRadius: "var(--radius-md)",
-    minWidth: 110,
-    background: "var(--color-teak)",
-  },
-  healthLabel: {
+  label: {
     fontSize: "var(--font-size-xs)",
-    color: "var(--color-muted)",
+    color: "var(--color-cloud-dim)",
     marginBottom: "var(--space-2)",
     fontFamily: "var(--font-mono)",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
   },
-  healthValue: {
+  value: {
     fontSize: "var(--font-size-lg)",
     fontFamily: "var(--font-mono)",
-    fontWeight: 600,
+    fontWeight: 700,
   },
-  healthWarn: {
+  warn: {
     marginTop: "var(--space-2)",
     fontSize: "var(--font-size-xs)",
     color: "var(--color-warning)",

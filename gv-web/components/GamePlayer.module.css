@@ -6,7 +6,7 @@
   overflow: hidden;
   font-family: var(--font-mono);
   font-size: var(--font-size-md);
-  color: var(--color-cream);
+  color: var(--color-text-primary);
 }
 
 .video {
@@ -17,7 +17,7 @@
   object-fit: contain;
   image-rendering: pixelated;
   background: #000;
-  pointer-events: none;  /* let touches pass through to canvas overlay */
+  pointer-events: none;
 }
 
 .topBar {
@@ -36,11 +36,11 @@
 
 .gameTitle {
   font-size: var(--font-size-md);
-  color: var(--color-cream);
+  color: var(--color-text-primary);
   font-family: var(--font-mono);
 }
 
-/* Persistent game info chip — always visible during gameplay */
+/* Persistent game info chip — Metro sky-blue */
 .gameInfo {
   position: absolute;
   top: var(--space-4);
@@ -49,30 +49,30 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 6px 12px;
-  background: rgba(0, 0, 0, 0.55);
-  border: 1px solid rgba(184, 150, 74, 0.15);
-  border-radius: var(--radius-sm);
-  backdrop-filter: blur(4px);
+  padding: 5px 10px;
+  background: rgba(10, 14, 26, 0.75);
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  border-radius: 2px;
+  backdrop-filter: blur(8px);
   transition: opacity 0.3s;
   pointer-events: none;
 }
 
 .gameInfoName {
   font-size: var(--font-size-md);
-  color: var(--color-cream);
+  color: var(--color-text-primary);
   font-family: var(--font-mono);
   line-height: 1;
 }
 
 .gameInfoBadge {
   display: inline-block;
-  padding: 1px 8px;
+  padding: 1px 7px;
   font-size: 10px;
   font-weight: 600;
-  color: var(--color-brass);
-  border: 1px solid rgba(184, 150, 74, 0.25);
-  border-radius: 3px;
+  color: var(--color-accent);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 2px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-family: var(--font-mono);
@@ -96,7 +96,7 @@
 
 .hint {
   font-size: var(--font-size-sm);
-  color: var(--color-muted);
+  color: var(--color-text-secondary);
   font-family: var(--font-mono);
 }
 
@@ -117,7 +117,7 @@
 
 .loadingText {
   font-family: var(--font-mono);
-  color: var(--color-cream);
+  color: var(--color-text-primary);
   font-size: var(--font-size-lg);
   margin-bottom: var(--space-6);
 }
@@ -157,9 +157,9 @@
 .retryBtn {
   margin-left: var(--space-2);
   background: none;
-  border: 1px solid var(--color-bamboo);
-  border-radius: var(--radius-sm);
-  color: var(--color-brass);
+  border: 1px solid var(--color-border-default);
+  border-radius: 2px;
+  color: var(--color-accent);
   cursor: pointer;
   font-size: 14px;
   padding: 2px 6px;
@@ -198,14 +198,14 @@
 
 .overlayTitle {
   font-size: var(--font-size-h3);
-  color: var(--color-cream);
+  color: var(--color-text-primary);
   font-family: var(--font-mono);
   margin-bottom: var(--space-4);
 }
 
 .overlaySub {
   font-size: var(--font-size-sm);
-  color: var(--color-muted);
+  color: var(--color-text-secondary);
   font-family: var(--font-mono);
   margin-bottom: var(--space-6);
 }
@@ -221,9 +221,9 @@
   bottom: var(--space-16);
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0,0,0,0.9);
-  border: 1px solid var(--color-bamboo);
-  border-radius: var(--radius-md);
+  background: rgba(0,0,0,0.92);
+  border: 1px solid var(--color-border-default);
+  border-radius: 2px;
   padding: var(--space-6);
   z-index: 26;
 }
@@ -235,7 +235,7 @@
   margin-bottom: var(--space-4);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
-  color: var(--color-muted);
+  color: var(--color-text-secondary);
 }
 
 .slotRow {
@@ -246,10 +246,10 @@
 .slotBtn {
   width: 32px;
   height: 32px;
-  border-radius: var(--radius-sm);
-  background: var(--color-walnut);
-  color: var(--color-cream);
-  border: 1px solid var(--color-bamboo);
+  border-radius: 2px;
+  background: var(--color-surface-raised);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-default);
   cursor: pointer;
   font-size: var(--font-size-sm);
   font-family: var(--font-mono);
@@ -261,8 +261,8 @@
   left: 50%;
   transform: translate(-50%, -50%);
   background: rgba(0,0,0,0.95);
-  border: 1px solid var(--color-bamboo);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-default);
+  border-radius: 2px;
   padding: var(--space-6);
   z-index: 27;
   min-width: 220px;

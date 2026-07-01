@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { signIn } from "next-auth/react";
 
-// ── Sign-in / Sign-up page — tabbed form ──────────────────────────────
+// ── Sign-in / Sign-up page — Metro-styled tabbed form ────────────────
 
 export default function SignInPage() {
   const [tab, setTab] = useState<"signin" | "signup">("signin");
@@ -52,7 +52,6 @@ export default function SignInPage() {
       if (!res.ok) {
         setError(data.error || "Sign-up failed");
       } else {
-        // Auto sign in after sign-up
         await signIn("credentials", { email, password, redirect: false });
         window.location.href = "/";
       }
@@ -125,7 +124,7 @@ export default function SignInPage() {
   );
 }
 
-// ── Inline styles (Humidor palette) ───────────────────────────────────
+// ── Metro styles (dark cloud palette) ─────────────────────────────────
 
 const styles: Record<string, React.CSSProperties> = {
   page: {
@@ -133,46 +132,46 @@ const styles: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    background: "#1a1410", // mahogany
+    background: "var(--color-sky-deep)",
     padding: "16px",
   },
   card: {
     width: "100%",
     maxWidth: "360px",
-    background: "#2d2418", // teak
-    border: "1px solid #b8964a", // brass
-    borderRadius: "4px",
+    background: "var(--color-surface-default)",
+    border: "1px solid var(--color-border-default)",
+    borderRadius: "2px",
     padding: "32px 24px",
   },
   title: {
-    color: "#e8dcc8", // cream
+    color: "var(--color-text-primary)",
     fontSize: "20px",
     fontWeight: 700,
     textAlign: "center",
     marginBottom: "24px",
-    fontFamily: "'Geist Mono', monospace",
+    fontFamily: "var(--font-mono)",
   },
   tabs: {
     display: "flex",
     gap: "0",
     marginBottom: "20px",
-    borderBottom: "1px solid #b8964a",
+    borderBottom: "1px solid var(--color-border-default)",
   },
   tab: {
     flex: 1,
     padding: "8px 0",
     background: "none",
     border: "none",
-    color: "#b8a888",
+    color: "var(--color-text-secondary)",
     fontSize: "13px",
     fontWeight: 600,
     cursor: "pointer",
     borderBottom: "2px solid transparent",
-    fontFamily: "'Geist', sans-serif",
+    fontFamily: "var(--font-sans)",
   },
   tabActive: {
-    color: "#e8dcc8",
-    borderBottomColor: "#b8964a",
+    color: "var(--color-text-primary)",
+    borderBottomColor: "var(--color-accent)",
   },
   form: {
     display: "flex",
@@ -181,28 +180,28 @@ const styles: Record<string, React.CSSProperties> = {
   },
   input: {
     padding: "10px 12px",
-    background: "#1a1410",
-    border: "1px solid #4a3a28",
-    borderRadius: "4px",
-    color: "#e8dcc8",
+    background: "var(--color-bg-deep)",
+    border: "1px solid var(--color-border-default)",
+    borderRadius: "2px",
+    color: "var(--color-text-primary)",
     fontSize: "13px",
-    fontFamily: "'Geist', sans-serif",
+    fontFamily: "var(--font-sans)",
     outline: "none",
   },
   button: {
     padding: "10px 0",
-    background: "#b8964a",
-    color: "#1a1410",
+    background: "var(--color-accent)",
+    color: "var(--color-sky-deep)",
     border: "none",
-    borderRadius: "4px",
+    borderRadius: "2px",
     fontSize: "14px",
     fontWeight: 600,
     cursor: "pointer",
-    fontFamily: "'Geist', sans-serif",
+    fontFamily: "var(--font-sans)",
     marginTop: "4px",
   },
   error: {
-    color: "#ff4d4d",
+    color: "var(--color-error)",
     fontSize: "12px",
     textAlign: "center",
   },

@@ -1,0 +1,83 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Game Tile Grid — Metro-style tile layout
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.game-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  padding: 0;
+}
+
+/* ── Tile sizing ─────────────────────────────────────────────────── */
+
+.game-tile {
+  position: relative;
+  min-height: 160px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  transition: border-color 0.15s, transform 0.1s;
+}
+
+.game-tile:hover {
+  border-color: var(--color-accent);
+  transform: scale(1.02);
+}
+
+.game-tile:active {
+  transform: scale(0.98);
+}
+
+/* Square — 1×1 (default) */
+.game-tile.tile-square {
+  grid-row: span 1;
+  grid-column: span 1;
+}
+
+/* Wide — 2 columns × 1 row */
+.game-tile.tile-wide {
+  grid-row: span 1;
+  grid-column: span 2;
+}
+
+/* Large — 2 columns × 2 rows */
+.game-tile.tile-large {
+  grid-row: span 2;
+  grid-column: span 2;
+}
+
+/* ── Tile inner — Fluent Card overrides ──────────────────────────── */
+
+.game-tile [class*="fui-Card"] {
+  width: 100%;
+  height: 100%;
+  padding: 0 !important;
+  background: var(--color-sky-mid);
+}
+
+.game-tile [class*="fui-Card"]:hover {
+  background: var(--color-sky-high);
+}
+
+/* ── Responsive — fewer columns on mobile ────────────────────────── */
+
+@media (max-width: 640px) {
+  .game-tile-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 8px;
+  }
+
+  .game-tile {
+    min-height: 140px;
+  }
+
+  .game-tile.tile-wide {
+    grid-column: span 2;
+  }
+
+  .game-tile.tile-large {
+    grid-row: span 1;
+    grid-column: span 2;
+    min-height: 140px;
+  }
+}

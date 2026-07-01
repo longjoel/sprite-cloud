@@ -2,7 +2,9 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Badge, Button, Card, Modal } from "@/components/ui";
+import { Badge, Button, Modal } from "@/components/ui";
+import GameTile from "@/components/fluent/GameTile";
+import AppHeader from "@/components/fluent/AppHeader";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -404,27 +406,17 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
 
   // ── Render ──────────────────────────────────────────────────────
 
-  const tabStyle = (t: typeof tab) => ({
-    ...styles.tab,
-    ...(tab === t ? styles.tabActive : {}),
-  });
-
   return (
     <main style={styles.main}>
-      <div style={styles.topBar}>
-        <h1 style={styles.title}>Sprite Cloud</h1>
-        {session ? (
-          <div style={styles.userInfo}>
-            <span style={styles.userName}>
-              {session.user?.name || session.user?.email || "User"}
-            </span>
-            <a style={styles.link} href="/dashboard">Dashboard</a>
-            <a style={styles.link} href="/api/auth/signout">Sign out</a>
-          </div>
-        ) : (
-          <a style={styles.link} href="/api/auth/signin">Sign in</a>
-        )}
-      </div>
+      <AppHeader
+        userName={session?.user?.name || session?.user?.email || undefined}
+        links={[
+          ...(session ? [{ label: "Dashboard", href: "/dashboard" }] : []),
+          ...(session
+            ? [{ label: "Sign out", href: "/api/auth/signout" }]
+            : [{ label: "Sign in", href: "/api/auth/signin" }]),
+        ]}
+      />
 
       {!session && (
         <div style={styles.banner}>Sign in to play games on your server.</div>
@@ -434,16 +426,34 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
         <h2 style={styles.h2}>Library</h2>
 
         {/* Tabs */}
-        <div style={styles.tabBar}>
-          <button style={tabStyle("all")} onClick={() => setTab("all")}>
-            All{allTotal > 0 ? ` (${allTotal})` : ""}
-          </button>
-          <button style={tabStyle("favorites")} onClick={() => setTab("favorites")}>
-            Favorites{favTotal > 0 ? ` (${favTotal})` : ""}
-          </button>
-          <button style={tabStyle("recent")} onClick={() => setTab("recent")}>
-            Recent
-          </button>
+        <div style={{ display: "flex", gap: 0, marginBottom: "var(--space-5)" }}>
+          {(["all", "favorites", "recent"] as const).map((t) => {
+            const isActive = tab === t;
+            const counts: Record<string, number> = { all: allTotal, favorites: favTotal, recent: recentTotal };
+            return (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                style={{
+                  padding: "8px 20px",
+                  background: isActive ? "var(--color-sky-high)" : "transparent",
+                  border: "none",
+                  borderBottom: isActive ? "2px solid var(--color-accent)" : "2px solid transparent",
+                  color: isActive ? "var(--color-accent)" : "var(--color-cloud-dim)",
+                  fontSize: "var(--font-size-sm)",
+                  fontFamily: "var(--font-mono)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                }}
+              >
+                {t.charAt(0).toUpperCase() + t.slice(1)}
+                {t === "all" && counts.all > 0 ? ` (${counts.all})` : ""}
+                {t === "favorites" && counts.favorites > 0 ? ` (${counts.favorites})` : ""}
+              </button>
+            );
+          })}
         </div>
 
         {/* Search (All tab only) */}
@@ -453,7 +463,26 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
             placeholder="Search games..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            style={styles.searchInput}
+            style={{
+              width: "100%",
+              maxWidth: 480,
+              padding: "10px 14px",
+              marginBottom: "var(--space-6)",
+              background: "var(--color-sky-high)",
+              border: "2px solid var(--color-sky-high)",
+              borderRadius: "var(--radius-sm)",
+              color: "var(--color-cloud)",
+              fontSize: "var(--font-size-base)",
+              fontFamily: "var(--font-mono)",
+              outline: "none",
+              transition: "border-color 0.15s",
+            }}
+            onFocus={(e) => {
+              e.target.style.borderColor = "var(--color-accent)";
+            }}
+            onBlur={(e) => {
+              e.target.style.borderColor = "var(--color-sky-high)";
+            }}
           />
         )}
 
@@ -463,56 +492,16 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
             {tab === "all" ? "No games found." : tab === "favorites" ? "No favorites yet." : "No recent plays."}
           </p>
         ) : (
-          <div style={styles.grid}>
+          <div className="game-tile-grid">
             {currentGames.map((game) => (
-              <Card key={game.id} style={{ display: "flex", flexDirection: "column" }}>
-                {editingGame === game.id ? (
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    onKeyDown={(e) => handleEditKey(e, game.id)}
-                    onBlur={() => saveRename(game.id)}
-                    disabled={editSaving}
-                    autoFocus
-                    style={styles.editInput}
-                    maxLength={200}
-                  />
-                ) : (
-                  <div style={styles.cardTitleRow}>
-                    <div style={styles.cardTitle}>{game.name}</div>
-                    <div style={styles.cardActions}>
-                      {session && (
-                        <button
-                          onClick={(e) => handleToggleFavorite(game.id, e)}
-                          style={{
-                            ...styles.starBtn,
-                            color: favoriteIds.has(game.id) ? "var(--color-brass)" : "var(--color-muted)",
-                          }}
-                          title={favoriteIds.has(game.id) ? "Remove favorite" : "Add favorite"}
-                        >
-                          {favoriteIds.has(game.id) ? "★" : "☆"}
-                        </button>
-                      )}
-                      {session && (
-                        <button onClick={() => startRename(game)} style={styles.editBtn} title="Rename">✎</button>
-                      )}
-                    </div>
-                  </div>
-                )}
-                <div style={styles.cardMeta}>{game.platform} · {game.maxPlayers}p</div>
-                <div style={{ marginTop: "auto" }}>
-                  {session && hasServers ? (
-                    <Button variant="primary" onClick={() => handlePlay(game.id)} disabled={pickerLoading}>
-                      Play
-                    </Button>
-                  ) : (
-                    <span style={styles.playBtnDisabled}>
-                      {!session ? "Sign in" : "No server"}
-                    </span>
-                  )}
-                </div>
-              </Card>
+              <GameTile
+                key={game.id}
+                game={game}
+                size="square"
+                isFavorite={favoriteIds.has(game.id)}
+                onPlay={handlePlay}
+                onToggleFavorite={session ? handleToggleFavorite : undefined}
+              />
             ))}
           </div>
         )}
@@ -571,96 +560,37 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
 
 const styles: Record<string, React.CSSProperties> = {
   main: {
-    padding: "var(--space-8)",
+    padding: "0",
     fontFamily: "var(--font-mono)",
-    background: "var(--color-mahogany)",
-    color: "var(--color-cream)",
+    background: "var(--color-sky-deep)",
+    color: "var(--color-cloud)",
     minHeight: "100vh",
   },
-  topBar: {
-    display: "flex", justifyContent: "space-between", alignItems: "center",
-    marginBottom: "var(--space-8)", paddingBottom: "var(--space-4)",
-    borderBottom: "1px solid var(--color-bamboo)",
-  },
-  title: {
-    margin: 0, fontSize: "var(--font-size-h1)", color: "var(--color-brass)",
-    fontFamily: "var(--font-mono)",
-  },
-  userInfo: { display: "flex", alignItems: "center", gap: "var(--space-6)" },
-  userName: { fontSize: "var(--font-size-base)", color: "var(--color-muted)" },
-  link: { color: "var(--color-info)", textDecoration: "none", fontSize: "var(--font-size-base)", fontFamily: "var(--font-mono)" },
   banner: {
-    padding: "var(--space-5) var(--space-6)", background: "var(--color-infoBg)",
-    border: "1px solid var(--color-info)", borderRadius: "var(--radius-md)",
-    marginBottom: "var(--space-8)", fontSize: "var(--font-size-base)", color: "var(--color-info)",
-  },
-  section: { marginBottom: "var(--space-8)" },
-  h2: { margin: "0 0 var(--space-6)", fontSize: "var(--font-size-h2)", color: "var(--color-muted)", fontFamily: "var(--font-mono)" },
-  empty: { fontSize: "var(--font-size-base)", color: "var(--color-muted)", fontStyle: "italic" },
-
-  // Tabs
-  tabBar: { display: "flex", gap: "var(--space-2)", marginBottom: "var(--space-4)" },
-  tab: {
-    padding: "var(--space-2) var(--space-4)",
-    background: "transparent",
-    border: "1px solid var(--color-bamboo)",
-    borderRadius: "var(--radius-sm)",
-    color: "var(--color-muted)",
-    cursor: "pointer",
+    padding: "12px 24px",
+    background: "var(--color-infoBg)",
+    borderBottom: "2px solid var(--color-accent)",
     fontSize: "var(--font-size-base)",
+    color: "var(--color-accent)",
     fontFamily: "var(--font-mono)",
   },
-  tabActive: { borderColor: "var(--color-brass)", color: "var(--color-brass)" },
+  section: { padding: "0 24px", marginBottom: "var(--space-8)" },
+  h2: {
+    margin: "0 0 var(--space-6)",
+    fontSize: "var(--font-size-lg)",
+    fontWeight: 600,
+    color: "var(--color-accent)",
+    fontFamily: "var(--font-mono)",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+  },
+  empty: { fontSize: "var(--font-size-base)", color: "var(--color-cloud-dim)", fontStyle: "italic" },
 
-  // Search
-  searchInput: {
-    width: "100%",
-    padding: "var(--space-2) var(--space-3)",
-    marginBottom: "var(--space-4)",
-    background: "var(--color-mahogany)",
-    border: "1px solid var(--color-bamboo)",
-    borderRadius: "var(--radius-sm)",
-    color: "var(--color-cream)",
-    fontSize: "var(--font-size-base)",
-    fontFamily: "var(--font-mono)",
-    outline: "none",
-  },
-
-  // Grid
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
-    gap: "var(--space-5)",
-  },
-  cardTitle: { fontSize: "var(--font-size-lg)", color: "var(--color-cream)", fontFamily: "var(--font-mono)", marginBottom: 0 },
-  cardTitleRow: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-2)" },
-  cardActions: { display: "flex", alignItems: "center", gap: "var(--space-2)" },
-  cardMeta: { fontSize: "var(--font-size-xs)", color: "var(--color-muted)", marginBottom: "var(--space-5)" },
-  editBtn: {
-    background: "none", border: "1px solid var(--color-bamboo)", borderRadius: "var(--radius-sm)",
-    color: "var(--color-muted)", cursor: "pointer", fontSize: "var(--font-size-base)",
-    padding: "0 var(--space-2)", lineHeight: "1.4", fontFamily: "var(--font-mono)",
-  },
-  starBtn: {
-    background: "none", border: "none", cursor: "pointer",
-    fontSize: "var(--font-size-lg)", padding: "0 var(--space-1)", lineHeight: "1",
-    fontFamily: "var(--font-mono)",
-  },
-  editInput: {
-    fontSize: "var(--font-size-lg)", fontFamily: "var(--font-mono)",
-    background: "var(--color-mahogany)", color: "var(--color-cream)",
-    border: "1px solid var(--color-info)", borderRadius: "var(--radius-sm)",
-    padding: "var(--space-1) var(--space-2)", marginBottom: "var(--space-2)",
-    outline: "none", width: "100%",
-  },
-  playBtnDisabled: {
-    display: "inline-block", padding: "4px 14px",
-    background: "var(--color-walnut)", color: "var(--color-muted)",
-    borderRadius: "var(--radius-sm)", fontSize: "var(--font-size-base)", fontFamily: "var(--font-mono)",
-  },
   loading: {
-    textAlign: "center", padding: "var(--space-8)",
-    color: "var(--color-muted)", fontSize: "var(--font-size-base)",
+    textAlign: "center" as const,
+    padding: "var(--space-8)",
+    color: "var(--color-cloud-dim)",
+    fontSize: "var(--font-size-base)",
   },
   sentinel: { height: "1px" },
 

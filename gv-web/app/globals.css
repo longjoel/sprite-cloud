@@ -1,29 +1,58 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   Games Humidor — Design Tokens
-   1960s Neo-Futurism — warm wood tones, brass trim, neon accents.
+   Sprite Cloud — Design Tokens
+   Dark cloud / Metro-inspired — deep sky, crisp whites, pixel accents.
    ═══════════════════════════════════════════════════════════════════════ */
 
 :root {
-  --color-mahogany: #1a1410;
-  --color-teak: #2d2418;
-  --color-walnut: #3d3020;
-  --color-bamboo: #4a3a28;
-  --color-brass: #b8964a;
-  --color-copper: #c4723a;
-  --color-cream: #e8dcc8;
-  --color-muted: #b8a888;
-  --color-cyan: #00e5ff;
-  --color-magenta: #ff3d7f;
-  --color-lime: #a0ff40;
-  --color-success: #4dff88;
-  --color-warning: #ffb830;
-  --color-error: #ff4d4d;
-  --color-info: #00e5ff;
-  --color-successBg: rgba(77, 255, 136, 0.10);
-  --color-warningBg: rgba(255, 184, 48, 0.10);
-  --color-errorBg: rgba(255, 77, 77, 0.08);
-  --color-infoBg: rgba(0, 229, 255, 0.08);
+  /* ── Sky (backgrounds) ──────────────────────────────────────────── */
+  --color-sky-deep: #0a0e1a;
+  --color-sky-mid: #111827;
+  --color-sky-high: #1a2236;
+  --color-cloud: #e5e7eb;
+  --color-cloud-dim: #9ca3b8;
 
+  /* ── Accent (one vibrant electric) ──────────────────────────────── */
+  --color-accent: #38bdf8;       /* sky blue */
+  --color-accent-glow: rgba(56, 189, 248, 0.15);
+
+  /* ── Pixel sprite colors (for decorative use) ──────────────────── */
+  --color-pixel-green: #4ade80;
+  --color-pixel-pink: #f472b6;
+  --color-pixel-yellow: #facc15;
+  --color-pixel-red: #f87171;
+
+  /* ── Semantic ───────────────────────────────────────────────────── */
+  --color-success: #4ade80;
+  --color-warning: #facc15;
+  --color-error: #f87171;
+  --color-info: #38bdf8;
+  --color-successBg: rgba(74, 222, 128, 0.10);
+  --color-warningBg: rgba(250, 204, 21, 0.10);
+  --color-errorBg: rgba(248, 113, 113, 0.08);
+  --color-infoBg: rgba(56, 189, 248, 0.08);
+
+  /* ── Semantic UI tokens (used by Metro components) ───────────────── */
+  --color-bg-deep: #060b14;               /* deepest surface (inputs) */
+  --color-surface-default: var(--color-sky-mid);  /* cards, modals */
+  --color-surface-raised: var(--color-sky-high);  /* buttons, badges */
+  --color-text-primary: var(--color-cloud);       /* headings, body */
+  --color-text-secondary: var(--color-cloud-dim); /* muted, hints */
+  --color-border-default: rgba(56, 189, 248, 0.12); /* subtle accent border */
+
+  /* ── Legacy aliases (for code not yet migrated) ─────────────────── */
+  --color-mahogany: var(--color-bg-deep);
+  --color-teak: var(--color-surface-default);
+  --color-walnut: var(--color-surface-raised);
+  --color-bamboo: var(--color-border-default);
+  --color-brass: var(--color-accent);
+  --color-copper: var(--color-pixel-pink);
+  --color-cream: var(--color-text-primary);
+  --color-muted: var(--color-text-secondary);
+  --color-cyan: var(--color-accent);
+  --color-magenta: var(--color-pixel-pink);
+  --color-lime: var(--color-pixel-green);
+
+  /* ── Spacing ────────────────────────────────────────────────────── */
   --space-0: 0;
   --space-1: 2px;
   --space-2: 4px;
@@ -36,20 +65,22 @@
   --space-9: 48px;
   --space-10: 64px;
 
+  /* ── Radii (Metro = sharp corners) ──────────────────────────────── */
   --radius-none: 0;
   --radius-sm: 2px;
   --radius-md: 4px;
   --radius-pill: 9999px;
 
+  /* ── Typography ─────────────────────────────────────────────────── */
   --font-size-xs: 10px;
   --font-size-sm: 12px;
-  --font-size-base: 13px;
-  --font-size-md: 14px;
-  --font-size-lg: 16px;
-  --font-size-xl: 18px;
+  --font-size-base: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 20px;
+  --font-size-xl: 24px;
   --font-size-h3: 20px;
-  --font-size-h2: 1rem;
-  --font-size-h1: 1.5rem;
+  --font-size-h2: 28px;
+  --font-size-h1: 36px;
 
   --font-mono: "Geist Mono", "SF Mono", "Fira Code", monospace;
   --font-sans: "Geist", "SF Pro", system-ui, sans-serif;
@@ -60,9 +91,14 @@
 body {
   margin: 0;
   padding: 0;
-  background: var(--color-mahogany);
-  color: var(--color-cream);
+  background: var(--color-sky-deep);
+  color: var(--color-cloud);
   font-family: var(--font-sans);
   font-size: var(--font-size-base);
   -webkit-font-smoothing: antialiased;
 }
+
+/* ── Scrollbar (dark, minimal) ───────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-sky-high); border-radius: 3px; }
