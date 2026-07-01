@@ -229,7 +229,7 @@ const S: Record<string, React.CSSProperties> = {
   h3: {
     margin: "0 0 var(--space-4)",
     fontSize: "var(--font-size-base)",
-    color: "var(--color-brass)",
+    color: "var(--color-accent)",
     fontFamily: "var(--font-mono)",
     textTransform: "uppercase" as const,
   },

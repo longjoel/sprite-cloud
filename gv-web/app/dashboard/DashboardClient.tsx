@@ -390,7 +390,7 @@ const S: Record<string, React.CSSProperties> = {
     padding: "2px 6px",
     background: "var(--color-walnut)",
     color: "var(--color-cream)",
-    border: "1px solid var(--color-brass)",
+    border: "1px solid var(--color-accent)",
     fontFamily: "var(--font-mono)",
     fontSize: "var(--font-size-base)",
     borderRadius: "var(--radius-sm)",
@@ -442,7 +442,7 @@ const S: Record<string, React.CSSProperties> = {
     marginTop: "var(--space-5)",
     padding: "var(--space-5)",
     background: "var(--color-mahogany)",
-    border: "1px solid var(--color-brass)",
+    border: "1px solid var(--color-accent)",
     borderRadius: "var(--radius-md)",
   },
   pairingHint: {

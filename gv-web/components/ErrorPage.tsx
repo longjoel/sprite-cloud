@@ -19,8 +19,8 @@ export function ErrorPage({ code, title, message, action }: ErrorPageProps) {
         justifyContent: "center",
         minHeight: "100vh",
         padding: "2rem",
-        background: "var(--color-mahogany, #1a1410)",
-        color: "var(--color-cream, #e8dcc8)",
+        background: "var(--color-sky-deep)",
+        color: "var(--color-text-primary)",
         fontFamily: "var(--font-mono, monospace)",
         textAlign: "center",
         gap: "var(--space-3, 6px)",
@@ -30,7 +30,7 @@ export function ErrorPage({ code, title, message, action }: ErrorPageProps) {
         style={{
           fontSize: "clamp(4rem, 15vw, 8rem)",
           fontWeight: 700,
-          color: "var(--color-brass, #b8964a)",
+          color: "var(--color-accent)",
           lineHeight: 1,
           marginBottom: "0.25em",
         }}
@@ -41,7 +41,7 @@ export function ErrorPage({ code, title, message, action }: ErrorPageProps) {
       <div
         style={{
           fontSize: "var(--font-size-md, 14px)",
-          color: "var(--color-cream, #e8dcc8)",
+          color: "var(--color-text-primary)",
           letterSpacing: "0.08em",
           textTransform: "uppercase",
           marginBottom: "0.5em",
@@ -53,7 +53,7 @@ export function ErrorPage({ code, title, message, action }: ErrorPageProps) {
       <div
         style={{
           fontSize: "var(--font-size-sm, 12px)",
-          color: "var(--color-muted, #b8a888)",
+          color: "var(--color-text-secondary)",
           maxWidth: 360,
           lineHeight: 1.6,
           marginBottom: "2em",
@@ -68,8 +68,8 @@ export function ErrorPage({ code, title, message, action }: ErrorPageProps) {
           style={{
             display: "inline-block",
             padding: "var(--space-3, 6px) var(--space-7, 24px)",
-            border: "1px solid var(--color-brass, #b8964a)",
-            color: "var(--color-brass, #b8964a)",
+            border: "1px solid var(--color-accent)",
+            color: "var(--color-accent)",
             fontSize: "var(--font-size-sm, 12px)",
             fontFamily: "var(--font-mono, monospace)",
             textDecoration: "none",
@@ -88,8 +88,8 @@ export function ErrorPage({ code, title, message, action }: ErrorPageProps) {
           style={{
             display: "inline-block",
             padding: "var(--space-3, 6px) var(--space-7, 24px)",
-            border: "1px solid var(--color-bamboo, #4a3a28)",
-            color: "var(--color-muted, #b8a888)",
+            border: "1px solid var(--color-border-default)",
+            color: "var(--color-text-secondary)",
             fontSize: "var(--font-size-sm, 12px)",
             fontFamily: "var(--font-mono, monospace)",
             textDecoration: "none",
