@@ -252,9 +252,10 @@ fn h264_pipeline_string(encoder: &str, output_width: u32, output_height: u32) ->
     } else {
         // Hardware encoders: VAAPI (vaapih264enc, vah264enc, vah264lpenc),
         // NVENC (nvh264enc), QSV (qsvh264enc, msdkh264enc), AMF (amfh264enc).
+        // Use only universally-supported properties — some implementations
+        // (e.g. bazzite's vah264enc) reject max-bframes, cabac, dct8x8.
         format!(
-            "bitrate={br} rate-control=cbr key-int-max={kf} \
-             max-bframes=0 cabac=false dct8x8=false",
+            "bitrate={br} rate-control=cbr key-int-max={kf}",
             br = bitrate,
             kf = kf_dist,
         )

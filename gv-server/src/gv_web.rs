@@ -97,7 +97,7 @@ pub struct RuntimeMetadata {
 }
 
 /// A single command from the queue.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct Command {
     pub id: String,
     #[serde(rename = "type")]
@@ -137,6 +137,7 @@ struct NotifyBody {
 
 // ── Client ────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub struct GvWebClient {
     client: Client,
     base_url: String,
