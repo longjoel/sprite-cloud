@@ -161,8 +161,8 @@ export default function ServerPanel({ serverId, romRoots }: Props) {
     }
   }
 
-  async function scan() {
-    const paths = Array.from(checked);
+  async function scan(pathsOverride?: string[]) {
+    const paths = pathsOverride ?? Array.from(checked);
     if (paths.length === 0) return;
     setScanning(true);
     setError(null);
@@ -228,10 +228,7 @@ export default function ServerPanel({ serverId, romRoots }: Props) {
                 <Button
                   variant="primary"
                   size="sm"
-                  onClick={() => {
-                    setChecked(new Set([root]));
-                    scan();
-                  }}
+                  onClick={() => scan([root])}
                   disabled={scanning}
                 >
                   {scanning ? "Scanning..." : "Scan all"}
@@ -251,7 +248,7 @@ export default function ServerPanel({ serverId, romRoots }: Props) {
             <Button
               variant="primary"
               size="sm"
-              onClick={scan}
+              onClick={() => scan()}
               disabled={scanning}
               style={{ marginTop: "var(--space-5)" }}
             >

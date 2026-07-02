@@ -130,9 +130,9 @@ tar czf "$TMP_TAR" \
   -C "$WEB_DIR/.next" static \
   -C "$WEB_DIR/.next" runtime-version.json \
   -C "$WEB_DIR" public/player \
-  -C "$WEB_DIR" public/manifest.json \
-  -C "$WEB_DIR" public/sw.js \
-  -C "$WEB_DIR" public/icons \
+  -C "$WEB_DIR" public/manifest.json 2>/dev/null || true \
+  -C "$WEB_DIR" public/sw.js 2>/dev/null || true \
+  -C "$WEB_DIR" public/icons 2>/dev/null || true \
   -C "$WEB_DIR" package.json
 
 log "payload size: $(du -h "$TMP_TAR" | cut -f1)"

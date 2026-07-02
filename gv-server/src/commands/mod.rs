@@ -184,10 +184,18 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
                                 } else if cmd.command_type == "browse_files" {
                                     game::handle_browse_files(cmd, &client, &rom_roots).await;
                                 } else if cmd.command_type == "scan_paths" {
-                                    game::handle_scan_paths(
-                                        cmd, &client, &rom_roots,
-                                        &scan_lock, &dat_index, &cfg.auth.server_id,
-                                    ).await;
+                                    let cmd = cmd.clone();
+                                    let client = client.clone();
+                                    let rom_roots = rom_roots.clone();
+                                    let scan_lock = Arc::clone(&scan_lock);
+                                    let dat_index = Arc::clone(&dat_index);
+                                    let server_id = cfg.auth.server_id.clone();
+                                    tokio::spawn(async move {
+                                        game::handle_scan_paths(
+                                            &cmd, &client, &rom_roots,
+                                            &scan_lock, &dat_index, &server_id,
+                                        ).await;
+                                    });
                                 }
                             }
                         }
