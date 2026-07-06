@@ -15,6 +15,18 @@ interface Game {
   maxPlayers: number;
 }
 
+interface GameActionModel {
+  canFavorite: boolean;
+  canPin: boolean;
+  canRename: boolean;
+  isFavorite: (gameId: string) => boolean;
+  isPinned: (gameId: string) => boolean;
+  onPlay: (gameId: string) => void;
+  onToggleFavorite?: (gameId: string, e: React.MouseEvent) => void;
+  onTogglePin?: (gameId: string, e: React.MouseEvent) => void;
+  onRename?: (game: Game) => void;
+}
+
 interface PlayableHost {
   server_id: string;
   name: string;
@@ -451,15 +463,29 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
 
   // ── Render helpers ──────────────────────────────────────────────
 
+  const gameActions: GameActionModel = {
+    canFavorite: Boolean(session?.user?.id),
+    canPin: Boolean(session?.user?.id),
+    canRename: Boolean(session?.user?.id),
+    isFavorite: (gameId: string) => favoriteIds.has(gameId),
+    isPinned: (gameId: string) => pinnedIds.has(gameId),
+    onPlay: handlePlay,
+    onToggleFavorite: session?.user?.id ? handleToggleFavorite : undefined,
+    onTogglePin: session?.user?.id ? handleTogglePin : undefined,
+    onRename: session?.user?.id ? startRename : undefined,
+  };
+
   const renderGameCard = (game: Game) => (
     <GameTile
       key={game.id}
       game={game}
       size="square"
-      isFavorite={favoriteIds.has(game.id)}
-      onPlay={handlePlay}
-      onToggleFavorite={session ? handleToggleFavorite : undefined}
-      onEdit={startRename}
+      isFavorite={gameActions.isFavorite(game.id)}
+      isPinned={gameActions.isPinned(game.id)}
+      onPlay={gameActions.onPlay}
+      onToggleFavorite={gameActions.onToggleFavorite}
+      onTogglePin={gameActions.onTogglePin}
+      onEdit={gameActions.onRename}
     />
   );
 
@@ -494,35 +520,49 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
         {game.maxPlayers > 1 ? `${game.maxPlayers}p` : "—"}
       </td>
       <td style={{ padding: "10px 14px", textAlign: "center" }}>
-        {session && (
+        {gameActions.canFavorite && gameActions.onToggleFavorite && (
           <button
-            onClick={(e) => handleToggleFavorite(game.id, e)}
-            style={{ background: "none", border: "none", cursor: "pointer", color: favoriteIds.has(game.id) ? "#38bdf8" : "#4b5563" }}
-            title={favoriteIds.has(game.id) ? "Remove favorite" : "Add favorite"}
+            onClick={(e) => gameActions.onToggleFavorite?.(game.id, e)}
+            style={{ background: "none", border: "none", cursor: "pointer", color: gameActions.isFavorite(game.id) ? "#38bdf8" : "#4b5563" }}
+            title={gameActions.isFavorite(game.id) ? "Remove favorite" : "Add favorite"}
           >
-            {favoriteIds.has(game.id) ? "★" : "☆"}
+            {gameActions.isFavorite(game.id) ? "★" : "☆"}
           </button>
         )}
       </td>
       <td style={{ padding: "10px 14px", textAlign: "center" }}>
-        {session && tab === "all" && (
+        {gameActions.canPin && gameActions.onTogglePin && (
           <button
-            onClick={(e) => handleTogglePin(game.id, e)}
+            onClick={(e) => gameActions.onTogglePin?.(game.id, e)}
             style={{
               background: "none",
               border: "none",
               cursor: "pointer",
-              color: pinnedIds.has(game.id) ? "#38bdf8" : "#4b5563",
+              color: gameActions.isPinned(game.id) ? "#38bdf8" : "#4b5563",
               fontSize: 14,
             }}
-            title={pinnedIds.has(game.id) ? "Unpin" : `Pin (max ${MAX_PINS})`}
+            title={gameActions.isPinned(game.id) ? "Unpin" : `Pin (max ${MAX_PINS})`}
           >
-            {pinnedIds.has(game.id) ? "📌" : "📍"}
+            {gameActions.isPinned(game.id) ? "📌" : "📍"}
           </button>
         )}
       </td>
+      <td style={{ padding: "10px 14px", textAlign: "center" }}>
+        {gameActions.canRename && gameActions.onRename && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              gameActions.onRename?.(game);
+            }}
+          >
+            Rename
+          </Button>
+        )}
+      </td>
       <td style={{ padding: "10px 14px", textAlign: "right" }}>
-        <Button variant="primary" size="sm" onClick={(e) => { e.stopPropagation(); handlePlay(game.id); }}>
+        <Button variant="primary" size="sm" onClick={(e) => { e.stopPropagation(); gameActions.onPlay(game.id); }}>
           Play
         </Button>
       </td>
@@ -780,8 +820,9 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
                   <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600 }}>Platform</th>
                   <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Players</th>
                   <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Fav</th>
-                  {tab === "all" && <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Pin</th>}
-                  <th style={{ textAlign: "right", padding: "10px 14px", fontWeight: 600 }}></th>
+                  <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Pin</th>
+                  <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Rename</th>
+                  <th style={{ textAlign: "right", padding: "10px 14px", fontWeight: 600 }}>Play</th>
                 </tr>
               </thead>
               <tbody>
