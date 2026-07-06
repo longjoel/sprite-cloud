@@ -17,7 +17,7 @@ Run these first:
 
 ```bash
 pnpm vitest run tests/api/routes.test.ts tests/multiplayer/matrix.test.ts
-pnpm vitest run tests/integration/lifecycle-db.test.ts
+pnpm run test:integration
 pnpm run lint
 pnpm run build
 cargo check -p gv-server
@@ -35,12 +35,16 @@ Why this exists:
 **Goal**
 - Catch regressions in canonical player bootstrap, room join, guest SDP, token reuse, and per-command SDP answer routing.
 
-**Automation**
+## Automation
 - `pnpm vitest run tests/api/routes.test.ts tests/multiplayer/matrix.test.ts`
-- `pnpm vitest run tests/integration/lifecycle-db.test.ts`
+- `pnpm run test:integration`
 
-**Manual smoke**
-- Start host in one browser profile.
+## Notes
+- `test:integration` spins up disposable Postgres in Docker via `tests/integration/test-db.ts`.
+- `tests/integration/cleanup-db.test.ts` exercises the real `lib/db/cleanup.ts` path against Postgres, including FK-safe delete ordering and protection for old `pending` commands.
+
+## Manual smoke
+
 - Open guest link in a second browser profile on the same machine.
 - Confirm both sides get media and guest input works.
 

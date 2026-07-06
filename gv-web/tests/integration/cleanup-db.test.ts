@@ -9,9 +9,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { setupTestDb, teardownTestDb, getTestDb, resetTestDb } from "./test-db";
 import { users, servers, commands, sessions, launchEvents, peerTokens } from "@/lib/db/schema";
-import { eq, and, lt, inArray, notInArray, sql } from "drizzle-orm";
-
-const SESSION_STATE_TIMEOUT_MS = 60_000;
+import { eq } from "drizzle-orm";
+import { cleanupOnce } from "@/lib/db/cleanup";
 
 beforeAll(() => setupTestDb());
 afterAll(() => teardownTestDb());
@@ -28,57 +27,8 @@ async function seedUserAndServer() {
   return { userId: user.id, serverId: server.id };
 }
 
-// Replicate cleanup logic from lib/db/cleanup.ts (simplified for testing)
 async function runCleanup() {
-  const db = getTestDb();
-  const now = Date.now();
-
-  // Time out stuck sessions
-  const timeoutCutoff = new Date(now - SESSION_STATE_TIMEOUT_MS);
-  await db
-    .update(sessions)
-    .set({ status: "timed_out", endedAt: new Date(), roomToken: null })
-    .where(
-      and(
-        lt(sessions.stateEnteredAt, timeoutCutoff),
-        inArray(sessions.status, ["spawning", "ready", "connected"] as const),
-      ),
-    );
-
-  const commandCutoff = new Date(now - 3_600_000); // 1 hour
-  const sessionCutoff = new Date(now - 3_600_000);
-
-  // Delete launch_events first (FK child of both sessions and commands)
-  await db.delete(launchEvents).where(lt(launchEvents.createdAt, commandCutoff));
-
-  // Delete peer_tokens for ended sessions
-  await db.delete(peerTokens).where(
-    inArray(
-      peerTokens.sessionId,
-      db.select({ id: sessions.id }).from(sessions).where(lt(sessions.endedAt, sessionCutoff)),
-    ),
-  );
-  // Delete orphaned peer_tokens
-  await db.delete(peerTokens).where(
-    notInArray(
-      peerTokens.sessionId,
-      db.select({ id: sessions.id }).from(sessions),
-    ),
-  );
-
-  // Delete old ended/timed-out sessions
-  await db.delete(sessions).where(lt(sessions.endedAt, sessionCutoff));
-
-  // Delete old unreferenced commands
-  await db
-    .delete(commands)
-    .where(
-      and(
-        lt(commands.createdAt, commandCutoff),
-        sql`not exists (select 1 from ${sessions} where ${sessions.commandId} = ${commands.id})`,
-        sql`not exists (select 1 from ${launchEvents} where ${launchEvents.commandId} = ${commands.id})`,
-      ),
-    );
+  await cleanupOnce(getTestDb() as any);
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────
@@ -248,5 +198,25 @@ describe("Result-set cleanup", () => {
     const commandsLeft = await db.select().from(commands);
     expect(sessionsLeft.length).toBe(1); // fresh, not deleted
     expect(commandsLeft.length).toBe(1);
+  });
+
+  it("does not delete old pending commands", async () => {
+    const db = getTestDb();
+    const { serverId } = await seedUserAndServer();
+    const oldDate = new Date(Date.now() - 7_200_000);
+
+    const [cmd] = await db.insert(commands).values({
+      serverId,
+      type: "start_game",
+      payload: { game_id: "smw" },
+      status: "pending",
+      createdAt: oldDate,
+    }).returning();
+
+    await runCleanup();
+
+    const commandsLeft = await db.select().from(commands).where(eq(commands.id, cmd.id));
+    expect(commandsLeft.length).toBe(1);
+    expect(commandsLeft[0].status).toBe("pending");
   });
 });

@@ -9,7 +9,8 @@
     "prebuild": "esbuild lib/touch-gamepad/main.ts --bundle --outfile=public/player/touch-gamepad-v2.js --format=iife --target=es2020 --global-name=__touchGamepadBundle",
     "start": "next start",
     "lint": "next lint",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:integration": "vitest run tests/integration/lifecycle-db.test.ts tests/integration/cleanup-db.test.ts"
   },
   "dependencies": {
     "@fluentui/react-components": "^9.74.3",
