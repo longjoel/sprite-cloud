@@ -1,4 +1,3 @@
-import "@/lib/db/cleanup";
 import "@/app/globals.css";
 import "@/components/fluent/tiles.css";
 import type { Metadata, Viewport } from "next";

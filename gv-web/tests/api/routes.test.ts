@@ -87,8 +87,6 @@ vi.mock("@/lib/server-auth", () => ({
   unauthorizedResponse: mockUnauthorizedResponse,
 }));
 
-vi.mock("@/lib/db/cleanup", () => ({ startCleanup: vi.fn() }));
-
 const mockWaitForSdpAnswer = vi.fn();
 vi.mock("@/lib/pending-sdp", () => ({ waitForSdpAnswer: mockWaitForSdpAnswer }));
 

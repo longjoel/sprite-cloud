@@ -10,7 +10,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:integration": "vitest run tests/integration/lifecycle-db.test.ts tests/integration/cleanup-db.test.ts"
+    "test:integration": "vitest run tests/integration/lifecycle-db.test.ts tests/integration/cleanup-db.test.ts",
+    "cleanup:once": "tsx scripts/cleanup.ts"
   },
   "dependencies": {
     "@fluentui/react-components": "^9.74.3",
