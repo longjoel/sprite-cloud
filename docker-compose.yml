@@ -31,8 +31,6 @@ services:
       # gv-web env
       AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET}
       AUTH_URL: ${AUTH_URL:-http://localhost:3000}
-      AUTH_GITHUB_ID: ${AUTH_GITHUB_ID:-}
-      AUTH_GITHUB_SECRET: ${AUTH_GITHUB_SECRET:-}
       DATABASE_URL: ${DATABASE_URL:-postgresql://games_vault@127.0.0.1:5433/games_vault}
       GV_ICE_STUN_URLS: ${GV_ICE_STUN_URLS:-stun:stun.l.google.com:19302}
       GV_ICE_TURN_URLS: ${GV_ICE_TURN_URLS:-}
