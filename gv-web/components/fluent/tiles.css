@@ -16,7 +16,13 @@
   min-height: 160px;
   overflow: hidden;
   border: 1px solid transparent;
-  transition: border-color 0.15s, transform 0.1s;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);
+  transition: border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+
+.game-tile.is-pinned,
+.game-tile.is-favorite {
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.2);
 }
 
 .game-tile:hover {
@@ -110,6 +116,32 @@
 .game-tile-edit-btn:hover {
   color: var(--color-accent);
   border-color: var(--color-accent);
+}
+
+.game-tile-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.game-tile-meta-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(10, 14, 26, 0.5);
+  color: var(--color-cloud-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.game-tile-meta-pill.is-accent {
+  color: var(--color-accent);
+  border-color: rgba(56, 189, 248, 0.24);
+  background: rgba(56, 189, 248, 0.12);
 }
 
 /* ── Responsive — fewer columns on mobile ────────────────────────── */

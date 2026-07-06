@@ -45,6 +45,12 @@ export default function GameTile({
   onEdit,
 }: GameTileProps) {
   const sizeClass = sizeClassMap[size];
+  const stateClasses = [
+    isFavorite ? "is-favorite" : "",
+    isPinned ? "is-pinned" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   const nameRef = useRef<HTMLSpanElement>(null);
   const [overflows, setOverflows] = useState(false);
   const platformBg = getPlatformColor(game.platform);
@@ -56,7 +62,7 @@ export default function GameTile({
 
   return (
     <Card
-    className={`game-tile ${sizeClass}`}
+    className={`game-tile ${sizeClass} ${stateClasses}`.trim()}
     onClick={() => onPlay(game.id)}
     appearance="filled-alternative"
     style={{ cursor: "pointer", userSelect: "none", background: platformBg }}
@@ -147,11 +153,14 @@ export default function GameTile({
         >
           {game.name}
         </span>
-        {game.maxPlayers > 1 && (
-          <Text size={100} style={{ color: "#9ca3b8" }}>
-            {game.maxPlayers}p
-          </Text>
-        )}
+        <div className="game-tile-meta-row">
+          <span className="game-tile-meta-pill">{game.platform}</span>
+          <span className="game-tile-meta-pill">
+            {game.maxPlayers > 1 ? `${game.maxPlayers}p` : "1p"}
+          </span>
+          {isPinned && <span className="game-tile-meta-pill is-accent">Pinned</span>}
+          {isFavorite && <span className="game-tile-meta-pill is-accent">Favorite</span>}
+        </div>
       </div>
 
       {/* Edit button — bottom-right, appears on hover */}
