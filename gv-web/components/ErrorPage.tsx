@@ -2,12 +2,33 @@
 
 import Link from "next/link";
 
+interface ErrorPageAction {
+  label: string;
+  href?: string;
+  onClick?: () => void;
+}
+
 interface ErrorPageProps {
   code: number;
   title: string;
   message: string;
-  action?: { label: string; href: string };
+  action?: ErrorPageAction;
 }
+
+const actionStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "var(--space-3, 6px) var(--space-7, 24px)",
+  border: "1px solid var(--color-accent)",
+  color: "var(--color-accent)",
+  background: "transparent",
+  fontSize: "var(--font-size-sm, 12px)",
+  fontFamily: "var(--font-mono, monospace)",
+  textDecoration: "none",
+  textTransform: "uppercase",
+  letterSpacing: "0.1em",
+  transition: "0.15s",
+  cursor: "pointer",
+};
 
 export function ErrorPage({ code, title, message, action }: ErrorPageProps) {
   return (
@@ -62,39 +83,21 @@ export function ErrorPage({ code, title, message, action }: ErrorPageProps) {
         {message}
       </div>
 
-      {action && (
-        <Link
-          href={action.href}
-          style={{
-            display: "inline-block",
-            padding: "var(--space-3, 6px) var(--space-7, 24px)",
-            border: "1px solid var(--color-accent)",
-            color: "var(--color-accent)",
-            fontSize: "var(--font-size-sm, 12px)",
-            fontFamily: "var(--font-mono, monospace)",
-            textDecoration: "none",
-            textTransform: "uppercase",
-            letterSpacing: "0.1em",
-            transition: "0.15s",
-          }}
-        >
+      {action?.onClick ? (
+        <button type="button" onClick={action.onClick} style={actionStyle}>
+          {action.label}
+        </button>
+      ) : action?.href ? (
+        <Link href={action.href} style={actionStyle}>
           {action.label}
         </Link>
-      )}
-
-      {!action && (
+      ) : (
         <Link
           href="/"
           style={{
-            display: "inline-block",
-            padding: "var(--space-3, 6px) var(--space-7, 24px)",
+            ...actionStyle,
             border: "1px solid var(--color-border-default)",
             color: "var(--color-text-secondary)",
-            fontSize: "var(--font-size-sm, 12px)",
-            fontFamily: "var(--font-mono, monospace)",
-            textDecoration: "none",
-            textTransform: "uppercase",
-            letterSpacing: "0.1em",
           }}
         >
           Go home
