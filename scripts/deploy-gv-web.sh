@@ -1,44 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ── deploy-gv-web.sh ────────────────────────────────────────────────────
-# Blessed one-command deploy for gv-web to the VPS Docker container.
-#
-# Usage:
-#   scripts/deploy-gv-web.sh              # build + deploy (requires clean tree)
-#   scripts/deploy-gv-web.sh --allow-dirty # deploy even with uncommitted changes
-#
-# What it does:
-#   1. Verifies git tree is clean (unless --allow-dirty)
-#   2. Runs `npm run build` in gv-web/
-#   3. Packs standalone + static + public into a tar stream
-#   4. Extracts into the running gv-web container on the VPS
-#   5. Stamps the git SHA into a runtime-version.json file
-#   6. Restarts the container
-#   7. Verifies /api/health responds and reports the deployed SHA
-# ────────────────────────────────────────────────────────────────────────
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 WEB_DIR="$PROJECT_DIR/gv-web"
 
-VPS_HOST="${GV_VPS_HOST:?set GV_VPS_HOST to your gateway host}"
+VPS_HOST="${GV_VPS_HOST:-lngnckr.tech}"
 VPS_USER="${GV_VPS_USER:-root}"
+VPS_REPO_DIR="${GV_VPS_REPO_DIR:-/root/gv-source}"
+VPS_ENV_FILE="${GV_VPS_ENV_FILE:-/root/games-vault/.env}"
+GV_WEB_URL="${GV_WEB_URL:-https://lngnckr.tech}"
+GV_WEB_PUBLIC_ORIGIN="${GV_WEB_PUBLIC_ORIGIN:-$GV_WEB_URL}"
 CONTAINER="${GV_WEB_CONTAINER:-gv-web-gv-web-1}"
-APP_DIR="${GV_WEB_APP_DIR:-/app/gv-web}"
-HEALTH_URL="${GV_WEB_HEALTH_URL:-${GV_WEB_URL:?set GV_WEB_URL or GV_WEB_HEALTH_URL}/api/health}"
-
-# ── helpers ────────────────────────────────────────────────────────────
+IMAGE="${GV_WEB_IMAGE:-gv-web-prod:latest}"
 
 log()  { printf '[deploy-gv-web] %s\n' "$*"; }
-warn() { printf '[deploy-gv-web][warn] %s\n' "$*" >&2; }
 fail() { printf '[deploy-gv-web][error] %s\n' "$*" >&2; exit 1; }
-
-require_cmd() {
-  command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
-}
-
-# ── flags ──────────────────────────────────────────────────────────────
+require_cmd() { command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"; }
 
 ALLOW_DIRTY=0
 while [[ $# -gt 0 ]]; do
@@ -48,144 +26,56 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# ── prerequisites ──────────────────────────────────────────────────────
-
 require_cmd git
 require_cmd ssh
+require_cmd rsync
 require_cmd curl
+require_cmd pnpm
+require_cmd python3
 
 cd "$PROJECT_DIR"
-
 GV_SHA="$(git rev-parse HEAD)"
 GV_SHORT_SHA="${GV_SHA:0:7}"
 GV_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 GV_BUILT_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-log "deploying gv-web"
-log "  sha:      $GV_SHORT_SHA"
-log "  branch:   $GV_BRANCH"
-log "  built_at: $GV_BUILT_AT"
-
-# ── check git cleanliness ──────────────────────────────────────────────
-
 if [[ "$ALLOW_DIRTY" -eq 0 ]]; then
-  if ! git diff --quiet || ! git diff --cached --quiet; then
-    fail "working tree is dirty — commit/stash changes or use --allow-dirty"
-  fi
-  if [ -n "$(git ls-files -o --exclude-standard gv-web/)" ]; then
-    fail "untracked files in gv-web/ — clean up or use --allow-dirty"
-  fi
+  git diff --quiet || fail 'working tree is dirty — commit changes or use --allow-dirty'
+  git diff --cached --quiet || fail 'staged changes present — commit changes or use --allow-dirty'
+  [ -z "$(git ls-files -o --exclude-standard)" ] || fail 'untracked files present — clean up or use --allow-dirty'
 fi
 
-# ── build ──────────────────────────────────────────────────────────────
+log "building gv-web locally"
+(
+  cd "$WEB_DIR"
+  pnpm run lint
+  pnpm run build
+)
 
-log "building gv-web..."
-cd "$WEB_DIR"
-npm run build
+log "syncing monorepo to $VPS_USER@$VPS_HOST:$VPS_REPO_DIR"
+rsync -az --delete \
+  --exclude '.git' \
+  --exclude 'node_modules' \
+  --exclude '.next' \
+  --exclude 'target' \
+  "$PROJECT_DIR/" "$VPS_USER@$VPS_HOST:$VPS_REPO_DIR/"
 
-# Stamp the runtime version file that the health endpoint reads.
-RUNTIME_VERSION_FILE="$WEB_DIR/.next/runtime-version.json"
-python3 - <<PY "$GV_SHA" "$GV_SHORT_SHA" "$GV_BRANCH" "$GV_BUILT_AT" "$RUNTIME_VERSION_FILE"
-import json, sys
-sha, short_sha, branch, built_at, path = sys.argv[1:6]
-payload = {
-    "git_sha": sha,
-    "git_short_sha": short_sha,
-    "git_branch": branch,
-    "built_at_utc": built_at,
-    "package_version": "0.1.0",
-}
-with open(path, "w", encoding="utf-8") as f:
-    json.dump(payload, f, indent=2)
-    f.write("\n")
-PY
+log "building $IMAGE on VPS"
+ssh "$VPS_USER@$VPS_HOST" "cd '$VPS_REPO_DIR' && docker build -f docker/gv-web/Dockerfile.prod -t '$IMAGE' --build-arg GV_WEB_GIT_SHA='$GV_SHORT_SHA' --build-arg GV_WEB_GIT_BRANCH='$GV_BRANCH' --build-arg GV_WEB_RELEASED_AT_UTC='$GV_BUILT_AT' ."
 
-cd "$PROJECT_DIR"
+log "restarting production container via VPS helper"
+ssh "$VPS_USER@$VPS_HOST" "cd '$VPS_REPO_DIR' && GV_WEB_ENV_FILE='$VPS_ENV_FILE' GV_WEB_CONTAINER='$CONTAINER' GV_WEB_IMAGE='$IMAGE' GV_WEB_PUBLIC_ORIGIN='$GV_WEB_PUBLIC_ORIGIN' bash ./deploy-gv-web.sh"
 
-# ── pack the deploy payload ────────────────────────────────────────────
-# The container runs from /app/gv-web/. We pack:
-#   .next/standalone/gv-web/*  → /app/gv-web/   (the runtime root)
-#   .next/static/               → /app/gv-web/.next/static/
-#   .next/runtime-version.json  → /app/gv-web/.next/runtime-version.json
-#   public/player/              → /app/gv-web/public/player/
+log "verifying public health"
+HEALTH_JSON="$(curl -fsS "$GV_WEB_URL/api/health")"
+STATUS="$(printf '%s' "$HEALTH_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('status',''))")"
+DEPLOYED_SHA="$(printf '%s' "$HEALTH_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['versions']['web'].get('git_sha',''))")"
+[ "$STATUS" = "ok" ] || fail "public health status is $STATUS"
+[ "$DEPLOYED_SHA" = "$GV_SHORT_SHA" ] || fail "deployed sha mismatch: expected $GV_SHORT_SHA got $DEPLOYED_SHA"
 
-log "packing deploy payload..."
-
-TMP_TAR="$(mktemp /tmp/gv-web-deploy.XXXXXX.tar.gz)"
-trap 'rm -f "$TMP_TAR"' EXIT
-
-# Tar the payload. We use --transform to strip the standalone parent dir.
-tar czf "$TMP_TAR" \
-  -C "$WEB_DIR/.next/standalone/gv-web" . \
-  -C "$WEB_DIR/.next" static \
-  -C "$WEB_DIR/.next" runtime-version.json \
-  -C "$WEB_DIR" public/player \
-  -C "$WEB_DIR" public/manifest.json \
-  -C "$WEB_DIR" public/sw.js \
-  -C "$WEB_DIR" public/icons 2>/dev/null || true
-
-# Also include package.json for version info
-tar czf "$TMP_TAR" \
-  -C "$WEB_DIR/.next/standalone/gv-web" . \
-  -C "$WEB_DIR/.next" static \
-  -C "$WEB_DIR/.next" runtime-version.json \
-  -C "$WEB_DIR" public/player \
-  -C "$WEB_DIR" public/manifest.json 2>/dev/null || true \
-  -C "$WEB_DIR" public/sw.js 2>/dev/null || true \
-  -C "$WEB_DIR" public/icons 2>/dev/null || true \
-  -C "$WEB_DIR" package.json
-
-log "payload size: $(du -h "$TMP_TAR" | cut -f1)"
-
-# ── ship to VPS ────────────────────────────────────────────────────────
-
-log "shipping to $VPS_USER@$VPS_HOST ..."
-
-# Clean .next from the container to prevent stale routes
-ssh "$VPS_USER@$VPS_HOST" "docker exec $CONTAINER rm -rf $APP_DIR/.next && docker exec $CONTAINER mkdir -p $APP_DIR/.next"
-
-# Extract into the container
-cat "$TMP_TAR" | ssh "$VPS_USER@$VPS_HOST" "docker exec -i $CONTAINER tar xzf - -C $APP_DIR/"
-
-# Fix tar prefix: -C "$WEB_DIR/.next" static puts static/ at root, but Next.js
-# standalone expects .next/static/. Move it into place.
-ssh "$VPS_USER@$VPS_HOST" "docker exec $CONTAINER sh -c '
-  if [ -d $APP_DIR/static ] && [ ! -d $APP_DIR/.next/static ]; then
-    mv $APP_DIR/static $APP_DIR/.next/static
-  fi
-  if [ -f $APP_DIR/runtime-version.json ] && [ ! -f $APP_DIR/.next/runtime-version.json ]; then
-    mv $APP_DIR/runtime-version.json $APP_DIR/.next/runtime-version.json
-  fi
-'"
-
-log "payload extracted into $CONTAINER:$APP_DIR/"
-
-# ── restart ────────────────────────────────────────────────────────────
-
-log "restarting $CONTAINER ..."
-ssh "$VPS_USER@$VPS_HOST" "docker restart $CONTAINER"
-
-# ── verify health ──────────────────────────────────────────────────────
-
-log "waiting for healthy response..."
-for attempt in $(seq 1 30); do
-  if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
-    break
-  fi
-  sleep 2
-done
-
-# Check the deployed SHA matches
-HEALTH_JSON="$(curl -fsS "$HEALTH_URL")"
-DEPLOYED_SHA="$(echo "$HEALTH_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('versions',{}).get('web',{}).get('git_sha',''))" 2>/dev/null || echo "")"
-
-if [[ -z "$DEPLOYED_SHA" ]]; then
-  warn "could not read deployed SHA from health endpoint"
-elif [[ "$DEPLOYED_SHA" == "$GV_SHA" ]]; then
-  log "version verified: deployed SHA matches ($GV_SHORT_SHA)"
-else
-  warn "version mismatch: local=$GV_SHORT_SHA deployed=$DEPLOYED_SHA"
-fi
+log "verifying public routes"
+curl -fsSI "$GV_WEB_URL/" >/dev/null
+curl -fsSI "$GV_WEB_URL/watch" >/dev/null
 
 log "deploy complete ($GV_SHORT_SHA)"
-log "health: $HEALTH_URL"
+log "health: $GV_WEB_URL/api/health"

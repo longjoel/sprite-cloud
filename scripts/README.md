@@ -10,7 +10,7 @@ Keep this directory boring. Scripts here should be reusable release/dev entrypoi
 | `dev-start.sh` | Local dev stack helper |
 | `build-release.sh` | Builds `gv-server` and `gv-web` release artifacts |
 | `deploy-dev.sh` | Deploys the dev/self-host `gv-server` binary |
-| `deploy-gv-web.sh` | Deploys the gateway web bundle to the running container |
+| `deploy-gv-web.sh` | Rebuilds the gv-web Docker image on the VPS and restarts the host-network runtime safely |
 | `apply-gv-web-migration.sh` | Applies an explicit Drizzle SQL migration |
 | `smoke-test.sh` | Checks release markers and health endpoints |
 | `release-common.sh` | Shared helpers for the release scripts above |
