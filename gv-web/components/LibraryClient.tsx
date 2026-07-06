@@ -475,6 +475,15 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     onRename: session?.user?.id ? startRename : undefined,
   };
 
+  const renderStatePills = (game: Game) => (
+    <div style={styles.statePillRow}>
+      <span style={styles.statePill}>{game.platform}</span>
+      <span style={styles.statePill}>{game.maxPlayers > 1 ? `${game.maxPlayers}p` : "1p"}</span>
+      {gameActions.isPinned(game.id) && <span style={{ ...styles.statePill, ...styles.statePillAccent }}>Pinned</span>}
+      {gameActions.isFavorite(game.id) && <span style={{ ...styles.statePill, ...styles.statePillAccent }}>Favorite</span>}
+    </div>
+  );
+
   const renderGameCard = (game: Game) => (
     <GameTile
       key={game.id}
@@ -503,21 +512,17 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
         (e.currentTarget as HTMLElement).style.background = index % 2 === 0 ? "rgba(17,24,39,0.3)" : "transparent";
       }}
     >
-      <td style={{ padding: "10px 14px", fontSize: "var(--font-size-md)", color: "var(--color-cloud)" }}>
-        <span style={{ fontWeight: 600 }}>{game.name}</span>
+      <td style={{ padding: "12px 14px", fontSize: "var(--font-size-md)", color: "var(--color-cloud)" }}>
+        <div style={styles.tableNameCell}>
+          <span style={styles.tableName}>{game.name}</span>
+          {renderStatePills(game)}
+        </div>
       </td>
-      <td style={{
-        padding: "10px 14px",
-        fontSize: "var(--font-size-xs)",
-        fontFamily: "var(--font-mono)",
-        color: "var(--color-cloud-dim)",
-        textTransform: "uppercase",
-        letterSpacing: "0.05em",
-      }}>
+      <td style={{ padding: "12px 14px" }}>
         <Badge variant="info">{game.platform}</Badge>
       </td>
-      <td style={{ padding: "10px 14px", textAlign: "center", fontSize: "var(--font-size-xs)", color: "var(--color-cloud-dim)" }}>
-        {game.maxPlayers > 1 ? `${game.maxPlayers}p` : "—"}
+      <td style={{ padding: "12px 14px", textAlign: "center", fontSize: "var(--font-size-xs)", color: "var(--color-cloud-dim)" }}>
+        {game.maxPlayers > 1 ? `${game.maxPlayers}p` : "1p"}
       </td>
       <td style={{ padding: "10px 14px", textAlign: "center" }}>
         {gameActions.canFavorite && gameActions.onToggleFavorite && (
@@ -797,10 +802,21 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
               : tab === "all" ? "No games found." : tab === "favorites" ? "No favorites yet." : "No recent plays."}
           </p>
         ) : viewMode === "grid" ? (
-          <div className="game-tile-grid">
-            {sortedGames.map((game) => renderGameCard(game))}
+          <div style={styles.librarySurfaceCard}>
+            <div style={styles.librarySurfaceHeader}>
+              <span style={styles.librarySurfaceTitle}>Tile view</span>
+              <span style={styles.librarySurfaceHint}>Metro tiles with the same play, favorite, pin, and rename actions.</span>
+            </div>
+            <div className="game-tile-grid">
+              {sortedGames.map((game) => renderGameCard(game))}
+            </div>
           </div>
         ) : (
+          <div style={styles.librarySurfaceCard}>
+            <div style={styles.librarySurfaceHeader}>
+              <span style={styles.librarySurfaceTitle}>Table view</span>
+              <span style={styles.librarySurfaceHint}>Dense library scan with the same state and actions as tiles.</span>
+            </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{
               width: "100%",
@@ -829,6 +845,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
                 {sortedGames.map((game, i) => renderGameRow(game, i))}
               </tbody>
             </table>
+          </div>
           </div>
         )}
 
@@ -934,6 +951,31 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "var(--font-mono)",
   },
   section: { padding: "0 24px", marginBottom: "var(--space-8)" },
+  librarySurfaceCard: {
+    border: "1px solid rgba(56, 189, 248, 0.12)",
+    background: "rgba(17, 24, 39, 0.7)",
+    padding: "var(--space-5)",
+    boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.02)",
+  },
+  librarySurfaceHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "var(--space-4)",
+    marginBottom: "var(--space-5)",
+    flexWrap: "wrap",
+  },
+  librarySurfaceTitle: {
+    color: "var(--color-accent)",
+    fontFamily: "var(--font-mono)",
+    fontSize: "var(--font-size-sm)",
+    textTransform: "uppercase",
+    letterSpacing: "0.08em",
+  },
+  librarySurfaceHint: {
+    color: "var(--color-cloud-dim)",
+    fontSize: "var(--font-size-sm)",
+  },
   h2: {
     margin: 0,
     fontSize: "var(--font-size-lg)",
@@ -944,6 +986,38 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: "0.05em",
   },
   empty: { fontSize: "var(--font-size-base)", color: "var(--color-cloud-dim)", fontStyle: "italic" },
+  tableNameCell: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "var(--space-2)",
+  },
+  tableName: {
+    fontWeight: 600,
+    color: "var(--color-cloud)",
+    fontSize: "var(--font-size-md)",
+  },
+  statePillRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "var(--space-2)",
+  },
+  statePill: {
+    display: "inline-flex",
+    alignItems: "center",
+    padding: "2px 6px",
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(10,14,26,0.5)",
+    color: "var(--color-cloud-dim)",
+    fontFamily: "var(--font-mono)",
+    fontSize: "var(--font-size-xs)",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+  },
+  statePillAccent: {
+    color: "var(--color-accent)",
+    border: "1px solid rgba(56,189,248,0.24)",
+    background: "rgba(56,189,248,0.12)",
+  },
   loading: {
     textAlign: "center" as const,
     padding: "var(--space-8)",
