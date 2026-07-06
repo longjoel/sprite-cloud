@@ -75,24 +75,9 @@ export async function cleanupOnce(database = db) {
       );
   } catch (e) {
     console.error(JSON.stringify({ service: "gv-web", level: "error", msg: "cleanup error", error: String(e) }));
+    throw e;
   }
 }
 
-let _started = false;
-
-export function startCleanup() {
-  if (_started) return;
-
-  // Skip during Next.js build phase — no DB connection available.
-  if (process.env.NEXT_PHASE === "phase-production-build") return;
-
-  _started = true;
-
-  // Run once at startup
-  cleanupOnce();
-
-  setInterval(cleanupOnce, CLEANUP_INTERVAL_MS);
-}
-
-// Export startCleanup for explicit scheduling (cron, systemd timer, or
-// Docker sidecar). Importing this module does NOT start a cleanup loop.
+// Importing this module does NOT start cleanup. Run `pnpm run cleanup:once`
+// (or invoke cleanupOnce from explicit tooling) instead.

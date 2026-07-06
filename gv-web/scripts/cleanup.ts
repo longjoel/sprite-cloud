@@ -2,10 +2,10 @@
  * Standalone cleanup script for gv-web database maintenance.
  *
  * Run inside the gv-web container:
- *   docker exec gv-web-gv-web-1 node scripts/cleanup.js
+ *   pnpm run cleanup:once
  *
  * Or during development:
- *   DATABASE_URL=postgresql://... npx tsx gv-web/scripts/cleanup.ts
+ *   DATABASE_URL=postgresql://... pnpm run cleanup:once
  *
  * Exits 0 on success, 1 on error.
  */
