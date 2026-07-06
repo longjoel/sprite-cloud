@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState } from "react";
 import { Card, Text, Badge } from "@fluentui/react-components";
-import { Star20Regular, Star20Filled, Edit20Regular } from "@fluentui/react-icons";
+import { Star20Regular, Star20Filled, Edit20Regular, Pin20Regular, Pin20Filled } from "@fluentui/react-icons";
 import { getPlatformColor } from "@/lib/platformColors";
 
 // ── GameTile — Metro-style tile for the game library grid ──────────
@@ -21,8 +21,10 @@ interface GameTileProps {
   };
   size?: "square" | "wide" | "large";
   isFavorite?: boolean;
+  isPinned?: boolean;
   onPlay: (gameId: string) => void;
   onToggleFavorite?: (gameId: string, e: React.MouseEvent) => void;
+  onTogglePin?: (gameId: string, e: React.MouseEvent) => void;
   onEdit?: (game: { id: string; name: string; platform: string; maxPlayers: number }) => void;
 }
 
@@ -36,8 +38,10 @@ export default function GameTile({
   game,
   size = "square",
   isFavorite = false,
+  isPinned = false,
   onPlay,
   onToggleFavorite,
+  onTogglePin,
   onEdit,
 }: GameTileProps) {
   const sizeClass = sizeClassMap[size];
@@ -73,25 +77,51 @@ export default function GameTile({
         {game.platform}
       </Badge>
 
-      {/* Favorite star — top-right */}
-      {onToggleFavorite && (
-        <button
-          onClick={(e) => onToggleFavorite(game.id, e)}
+      {/* Quick actions — top-right */}
+      {(onToggleFavorite || onTogglePin) && (
+        <div
           style={{
             position: "absolute",
             top: 8,
             right: 8,
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            color: isFavorite ? "#38bdf8" : "#4b5563",
-            padding: 2,
-            lineHeight: 0,
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
           }}
-          title={isFavorite ? "Remove favorite" : "Add favorite"}
         >
-          {isFavorite ? <Star20Filled /> : <Star20Regular />}
-        </button>
+          {onTogglePin && (
+            <button
+              onClick={(e) => onTogglePin(game.id, e)}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: isPinned ? "#38bdf8" : "#4b5563",
+                padding: 2,
+                lineHeight: 0,
+              }}
+              title={isPinned ? "Unpin" : "Pin"}
+            >
+              {isPinned ? <Pin20Filled /> : <Pin20Regular />}
+            </button>
+          )}
+          {onToggleFavorite && (
+            <button
+              onClick={(e) => onToggleFavorite(game.id, e)}
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: isFavorite ? "#38bdf8" : "#4b5563",
+                padding: 2,
+                lineHeight: 0,
+              }}
+              title={isFavorite ? "Remove favorite" : "Add favorite"}
+            >
+              {isFavorite ? <Star20Filled /> : <Star20Regular />}
+            </button>
+          )}
+        </div>
       )}
 
       {/* Game name — centered bottom */}
