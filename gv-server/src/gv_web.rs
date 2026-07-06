@@ -77,15 +77,21 @@ pub struct ServerMetadata {
 }
 
 /// ICE configuration summary for route/connectivity diagnostics.
-/// No credentials — URLs-only, safe to store server-side.
+/// No credentials — URLs-only plus redacted presence/state fields.
 #[derive(Debug, Serialize)]
 pub struct IceMetadata {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub stun_urls: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub turn_urls: Vec<String>,
+    pub stun_url_count: usize,
+    pub turn_url_count: usize,
     pub turn_configured: bool,
+    pub turn_username_present: bool,
+    pub turn_credential_present: bool,
     pub transport_policy: String,
+    pub status: String,
+    pub defaulted_to_public_stun: bool,
 }
 
 /// Runtime configuration exposed for dashboard display.
@@ -165,7 +171,12 @@ impl GvWebClient {
 
     /// POST /api/auth/pair/claim — exchange pairing code for API key.
     /// Optionally reports the server's ROM root paths to gv-web.
-    pub async fn claim(code: &str, gv_web_url: &str, rom_roots: Vec<String>, hostname: &str) -> Result<ClaimResponse> {
+    pub async fn claim(
+        code: &str,
+        gv_web_url: &str,
+        rom_roots: Vec<String>,
+        hostname: &str,
+    ) -> Result<ClaimResponse> {
         let client = reqwest::Client::builder()
             .timeout(crate::config::http_timeout())
             .build()
@@ -211,10 +222,7 @@ impl GvWebClient {
     async fn verify_inner(&self, metadata: Option<&ServerMetadata>) -> Result<VerifyResponse> {
         let url = format!("{}/api/auth/verify", self.base_url);
 
-        let req = self
-            .client
-            .get(&url)
-            .bearer_auth(&self.auth.api_key);
+        let req = self.client.get(&url).bearer_auth(&self.auth.api_key);
 
         let resp = if let Some(meta) = metadata {
             // Use POST when sending metadata
@@ -276,12 +284,24 @@ impl GvWebClient {
     ///
     /// Retries up to 3 times with exponential backoff for transient
     /// network failures.
-    pub async fn notify(&self, command_id: &str, lease_token: &str, worker_url: &str, game_id: &str, session_id: Option<&str>) -> Result<()> {
-        crate::retry::with_retry(
-            3,
-            std::time::Duration::from_secs(1),
-            || self.notify_once(command_id, lease_token, worker_url, game_id, None, session_id),
-        )
+    pub async fn notify(
+        &self,
+        command_id: &str,
+        lease_token: &str,
+        worker_url: &str,
+        game_id: &str,
+        session_id: Option<&str>,
+    ) -> Result<()> {
+        crate::retry::with_retry(3, std::time::Duration::from_secs(1), || {
+            self.notify_once(
+                command_id,
+                lease_token,
+                worker_url,
+                game_id,
+                None,
+                session_id,
+            )
+        })
         .await
     }
 
@@ -298,20 +318,16 @@ impl GvWebClient {
         sdp_answer: &str,
         session_id: Option<&str>,
     ) -> Result<()> {
-        crate::retry::with_retry(
-            3,
-            std::time::Duration::from_secs(1),
-            || {
-                self.notify_once(
-                    command_id,
-                    lease_token,
-                    worker_url,
-                    game_id,
-                    Some(sdp_answer.to_string()),
-                    session_id,
-                )
-            },
-        )
+        crate::retry::with_retry(3, std::time::Duration::from_secs(1), || {
+            self.notify_once(
+                command_id,
+                lease_token,
+                worker_url,
+                game_id,
+                Some(sdp_answer.to_string()),
+                session_id,
+            )
+        })
         .await
     }
 
@@ -360,12 +376,16 @@ impl GvWebClient {
     ///
     /// Tells gv-web to mark the session as ended so the browser stops
     /// polling for a worker URL.
-    pub async fn notify_stop(&self, command_id: &str, lease_token: &str, game_id: &str, session_id: Option<&str>) -> Result<()> {
-        crate::retry::with_retry(
-            3,
-            std::time::Duration::from_secs(1),
-            || self.notify_stop_once(command_id, lease_token, game_id, session_id),
-        )
+    pub async fn notify_stop(
+        &self,
+        command_id: &str,
+        lease_token: &str,
+        game_id: &str,
+        session_id: Option<&str>,
+    ) -> Result<()> {
+        crate::retry::with_retry(3, std::time::Duration::from_secs(1), || {
+            self.notify_stop_once(command_id, lease_token, game_id, session_id)
+        })
         .await
     }
 
@@ -395,13 +415,23 @@ impl GvWebClient {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("notify worker dead failed (HTTP {}): {}", status.as_u16(), body);
+            anyhow::bail!(
+                "notify worker dead failed (HTTP {}): {}",
+                status.as_u16(),
+                body
+            );
         }
 
         Ok(())
     }
 
-    async fn notify_stop_once(&self, command_id: &str, lease_token: &str, game_id: &str, session_id: Option<&str>) -> Result<()> {
+    async fn notify_stop_once(
+        &self,
+        command_id: &str,
+        lease_token: &str,
+        game_id: &str,
+        session_id: Option<&str>,
+    ) -> Result<()> {
         let url = format!("{}/api/server/notify", self.base_url);
 
         let resp = self
@@ -434,7 +464,12 @@ impl GvWebClient {
     ///
     /// Used by browse_files and scan_paths to report file trees and
     /// match results back to gv-web for browser polling.
-    pub async fn command_result(&self, command_id: &str, lease_token: &str, result: &serde_json::Value) -> Result<()> {
+    pub async fn command_result(
+        &self,
+        command_id: &str,
+        lease_token: &str,
+        result: &serde_json::Value,
+    ) -> Result<()> {
         let url = format!("{}/api/server/result", self.base_url);
 
         let resp = self
@@ -460,7 +495,11 @@ impl GvWebClient {
     }
 
     /// POST /api/server/import — auto-import scanned game files into library.
-    pub async fn import_library(&self, server_id: &str, files: &[serde_json::Value]) -> anyhow::Result<()> {
+    pub async fn import_library(
+        &self,
+        server_id: &str,
+        files: &[serde_json::Value],
+    ) -> anyhow::Result<()> {
         let url = format!("{}/api/server/import", self.base_url);
         let resp = self
             .client

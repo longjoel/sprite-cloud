@@ -89,6 +89,9 @@ vi.mock("@/lib/server-auth", () => ({
 
 vi.mock("@/lib/db/cleanup", () => ({ startCleanup: vi.fn() }));
 
+const mockWaitForSdpAnswer = vi.fn();
+vi.mock("@/lib/pending-sdp", () => ({ waitForSdpAnswer: mockWaitForSdpAnswer }));
+
 // ── Helpers ────────────────────────────────────────────────────────────
 
 function authHeader(token = "gvsk_test_api_key_12345") {
@@ -145,6 +148,7 @@ function resetAllMocks() {
     name: "gv-server",
     apiKeyHash: "hashed_key",
   });
+  mockWaitForSdpAnswer.mockResolvedValue("v=0\r\nanswer");
 }
 
 beforeEach(resetAllMocks);
@@ -317,25 +321,60 @@ describe("POST /api/server/command", () => {
   });
 
   it("queues a start_game command and returns worker_token", async () => {
-    // Mock the server membership check — returns admin role
-    mockDb.select.mockReturnValue(
-      Object.assign(Promise.resolve([{ role: "admin" }]), {
-        from: vi.fn().mockReturnThis(),
-        innerJoin: vi.fn(() => ({
-          where: vi.fn(() => ({
-            limit: vi.fn(() => Promise.resolve([{ role: "admin" }])),
+    mockDb.select
+      .mockReturnValueOnce(
+        Object.assign(Promise.resolve([{ role: "admin" }]), {
+          from: vi.fn().mockReturnThis(),
+          innerJoin: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(() => Promise.resolve([{ role: "admin" }])),
+            })),
           })),
-        })),
-      }),
-    );
+        }),
+      )
+      .mockReturnValueOnce(
+        Object.assign(Promise.resolve([{ romPath: "/roms/smw.smc", platform: "snes", gameName: "Super Mario World" }]), {
+          from: vi.fn().mockReturnThis(),
+          innerJoin: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(() => Promise.resolve([{ romPath: "/roms/smw.smc", platform: "snes", gameName: "Super Mario World" }])),
+            })),
+          })),
+        }),
+      )
+      .mockReturnValueOnce(
+        Object.assign(Promise.resolve([]), {
+          from: vi.fn().mockReturnThis(),
+          where: vi.fn().mockReturnThis(),
+        }),
+      );
 
-    // Mock the insert chain: insert().values().returning()
-    // returning() resolves to [{ id: "..." }]
-    const insertBuilder = {
+    const { launchEvents, commands: commandsTable, sessions: sessionsTable, peerTokens: peerTokensTable } = await import("@/lib/db/schema");
+    const commandInsertBuilder = {
       values: vi.fn().mockReturnThis(),
       returning: vi.fn(() => Promise.resolve([{ id: "cmd-123" }])),
     };
-    mockDb.insert.mockReturnValue(insertBuilder);
+    const sessionInsertBuilder = {
+      values: vi.fn().mockReturnThis(),
+      returning: vi.fn(() => Promise.resolve([{ id: "sess-123" }])),
+    };
+    const peerTokenInsertBuilder = {
+      values: vi.fn().mockReturnThis(),
+      returning: vi.fn(() => Promise.resolve([])),
+    };
+    mockDb.insert.mockImplementation((table: unknown) => {
+      if (table === commandsTable) return commandInsertBuilder;
+      if (table === launchEvents) return mockQueryBuilder([{ id: "launch-1" }]);
+      if (table === sessionsTable) return sessionInsertBuilder;
+      if (table === peerTokensTable) return peerTokenInsertBuilder;
+      return mockQueryBuilder([{ id: "fallback" }]);
+    });
+
+    mockDb.update.mockReturnValue({
+      set: vi.fn(() => ({
+        where: vi.fn(() => Promise.resolve(undefined)),
+      })),
+    });
 
     const { POST } = await import("@/app/api/server/command/route");
     const req = mkReq("http://localhost/api/server/command", {
@@ -345,10 +384,141 @@ describe("POST /api/server/command", () => {
     expect(resp.status).toBe(201);
     const body = await resp.json();
     expect(body.worker_token).toBeTruthy();
-    expect(body.worker_token.length).toBe(32); // 16 bytes hex = 32 chars
+    expect(body.worker_token.length).toBe(32);
 
-    const { launchEvents } = await import("@/lib/db/schema");
     expect(mockDb.insert).toHaveBeenCalledWith(launchEvents);
+  });
+
+  it("does not auto-inject lan=true from request IP heuristics", async () => {
+    const prevLanIps = process.env.GV_SERVER_LAN_IPS;
+    process.env.GV_SERVER_LAN_IPS = "192.168.86.128";
+
+    mockDb.select
+      .mockReturnValueOnce(
+        Object.assign(Promise.resolve([{ role: "admin" }]), {
+          from: vi.fn().mockReturnThis(),
+          innerJoin: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(() => Promise.resolve([{ role: "admin" }])),
+            })),
+          })),
+        }),
+      )
+      .mockReturnValueOnce(
+        Object.assign(Promise.resolve([{ romPath: "/roms/smw.smc", platform: "snes", gameName: "Super Mario World" }]), {
+          from: vi.fn().mockReturnThis(),
+          innerJoin: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(() => Promise.resolve([{ romPath: "/roms/smw.smc", platform: "snes", gameName: "Super Mario World" }])),
+            })),
+          })),
+        }),
+      )
+      .mockReturnValueOnce(
+        Object.assign(Promise.resolve([]), {
+          from: vi.fn().mockReturnThis(),
+          where: vi.fn().mockReturnThis(),
+        }),
+      );
+
+    const insertedValues: Array<Record<string, unknown>> = [];
+    const { launchEvents, commands: commandsTable, sessions: sessionsTable, peerTokens: peerTokensTable } = await import("@/lib/db/schema");
+    const commandInsertBuilder = {
+      values: vi.fn((value) => {
+        insertedValues.push(value as Record<string, unknown>);
+        return commandInsertBuilder;
+      }),
+      returning: vi.fn(() => Promise.resolve([{ id: "cmd-123" }])),
+    };
+    const sessionInsertBuilder = {
+      values: vi.fn().mockReturnThis(),
+      returning: vi.fn(() => Promise.resolve([{ id: "sess-123" }])),
+    };
+    const peerTokenInsertBuilder = {
+      values: vi.fn().mockReturnThis(),
+      returning: vi.fn(() => Promise.resolve([])),
+    };
+    mockDb.insert.mockImplementation((table: unknown) => {
+      if (table === commandsTable) return commandInsertBuilder;
+      if (table === launchEvents) return mockQueryBuilder([{ id: "launch-1" }]);
+      if (table === sessionsTable) return sessionInsertBuilder;
+      if (table === peerTokensTable) return peerTokenInsertBuilder;
+      return mockQueryBuilder([{ id: "fallback" }]);
+    });
+
+    mockDb.update.mockReturnValue({
+      set: vi.fn(() => ({
+        where: vi.fn(() => Promise.resolve(undefined)),
+      })),
+    });
+
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      ...jsonBodyWithCsrf({ server_id: "server-1", type: "start_game", payload: { game_id: "smw" } }),
+      headers: {
+        "Content-Type": "application/json",
+        "x-csrf-token": "csrf-test-token",
+        cookie: "gv_csrf_token=csrf-test-token",
+        "x-forwarded-for": "192.168.86.55",
+        "x-real-ip": "192.168.86.55",
+      },
+    });
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(201);
+    expect(insertedValues[0]?.payload).toMatchObject({ game_id: "smw" });
+    expect((insertedValues[0]?.payload as Record<string, unknown>).lan).toBeUndefined();
+
+    if (prevLanIps !== undefined) process.env.GV_SERVER_LAN_IPS = prevLanIps;
+    else delete process.env.GV_SERVER_LAN_IPS;
+  });
+
+  it("does not reuse stale connected sessions on host reconnect", async () => {
+    const { sessions: sessionsTable } = await import("@/lib/db/schema");
+
+    mockDb.select
+      .mockReturnValueOnce(
+        Object.assign(Promise.resolve([{ role: "admin" }]), {
+          from: vi.fn().mockReturnThis(),
+          innerJoin: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(() => Promise.resolve([{ role: "admin" }])),
+            })),
+          })),
+        }),
+      )
+      .mockReturnValueOnce(mockQueryBuilder([
+        { romPath: "/roms/smw.sfc", platform: "snes", gameName: "Super Mario World" },
+      ]))
+      .mockReturnValueOnce(mockQueryBuilder([]));
+
+    const sessionUpdates: Array<Record<string, unknown>> = [];
+    mockDb.insert.mockImplementation(() => ({
+      values: vi.fn().mockReturnThis(),
+      returning: vi.fn(() => Promise.resolve([{ id: "test-id" }])),
+    }));
+    mockDb.update.mockImplementation((table: unknown) => ({
+      set: vi.fn((value: Record<string, unknown>) => {
+        if (table === sessionsTable) {
+          sessionUpdates.push(value);
+        }
+        return { where: vi.fn(() => Promise.resolve(undefined)) };
+      }),
+    }));
+
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      ...jsonBodyWithCsrf({
+        server_id: "server-1",
+        type: "start_game",
+        payload: { game_id: "smw", sdp: "v=0\r\n" },
+      }),
+    });
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(201);
+    const body = await resp.json();
+    expect(body.host_peer_token).toBeTruthy();
+    expect(sessionUpdates).toContainEqual(expect.objectContaining({ status: "timed_out" }));
+    expect(mockDb.insert).toHaveBeenCalledWith(sessionsTable);
   });
 });
 
@@ -578,6 +748,65 @@ describe("GET /api/server/notify", () => {
   });
 });
 
+// ── /api/room/join ──────────────────────────────────────────────────────
+
+describe("POST /api/room/join", () => {
+  it("resolves preview requests without minting a peer token", async () => {
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{
+        id: "sess-1",
+        workerUrl: "http://localhost:9999",
+        gameId: "smw",
+        serverId: "server-1",
+        status: "ready",
+        maxSeats: 4,
+        commandWorkerToken: "worker-123",
+      }]),
+    );
+
+    const { POST } = await import("@/app/api/room/join/route");
+    const req = mkReq("http://localhost/api/room/join", {
+      ...jsonBody({ room_token: "room-123" }),
+    });
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.worker_url).toBe("http://localhost:9999");
+    expect(body.peer_token).toBeUndefined();
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it("reuses an existing peer token for the same client_id", async () => {
+    mockDb.select
+      .mockReturnValueOnce(
+        mockQueryBuilder([{
+          id: "sess-1",
+          workerUrl: "http://localhost:9999",
+          gameId: "smw",
+          serverId: "server-1",
+          status: "ready",
+          maxSeats: 4,
+          commandWorkerToken: "worker-123",
+        }]),
+      )
+      .mockReturnValueOnce(
+        mockQueryBuilder([{ token: "peer-abc", seat: 1, role: "player" }]),
+      );
+
+    const { POST } = await import("@/app/api/room/join/route");
+    const req = mkReq("http://localhost/api/room/join", {
+      ...jsonBody({ room_token: "room-123", client_id: "client-1" }),
+    });
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.peer_token).toBe("peer-abc");
+    expect(body.seat).toBe(1);
+    expect(body.role).toBe("player");
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+});
+
 
 // ── /api/server/result ─────────────────────────────────────────────────
 
@@ -665,13 +894,37 @@ describe("GET /api/ice-config", () => {
       else delete process.env.GV_ICE_TRANSPORT_POLICY;
     }
   });
+
+  it("does not override relay policy from request IP heuristics", async () => {
+    const prevPolicy = process.env.GV_ICE_TRANSPORT_POLICY;
+    const prevLanIps = process.env.GV_SERVER_LAN_IPS;
+    process.env.GV_ICE_TRANSPORT_POLICY = "relay";
+    process.env.GV_SERVER_LAN_IPS = "192.168.86.128";
+    try {
+      const { GET } = await import("@/app/api/ice-config/route");
+      const resp = await GET(new Request("http://localhost/api/ice-config", {
+        headers: {
+          "x-forwarded-for": "192.168.86.55",
+          "x-real-ip": "192.168.86.55",
+        },
+      }));
+      expect(resp.status).toBe(200);
+      const body = await resp.json();
+      expect(body.iceTransportPolicy).toBe("relay");
+    } finally {
+      if (prevPolicy !== undefined) process.env.GV_ICE_TRANSPORT_POLICY = prevPolicy;
+      else delete process.env.GV_ICE_TRANSPORT_POLICY;
+      if (prevLanIps !== undefined) process.env.GV_SERVER_LAN_IPS = prevLanIps;
+      else delete process.env.GV_SERVER_LAN_IPS;
+    }
+  });
 });
 
 
 // ── /api/health ────────────────────────────────────────────────────────
 
 describe("GET /api/health", () => {
-  it("returns ok when all components are healthy", async () => {
+  it("returns ok when all components are healthy and reports connectivity mode", async () => {
     mockDb.execute.mockResolvedValueOnce(undefined); // db check
     // Check order: api_routes → gv_server → schema
     mockDb.select.mockReturnValueOnce(
@@ -699,12 +952,31 @@ describe("GET /api/health", () => {
     );
 
     const { GET } = await import("@/app/api/health/route");
+    const prevStun = process.env.GV_ICE_STUN_URLS;
+    const prevTurnUrls = process.env.GV_ICE_TURN_URLS;
+    const prevTurnUser = process.env.GV_ICE_TURN_USERNAME;
+    const prevTurnCred = process.env.GV_ICE_TURN_CREDENTIAL;
+    const prevPolicy = process.env.GV_ICE_TRANSPORT_POLICY;
+    process.env.GV_ICE_STUN_URLS = "stun:stun.l.google.com:19302";
+    process.env.GV_ICE_TURN_URLS = "turn:turn.example.com:3478";
+    process.env.GV_ICE_TURN_USERNAME = "gv";
+    process.env.GV_ICE_TURN_CREDENTIAL = "secret";
+    process.env.GV_ICE_TRANSPORT_POLICY = "all";
     const resp = await GET();
+    process.env.GV_ICE_STUN_URLS = prevStun;
+    process.env.GV_ICE_TURN_URLS = prevTurnUrls;
+    process.env.GV_ICE_TURN_USERNAME = prevTurnUser;
+    process.env.GV_ICE_TURN_CREDENTIAL = prevTurnCred;
+    process.env.GV_ICE_TRANSPORT_POLICY = prevPolicy;
     expect(resp.status).toBe(200);
     const body = await resp.json();
     expect(body.status).toBe("ok");
     expect(body.components.db.status).toBe("ok");
     expect(body.components.gv_server.status).toBe("ok");
+    expect(body.connectivity.mode).toBe("turn-capable");
+    expect(body.connectivity.transport_policy).toBe("all");
+    expect(body.connectivity.turn_ready).toBe(true);
+    expect(body.connectivity.diagnostics.some((line: string) => line.includes("TURN is configured"))).toBe(true);
     expect(body.versions.web).toMatchObject({ package_version: "0.1.0", git_sha: "web-sha-123" });
     expect(body.versions.server).toMatchObject({ git_sha: "server-sha" });
     expect(body.versions.worker).toMatchObject({ git_sha: "worker-sha" });

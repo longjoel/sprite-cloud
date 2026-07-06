@@ -18,10 +18,7 @@ fn poll_response_with_commands() {
     assert_eq!(resp.commands[0].command_type, "start_game");
     assert_eq!(resp.commands[0].lease_token, "lease-abc");
     assert_eq!(resp.commands[0].attempt, 1);
-    assert_eq!(
-        resp.commands[0].payload["game_id"].as_str().unwrap(),
-        "smw"
-    );
+    assert_eq!(resp.commands[0].payload["game_id"].as_str().unwrap(), "smw");
 
     assert_eq!(resp.commands[1].id, "def-456");
     assert_eq!(resp.commands[1].command_type, "sdp_offer");

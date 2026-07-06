@@ -3,6 +3,7 @@
 import { useRef, useEffect, useState } from "react";
 import { Card, Text, Badge } from "@fluentui/react-components";
 import { Star20Regular, Star20Filled, Edit20Regular } from "@fluentui/react-icons";
+import { getPlatformColor } from "@/lib/platformColors";
 
 // ── GameTile — Metro-style tile for the game library grid ──────────
 //
@@ -42,6 +43,7 @@ export default function GameTile({
   const sizeClass = sizeClassMap[size];
   const nameRef = useRef<HTMLSpanElement>(null);
   const [overflows, setOverflows] = useState(false);
+  const platformBg = getPlatformColor(game.platform);
 
   useEffect(() => {
     const el = nameRef.current;
@@ -50,10 +52,10 @@ export default function GameTile({
 
   return (
     <Card
-      className={`game-tile ${sizeClass}`}
-      onClick={() => onPlay(game.id)}
-      appearance="filled-alternative"
-      style={{ cursor: "pointer", userSelect: "none" }}
+    className={`game-tile ${sizeClass}`}
+    onClick={() => onPlay(game.id)}
+    appearance="filled-alternative"
+    style={{ cursor: "pointer", userSelect: "none", background: platformBg }}
     >
       {/* Platform badge — top-left */}
       <Badge

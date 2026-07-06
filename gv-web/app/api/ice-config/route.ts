@@ -3,39 +3,27 @@ import { NextResponse } from "next/server";
 // ── GET /api/ice-config ────────────────────────────────────────────────
 //
 // Returns the shared ICE server policy for browser WebRTC connections.
-// When the browser is on the same LAN as gv-server (detected via request IP),
-// returns `iceTransportPolicy: "all"` so host candidates are used directly.
+//
+// Transport selection here is intentionally configuration-driven only.
+// gv-web runs on the public internet, so request headers like x-forwarded-for
+// and x-real-ip cannot reliably prove that the browser is on the same RFC1918
+// LAN as the paired gv-server. Two clients on the same home network often
+// appear to gv-web as the same WAN/public IP, which makes gateway-side LAN
+// guessing non-deterministic and misleading.
+//
 // Configured via environment variables on gv-web:
 //
-//   GV_ICE_STUN_URLS       — comma-separated STUN URLs
-//   GV_ICE_TURN_URLS       — comma-separated TURN URLs
-//   GV_ICE_TURN_USERNAME   — TURN username
-//   GV_ICE_TURN_CREDENTIAL — TURN credential (never logged)
+//   GV_ICE_STUN_URLS        — comma-separated STUN URLs
+//   GV_ICE_TURN_URLS        — comma-separated TURN URLs
+//   GV_ICE_TURN_USERNAME    — TURN username
+//   GV_ICE_TURN_CREDENTIAL  — TURN credential (never logged)
 //   GV_ICE_TRANSPORT_POLICY — "all" | "relay"
-//   GV_SERVER_LAN_IPS      — comma-separated LAN IPs of gv-server boxes
 //
 // When no STUN/TURN URLs are configured, returns the Google STUN default.
 
 const DEFAULT_STUN_URL = "stun:stun.l.google.com:19302";
 
-function isLanClient(request: Request | undefined): boolean {
-  if (!request) return false;
-  const clientIp =
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
-    "";
-  const lanIpsRaw = process.env.GV_SERVER_LAN_IPS || "";
-  if (!clientIp || !lanIpsRaw) return false;
-  const lanIps = lanIpsRaw.split(",").map((s) => s.trim()).filter(Boolean);
-  const clientPrefix = clientIp.split(".").slice(0, 3).join(".");
-  return lanIps.some((lanIp) => {
-    if (lanIp === clientIp) return true;
-    const lanPrefix = lanIp.split(".").slice(0, 3).join(".");
-    return lanPrefix === clientPrefix;
-  });
-}
-
-export async function GET(request: Request) {
+export async function GET(_request: Request) {
   const stunRaw = process.env.GV_ICE_STUN_URLS || "";
   const turnRaw = process.env.GV_ICE_TURN_URLS || "";
   const stunUrls = stunRaw
@@ -48,10 +36,8 @@ export async function GET(request: Request) {
     .filter(Boolean);
   const turnUsername = process.env.GV_ICE_TURN_USERNAME || "";
   const turnCredential = process.env.GV_ICE_TURN_CREDENTIAL || "";
-  const policy = process.env.GV_ICE_TRANSPORT_POLICY || "all";
-  // Override to "all" when the browser is on the same LAN as gv-server
-  // (host candidates are directly reachable — no need for TURN relay)
-  const effectivePolicy = isLanClient(request) ? "all" : policy;
+  const configuredPolicy = process.env.GV_ICE_TRANSPORT_POLICY || "all";
+  const effectivePolicy = configuredPolicy === "relay" ? "relay" : "all";
 
   const iceServers: Array<{
     urls: string | string[];
@@ -77,8 +63,12 @@ export async function GET(request: Request) {
     iceServers.push({ urls: DEFAULT_STUN_URL });
   }
 
+  console.info(
+    `[ice-config] transport mode selected: ${effectivePolicy} (source=GV_ICE_TRANSPORT_POLICY, configured=${configuredPolicy || "unset"}, stun_urls=${stunUrls.length || 1}, turn_urls=${turnUrls.length})`,
+  );
+
   return NextResponse.json({
     iceServers,
-    iceTransportPolicy: effectivePolicy === "relay" ? "relay" : "all",
+    iceTransportPolicy: effectivePolicy,
   });
 }

@@ -6,7 +6,7 @@ const CSP = [
   "style-src 'self' 'unsafe-inline'",
   "connect-src 'self' ws: wss:",
   "media-src 'self' blob:",
-  "img-src 'self' data:",
+  "img-src 'self' data: https://api.qrserver.com",
   "font-src 'self'",
   "worker-src 'self' blob:",
   "frame-ancestors 'none'",

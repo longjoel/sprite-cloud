@@ -77,7 +77,9 @@ impl GstAudioEncoder {
 
         tracing::info!(
             "[GST-audio] {}ch {}Hz → 48kHz, opusenc {}bps",
-            channels, rate, bitrate,
+            channels,
+            rate,
+            bitrate,
         );
 
         Ok(Self {
@@ -99,7 +101,8 @@ impl GstAudioEncoder {
         {
             let buf = buffer.make_mut();
             let sample_count = (samples.len() / self.channels as usize) as u64;
-            let pts_ns = self.samples_pushed
+            let pts_ns = self
+                .samples_pushed
                 .saturating_mul(1_000_000_000)
                 .checked_div(self.sample_rate as u64)
                 .unwrap_or(0);

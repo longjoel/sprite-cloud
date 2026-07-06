@@ -68,6 +68,7 @@ pub fn save(config: &Config) -> Result<()> {
 
 /// Default HTTP request timeout for gv-web API calls (seconds).
 const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 30;
+const DEFAULT_STUN_URL: &str = "stun:stun.l.google.com:19302";
 
 fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
     std::env::var(name)
@@ -76,12 +77,169 @@ fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
         .unwrap_or(default)
 }
 
+fn csv_env(name: &str) -> Vec<String> {
+    std::env::var(name)
+        .ok()
+        .map(|s| {
+            s.split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum IceTransportPolicySetting {
+    All,
+    Relay,
+}
+
+impl IceTransportPolicySetting {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Relay => "relay",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum IceRuntimeStatus {
+    DefaultFallback,
+    StunOnly,
+    TurnReady,
+    TurnPartialInvalid,
+}
+
+impl IceRuntimeStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::DefaultFallback => "default_fallback",
+            Self::StunOnly => "stun_only",
+            Self::TurnReady => "turn_ready",
+            Self::TurnPartialInvalid => "turn_partial_invalid",
+        }
+    }
+}
+
+/// Redacted summary of the effective ICE runtime configuration.
+///
+/// This loader centralizes the env-driven transport config so startup logs,
+/// verify metadata, and WebRTC stack creation all agree on the same answer.
+/// The server should never require operators to infer transport state by
+/// reading `/proc/<pid>/environ` or guessing whether partial TURN config was
+/// ignored. Keep secret *presence* visible here, but never surface the secret
+/// values themselves.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RuntimeIceConfig {
+    pub stun_urls: Vec<String>,
+    pub turn_urls: Vec<String>,
+    #[serde(skip_serializing)]
+    pub turn_username: Option<String>,
+    #[serde(skip_serializing)]
+    pub turn_credential: Option<String>,
+    pub turn_username_present: bool,
+    pub turn_credential_present: bool,
+    pub transport_policy: IceTransportPolicySetting,
+    pub status: IceRuntimeStatus,
+    pub defaulted_to_public_stun: bool,
+}
+
+impl RuntimeIceConfig {
+    pub fn load() -> Self {
+        let stun_urls = csv_env("GV_ICE_STUN_URLS");
+        let turn_urls = csv_env("GV_ICE_TURN_URLS");
+        let turn_username = std::env::var("GV_ICE_TURN_USERNAME")
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        let turn_credential = std::env::var("GV_ICE_TURN_CREDENTIAL")
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        let turn_username_present = turn_username.is_some();
+        let turn_credential_present = turn_credential.is_some();
+        let transport_policy = match std::env::var("GV_ICE_TRANSPORT_POLICY").ok().as_deref() {
+            Some("relay") => IceTransportPolicySetting::Relay,
+            _ => IceTransportPolicySetting::All,
+        };
+
+        let has_turn_urls = !turn_urls.is_empty();
+        let has_stun_urls = !stun_urls.is_empty();
+        let turn_ready = has_turn_urls && turn_username_present && turn_credential_present;
+        let turn_partial = has_turn_urls && !turn_ready;
+        let defaulted_to_public_stun = !has_stun_urls && !has_turn_urls;
+        let status = if turn_ready {
+            IceRuntimeStatus::TurnReady
+        } else if turn_partial {
+            IceRuntimeStatus::TurnPartialInvalid
+        } else if has_stun_urls {
+            IceRuntimeStatus::StunOnly
+        } else {
+            IceRuntimeStatus::DefaultFallback
+        };
+
+        Self {
+            stun_urls,
+            turn_urls,
+            turn_username,
+            turn_credential,
+            turn_username_present,
+            turn_credential_present,
+            transport_policy,
+            status,
+            defaulted_to_public_stun,
+        }
+    }
+
+    pub fn effective_stun_urls(&self) -> Vec<String> {
+        if self.stun_urls.is_empty() && self.turn_urls.is_empty() {
+            vec![DEFAULT_STUN_URL.to_string()]
+        } else {
+            self.stun_urls.clone()
+        }
+    }
+
+    pub fn turn_ready(&self) -> bool {
+        self.status == IceRuntimeStatus::TurnReady
+    }
+
+    pub fn startup_log_fields(&self) -> IceRuntimeLogFields {
+        IceRuntimeLogFields {
+            status: self.status.as_str().to_string(),
+            transport_policy: self.transport_policy.as_str().to_string(),
+            stun_url_count: self.effective_stun_urls().len(),
+            turn_url_count: self.turn_urls.len(),
+            turn_username_present: self.turn_username_present,
+            turn_credential_present: self.turn_credential_present,
+            defaulted_to_public_stun: self.defaulted_to_public_stun,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct IceRuntimeLogFields {
+    pub status: String,
+    pub transport_policy: String,
+    pub stun_url_count: usize,
+    pub turn_url_count: usize,
+    pub turn_username_present: bool,
+    pub turn_credential_present: bool,
+    pub defaulted_to_public_stun: bool,
+}
+
+pub fn runtime_ice_config() -> RuntimeIceConfig {
+    use std::sync::LazyLock;
+    static ICE: LazyLock<RuntimeIceConfig> = LazyLock::new(RuntimeIceConfig::load);
+    ICE.clone()
+}
+
 /// HTTP request timeout for gv-web API calls.
 pub fn http_timeout() -> Duration {
     use std::sync::LazyLock;
     static TIMEOUT: LazyLock<Duration> = LazyLock::new(|| {
-        let secs = env_or("GV_WEB_TIMEOUT_SECS", DEFAULT_HTTP_TIMEOUT_SECS)
-            .max(1);
+        let secs = env_or("GV_WEB_TIMEOUT_SECS", DEFAULT_HTTP_TIMEOUT_SECS).max(1);
         Duration::from_secs(secs)
     });
     *TIMEOUT
@@ -89,10 +247,10 @@ pub fn http_timeout() -> Duration {
 
 // ── GStreamer encoder config ─────────────────────────────────────────
 
-/// Target bitrate in kbps. GV_GST_VIDEO_BITRATE_KBPS, default 2000.
+/// Target bitrate in kbps. GV_GST_VIDEO_BITRATE_KBPS, default 800.
 pub fn gst_video_bitrate_kbps() -> u32 {
     use std::sync::LazyLock;
-    static V: LazyLock<u32> = LazyLock::new(|| env_or("GV_GST_VIDEO_BITRATE_KBPS", 2000));
+    static V: LazyLock<u32> = LazyLock::new(|| env_or("GV_GST_VIDEO_BITRATE_KBPS", 800));
     *V
 }
 

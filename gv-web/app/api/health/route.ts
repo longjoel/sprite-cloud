@@ -5,6 +5,7 @@ import { servers, sessions } from "@/lib/db/schema";
 import { desc } from "drizzle-orm";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { getConnectivityDiagnostic, type ConnectivityDiagnostic } from "@/lib/connectivity-diagnostic";
 
 interface VersionInfo {
   package_version: string;
@@ -42,6 +43,7 @@ interface HealthResponse {
     gv_server: ComponentStatus;
     schema: ComponentStatus;
   };
+  connectivity: ConnectivityDiagnostic;
   versions: VersionSnapshot;
   timestamp: string;
 }
@@ -252,10 +254,12 @@ export async function GET() {
 
   const status = overallStatus(components);
   const versions = await loadVersionSnapshot();
+  const connectivity = getConnectivityDiagnostic();
 
   const body: HealthResponse = {
     status,
     components,
+    connectivity,
     versions,
     timestamp: new Date().toISOString(),
   };

@@ -2,6 +2,7 @@ import "@/lib/db/cleanup";
 import "@/app/globals.css";
 import "@/components/fluent/tiles.css";
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import SpriteCloudProvider from "@/components/fluent/SpriteCloudProvider";
 
 export const viewport: Viewport = {
@@ -34,6 +35,7 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+        <Script src="/browser-log.js" strategy="beforeInteractive" />
         <script
           dangerouslySetInnerHTML={{
             __html: `if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.unregister()})})}`,

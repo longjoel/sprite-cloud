@@ -27,7 +27,12 @@ fn generate_test_frame(width: u32, height: u32) -> Vec<u8> {
 
 // ── Encoder management ──────────────────────────────────────────────
 
-async fn probe_and_rebuild_encoder(session: &GameSession, frame_width: u32, frame_height: u32, fps: f64) -> Result<(), String> {
+async fn probe_and_rebuild_encoder(
+    session: &GameSession,
+    frame_width: u32,
+    frame_height: u32,
+    fps: f64,
+) -> Result<(), String> {
     if frame_width == 0 || frame_height == 0 {
         return Ok(());
     }
@@ -47,9 +52,13 @@ async fn probe_and_rebuild_encoder(session: &GameSession, frame_width: u32, fram
 
     if needs_create || needs_rebuild {
         if needs_rebuild {
-            tracing::info!("[STREAM] Resolution probe: actual {frame_width}×{frame_height} — rebuilding encoder");
+            tracing::info!(
+                "[STREAM] Resolution probe: actual {frame_width}×{frame_height} — rebuilding encoder"
+            );
         } else {
-            tracing::info!("[STREAM] Creating video encoder: {frame_width}×{frame_height} @ {fps:.1}fps");
+            tracing::info!(
+                "[STREAM] Creating video encoder: {frame_width}×{frame_height} @ {fps:.1}fps"
+            );
         }
         drop(enc_guard);
         let new_enc = GstVideoEncoder::new_with_codec(frame_width, frame_height, fps)
@@ -60,7 +69,8 @@ async fn probe_and_rebuild_encoder(session: &GameSession, frame_width: u32, fram
             let sample_rate = *session.core_sample_rate.lock().await;
             match GstAudioEncoder::new(sample_rate, 2) {
                 Ok(aenc) => {
-                    *session.audio_enc.lock().await = Some(Arc::new(tokio::sync::Mutex::new(Some(aenc))));
+                    *session.audio_enc.lock().await =
+                        Some(Arc::new(tokio::sync::Mutex::new(Some(aenc))));
                     tracing::info!("[STREAM] Audio encoder created: {sample_rate:.0}Hz 2ch");
                 }
                 Err(e) => tracing::warn!("[STREAM] Audio encoder creation failed: {e}"),
@@ -70,10 +80,19 @@ async fn probe_and_rebuild_encoder(session: &GameSession, frame_width: u32, fram
     Ok(())
 }
 
-async fn push_video_frame(session: &GameSession, pixels: &[u8], w: u32, h: u32, frame_num: u64) -> Result<(), String> {
+async fn push_video_frame(
+    session: &GameSession,
+    pixels: &[u8],
+    w: u32,
+    h: u32,
+    frame_num: u64,
+) -> Result<(), String> {
     let enc_guard = session.video_enc.lock().await;
     if let Some(ref enc_arc) = *enc_guard {
-        enc_arc.lock().await.push(pixels, (w, h), frame_num)
+        enc_arc
+            .lock()
+            .await
+            .push(pixels, (w, h), frame_num)
             .map_err(|e| format!("video push error at frame {frame_num}: {e}"))?;
     }
     Ok(())
@@ -82,17 +101,18 @@ async fn push_video_frame(session: &GameSession, pixels: &[u8], w: u32, h: u32, 
 async fn push_audio(session: &GameSession, audio_data: &[i16], audio_acc: &mut Vec<i16>) {
     let aenc_guard = session.audio_enc.lock().await;
     if let Some(ref aenc_arc) = *aenc_guard
-        && let Some(ref mut enc) = *aenc_arc.lock().await {
-            let mut buf = std::mem::take(audio_acc);
-            buf.extend_from_slice(audio_data);
-            let chunk = (enc.sample_rate() as f64 * 0.02).round() as usize * enc.channels() as usize;
-            while buf.len() >= chunk {
-                let rest = buf.split_off(chunk);
-                enc.push(&buf);
-                buf = rest;
-            }
-            *audio_acc = buf;
+        && let Some(ref mut enc) = *aenc_arc.lock().await
+    {
+        let mut buf = std::mem::take(audio_acc);
+        buf.extend_from_slice(audio_data);
+        let chunk = (enc.sample_rate() as f64 * 0.02).round() as usize * enc.channels() as usize;
+        while buf.len() >= chunk {
+            let rest = buf.split_off(chunk);
+            enc.push(&buf);
+            buf = rest;
         }
+        *audio_acc = buf;
+    }
 }
 
 /// Drain encoded video from GStreamer → WebRTC video track.

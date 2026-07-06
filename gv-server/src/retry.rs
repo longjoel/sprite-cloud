@@ -69,11 +69,7 @@ mod tests {
             let calls = &calls;
             async move {
                 let n = calls.fetch_add(1, Ordering::SeqCst) + 1;
-                if n < 3 {
-                    Err("fail")
-                } else {
-                    Ok(99)
-                }
+                if n < 3 { Err("fail") } else { Ok(99) }
             }
         })
         .await;

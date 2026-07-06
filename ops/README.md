@@ -57,6 +57,7 @@ $EDITOR /docker/gv-web/.env
 
 ## Cross-reference
 
+- `docs/self-hosting-multiplayer.md` — operator-facing multiplayer mode guide (`lan-only`, `stun-capable`, `turn-capable`, `misconfigured`)
 - `docs/DEPLOY.md` — full deployment guide
 - `docs/RELEASE.md` — release system and CI gate policy
 - `scripts/deploy-dev.sh` — dev/self-host deploy script

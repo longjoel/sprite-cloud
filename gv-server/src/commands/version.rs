@@ -64,48 +64,27 @@ pub(crate) async fn collect_metadata(cfg: &config::Config) -> gv_web::ServerMeta
         .map(|r| r.roots.clone())
         .unwrap_or_default();
 
-    let stun_urls: Vec<String> = std::env::var("GV_ICE_STUN_URLS")
-        .ok()
-        .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
-        .unwrap_or_default();
-
-    let turn_urls: Vec<String> = std::env::var("GV_ICE_TURN_URLS")
-        .ok()
-        .map(|s| s.split(',').map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect())
-        .unwrap_or_default();
-
-    let turn_username = std::env::var("GV_ICE_TURN_USERNAME").ok().unwrap_or_default();
-    let turn_credential = std::env::var("GV_ICE_TURN_CREDENTIAL").ok().unwrap_or_default();
-    let turn_configured = !turn_urls.is_empty() && !turn_username.is_empty() && !turn_credential.is_empty();
-
-    let transport_policy = std::env::var("GV_ICE_TRANSPORT_POLICY")
-        .ok()
-        .unwrap_or_else(|| "all".to_string());
-
+    let ice_cfg = config::runtime_ice_config();
     let ice = gv_web::IceMetadata {
-        stun_urls,
-        turn_urls,
-        turn_configured,
-        transport_policy,
+        stun_url_count: ice_cfg.effective_stun_urls().len(),
+        turn_url_count: ice_cfg.turn_urls.len(),
+        stun_urls: ice_cfg.effective_stun_urls(),
+        turn_urls: ice_cfg.turn_urls.clone(),
+        turn_configured: ice_cfg.turn_ready(),
+        turn_username_present: ice_cfg.turn_username_present,
+        turn_credential_present: ice_cfg.turn_credential_present,
+        transport_policy: ice_cfg.transport_policy.as_str().to_string(),
+        status: ice_cfg.status.as_str().to_string(),
+        defaulted_to_public_stun: ice_cfg.defaulted_to_public_stun,
     };
 
-    let pool_size: usize = std::env::var("GV_PC_POOL_SIZE")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(2);
-    let scale_height: u32 = std::env::var("GV_GST_VIDEO_SCALE_HEIGHT")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
-    let max_scale: u32 = std::env::var("GV_GST_VIDEO_MAX_SCALE")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(4);
-
     let runtime = gv_web::RuntimeMetadata {
-        pc_pool_size: pool_size,
-        video_scale_height: scale_height,
-        video_max_scale: max_scale,
+        pc_pool_size: std::env::var("GV_PC_POOL_SIZE")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(2),
+        video_scale_height: config::gst_video_scale_height(),
+        video_max_scale: config::gst_video_max_scale(),
     };
 
     gv_web::ServerMetadata {
@@ -124,10 +103,6 @@ async fn detect_public_ip() -> Option<String> {
         .timeout(std::time::Duration::from_secs(5))
         .build()
         .ok()?;
-    let resp = client
-        .get("https://api.ipify.org")
-        .send()
-        .await
-        .ok()?;
+    let resp = client.get("https://api.ipify.org").send().await.ok()?;
     resp.text().await.ok().map(|s| s.trim().to_string())
 }

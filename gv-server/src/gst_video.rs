@@ -31,11 +31,7 @@ pub struct GstVideoEncoder {
 }
 
 impl GstVideoEncoder {
-    pub fn new_with_codec(
-        core_width: u32,
-        core_height: u32,
-        fps: f64,
-    ) -> Result<Self, String> {
+    pub fn new_with_codec(core_width: u32, core_height: u32, fps: f64) -> Result<Self, String> {
         let scale_height = crate::config::gst_video_scale_height();
         let max_scale = crate::config::gst_video_max_scale().max(1);
         let scale_factor = if scale_height > 0 && core_height > 0 {
@@ -120,7 +116,12 @@ impl GstVideoEncoder {
     /// `frame_dims` are the actual dimensions of the incoming frame —
     /// if they differ from the core base dimensions (e.g. Genesis switches
     /// from 256×192 to 320×224 mid-game), the frame is resized first.
-    pub fn push(&mut self, rgb: &[u8], frame_dims: (u32, u32), frame_num: u64) -> Result<(), String> {
+    pub fn push(
+        &mut self,
+        rgb: &[u8],
+        frame_dims: (u32, u32),
+        frame_num: u64,
+    ) -> Result<(), String> {
         let (actual_w, actual_h) = frame_dims;
         let data = if actual_w != self.core_width || actual_h != self.core_height {
             // Resize to core base dimensions before integer scaling.
@@ -129,24 +130,33 @@ impl GstVideoEncoder {
             if frame_num == 0 {
                 tracing::info!(
                     "[GST-video] frame {n} dims {aw}×{ah} differ from base {bw}×{bh} — resizing",
-                    n = frame_num, aw = actual_w, ah = actual_h, bw = self.core_width, bh = self.core_height,
+                    n = frame_num,
+                    aw = actual_w,
+                    ah = actual_h,
+                    bw = self.core_width,
+                    bh = self.core_height,
                 );
             }
-            let resized = nearest_neighbor_resize(
-                rgb, actual_w, actual_h, self.core_width, self.core_height,
-            );
+            let resized =
+                nearest_neighbor_resize(rgb, actual_w, actual_h, self.core_width, self.core_height);
             if self.scale_factor > 1 {
                 nearest_neighbor_scale(
-                    &resized, self.core_width, self.core_height,
-                    self.output_width, self.output_height,
+                    &resized,
+                    self.core_width,
+                    self.core_height,
+                    self.output_width,
+                    self.output_height,
                 )
             } else {
                 resized
             }
         } else if self.scale_factor > 1 {
             nearest_neighbor_scale(
-                rgb, self.core_width, self.core_height,
-                self.output_width, self.output_height,
+                rgb,
+                self.core_width,
+                self.core_height,
+                self.output_width,
+                self.output_height,
             )
         } else {
             let expected = (self.core_width * self.core_height * 3) as usize;
@@ -254,8 +264,9 @@ fn h264_pipeline_string(encoder: &str, output_width: u32, output_height: u32) ->
         // NVENC (nvh264enc), QSV (qsvh264enc, msdkh264enc), AMF (amfh264enc).
         // Use only universally-supported properties — some implementations
         // (e.g. bazzite's vah264enc) reject max-bframes, cabac, dct8x8.
+        // target-usage=1 selects the fastest preset for lowest latency.
         format!(
-            "bitrate={br} rate-control=cbr key-int-max={kf}",
+            "bitrate={br} rate-control=cbr key-int-max={kf} target-usage=1",
             br = bitrate,
             kf = kf_dist,
         )
@@ -290,13 +301,7 @@ fn launch_pipeline(pipeline_str: &str) -> Result<gst::Pipeline, String> {
 /// destination pixels. RGB24 interleaved (3 bytes per pixel).
 ///
 /// Pre-requisite: output_width == input_width * factor, output_height == input_height * factor.
-fn nearest_neighbor_scale(
-    src: &[u8],
-    src_w: u32,
-    src_h: u32,
-    dst_w: u32,
-    dst_h: u32,
-) -> Vec<u8> {
+fn nearest_neighbor_scale(src: &[u8], src_w: u32, src_h: u32, dst_w: u32, dst_h: u32) -> Vec<u8> {
     let src_w = src_w as usize;
     let src_h = src_h as usize;
     let dst_w = dst_w as usize;
@@ -334,13 +339,7 @@ fn nearest_neighbor_scale(
 /// General nearest-neighbor resize: src (src_w×src_h) → dst (dst_w×dst_h).
 /// Handles both upscaling and downscaling. Used to normalize per-frame
 /// dimensions to the core's base dimensions before integer scaling.
-fn nearest_neighbor_resize(
-    src: &[u8],
-    src_w: u32,
-    src_h: u32,
-    dst_w: u32,
-    dst_h: u32,
-) -> Vec<u8> {
+fn nearest_neighbor_resize(src: &[u8], src_w: u32, src_h: u32, dst_w: u32, dst_h: u32) -> Vec<u8> {
     let src_w = src_w as usize;
     let src_h = src_h as usize;
     let dst_w = dst_w as usize;

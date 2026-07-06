@@ -26,7 +26,9 @@ pub(super) fn wire_dc_handler(session: &Arc<GameSession>) {
             let state = pc_for_ice.connection_state().to_string();
             if state == "failed" || state == "disconnected" {
                 tracing::warn!("[ICE] host PC {} — notifying browser", state);
-                session_for_ice.host_connected.store(false, std::sync::atomic::Ordering::Relaxed);
+                session_for_ice
+                    .host_connected
+                    .store(false, std::sync::atomic::Ordering::Relaxed);
                 // Send error over DC so the browser triggers reconnection.
                 // Closing the DC alone doesn't change connectionState reliably.
                 if let Some(ref dc) = *session_for_ice.dc.lock().await {
@@ -38,8 +40,10 @@ pub(super) fn wire_dc_handler(session: &Arc<GameSession>) {
                     tracing::info!("[ICE] host PC dead, no guests — cancelling session");
                     session_for_ice.cancel.cancel();
                 } else {
-                    tracing::info!("[ICE] host PC dead, {} guests present — keeping session alive",
-                        session_for_ice.guests.lock().await.len());
+                    tracing::info!(
+                        "[ICE] host PC dead, {} guests present — keeping session alive",
+                        session_for_ice.guests.lock().await.len()
+                    );
                 }
                 break;
             }
@@ -66,14 +70,18 @@ pub(super) fn wire_dc_handler(session: &Arc<GameSession>) {
                 let session = Arc::clone(&session_close);
                 Box::pin(async move {
                     tracing::warn!("[DC] host DC closed — checking guests");
-                    session.host_connected.store(false, std::sync::atomic::Ordering::Relaxed);
+                    session
+                        .host_connected
+                        .store(false, std::sync::atomic::Ordering::Relaxed);
                     let has_guests = !session.guests.lock().await.is_empty();
                     if !has_guests {
                         tracing::info!("[DC] host gone, no guests — cancelling session");
                         session.cancel.cancel();
                     } else {
-                        tracing::info!("[DC] host gone, {} guests present — session stays alive",
-                            session.guests.lock().await.len());
+                        tracing::info!(
+                            "[DC] host gone, {} guests present — session stays alive",
+                            session.guests.lock().await.len()
+                        );
                     }
                 })
             }));
@@ -88,7 +96,11 @@ pub(super) fn wire_dc_handler(session: &Arc<GameSession>) {
                     } else {
                         msg.data.to_vec()
                     };
-                    tracing::info!("[DC] browser msg: {} bytes is_string={}", data.len(), msg.is_string);
+                    tracing::info!(
+                        "[DC] browser msg: {} bytes is_string={}",
+                        data.len(),
+                        msg.is_string
+                    );
 
                     if let Ok(val) = serde_json::from_slice::<serde_json::Value>(&data) {
                         let cmd = val.get("cmd").and_then(|v| v.as_str()).unwrap_or("");
@@ -97,15 +109,20 @@ pub(super) fn wire_dc_handler(session: &Arc<GameSession>) {
                             "auth" => {
                                 tracing::info!("[DC] auth received, sending ack");
                                 // Extract local_players for multi-gamepad seat offset
-                                if let Some(lp) = val.get("local_players").and_then(|v| v.as_u64()) {
-                                    session.local_players.store(lp as u32, std::sync::atomic::Ordering::Relaxed);
+                                if let Some(lp) = val.get("local_players").and_then(|v| v.as_u64())
+                                {
+                                    session
+                                        .local_players
+                                        .store(lp as u32, std::sync::atomic::Ordering::Relaxed);
                                     tracing::info!("[DC] host reported local_players={}", lp);
                                 }
                                 let ack = serde_json::json!({"cmd": "auth_ok"});
                                 let _ = dc.send_text(ack.to_string()).await;
                                 // Store DC for crash notification, mark host connected
                                 *session.dc.lock().await = Some(Arc::clone(&dc));
-                                session.host_connected.store(true, std::sync::atomic::Ordering::Relaxed);
+                                session
+                                    .host_connected
+                                    .store(true, std::sync::atomic::Ordering::Relaxed);
                                 return;
                             }
                             "save_state" => {
@@ -113,7 +130,8 @@ pub(super) fn wire_dc_handler(session: &Arc<GameSession>) {
                                 return;
                             }
                             "load_state" => {
-                                let index = val.get("index").and_then(|v| v.as_u64()).map(|i| i as u32);
+                                let index =
+                                    val.get("index").and_then(|v| v.as_u64()).map(|i| i as u32);
                                 save_handlers::handle_load_state(&session, &dc, index).await;
                                 return;
                             }
@@ -133,10 +151,8 @@ pub(super) fn wire_dc_handler(session: &Arc<GameSession>) {
                         }
                         let guard = session.core_cmd_tx.lock().await;
                         if let Some(ref tx) = *guard {
-                            let _ = tx.try_send(core_bridge::CoreCommand::SetInput {
-                                port: seat,
-                                state,
-                            });
+                            let _ = tx
+                                .try_send(core_bridge::CoreCommand::SetInput { port: seat, state });
                         }
                     }
                 })
@@ -144,4 +160,3 @@ pub(super) fn wire_dc_handler(session: &Arc<GameSession>) {
         })
     }));
 }
-

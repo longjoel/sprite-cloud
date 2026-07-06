@@ -51,7 +51,9 @@ export default function ShortCodePage() {
 
     (async () => {
       try {
-        const resp = await fetch(`/api/room/resolve/${encodeURIComponent(code)}`, {
+        // Forward any query params (?join etc.) to the resolve endpoint
+        const qs = window.location.search;
+        const resp = await fetch(`/api/room/resolve/${encodeURIComponent(code)}${qs}`, {
           signal: abort.signal,
         });
         clearTimeout(timeout);
@@ -101,16 +103,56 @@ export default function ShortCodePage() {
 
   // ── Error ──────────────────────────────────────────────────────────
   if (phase === "error") {
+    // Parse diagnostic info from error messages
+    const isSessionEnded = error?.includes("session ended") || error?.includes("ended");
+    const isWaiting = error?.includes("no active session") || error?.includes("waiting for host");
+    const isJoinFail = error?.includes("room join failed");
+    const isNotFound = error?.includes("not found") || error?.includes("Not found");
+    const isTimedOut = error?.includes("timed out") || error?.includes("Timeout");
+
+    let title = "Connection failed";
+    let desc = "";
+    let suggestion = "";
+    if (isSessionEnded) {
+      title = "Session ended";
+      desc = "The host stopped streaming or the game session expired.";
+      suggestion = "Ask the host to start a new game and share a fresh link.";
+    } else if (isWaiting) {
+      title = "Waiting for host";
+      desc = "No active game session was found. The host may not have started streaming yet.";
+      suggestion = "Ask the host to launch the game, then try again.";
+    } else if (isJoinFail) {
+      title = "Could not join room";
+      desc = error || "The room join request failed.";
+      suggestion = "Check that the host is still streaming. The game may have ended.";
+    } else if (isNotFound) {
+      title = "Link not found";
+      desc = error || "This share link doesn't match any active game.";
+      suggestion = "The link may have expired. Ask the host for a new one.";
+    } else if (isTimedOut) {
+      title = "Connection timed out";
+      desc = error || "The server took too long to respond.";
+      suggestion = "Check your internet connection and try again.";
+    } else {
+      desc = error || "The game couldn't start. The link may have expired.";
+      suggestion = "Make sure the host is streaming, then refresh to try again.";
+    }
+
     return (
       <main style={s.error}>
         <div style={s.errorIcon}>!</div>
-        <div style={s.errorTitle}>{error || "Something went wrong"}</div>
-        <p style={s.errorDesc}>
-          {error === "no active session — waiting for host"
-            ? "The host has disconnected or the game session expired."
-            : "The game couldn't start. The link may have expired."}
-        </p>
-        <a href="/" style={s.errorLink}>Sprite Cloud</a>
+        <div style={s.errorTitle}>{title}</div>
+        <p style={s.errorDesc}>{desc}</p>
+        {error && !isSessionEnded && !isNotFound && !isTimedOut && (
+          <p style={s.errorDetail}>{error}</p>
+        )}
+        {suggestion && <p style={s.errorHint}>{suggestion}</p>}
+        <div style={s.errorActions}>
+          <a href="/" style={s.errorBtn}>← Home</a>
+          <button onClick={() => window.location.reload()} style={s.errorBtnRetry}>
+            ↻ Retry
+          </button>
+        </div>
       </main>
     );
   }
@@ -132,6 +174,10 @@ export default function ShortCodePage() {
             joinToken={gameMeta.roomToken}
             onClose={() => router.push("/")}
             onConnected={onConnected}
+            onFatalError={(msg) => {
+              setError(msg);
+              setPhase("error");
+            }}
             initialPipeline={{ ice: "done", server: "done" }}
             initialStatus="connecting"
             hidePipeline
@@ -232,7 +278,24 @@ const s = {
   },
   error: { minHeight: "100vh", background: "var(--color-sky-deep)", display: "flex", flexDirection: "column" as const, alignItems: "center", justifyContent: "center", gap: 16, padding: 32, fontFamily: "system-ui, sans-serif" },
   errorIcon: { fontSize: "clamp(3rem, 10vw, 6rem)", fontWeight: 700, color: "var(--color-accent)", lineHeight: 1 },
-  errorTitle: { fontSize: 14, color: "var(--color-text-primary)", textTransform: "uppercase" as const, letterSpacing: "0.08em" },
-  errorDesc: { fontSize: 12, color: "var(--color-text-secondary)", maxWidth: 360, textAlign: "center" as const, lineHeight: 1.6 },
+  errorTitle: { fontSize: 14, color: "var(--color-text-primary)", textTransform: "uppercase" as const, letterSpacing: "0.08em", fontWeight: 700 },
+  errorDesc: { fontSize: 13, color: "var(--color-text-secondary)", maxWidth: 400, textAlign: "center" as const, lineHeight: 1.6, margin: 0 },
+  errorDetail: {
+    fontSize: 11, color: "#b8964a", maxWidth: 400, textAlign: "center" as const,
+    lineHeight: 1.5, fontFamily: "monospace", background: "rgba(0,0,0,0.3)",
+    padding: "8px 14px", borderRadius: 2, margin: 0, wordBreak: "break-all" as const,
+  },
+  errorHint: { fontSize: 12, color: "var(--color-text-secondary)", maxWidth: 400, textAlign: "center" as const, lineHeight: 1.5, opacity: 0.7, margin: 0 },
+  errorActions: { display: "flex", gap: 12, marginTop: 8 },
+  errorBtn: {
+    padding: "8px 24px", border: "1px solid var(--color-border-default)", color: "var(--color-accent)",
+    fontSize: 13, fontFamily: "monospace", textDecoration: "none", textTransform: "uppercase" as const,
+    letterSpacing: "0.1em", borderRadius: 2,
+  },
+  errorBtnRetry: {
+    padding: "8px 24px", background: "var(--color-accent)", color: "var(--color-sky-deep)",
+    border: "none", fontSize: 13, fontFamily: "monospace", fontWeight: 700, cursor: "pointer",
+    textTransform: "uppercase" as const, letterSpacing: "0.1em", borderRadius: 2,
+  },
   errorLink: { marginTop: 16, padding: "8px 28px", border: "1px solid var(--color-border-default)", color: "var(--color-accent)", fontSize: 13, fontFamily: "monospace", textDecoration: "none", textTransform: "uppercase" as const, letterSpacing: "0.1em" },
 } as const;

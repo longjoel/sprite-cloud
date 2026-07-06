@@ -13,21 +13,21 @@ use std::time::Duration;
 
 use tokio::sync::Mutex as AsyncMutex;
 
-use webrtc::api::interceptor_registry::register_default_interceptors;
-use webrtc::api::media_engine::{MediaEngine, MIME_TYPE_H264, MIME_TYPE_OPUS};
-use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::APIBuilder;
-use webrtc::ice_transport::ice_server::RTCIceServer;
-use webrtc::ice::network_type::NetworkType;
+use webrtc::api::interceptor_registry::register_default_interceptors;
+use webrtc::api::media_engine::{MIME_TYPE_H264, MIME_TYPE_OPUS, MediaEngine};
+use webrtc::api::setting_engine::SettingEngine;
 use webrtc::ice::mdns::MulticastDnsMode;
-use webrtc::peer_connection::configuration::RTCConfiguration;
+use webrtc::ice::network_type::NetworkType;
 use webrtc::ice_transport::ice_gatherer_state::RTCIceGathererState;
+use webrtc::ice_transport::ice_server::RTCIceServer;
+use webrtc::peer_connection::RTCPeerConnection;
+use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::policy::ice_transport_policy::RTCIceTransportPolicy;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
-use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
-use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSample;
 use webrtc::track::track_local::TrackLocal;
+use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSample;
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -47,55 +47,22 @@ struct IceServer {
     credential: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum IceTransportPolicy {
-    All,
-    Relay,
-}
-
 #[derive(Debug, Clone, PartialEq)]
 struct IceConfig {
     servers: Vec<IceServer>,
-    transport_policy: IceTransportPolicy,
+    transport_policy: crate::config::IceTransportPolicySetting,
 }
 
-/// Build ICE configuration from environment variables.
+/// Build ICE configuration from the shared runtime config loader.
 ///
-/// Reads `GV_ICE_STUN_URLS`, `GV_ICE_TURN_URLS`, `GV_ICE_TURN_USERNAME`,
-/// `GV_ICE_TURN_CREDENTIAL`, and `GV_ICE_TRANSPORT_POLICY`.  Falls back
-/// to Google's public STUN if nothing is configured.
+/// Keeping the WebRTC layer on top of `config::runtime_ice_config()` ensures
+/// startup logs, verify metadata, and actual PeerConnection behavior all report
+/// the same transport state.
 fn ice_config() -> IceConfig {
-    let stun_urls: Vec<String> = std::env::var("GV_ICE_STUN_URLS")
-        .ok()
-        .map(|s| {
-            s.split(',')
-                .map(|p| p.trim().to_string())
-                .filter(|p| !p.is_empty())
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let turn_urls: Vec<String> = std::env::var("GV_ICE_TURN_URLS")
-        .ok()
-        .map(|s| {
-            s.split(',')
-                .map(|p| p.trim().to_string())
-                .filter(|p| !p.is_empty())
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let turn_username = std::env::var("GV_ICE_TURN_USERNAME").ok();
-    let turn_credential = std::env::var("GV_ICE_TURN_CREDENTIAL").ok();
-    let policy = match std::env::var("GV_ICE_TRANSPORT_POLICY")
-        .ok()
-        .as_deref()
-    {
-        Some("relay") => IceTransportPolicy::Relay,
-        _ => IceTransportPolicy::All,
-    };
-
+    let runtime = crate::config::runtime_ice_config();
     let mut servers = Vec::new();
+
+    let stun_urls = runtime.effective_stun_urls();
     if !stun_urls.is_empty() {
         servers.push(IceServer {
             urls: stun_urls,
@@ -103,24 +70,18 @@ fn ice_config() -> IceConfig {
             credential: None,
         });
     }
-    if !turn_urls.is_empty() {
+
+    if !runtime.turn_urls.is_empty() {
         servers.push(IceServer {
-            urls: turn_urls,
-            username: turn_username.filter(|s| !s.is_empty()),
-            credential: turn_credential.filter(|s| !s.is_empty()),
-        });
-    }
-    if servers.is_empty() {
-        servers.push(IceServer {
-            urls: vec!["stun:stun.l.google.com:19302".into()],
-            username: None,
-            credential: None,
+            urls: runtime.turn_urls,
+            username: runtime.turn_username,
+            credential: runtime.turn_credential,
         });
     }
 
     IceConfig {
         servers,
-        transport_policy: policy,
+        transport_policy: runtime.transport_policy,
     }
 }
 
@@ -152,7 +113,7 @@ async fn build_webrtc_stack(include_turn: bool) -> Result<InternalWebRtcStack, S
     let ice_servers: Vec<RTCIceServer> = ice_cfg
         .servers
         .iter()
-        .filter(|s| include_turn || s.username.is_none())  // STUN-only: keep servers without auth
+        .filter(|s| include_turn || s.username.is_none()) // STUN-only: keep servers without auth
         .map(|s| RTCIceServer {
             urls: s.urls.clone(),
             username: s.username.clone().unwrap_or_default(),
@@ -160,8 +121,8 @@ async fn build_webrtc_stack(include_turn: bool) -> Result<InternalWebRtcStack, S
         })
         .collect();
     let ice_policy = match ice_cfg.transport_policy {
-        IceTransportPolicy::All => RTCIceTransportPolicy::All,
-        IceTransportPolicy::Relay => RTCIceTransportPolicy::Relay,
+        crate::config::IceTransportPolicySetting::All => RTCIceTransportPolicy::All,
+        crate::config::IceTransportPolicySetting::Relay => RTCIceTransportPolicy::Relay,
     };
 
     let pc = Arc::new(
@@ -245,13 +206,12 @@ async fn build_ice_prewarm_pc() -> Result<RTCPeerConnection, String> {
         })
         .collect();
 
-    api
-        .new_peer_connection(RTCConfiguration {
-            ice_servers,
-            ..Default::default()
-        })
-        .await
-        .map_err(|e| format!("peer connection: {e}"))
+    api.new_peer_connection(RTCConfiguration {
+        ice_servers,
+        ..Default::default()
+    })
+    .await
+    .map_err(|e| format!("peer connection: {e}"))
 }
 
 /// Set remote offer, create local answer, and wait for ICE gathering.
@@ -319,11 +279,6 @@ pub async fn build_session_pc() -> Result<WebRtcStack, String> {
 /// session tracks on top produces 4-track PCs whose SDP answers have twice
 /// the m= sections as the browser's offer, breaking WebRTC negotiation.
 pub async fn build_pc_for_guest() -> Result<Arc<RTCPeerConnection>, String> {
-    use webrtc::api::interceptor_registry::register_default_interceptors;
-    use webrtc::api::media_engine::MediaEngine;
-    use webrtc::api::setting_engine::SettingEngine;
-    use webrtc::api::APIBuilder;
-
     let mut media_engine = MediaEngine::default();
     media_engine
         .register_default_codecs()
@@ -345,7 +300,8 @@ pub async fn build_pc_for_guest() -> Result<Arc<RTCPeerConnection>, String> {
         .build();
 
     let ice_cfg = ice_config();
-    let mut ice_servers: Vec<RTCIceServer> = ice_cfg
+    // Include ALL servers (STUN + TURN) — guests need relay just like the host.
+    let ice_servers: Vec<RTCIceServer> = ice_cfg
         .servers
         .iter()
         .map(|s| RTCIceServer {
@@ -355,17 +311,16 @@ pub async fn build_pc_for_guest() -> Result<Arc<RTCPeerConnection>, String> {
         })
         .collect();
 
-    // Always include a STUN server for srflx candidates
-    ice_servers.push(RTCIceServer {
-        urls: vec!["stun:stun.l.google.com:19302".to_string()],
-        username: String::new(),
-        credential: String::new(),
-    });
-
     let ice_policy = match ice_cfg.transport_policy {
-        IceTransportPolicy::All => RTCIceTransportPolicy::All,
-        IceTransportPolicy::Relay => RTCIceTransportPolicy::Relay,
+        crate::config::IceTransportPolicySetting::All => RTCIceTransportPolicy::All,
+        crate::config::IceTransportPolicySetting::Relay => RTCIceTransportPolicy::Relay,
     };
+
+    tracing::info!(
+        "[SDP] guest ICE: {} servers, policy={:?}",
+        ice_servers.len(),
+        ice_policy,
+    );
 
     Ok(Arc::new(
         api.new_peer_connection(RTCConfiguration {
@@ -384,12 +339,12 @@ pub async fn build_pc_for_guest() -> Result<Arc<RTCPeerConnection>, String> {
 /// which may be "relay") and builds fresh with `All` policy + STUN only.
 pub async fn build_session_pc_lan() -> Result<WebRtcStack, String> {
     use std::sync::Arc as _Arc;
+    use webrtc::api::APIBuilder;
     use webrtc::api::interceptor_registry::register_default_interceptors;
     use webrtc::api::media_engine::MediaEngine;
     use webrtc::api::setting_engine::SettingEngine;
-    use webrtc::api::APIBuilder;
-    use webrtc::ice::network_type::NetworkType;
     use webrtc::ice::mdns::MulticastDnsMode;
+    use webrtc::ice::network_type::NetworkType;
 
     let mut media_engine = MediaEngine::default();
     media_engine
@@ -430,7 +385,8 @@ pub async fn build_session_pc_lan() -> Result<WebRtcStack, String> {
             mime_type: MIME_TYPE_H264.to_owned(),
             clock_rate: VP8_CLOCK_RATE,
             channels: 0,
-            sdp_fmtp_line: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f".to_string(),
+            sdp_fmtp_line: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
+                .to_string(),
             rtcp_feedback: vec![],
         },
         VIDEO_TRACK_ID.to_owned(),
@@ -551,10 +507,7 @@ pub async fn prewarm_ice_agent() {
     // Wait up to 15s for gathering (generous; usually 2-5s)
     match tokio::time::timeout(Duration::from_secs(15), done_rx.recv()).await {
         Ok(Some(())) => {
-            tracing::info!(
-                "[PREWARM] ICE gathering complete in {:?}",
-                start.elapsed()
-            );
+            tracing::info!("[PREWARM] ICE gathering complete in {:?}", start.elapsed());
         }
         Ok(None) => {
             tracing::warn!("[PREWARM] gathering channel closed");
@@ -686,7 +639,11 @@ impl PcPool {
                 Ok(stack) => {
                     queue.lock().await.push_back(stack);
                     notify.notify_one();
-                    tracing::info!("[POOL] replenished (now {}/{})", queue.lock().await.len(), size);
+                    tracing::info!(
+                        "[POOL] replenished (now {}/{})",
+                        queue.lock().await.len(),
+                        size
+                    );
                 }
                 Err(e) => {
                     tracing::warn!("[POOL] replenish build failed: {e}");

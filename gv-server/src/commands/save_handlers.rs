@@ -4,14 +4,19 @@ use super::*;
 
 // ── Save stack command handlers ──────────────────────────────────────
 
-pub(super) async fn handle_save_state(session: &Arc<GameSession>, dc: &Arc<::webrtc::data_channel::RTCDataChannel>) {
+pub(super) async fn handle_save_state(
+    session: &Arc<GameSession>,
+    dc: &Arc<::webrtc::data_channel::RTCDataChannel>,
+) {
     let rh = {
         let guard = session.rom_hash.lock().await;
         guard.clone()
     };
     let Some(rom_hash) = rh else {
         tracing::warn!("[SAVE] no rom_hash — can't save");
-        let _ = dc.send_text(r#"{"cmd":"save_result","ok":false,"error":"no rom hash"}"#).await;
+        let _ = dc
+            .send_text(r#"{"cmd":"save_result","ok":false,"error":"no rom hash"}"#)
+            .await;
         return;
     };
 
@@ -21,7 +26,9 @@ pub(super) async fn handle_save_state(session: &Arc<GameSession>, dc: &Arc<::web
         if let Some(ref tx) = *guard {
             let _ = tx.send(core_bridge::CoreCommand::SaveState);
         } else {
-            let _ = dc.send_text(r#"{"cmd":"save_result","ok":false,"error":"core not loaded"}"#).await;
+            let _ = dc
+                .send_text(r#"{"cmd":"save_result","ok":false,"error":"core not loaded"}"#)
+                .await;
             return;
         }
     }
@@ -48,21 +55,31 @@ pub(super) async fn handle_save_state(session: &Arc<GameSession>, dc: &Arc<::web
                 }
                 Ok(Err(e)) => {
                     tracing::error!("[SAVE] disk write failed: {e}");
-                    let _ = dc.send_text(r#"{"cmd":"save_result","ok":false,"error":"disk write failed"}"#).await;
+                    let _ = dc
+                        .send_text(
+                            r#"{"cmd":"save_result","ok":false,"error":"disk write failed"}"#,
+                        )
+                        .await;
                 }
                 Err(e) => {
                     tracing::error!("[SAVE] spawn_blocking failed: {e}");
-                    let _ = dc.send_text(r#"{"cmd":"save_result","ok":false,"error":"internal error"}"#).await;
+                    let _ = dc
+                        .send_text(r#"{"cmd":"save_result","ok":false,"error":"internal error"}"#)
+                        .await;
                 }
             }
         }
         Some(core_bridge::CoreResponse::SaveStateResult { ok: false, .. }) => {
             tracing::warn!("[SAVE] core returned empty state");
-            let _ = dc.send_text(r#"{"cmd":"save_result","ok":false,"error":"empty state"}"#).await;
+            let _ = dc
+                .send_text(r#"{"cmd":"save_result","ok":false,"error":"empty state"}"#)
+                .await;
         }
         _ => {
             tracing::warn!("[SAVE] no response from core");
-            let _ = dc.send_text(r#"{"cmd":"save_result","ok":false,"error":"core timeout"}"#).await;
+            let _ = dc
+                .send_text(r#"{"cmd":"save_result","ok":false,"error":"core timeout"}"#)
+                .await;
         }
     }
 }
@@ -77,7 +94,9 @@ pub(super) async fn handle_load_state(
         guard.clone()
     };
     let Some(rom_hash) = rh else {
-        let _ = dc.send_text(r#"{"cmd":"load_result","ok":false,"error":"no rom hash"}"#).await;
+        let _ = dc
+            .send_text(r#"{"cmd":"load_result","ok":false,"error":"no rom hash"}"#)
+            .await;
         return;
     };
 
@@ -90,22 +109,33 @@ pub(super) async fn handle_load_state(
                 .map_err(|e| e.to_string())
                 .and_then(|opt| opt.map(|(_, d)| d).ok_or_else(|| "no saves".to_string())),
         }
-    }).await {
+    })
+    .await
+    {
         Ok(Ok(d)) => d,
         Ok(Err(e)) => {
             tracing::warn!("[SAVE] load from disk failed: {e}");
-            let _ = dc.send_text(format!(r#"{{"cmd":"load_result","ok":false,"error":"{}"}}"#, e)).await;
+            let _ = dc
+                .send_text(format!(
+                    r#"{{"cmd":"load_result","ok":false,"error":"{}"}}"#,
+                    e
+                ))
+                .await;
             return;
         }
         Err(e) => {
             tracing::error!("[SAVE] spawn_blocking failed: {e}");
-            let _ = dc.send_text(r#"{"cmd":"load_result","ok":false,"error":"internal error"}"#).await;
+            let _ = dc
+                .send_text(r#"{"cmd":"load_result","ok":false,"error":"internal error"}"#)
+                .await;
             return;
         }
     };
 
     if data.is_empty() {
-        let _ = dc.send_text(r#"{"cmd":"load_result","ok":false,"error":"empty state data"}"#).await;
+        let _ = dc
+            .send_text(r#"{"cmd":"load_result","ok":false,"error":"empty state data"}"#)
+            .await;
         return;
     }
 
@@ -117,7 +147,9 @@ pub(super) async fn handle_load_state(
             let _ = tx.send(core_bridge::CoreCommand::LoadState { data });
             tracing::info!("[SAVE] loading state ({} bytes)", len);
         } else {
-            let _ = dc.send_text(r#"{"cmd":"load_result","ok":false,"error":"core not loaded"}"#).await;
+            let _ = dc
+                .send_text(r#"{"cmd":"load_result","ok":false,"error":"core not loaded"}"#)
+                .await;
             return;
         }
     }
@@ -137,18 +169,25 @@ pub(super) async fn handle_load_state(
             let _ = dc.send_text(r#"{"cmd":"load_result","ok":true}"#).await;
         }
         _ => {
-            let _ = dc.send_text(r#"{"cmd":"load_result","ok":false,"error":"core rejected state"}"#).await;
+            let _ = dc
+                .send_text(r#"{"cmd":"load_result","ok":false,"error":"core rejected state"}"#)
+                .await;
         }
     }
 }
 
-pub(super) async fn handle_list_saves(session: &Arc<GameSession>, dc: &Arc<::webrtc::data_channel::RTCDataChannel>) {
+pub(super) async fn handle_list_saves(
+    session: &Arc<GameSession>,
+    dc: &Arc<::webrtc::data_channel::RTCDataChannel>,
+) {
     let rh = {
         let guard = session.rom_hash.lock().await;
         guard.clone()
     };
     let Some(rom_hash) = rh else {
-        let _ = dc.send_text(r#"{"cmd":"list_saves_result","entries":[]}"#).await;
+        let _ = dc
+            .send_text(r#"{"cmd":"list_saves_result","entries":[]}"#)
+            .await;
         return;
     };
 
@@ -163,8 +202,9 @@ pub(super) async fn handle_list_saves(session: &Arc<GameSession>, dc: &Arc<::web
             let _ = dc.send_text(resp.to_string()).await;
         }
         Ok(Err(_)) | Err(_) => {
-            let _ = dc.send_text(r#"{"cmd":"list_saves_result","entries":[]}"#).await;
+            let _ = dc
+                .send_text(r#"{"cmd":"list_saves_result","entries":[]}"#)
+                .await;
         }
     }
 }
-

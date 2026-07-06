@@ -156,7 +156,46 @@ docker logs gv-web-gv-web-1   # shows the setup code
 
 Visit `https://your-domain.com/setup` → enter the code → create admin account.
 
-### 3. Done
+### 3. Connectivity health check
+
+Open:
+
+```text
+https://your-domain.com/api/health
+```
+
+Look for the `connectivity` block.
+
+Use these product-language modes:
+
+- `lan-only` → same-machine/LAN play only; remote guests are not reliable yet
+- `stun-capable` → normal home-network guests may work; hostile NAT / cellular may still fail
+- `turn-capable` → recommended mode for reliable remote guest multiplayer
+- `misconfigured` → TURN looks configured but is unusable; fix credentials/config before testing again
+
+Healthy example for remote guests:
+
+```json
+{
+  "mode": "turn-capable",
+  "turn_ready": true,
+  "transport_policy": "all"
+}
+```
+
+Unhealthy example:
+
+```json
+{
+  "mode": "misconfigured",
+  "turn_ready": false,
+  "diagnostics": [
+    "TURN URL is configured but username/credential is missing — relay is not actually usable."
+  ]
+}
+```
+
+### 4. Done
 
 Your gateway is live. Send the URL to players and hosts.
 

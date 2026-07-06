@@ -1,4 +1,5 @@
 import NextAuth from "next-auth";
+import GitHub from "next-auth/providers/github";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
@@ -72,54 +73,92 @@ function recordFailure(ip: string) {
   if (e) e.failures += 1;
 }
 
+// ── Providers ──────────────────────────────────────────────────────────
+
+const providers = [];
+
+// GitHub OAuth — primary method (no SMTP, no password management)
+if (process.env.AUTH_GITHUB_ID && process.env.AUTH_GITHUB_SECRET) {
+  providers.push(
+    GitHub({
+      clientId: process.env.AUTH_GITHUB_ID,
+      clientSecret: process.env.AUTH_GITHUB_SECRET,
+    }),
+  );
+}
+
+// Email + password — fallback (optional, for users without GitHub)
+providers.push(
+  Credentials({
+    id: "credentials",
+    name: "Email",
+    credentials: {
+      email: { label: "Email", type: "email", placeholder: "you@example.com" },
+      password: { label: "Password", type: "password" },
+    },
+    async authorize(credentials, request) {
+      const ip =
+        request?.headers?.get("x-forwarded-for") ||
+        request?.headers?.get("x-real-ip") ||
+        "127.0.0.1";
+
+      const rl = checkRateLimit(ip);
+      if (!rl.allowed) return null;
+
+      const email = (credentials?.email as string || "").trim().toLowerCase();
+      const password = (credentials?.password as string) || "";
+      if (!email || !password) {
+        recordFailure(ip);
+        return null;
+      }
+
+      const user = await findUserByEmail(email);
+      if (!user || !user.passwordHash) {
+        recordFailure(ip);
+        return null;
+      }
+
+      const match = await bcrypt.compare(password, user.passwordHash);
+      if (!match) {
+        recordFailure(ip);
+        return null;
+      }
+
+      return { id: user.id, name: user.name || email, email: user.email };
+    },
+  }),
+);
+
 // ── Auth config ────────────────────────────────────────────────────────
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  providers: [
-    Credentials({
-      id: "credentials",
-      name: "Sprite Cloud",
-      credentials: {
-        email: { label: "Email", type: "email", placeholder: "you@example.com" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize(credentials, request) {
-        const ip =
-          request?.headers?.get("x-forwarded-for") ||
-          request?.headers?.get("x-real-ip") ||
-          "127.0.0.1";
-
-        const rl = checkRateLimit(ip);
-        if (!rl.allowed) return null;
-
-        const email = (credentials?.email as string || "").trim().toLowerCase();
-        const password = (credentials?.password as string) || "";
-        if (!email || !password) {
-          recordFailure(ip);
-          return null;
-        }
-
-        const user = await findUserByEmail(email);
-        if (!user || !user.passwordHash) {
-          recordFailure(ip);
-          return null;
-        }
-
-        const match = await bcrypt.compare(password, user.passwordHash);
-        if (!match) {
-          recordFailure(ip);
-          return null;
-        }
-
-        return { id: user.id, name: user.name || email, email: user.email };
-      },
-    }),
-  ],
+  providers,
   session: { strategy: "jwt" },
+  pages: {
+    signIn: "/signin",
+  },
   callbacks: {
+    async signIn({ user, account }) {
+      // For OAuth providers: auto-create user on first sign-in
+      if (account?.provider === "github" && user.email) {
+        const existing = await findUserByEmail(user.email);
+        if (!existing) {
+          // Create user with OAuth-derived name, no password
+          await db.insert(users).values({
+            email: user.email,
+            name: user.name || user.email,
+            passwordHash: null, // OAuth users have no password
+          });
+        }
+      }
+      return true;
+    },
     session({ session, token }) {
       if (session.user && token.sub) {
         session.user.id = token.sub;
+      }
+      if (token.name && session.user) {
+        session.user.name = token.name as string;
       }
       return session;
     },

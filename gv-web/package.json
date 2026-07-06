@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "prebuild": "esbuild lib/touch-gamepad/main.ts --bundle --outfile=public/player/touch-gamepad-v2.js --format=iife --target=es2020 --global-name=__touchGamepadBundle",
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run"

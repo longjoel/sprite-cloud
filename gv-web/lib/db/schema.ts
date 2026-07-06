@@ -269,6 +269,27 @@ export const favorites = pgTable(
   }),
 );
 
+// ── Pinned games (user-pinned, max 20, sorted by position) ──────────
+
+export const pinnedGames = pgTable(
+  "pinned_games",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .references(() => users.id)
+      .notNull(),
+    gameId: uuid("game_id")
+      .references(() => games.id)
+      .notNull(),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    userGame: unique("pinned_games_user_game").on(table.userId, table.gameId),
+    idxUserPos: index("idx_pinned_games_user_pos").on(table.userId, table.position),
+  }),
+);
+
 // ── Recent plays (per-user launch history) ───────────────────────────
 
 export const recentPlays = pgTable(

@@ -220,11 +220,8 @@ fn parse_dat_clrmamepro(input: &str) -> Result<Vec<RomEntry>> {
 
                 let entry = RomEntry {
                     game_name: game_name.clone().unwrap_or_default(),
-                    canonical_name: canonicalize_name(
-                        &game_name.unwrap_or_default(),
-                    ),
-                    rom_name: extract_clrmamepro_value(rom_block, "name")
-                        .unwrap_or_default(),
+                    canonical_name: canonicalize_name(&game_name.unwrap_or_default()),
+                    rom_name: extract_clrmamepro_value(rom_block, "name").unwrap_or_default(),
                     size: extract_clrmamepro_value(rom_block, "size")
                         .unwrap_or_default()
                         .parse()
@@ -279,22 +276,16 @@ fn parse_dat_xml(xml: &str) -> Result<Vec<RomEntry>> {
                 b"game" => {
                     current_game = e
                         .try_get_attribute("name")?
-                        .map(|a| {
-                            a.unescape_value()
-                                .unwrap_or_default()
-                                .to_string()
-                        });
+                        .map(|a| a.unescape_value().unwrap_or_default().to_string());
                 }
                 b"rom" => {
-                    let entry =
-                        parse_rom_element(e, current_game.as_deref());
+                    let entry = parse_rom_element(e, current_game.as_deref());
                     current_rom = Some(entry);
                 }
                 _ => {}
             },
             Event::Empty(ref e) if e.name().as_ref() == b"rom" => {
-                let entry =
-                    parse_rom_element(e, current_game.as_deref());
+                let entry = parse_rom_element(e, current_game.as_deref());
                 current_rom = Some(entry);
             }
             Event::End(ref e) if e.name().as_ref() == b"game" => {
