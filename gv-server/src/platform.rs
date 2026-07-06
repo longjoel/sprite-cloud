@@ -26,8 +26,9 @@ pub struct PlatformManifest {
 /// Every platform known to Sprite Cloud.
 /// Server-specific core overrides set by the dashboard user.
 /// Key: platform short name (e.g. "Game Boy Color"), Value: core filename.
-static CORE_OVERRIDES: std::sync::LazyLock<std::sync::RwLock<std::collections::HashMap<String, String>>> =
-    std::sync::LazyLock::new(|| std::sync::RwLock::new(std::collections::HashMap::new()));
+static CORE_OVERRIDES: std::sync::LazyLock<
+    std::sync::RwLock<std::collections::HashMap<String, String>>,
+> = std::sync::LazyLock::new(|| std::sync::RwLock::new(std::collections::HashMap::new()));
 
 /// Update core overrides (called after each verify response).
 pub fn update_core_overrides(overrides: std::collections::HashMap<String, String>) {
@@ -259,7 +260,11 @@ pub fn by_extension(ext: &str) -> Option<&'static PlatformManifest> {
 /// to test pattern.
 pub fn core_for_platform(name: &str) -> Option<String> {
     // 1. Check server-specific overrides from dashboard
-    if let Some(core) = CORE_OVERRIDES.read().ok().and_then(|g| g.get(name).cloned()) {
+    if let Some(core) = CORE_OVERRIDES
+        .read()
+        .ok()
+        .and_then(|g| g.get(name).cloned())
+    {
         return Some(core);
     }
     // 2. Check environment variable overrides (GV_CORE_OVERRIDE_*)
@@ -327,18 +332,19 @@ pub fn detect_platform_name(path: &std::path::Path) -> Option<String> {
     if ext == "zip" {
         // Try inner extension first (e.g. game.zip containing game.nes → NES)
         if let Some(inner_ext) = peek_zip_extension(path)
-            && let Some(pm) = by_extension(&inner_ext) {
-                return Some(pm.short_name.to_string());
-            }
+            && let Some(pm) = by_extension(&inner_ext)
+        {
+            return Some(pm.short_name.to_string());
+        }
         // Fallback: parent directory name
         let parent = path.parent()?.file_name()?.to_str()?;
         if let Some(system) = parent.split(" - ").nth(1)
             && let Some(pm) = PLATFORMS
                 .iter()
                 .find(|p| p.short_name == system || p.aliases.contains(&system))
-            {
-                return Some(pm.short_name.to_string());
-            }
+        {
+            return Some(pm.short_name.to_string());
+        }
         // Last resort — assume Arcade (FBNeo)
         return Some("Arcade".to_string());
     }
@@ -354,9 +360,9 @@ pub fn detect_platform_name(path: &std::path::Path) -> Option<String> {
         && let Some(pm) = PLATFORMS
             .iter()
             .find(|p| p.short_name == system || p.aliases.contains(&system))
-        {
-            return Some(pm.short_name.to_string());
-        }
+    {
+        return Some(pm.short_name.to_string());
+    }
 
     None
 }
@@ -405,9 +411,18 @@ mod tests {
 
     #[test]
     fn core_by_short_name() {
-        assert_eq!(core_for_platform("NES").as_deref(), Some("nestopia_libretro.so"));
-        assert_eq!(core_for_platform("SNES").as_deref(), Some("snes9x_libretro.so"));
-        assert_eq!(core_for_platform("Game Boy").as_deref(), Some("sameboy_libretro.so"));
+        assert_eq!(
+            core_for_platform("NES").as_deref(),
+            Some("nestopia_libretro.so")
+        );
+        assert_eq!(
+            core_for_platform("SNES").as_deref(),
+            Some("snes9x_libretro.so")
+        );
+        assert_eq!(
+            core_for_platform("Game Boy").as_deref(),
+            Some("sameboy_libretro.so")
+        );
         assert_eq!(
             core_for_platform("Game Boy Advance").as_deref(),
             Some("mgba_libretro.so")
@@ -438,7 +453,10 @@ mod tests {
             core_for_platform("Game Boy Advance").as_deref(),
             Some("mgba_libretro.so")
         );
-        assert_eq!(core_for_platform("Game Boy").as_deref(), Some("sameboy_libretro.so"));
+        assert_eq!(
+            core_for_platform("Game Boy").as_deref(),
+            Some("sameboy_libretro.so")
+        );
     }
 
     // ── Coverage ───────────────────────────────────────────────────
@@ -557,16 +575,13 @@ mod tests {
         // Build a tiny zip with a .nes file inside
         let file = std::fs::File::create(&zip_path).unwrap();
         let mut archive = zip::ZipWriter::new(file);
-        let options =
-            zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
         archive.start_file("Super Mario Bros.nes", options).unwrap();
         archive.write_all(b"fake rom content").unwrap();
         archive.finish().unwrap();
 
-        assert_eq!(
-            detect_platform_name(&zip_path),
-            Some("NES".into())
-        );
+        assert_eq!(detect_platform_name(&zip_path), Some("NES".into()));
     }
 
     /// .zip with no known inner extension → falls back to parent dir, then Arcade.
@@ -580,16 +595,13 @@ mod tests {
         // MAME-style zip: raw bin files with numeric extensions
         let file = std::fs::File::create(&zip_path).unwrap();
         let mut archive = zip::ZipWriter::new(file);
-        let options =
-            zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
         archive.start_file("sf2.03", options).unwrap();
         archive.write_all(b"fake").unwrap();
         archive.finish().unwrap();
 
         // No known inner extension, no RetroArch-style parent dir → Arcade
-        assert_eq!(
-            detect_platform_name(&zip_path),
-            Some("Arcade".into())
-        );
+        assert_eq!(detect_platform_name(&zip_path), Some("Arcade".into()));
     }
 }

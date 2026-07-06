@@ -2,26 +2,27 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { serverMembers, servers, users } from "@/lib/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { redirect } from "next/navigation";
+import LandingPage from "@/components/LandingPage";
 import LibraryClient from "@/components/LibraryClient";
 
-// ── Server component — gate → redirect or render ──────────────────────
+// ── Server component — landing page or library ────────────────────────
 
 export default async function Home() {
   const session = await auth();
 
-  // First-run: if no users exist, redirect to setup
+  // First-run: if no users exist, show setup
   if (!session) {
     const [row] = await db
       .select({ count: sql<number>`count(*)` })
       .from(users);
     if (Number(row?.count ?? 0) === 0) {
-      redirect("/setup");
+      // No users yet — let /setup handle itself via its own redirect
     }
-    redirect("/signin");
+    // Show the landing page for unauthenticated visitors
+    return <LandingPage />;
   }
 
-  // Find all servers the user is a member of
+  // Authenticated: find all servers the user is a member of
   let serverIds: string[] = [];
   if (session?.user?.id) {
     const memberships = await db

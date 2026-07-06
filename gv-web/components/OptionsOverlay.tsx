@@ -27,6 +27,9 @@ interface OptionsOverlayProps {
   onOpenSaves: () => void;
   onOpenKeys: () => void;
   onOpenRoom: () => void;
+  onCast?: () => void;
+  onQrCode?: () => void;
+  isMobile?: boolean;
 }
 
 // ── Component ─────────────────────────────────────────────────────────
@@ -45,6 +48,9 @@ export default function OptionsOverlay({
   onOpenSaves,
   onOpenKeys,
   onOpenRoom,
+  onCast,
+  onQrCode,
+  isMobile = false,
 }: OptionsOverlayProps) {
   const [flash, setFlash] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -88,7 +94,7 @@ export default function OptionsOverlay({
       label: isFullscreen ? "Windowed" : "Fullscreen",
       action: onFullscreen,
     },
-    { id: "reposition", icon: "🖐", label: "Reposition", action: onReposition },
+    { id: "reposition", icon: "🖐", label: "Touch Settings", action: onReposition },
     { id: "restart", icon: "↺", label: "Restart", action: onRestart, danger: true },
   ];
 
@@ -96,6 +102,8 @@ export default function OptionsOverlay({
     { id: "saves", icon: "📋", label: "Saves", action: onOpenSaves },
     { id: "keys", icon: "🎮", label: "Keys", action: onOpenKeys },
     { id: "resetpos", icon: "⟲", label: "Reset Pos", action: onResetPosition },
+    ...(isMobile && onCast ? [{ id: "cast", icon: "📺", label: "Cast", action: onCast }] : []),
+    ...(onQrCode ? [{ id: "qrcode", icon: "📱", label: "QR Code", action: onQrCode }] : []),
   ];
 
   return (

@@ -3,11 +3,11 @@
 //! are proxied same-origin through this server to gv-web.
 
 use axum::{
+    Router,
     body::Body,
     extract::{Request, State},
     response::Html,
-    routing::{get, any},
-    Router,
+    routing::{any, get},
 };
 use reqwest::Client;
 use std::net::SocketAddr;
@@ -171,17 +171,23 @@ async fn proxy(
     State(state): State<Arc<AppState>>,
     req: Request,
 ) -> Result<axum::response::Response, axum::http::StatusCode> {
-    let path = req.uri().path_and_query()
+    let path = req
+        .uri()
+        .path_and_query()
         .map(|pq| pq.as_str())
         .unwrap_or("/");
     let target = format!("{}{}", state.gv_web, path);
 
     let method = req.method().clone();
-    let headers: Vec<(String, String)> = req.headers().iter()
+    let headers: Vec<(String, String)> = req
+        .headers()
+        .iter()
         .filter_map(|(k, v)| {
             let name = k.as_str().to_lowercase();
             // Skip hop-by-hop headers
-            if name == "host" || name == "connection" { return None; }
+            if name == "host" || name == "connection" {
+                return None;
+            }
             Some((k.to_string(), v.to_str().ok()?.to_string()))
         })
         .collect();

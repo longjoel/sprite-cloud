@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { commands, peerTokens, sessions } from "@/lib/db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import crypto from "crypto";
+import { logSignalingStage } from "@/lib/signaling";
 
 // ── POST /api/room/join — guest resolves a room_token to session details
 //
@@ -29,6 +30,12 @@ export async function POST(request: NextRequest) {
     ? body.client_id
     : undefined;
 
+  logSignalingStage("guest_join", "request_received", {
+    client_id: clientId,
+    has_client_id: !!clientId,
+    room_token: body.room_token,
+  });
+
   const [session] = await db
     .select({
       id: sessions.id,
@@ -45,6 +52,9 @@ export async function POST(request: NextRequest) {
     .limit(1);
 
   if (!session) {
+    logSignalingStage("guest_join", "session_lookup_failed", {
+      room_token: body.room_token,
+    });
     return NextResponse.json({ error: "room not found" }, { status: 404 });
   }
 
@@ -56,6 +66,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "session not ready" }, { status: 503 });
   }
 
+  logSignalingStage("guest_join", "session_resolved", {
+    game_id: session.gameId,
+    server_id: session.serverId,
+    session_id: session.id,
+    session_status: session.status,
+    worker_url: session.workerUrl,
+  });
+
   if (clientId) {
     const [existingPeer] = await db
       .select({ token: peerTokens.token, seat: peerTokens.seat, role: peerTokens.role })
@@ -64,6 +82,11 @@ export async function POST(request: NextRequest) {
       .limit(1);
 
     if (existingPeer) {
+      logSignalingStage("guest_join", "peer_reused", {
+        role: existingPeer.role,
+        seat: existingPeer.seat,
+        session_id: session.id,
+      });
       return NextResponse.json({
         worker_url: session.workerUrl,
         game_id: session.gameId,
@@ -81,6 +104,13 @@ export async function POST(request: NextRequest) {
   // the session to show the UI). Don't create a peer_token — the actual
   // join happens via play.js which always sends a client_id.
   if (!clientId) {
+    // Invariant: preview requests resolve room metadata only. They MUST NOT mint
+    // a peer token because no actual signaling leg has started yet.
+    logSignalingStage("guest_join", "preview_resolved", {
+      game_id: session.gameId,
+      session_id: session.id,
+      worker_token: session.commandWorkerToken,
+    });
     return NextResponse.json({
       worker_url: session.workerUrl,
       game_id: session.gameId,
@@ -110,6 +140,13 @@ export async function POST(request: NextRequest) {
     seat,
     role,
     clientId,
+  });
+
+  logSignalingStage("guest_join", "peer_issued", {
+    role,
+    seat,
+    session_id: session.id,
+    worker_token: session.commandWorkerToken,
   });
 
   return NextResponse.json({

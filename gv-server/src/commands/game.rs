@@ -2,6 +2,14 @@
 
 use super::*;
 
+fn signal_log(flow: &str, stage: &str, details: &str) {
+    if details.is_empty() {
+        tracing::info!("[SIGNAL] flow={} stage={}", flow, stage);
+    } else {
+        tracing::info!("[SIGNAL] flow={} stage={} {}", flow, stage, details);
+    }
+}
+
 // ── Command handlers ────────────────────────────────────────────────
 
 pub(super) async fn handle_start_game(
@@ -11,20 +19,47 @@ pub(super) async fn handle_start_game(
     rom_roots: &[String],
     pool: &webrtc::PcPool,
 ) {
-    let game_id = cmd.payload.get("game_id").and_then(|v| v.as_str()).unwrap_or("unknown");
-    let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str()).unwrap_or("");
+    let game_id = cmd
+        .payload
+        .get("game_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let session_id = cmd
+        .payload
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let _host_token = cmd.payload.get("host_token").and_then(|v| v.as_str());
     let platform = cmd.payload.get("platform").and_then(|v| v.as_str());
     let rom_path = cmd.payload.get("rom_path").and_then(|v| v.as_str());
     let sdp_offer = cmd.payload.get("sdp").and_then(|v| v.as_str());
-    let is_lan = cmd.payload.get("lan").and_then(|v| v.as_bool()).unwrap_or(false);
+    let is_lan = cmd
+        .payload
+        .get("lan")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
-    tracing::info!("[POLL] start_game game={game_id} session={session_id} sdp={} lan={is_lan}", sdp_offer.is_some());
+    signal_log(
+        "host_start",
+        "command_polled",
+        &format!(
+            "command_id={} game_id={} has_sdp={} is_lan={} session_id={}",
+            cmd.id,
+            game_id,
+            sdp_offer.is_some(),
+            is_lan,
+            session_id
+        ),
+    );
     let t_total = std::time::Instant::now();
 
     // Kill existing session for this game_id
     if let Some(old) = sessions.remove(game_id) {
-        tracing::info!("[SESSION] killing previous session for {game_id}");
+        signal_log(
+            "host_start",
+            "previous_session_cancelled",
+            &format!("game_id={}", game_id),
+        );
         old.cancel.cancel();
     }
 
@@ -43,21 +78,19 @@ pub(super) async fn handle_start_game(
 
     // Resolve (and download if needed) core from platform
     let t1 = std::time::Instant::now();
-    let core_path = match platform
-        .and_then(crate::platform::core_for_platform)
-    {
-        Some(core_file) => {
-            match core_bridge::ensure_core(&core_file, client.http_client()).await {
-                Ok(path) => {
-                    tracing::info!("[SESSION] core resolved: {}", path.display());
-                    Some(path)
-                }
-                Err(e) => {
-                    tracing::warn!("[SESSION] core download failed for {core_file}: {e} — will use test pattern");
-                    None
-                }
+    let core_path = match platform.and_then(crate::platform::core_for_platform) {
+        Some(core_file) => match core_bridge::ensure_core(&core_file, client.http_client()).await {
+            Ok(path) => {
+                tracing::info!("[SESSION] core resolved: {}", path.display());
+                Some(path)
             }
-        }
+            Err(e) => {
+                tracing::warn!(
+                    "[SESSION] core download failed for {core_file}: {e} — will use test pattern"
+                );
+                None
+            }
+        },
         None => None,
     };
 
@@ -70,10 +103,13 @@ pub(super) async fn handle_start_game(
             }
             Err(e) => {
                 tracing::error!("[SESSION] LAN PC build failed: {e}");
-                let _ = client.command_result(
-                    &cmd.id, &cmd.lease_token,
-                    &serde_json::json!({"error": "webrtc_build_failed", "message": e}),
-                ).await;
+                let _ = client
+                    .command_result(
+                        &cmd.id,
+                        &cmd.lease_token,
+                        &serde_json::json!({"error": "webrtc_build_failed", "message": e}),
+                    )
+                    .await;
                 return;
             }
         }
@@ -82,10 +118,13 @@ pub(super) async fn handle_start_game(
             Ok(s) => s,
             Err(e) => {
                 tracing::error!("[SESSION] pool.acquire failed: {e}");
-                let _ = client.command_result(
-                    &cmd.id, &cmd.lease_token,
-                    &serde_json::json!({"error": "webrtc_build_failed", "message": e}),
-                ).await;
+                let _ = client
+                    .command_result(
+                        &cmd.id,
+                        &cmd.lease_token,
+                        &serde_json::json!({"error": "webrtc_build_failed", "message": e}),
+                    )
+                    .await;
                 return;
             }
         }
@@ -93,7 +132,8 @@ pub(super) async fn handle_start_game(
     let t2 = std::time::Instant::now();
 
     // Compute ROM hash for save persistence
-    let rom_hash = content_path.as_deref()
+    let rom_hash = content_path
+        .as_deref()
         .and_then(|p| saves::hash_rom(std::path::Path::new(p)));
 
     // Create session
@@ -127,7 +167,8 @@ pub(super) async fn handle_start_game(
         core_path.as_deref(),
         content_path.as_deref(),
         platform,
-    ).await;
+    )
+    .await;
 
     let worker_url = worker_url(game_id);
 
@@ -162,7 +203,8 @@ pub(super) async fn handle_start_game(
                 Ok(answer) => {
                     tracing::info!(
                         "[SESSION] SDP exchange OK on attempt {attempt} in {:?} ({} chars)",
-                        elapsed, answer.len()
+                        elapsed,
+                        answer.len()
                     );
                     break;
                 }
@@ -177,14 +219,18 @@ pub(super) async fn handle_start_game(
                             match webrtc::build_session_pc_lan().await {
                                 Ok(fresh) => {
                                     tracing::info!("[SESSION] SDP retry (LAN): built fresh PC");
-                                    *session.video_track.lock().expect("mutex poisoned") = fresh.video_track;
-                                    *session.audio_track.lock().expect("mutex poisoned") = fresh.audio_track;
+                                    *session.video_track.lock().expect("mutex poisoned") =
+                                        fresh.video_track;
+                                    *session.audio_track.lock().expect("mutex poisoned") =
+                                        fresh.audio_track;
                                     *session.pc.lock().expect("mutex poisoned") = fresh.pc;
                                     dc_handler::wire_dc_handler(&session);
                                     tokio::time::sleep(Duration::from_millis(500)).await;
                                 }
                                 Err(e2) => {
-                                    tracing::error!("[SESSION] SDP retry (LAN): build failed: {e2}");
+                                    tracing::error!(
+                                        "[SESSION] SDP retry (LAN): build failed: {e2}"
+                                    );
                                     break;
                                 }
                             }
@@ -192,17 +238,23 @@ pub(super) async fn handle_start_game(
                             // Acquire fresh PC from pool and swap into session
                             match pool.acquire().await {
                                 Ok(fresh) => {
-                                    tracing::info!("[SESSION] SDP retry: swapped in fresh PC from pool");
+                                    tracing::info!(
+                                        "[SESSION] SDP retry: swapped in fresh PC from pool"
+                                    );
                                     // Swap tracks too — the streaming loop references them
-                                    *session.video_track.lock().expect("mutex poisoned") = fresh.video_track;
-                                    *session.audio_track.lock().expect("mutex poisoned") = fresh.audio_track;
+                                    *session.video_track.lock().expect("mutex poisoned") =
+                                        fresh.video_track;
+                                    *session.audio_track.lock().expect("mutex poisoned") =
+                                        fresh.audio_track;
                                     *session.pc.lock().expect("mutex poisoned") = fresh.pc;
                                     // Re-wire DC handler on the new PC
                                     dc_handler::wire_dc_handler(&session);
                                     tokio::time::sleep(Duration::from_millis(500)).await;
                                 }
                                 Err(e2) => {
-                                    tracing::error!("[SESSION] SDP retry: pool.acquire failed: {e2}");
+                                    tracing::error!(
+                                        "[SESSION] SDP retry: pool.acquire failed: {e2}"
+                                    );
                                     break;
                                 }
                             }
@@ -215,30 +267,56 @@ pub(super) async fn handle_start_game(
         match sdp_result {
             Ok(answer_sdp) => {
                 if let Err(e) = client
-                    .notify_sdp(&cmd.id, &cmd.lease_token, &worker_url, game_id, &answer_sdp, Some(session_id))
+                    .notify_sdp(
+                        &cmd.id,
+                        &cmd.lease_token,
+                        &worker_url,
+                        game_id,
+                        &answer_sdp,
+                        Some(session_id),
+                    )
                     .await
                 {
                     tracing::error!("[NOTIFY] notify_sdp failed: {e:#}");
                 } else {
+                    signal_log(
+                        "host_start",
+                        "notify_sdp_sent",
+                        &format!("command_id={} game_id={} sdp_answer_length={}", cmd.id, game_id, answer_sdp.len()),
+                    );
                     tracing::info!("[SESSION] game ready with SDP: {game_id}");
                 }
             }
             Err(e) => {
                 tracing::error!("[SESSION] SDP exchange failed after {max_attempts} attempts: {e}");
-                let _ = client.command_result(
-                    &cmd.id, &cmd.lease_token,
-                    &serde_json::json!({"error": "sdp_handshake_failed", "message": e}),
-                ).await;
+                let _ = client
+                    .command_result(
+                        &cmd.id,
+                        &cmd.lease_token,
+                        &serde_json::json!({"error": "sdp_handshake_failed", "message": e}),
+                    )
+                    .await;
                 return;
             }
         }
     } else {
         if let Err(e) = client
-            .notify(&cmd.id, &cmd.lease_token, &worker_url, game_id, Some(session_id))
+            .notify(
+                &cmd.id,
+                &cmd.lease_token,
+                &worker_url,
+                game_id,
+                Some(session_id),
+            )
             .await
         {
             tracing::error!("[NOTIFY] failed: {e:#}");
         } else {
+            signal_log(
+                "host_start",
+                "notify_ready_sent",
+                &format!("command_id={} game_id={} session_id={}", cmd.id, game_id, session_id),
+            );
             tracing::info!("[SESSION] game ready: {game_id}");
         }
     }
@@ -259,13 +337,19 @@ pub(super) async fn handle_stop_game(
     client: &gv_web::GvWebClient,
     sessions: &mut HashMap<String, Arc<GameSession>>,
 ) {
-    let game_id = cmd.payload.get("game_id").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let game_id = cmd
+        .payload
+        .get("game_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
     tracing::info!("[POLL] stop_game game={game_id}");
 
     if let Some(session) = sessions.remove(game_id) {
         session.cancel.cancel();
         let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
-        let _ = client.notify_stop(&cmd.id, &cmd.lease_token, game_id, session_id).await;
+        let _ = client
+            .notify_stop(&cmd.id, &cmd.lease_token, game_id, session_id)
+            .await;
     }
 }
 
@@ -275,9 +359,19 @@ pub(super) async fn handle_sdp_offer(
     sessions: &HashMap<String, Arc<GameSession>>,
     pool: &webrtc::PcPool,
 ) {
-    let sdp = cmd.payload.get("sdp").and_then(|v| v.as_str()).unwrap_or("");
-    let game_id = cmd.payload.get("game_id").and_then(|v| v.as_str()).unwrap_or("unknown");
-    let peer_token = cmd.payload.get("peer_token")
+    let sdp = cmd
+        .payload
+        .get("sdp")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let game_id = cmd
+        .payload
+        .get("game_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let peer_token = cmd
+        .payload
+        .get("peer_token")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
@@ -288,33 +382,58 @@ pub(super) async fn handle_sdp_offer(
 
     // ── Guest / Host dispatch ─────────────────────────────────────────
     // Guest SDP offers create a new PC — never touch the host's PC.
-    let is_guest = cmd.payload.as_object().is_some_and(|obj| {
-        obj.contains_key("peer_token") || obj.contains_key("room_token")
-    });
+    let is_guest = cmd
+        .payload
+        .as_object()
+        .is_some_and(|obj| obj.contains_key("peer_token") || obj.contains_key("room_token"));
+    let has_host_token = cmd
+        .payload
+        .as_object()
+        .is_some_and(|obj| obj.contains_key("host_token"));
 
-    tracing::info!("[SDP] {} offer for game {game_id} ({} chars)",
-        if is_guest { "guest" } else { "host" }, sdp.len());
+    let flow = if is_guest { "guest_offer" } else { "host_reconnect" };
+    signal_log(
+        flow,
+        "command_polled",
+        &format!(
+            "command_id={} game_id={} has_host_token={} has_peer_token={} sdp_length={}",
+            cmd.id,
+            game_id,
+            has_host_token,
+            peer_token.is_some(),
+            sdp.len()
+        ),
+    );
 
     // Wait for session to appear (core loading may take a moment).
     // But if this is a host reconnection (host_token in SDP payload)
     // and the session is gone, fail fast — don't make the browser wait 30s.
     let started = std::time::Instant::now();
     let max_wait = Duration::from_secs(30);
-    let has_host_token = cmd.payload.as_object()
-        .is_some_and(|obj| obj.contains_key("host_token"));
     loop {
         if let Some(session) = sessions.get(game_id) {
             // ── Guest path: new PC from pool, never touch host PC ────
             if is_guest {
-                handle_guest_sdp(session, sdp, &peer_token.unwrap_or_default(), cmd, client, pool).await;
+                handle_guest_sdp(
+                    session,
+                    sdp,
+                    &peer_token.unwrap_or_default(),
+                    cmd,
+                    client,
+                    pool,
+                )
+                .await;
                 return;
             }
 
             // ── Host reconnection fast-path ─────────────────────────
             // If host_connected is false, the old PC is dead (DC close / ICE fail).
             // Skip it entirely — acquire fresh PC and do a clean exchange.
-            let reconnecting = !session.host_connected.load(std::sync::atomic::Ordering::Relaxed);
+            let reconnecting = !session
+                .host_connected
+                .load(std::sync::atomic::Ordering::Relaxed);
             if reconnecting {
+                signal_log(flow, "fresh_pc_requested", &format!("game_id={}", game_id));
                 tracing::info!("[SDP] host reconnecting — swapping in fresh PC");
                 match pool.acquire().await {
                     Ok(fresh) => {
@@ -326,11 +445,27 @@ pub(super) async fn handle_sdp_offer(
                         let pc = session.pc.lock().expect("mutex poisoned").clone();
                         match webrtc::exchange_sdp_on_pc(&pc, sdp).await {
                             Ok(answer_sdp) => {
-                                tracing::info!("[SDP] reconnection exchange OK ({} chars)", answer_sdp.len());
+                                signal_log(
+                                    flow,
+                                    "sdp_answer_created",
+                                    &format!("game_id={} sdp_answer_length={}", game_id, answer_sdp.len()),
+                                );
+                                tracing::info!(
+                                    "[SDP] reconnection exchange OK ({} chars)",
+                                    answer_sdp.len()
+                                );
                                 let worker_url = worker_url(game_id);
-                                let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
+                                let session_id =
+                                    cmd.payload.get("session_id").and_then(|v| v.as_str());
                                 let _ = client
-                                    .notify_sdp(&cmd.id, &cmd.lease_token, &worker_url, game_id, &answer_sdp, session_id)
+                                    .notify_sdp(
+                                        &cmd.id,
+                                        &cmd.lease_token,
+                                        &worker_url,
+                                        game_id,
+                                        &answer_sdp,
+                                        session_id,
+                                    )
                                     .await;
                             }
                             Err(e) => {
@@ -367,7 +502,8 @@ pub(super) async fn handle_sdp_offer(
                     Ok(answer) => {
                         tracing::info!(
                             "[SDP] exchange OK on attempt {attempt} in {:?} ({} chars)",
-                            elapsed, answer.len()
+                            elapsed,
+                            answer.len()
                         );
                         break;
                     }
@@ -380,8 +516,10 @@ pub(super) async fn handle_sdp_offer(
                             match pool.acquire().await {
                                 Ok(fresh) => {
                                     tracing::info!("[SDP] retry: swapped in fresh PC from pool");
-                                    *session.video_track.lock().expect("mutex poisoned") = fresh.video_track;
-                                    *session.audio_track.lock().expect("mutex poisoned") = fresh.audio_track;
+                                    *session.video_track.lock().expect("mutex poisoned") =
+                                        fresh.video_track;
+                                    *session.audio_track.lock().expect("mutex poisoned") =
+                                        fresh.audio_track;
                                     *session.pc.lock().expect("mutex poisoned") = fresh.pc;
                                     dc_handler::wire_dc_handler(session);
                                     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -401,27 +539,49 @@ pub(super) async fn handle_sdp_offer(
                     let worker_url = worker_url(game_id);
                     let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
                     if let Err(e) = client
-                        .notify_sdp(&cmd.id, &cmd.lease_token, &worker_url, game_id, &answer_sdp, session_id)
+                        .notify_sdp(
+                            &cmd.id,
+                            &cmd.lease_token,
+                            &worker_url,
+                            game_id,
+                            &answer_sdp,
+                            session_id,
+                        )
                         .await
                     {
                         tracing::error!("[SDP] notify_sdp failed: {e:#}");
                     } else {
+                        signal_log(
+                            flow,
+                            "notify_sdp_sent",
+                            &format!("command_id={} game_id={} sdp_answer_length={}", cmd.id, game_id, answer_sdp.len()),
+                        );
                         tracing::info!("[SDP] answer sent ({}) chars", answer_sdp.len());
                     }
                 }
                 Err(e) => {
                     tracing::error!("[SDP] exchange failed after {max_attempts} attempts: {e}");
-                    let _ = client.command_result(
-                        &cmd.id, &cmd.lease_token,
-                        &serde_json::json!({"error": "sdp_handshake_failed", "message": e}),
-                    ).await;
+                    let _ = client
+                        .command_result(
+                            &cmd.id,
+                            &cmd.lease_token,
+                            &serde_json::json!({"error": "sdp_handshake_failed", "message": e}),
+                        )
+                        .await;
                 }
             }
             return;
         }
 
-        if started.elapsed() >= max_wait || (has_host_token && started.elapsed() >= Duration::from_millis(100)) {
-            let reason = if has_host_token { "session gone — server may have restarted" } else { "session not ready" };
+        if started.elapsed() >= max_wait
+            || (has_host_token && started.elapsed() >= Duration::from_millis(100))
+        {
+            let reason = if has_host_token {
+                "session gone — server may have restarted"
+            } else {
+                "session not ready"
+            };
+            signal_log(flow, "session_missing", &format!("game_id={} reason={}", game_id, reason));
             tracing::warn!("[SDP] no session for game {game_id}: {reason}");
             let _ = client.command_result(
                 &cmd.id, &cmd.lease_token,
@@ -451,7 +611,15 @@ pub(super) async fn handle_guest_sdp(
         tracing::error!("[SDP] guest error: {msg}");
     };
 
-    tracing::info!("[SDP] guest SDP exchange (peer_token={})", &peer_token[..peer_token.len().min(8)]);
+    signal_log(
+        "guest_offer",
+        "guest_exchange_started",
+        &format!("game_id={} peer_token_present={}", session.game_id, !peer_token.is_empty()),
+    );
+    tracing::info!(
+        "[SDP] guest SDP exchange (peer_token={})",
+        &peer_token[..peer_token.len().min(8)]
+    );
 
     // Build a FRESH PC with NO pre-added tracks.
     // Pool PCs carry their own video/audio tracks — adding session tracks on
@@ -485,12 +653,18 @@ pub(super) async fn handle_guest_sdp(
             return;
         }
     };
-    if let Err(e) = pc.add_track(video_track as Arc<dyn TrackLocal + Send + Sync>).await {
+    if let Err(e) = pc
+        .add_track(video_track as Arc<dyn TrackLocal + Send + Sync>)
+        .await
+    {
         tracing::error!("[SDP] guest add video track failed: {e}");
         report_error(&e.to_string());
         return;
     }
-    if let Err(e) = pc.add_track(audio_track as Arc<dyn TrackLocal + Send + Sync>).await {
+    if let Err(e) = pc
+        .add_track(audio_track as Arc<dyn TrackLocal + Send + Sync>)
+        .await
+    {
         tracing::error!("[SDP] guest add audio track failed: {e}");
         report_error(&e.to_string());
         return;
@@ -507,9 +681,16 @@ pub(super) async fn handle_guest_sdp(
     };
 
     tracing::info!("[SDP] guest exchange OK ({} chars)", answer.len());
+    signal_log(
+        "guest_offer",
+        "sdp_answer_created",
+        &format!("game_id={} sdp_answer_length={}", session.game_id, answer.len()),
+    );
 
     // Seat = existing guests + local_players (host takes seats 0..local_players-1)
-    let local_players = session.local_players.load(std::sync::atomic::Ordering::Relaxed);
+    let local_players = session
+        .local_players
+        .load(std::sync::atomic::Ordering::Relaxed);
     let seat = {
         let guests = session.guests.lock().await;
         guests.len() as u32 + local_players
@@ -527,10 +708,29 @@ pub(super) async fn handle_guest_sdp(
 
     // Send SDP answer back via notify_sdp
     let worker_url = worker_url(&session.game_id);
-    if let Err(e) = client.notify_sdp(&cmd.id, &cmd.lease_token, &worker_url, &session.game_id, &answer, None).await {
+    if let Err(e) = client
+        .notify_sdp(
+            &cmd.id,
+            &cmd.lease_token,
+            &worker_url,
+            &session.game_id,
+            &answer,
+            None,
+        )
+        .await
+    {
         tracing::error!("[SDP] guest notify_sdp failed: {e:#}");
     } else {
-        tracing::info!("[SDP] guest answer sent ({} chars, seat={})", answer.len(), seat);
+        signal_log(
+            "guest_offer",
+            "notify_sdp_sent",
+            &format!("command_id={} game_id={} seat={} sdp_answer_length={}", cmd.id, session.game_id, seat, answer.len()),
+        );
+        tracing::info!(
+            "[SDP] guest answer sent ({} chars, seat={})",
+            answer.len(),
+            seat
+        );
     }
 }
 
@@ -545,13 +745,17 @@ pub(super) async fn wire_dc_handler_for_guest(
     let session = Arc::clone(session);
     let pc = {
         let guests = session.guests.lock().await;
-        guests.iter()
+        guests
+            .iter()
             .find(|g| g.peer_token == peer_token)
             .map(|g| g.pc.clone())
     };
 
     let Some(pc) = pc else {
-        tracing::warn!("[DC] guest PC not found for peer_token={}", &peer_token[..8]);
+        tracing::warn!(
+            "[DC] guest PC not found for peer_token={}",
+            &peer_token[..8]
+        );
         return;
     };
 
@@ -566,7 +770,11 @@ pub(super) async fn wire_dc_handler_for_guest(
         let session = Arc::clone(&session);
         let pt = peer_token.clone();
         Box::pin(async move {
-            tracing::info!("[DC] guest data channel received: {} (seat={})", dc.label(), seat);
+            tracing::info!(
+                "[DC] guest data channel received: {} (seat={})",
+                dc.label(),
+                seat
+            );
 
             let dc_for_open = Arc::clone(&dc);
             let dc_for_msg = Arc::clone(&dc);
@@ -611,7 +819,10 @@ pub(super) async fn wire_dc_handler_for_guest(
                             return;
                         }
                         // Guests cannot save/load — silently ignore
-                        if cmd_str == "save_state" || cmd_str == "load_state" || cmd_str == "list_saves" {
+                        if cmd_str == "save_state"
+                            || cmd_str == "load_state"
+                            || cmd_str == "list_saves"
+                        {
                             return;
                         }
                     }
@@ -640,7 +851,11 @@ pub(super) async fn wire_dc_handler_for_guest(
             if state == "failed" || state == "disconnected" {
                 let mut guests = session_for_ice.guests.lock().await;
                 guests.retain(|g| g.peer_token != pt_for_ice);
-                if guests.is_empty() && !session_for_ice.host_connected.load(std::sync::atomic::Ordering::Relaxed) {
+                if guests.is_empty()
+                    && !session_for_ice
+                        .host_connected
+                        .load(std::sync::atomic::Ordering::Relaxed)
+                {
                     tracing::info!("[ICE] last guest left, host gone — cancelling session");
                     session_for_ice.cancel.cancel();
                 }
@@ -655,7 +870,11 @@ pub(super) async fn handle_browse_files(
     client: &gv_web::GvWebClient,
     rom_roots: &[String],
 ) {
-    let path = cmd.payload.get("path").and_then(|v| v.as_str()).unwrap_or("");
+    let path = cmd
+        .payload
+        .get("path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
 
     let tree = match scan::resolve_within_roots(std::path::Path::new(path), rom_roots) {
         Ok(resolved) => scan::browse_path(&resolved),
@@ -666,10 +885,13 @@ pub(super) async fn handle_browse_files(
         },
     };
 
-    let _ = client.command_result(
-        &cmd.id, &cmd.lease_token,
-        &serde_json::json!({"tree": tree}),
-    ).await;
+    let _ = client
+        .command_result(
+            &cmd.id,
+            &cmd.lease_token,
+            &serde_json::json!({"tree": tree}),
+        )
+        .await;
 }
 
 pub(super) async fn handle_scan_paths(
@@ -680,17 +902,25 @@ pub(super) async fn handle_scan_paths(
     dat_index: &Arc<tokio::sync::RwLock<Option<dat::DatIndex>>>,
     server_id: &str,
 ) {
-    let paths: Vec<String> = cmd.payload
+    let paths: Vec<String> = cmd
+        .payload
         .get("paths")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     if scan_lock.try_lock().is_err() {
-        let _ = client.command_result(
-            &cmd.id, &cmd.lease_token,
-            &serde_json::json!({"error": "A scan is already in progress."}),
-        ).await;
+        let _ = client
+            .command_result(
+                &cmd.id,
+                &cmd.lease_token,
+                &serde_json::json!({"error": "A scan is already in progress."}),
+            )
+            .await;
         return;
     }
 
@@ -717,7 +947,9 @@ pub(super) async fn handle_scan_paths(
         for file in &all_files {
             if let Some(ext) = file.relative_path.rsplit('.').next() {
                 let ext_lower = ext.to_lowercase();
-                if seen_exts.contains(&ext_lower) { continue; }
+                if seen_exts.contains(&ext_lower) {
+                    continue;
+                }
                 seen_exts.insert(ext_lower.clone());
                 if let Some(index) = dat::load_for_extension(
                     &ext_lower,
@@ -725,7 +957,9 @@ pub(super) async fn handle_scan_paths(
                         .unwrap_or_default()
                         .join("sprite-cloud")
                         .join("dat"),
-                ).await {
+                )
+                .await
+                {
                     match &mut combined {
                         Some(c) => c.merge(index),
                         None => combined = Some(index),
@@ -739,43 +973,55 @@ pub(super) async fn handle_scan_paths(
     let mut matches = Vec::new();
     for file in &all_files {
         let dat_match = if let (Some(crc), Some(sha)) = (&file.crc, &file.sha256) {
-            dat_lock.as_ref().and_then(|idx| dat::match_entry(idx, crc, sha))
+            dat_lock
+                .as_ref()
+                .and_then(|idx| dat::match_entry(idx, crc, sha))
                 .map(|e| serde_json::json!({"name": e.canonical_name, "game_name": e.game_name}))
-        } else { None };
+        } else {
+            None
+        };
 
         matches.push(serde_json::json!({"file": file, "match": dat_match}));
     }
     drop(dat_lock);
 
     // Auto-import scanned files into the library
-    let import_files: Vec<serde_json::Value> = matches.iter().map(|m| {
-        let file = &m["file"];
-        let match_name = m["match"]["name"].as_str();
-        let name = match_name.unwrap_or(file["file_name"].as_str().unwrap_or("unknown"));
-        serde_json::json!({
-            "name": name,
-            "platform": file["platform"].as_str().unwrap_or("Unknown"),
-            "rom_path": file["relative_path"].as_str().unwrap_or(""),
-            "file_name": file["file_name"].as_str().unwrap_or(""),
-            "file_size": file["file_size"].as_u64().unwrap_or(0),
-            "file_hash": file["sha256"].as_str().unwrap_or(""),
+    let import_files: Vec<serde_json::Value> = matches
+        .iter()
+        .map(|m| {
+            let file = &m["file"];
+            let match_name = m["match"]["name"].as_str();
+            let name = match_name.unwrap_or(file["file_name"].as_str().unwrap_or("unknown"));
+            serde_json::json!({
+                "name": name,
+                "platform": file["platform"].as_str().unwrap_or("Unknown"),
+                "rom_path": file["relative_path"].as_str().unwrap_or(""),
+                "file_name": file["file_name"].as_str().unwrap_or(""),
+                "file_size": file["file_size"].as_u64().unwrap_or(0),
+                "file_hash": file["sha256"].as_str().unwrap_or(""),
+            })
         })
-    }).collect();
+        .collect();
 
     match client.import_library(server_id, &import_files).await {
         Ok(()) => {
-            let _ = client.command_result(
-                &cmd.id, &cmd.lease_token,
-                &serde_json::json!({"matches": matches, "imported": import_files.len()}),
-            ).await;
+            let _ = client
+                .command_result(
+                    &cmd.id,
+                    &cmd.lease_token,
+                    &serde_json::json!({"matches": matches, "imported": import_files.len()}),
+                )
+                .await;
         }
         Err(e) => {
             tracing::warn!("[SCAN] auto-import failed: {e:#}");
-            let _ = client.command_result(
-                &cmd.id, &cmd.lease_token,
-                &serde_json::json!({"matches": matches, "import_error": e.to_string()}),
-            ).await;
+            let _ = client
+                .command_result(
+                    &cmd.id,
+                    &cmd.lease_token,
+                    &serde_json::json!({"matches": matches, "import_error": e.to_string()}),
+                )
+                .await;
         }
     }
 }
-

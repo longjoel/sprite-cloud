@@ -39,7 +39,10 @@ pub struct SaveStack {
 
 impl SaveStack {
     fn new() -> Self {
-        Self { next_index: 1, entries: vec![] }
+        Self {
+            next_index: 1,
+            entries: vec![],
+        }
     }
 
     fn push(&mut self, size: u64) -> u32 {
@@ -48,7 +51,11 @@ impl SaveStack {
             Ok(d) => d.as_secs().to_string(),
             Err(_) => "0".to_string(),
         };
-        let entry = SaveEntry { index, timestamp: ts, size };
+        let entry = SaveEntry {
+            index,
+            timestamp: ts,
+            size,
+        };
         self.entries.push(entry);
         self.next_index += 1;
         index

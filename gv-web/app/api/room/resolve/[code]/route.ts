@@ -20,6 +20,10 @@ export async function GET(
     return NextResponse.json({ error: "invalid code" }, { status: 400 });
   }
 
+  // Force guest mode when ?join is present — even server members join as guests
+  const url = new URL(request.url);
+  const forceGuest = url.searchParams.has("join");
+
   const [entry] = await db
     .select({
       gameId: shortCodes.gameId,
@@ -37,7 +41,7 @@ export async function GET(
   // Check if viewer is an authenticated member of this server → host
   const session = await auth();
   let isHost = false;
-  if (session?.user?.id) {
+  if (!forceGuest && session?.user?.id) {
     const [membership] = await db
       .select({ role: serverMembers.role })
       .from(serverMembers)

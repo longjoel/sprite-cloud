@@ -11,12 +11,15 @@
 //! keeping the streaming loop and command handling completely unchanged.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
-use std::sync::Arc;
 use std::time::Duration;
 
-use gv_core::{OutputShm, InputShm, map_shm, unlink_shm, CMD_SET_INPUT, CMD_SAVE_STATE, CMD_LOAD_STATE, CMD_SAVE_SRAM, CMD_LOAD_SRAM};
+use gv_core::{
+    CMD_LOAD_SRAM, CMD_LOAD_STATE, CMD_SAVE_SRAM, CMD_SAVE_STATE, CMD_SET_INPUT, InputShm,
+    OutputShm, map_shm, unlink_shm,
+};
 
 use crate::session::GameSession;
 
@@ -27,10 +30,13 @@ use crate::saves;
 /// Extract the first ROM file from a .zip archive to a temp file.
 /// Caches by game_id in /tmp/gv-workers/. Second play skips extraction entirely.
 fn ensure_extracted_rom(rom_path: &str, game_id: &str) -> String {
-    
-
     let path = std::path::Path::new(rom_path);
-    if !path.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("zip")).unwrap_or(false) {
+    if !path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("zip"))
+        .unwrap_or(false)
+    {
         return rom_path.to_string();
     }
 
@@ -52,69 +58,86 @@ fn ensure_extracted_rom(rom_path: &str, game_id: &str) -> String {
     }
 
     // ── Extract from zip ─────────────────────────────────────────────
-        let file = match std::fs::File::open(path) {
-            Ok(f) => f,
-            Err(e) => {
-                tracing::warn!("[CORE] zip extraction: cannot open {}: {e}", rom_path);
-                return rom_path.to_string();
-            }
-        };
-        let mut archive = match zip::ZipArchive::new(std::io::BufReader::new(file)) {
-            Ok(a) => a,
-            Err(e) => {
-                tracing::warn!("[CORE] zip extraction: cannot read zip {}: {e}", rom_path);
-                return rom_path.to_string();
-            }
-        };
-
-        let rom_exts = [
-            "nes", "sfc", "smc", "gb", "gbc", "gba", "gen", "md", "smd",
-            "a26", "a52", "a78", "lnx", "n64", "z64", "v64", "nds", "vb",
-            "sms", "gg", "32x", "pce", "ngp", "ngc", "ws", "wsc", "iso",
-            "cue", "cso", "fds", "min", "mdf", "cdi", "gdi",
-        ];
-
-        let mut best_idx: Option<usize> = None;
-
-        for i in 0..archive.len() {
-            let Ok(entry) = archive.by_index(i) else { continue };
-            if entry.is_dir() { continue; }
-            let name = entry.name().to_lowercase();
-            if best_idx.is_none() { best_idx = Some(i); }
-            let ext = std::path::Path::new(&name).extension().and_then(|e| e.to_str()).unwrap_or("");
-            if rom_exts.contains(&ext) { best_idx = Some(i); break; }
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::warn!("[CORE] zip extraction: cannot open {}: {e}", rom_path);
+            return rom_path.to_string();
         }
+    };
+    let mut archive = match zip::ZipArchive::new(std::io::BufReader::new(file)) {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::warn!("[CORE] zip extraction: cannot read zip {}: {e}", rom_path);
+            return rom_path.to_string();
+        }
+    };
 
-        if let Some(idx) = best_idx {
-            if let Ok(mut entry) = archive.by_index(idx) {
-                let inner_name = entry.name();
-                let inner_ext = std::path::Path::new(inner_name).extension().and_then(|e| e.to_str()).unwrap_or("bin");
-                let tmp_dir = std::path::PathBuf::from("/tmp/gv-workers");
-                let _ = std::fs::create_dir_all(&tmp_dir);
-                // Use game_id for clean filename (avoids spaces/parens/special chars)
-                let tmp_path = tmp_dir.join(format!("{game_id}.{inner_ext}"));
-                match std::fs::File::create(&tmp_path) {
-                    Ok(mut out) => {
-                        match std::io::copy(&mut entry, &mut out) {
-                            Ok(_) => {
-                                tracing::info!("[CORE] extracted {} → {}", rom_path, tmp_path.display());
-                                return tmp_path.to_string_lossy().to_string();
-                            }
-                            Err(e) => {
-                                tracing::warn!("[CORE] zip extraction: copy failed {}: {e}", rom_path);
-                            }
-                        }
+    let rom_exts = [
+        "nes", "sfc", "smc", "gb", "gbc", "gba", "gen", "md", "smd", "a26", "a52", "a78", "lnx",
+        "n64", "z64", "v64", "nds", "vb", "sms", "gg", "32x", "pce", "ngp", "ngc", "ws", "wsc",
+        "iso", "cue", "cso", "fds", "min", "mdf", "cdi", "gdi",
+    ];
+
+    let mut best_idx: Option<usize> = None;
+
+    for i in 0..archive.len() {
+        let Ok(entry) = archive.by_index(i) else {
+            continue;
+        };
+        if entry.is_dir() {
+            continue;
+        }
+        let name = entry.name().to_lowercase();
+        if best_idx.is_none() {
+            best_idx = Some(i);
+        }
+        let ext = std::path::Path::new(&name)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        if rom_exts.contains(&ext) {
+            best_idx = Some(i);
+            break;
+        }
+    }
+
+    if let Some(idx) = best_idx {
+        if let Ok(mut entry) = archive.by_index(idx) {
+            let inner_name = entry.name();
+            let inner_ext = std::path::Path::new(inner_name)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("bin");
+            let tmp_dir = std::path::PathBuf::from("/tmp/gv-workers");
+            let _ = std::fs::create_dir_all(&tmp_dir);
+            // Use game_id for clean filename (avoids spaces/parens/special chars)
+            let tmp_path = tmp_dir.join(format!("{game_id}.{inner_ext}"));
+            match std::fs::File::create(&tmp_path) {
+                Ok(mut out) => match std::io::copy(&mut entry, &mut out) {
+                    Ok(_) => {
+                        tracing::info!("[CORE] extracted {} → {}", rom_path, tmp_path.display());
+                        return tmp_path.to_string_lossy().to_string();
                     }
                     Err(e) => {
-                        tracing::warn!("[CORE] zip extraction: cannot create tmp file {}: {e}", tmp_path.display());
+                        tracing::warn!("[CORE] zip extraction: copy failed {}: {e}", rom_path);
                     }
+                },
+                Err(e) => {
+                    tracing::warn!(
+                        "[CORE] zip extraction: cannot create tmp file {}: {e}",
+                        tmp_path.display()
+                    );
                 }
-            } else {
-                tracing::warn!("[CORE] zip extraction: cannot read entry at index {idx} from {rom_path}");
             }
         } else {
-            tracing::warn!("[CORE] zip extraction: no entries found in {}", rom_path);
+            tracing::warn!(
+                "[CORE] zip extraction: cannot read entry at index {idx} from {rom_path}"
+            );
         }
+    } else {
+        tracing::warn!("[CORE] zip extraction: no entries found in {}", rom_path);
+    }
     rom_path.to_string()
 }
 
@@ -146,18 +169,28 @@ static DOWNLOADING: std::sync::LazyLock<std::sync::Mutex<std::collections::HashS
 
 pub async fn ensure_core(core_filename: &str, client: &reqwest::Client) -> Result<PathBuf, String> {
     let core_path = resolve_core_path(core_filename);
-    if core_path.exists() { return Ok(core_path); }
+    if core_path.exists() {
+        return Ok(core_path);
+    }
 
     let already_downloading = {
-        let mut inflight = DOWNLOADING.lock().map_err(|e| format!("lock poisoned: {e}"))?;
-        if inflight.contains(core_filename) { true }
-        else { inflight.insert(core_filename.to_string()); false }
+        let mut inflight = DOWNLOADING
+            .lock()
+            .map_err(|e| format!("lock poisoned: {e}"))?;
+        if inflight.contains(core_filename) {
+            true
+        } else {
+            inflight.insert(core_filename.to_string());
+            false
+        }
     };
 
     if already_downloading {
         for _ in 0..60 {
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            if core_path.exists() { return Ok(core_path); }
+            if core_path.exists() {
+                return Ok(core_path);
+            }
         }
         return Err("timed out waiting for concurrent core download".into());
     }
@@ -171,13 +204,19 @@ pub async fn ensure_core(core_filename: &str, client: &reqwest::Client) -> Resul
 }
 
 async fn download_and_extract(
-    core_filename: &str, core_path: &PathBuf, client: &reqwest::Client,
+    core_filename: &str,
+    core_path: &PathBuf,
+    client: &reqwest::Client,
 ) -> Result<(), String> {
     let zip_name = format!("{core_filename}.zip");
     let url = format!("{}/{}", *BUILDBOT_BASE, zip_name);
     tracing::info!("[CORE] downloading {url}");
 
-    let resp = client.get(&url).send().await.map_err(|e| format!("download {url}: {e}"))?;
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("download {url}: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("download {url}: HTTP {}", resp.status()));
     }
@@ -187,13 +226,20 @@ async fn download_and_extract(
     let mut archive = zip::ZipArchive::new(cursor).map_err(|e| format!("open zip: {e}"))?;
 
     if archive.len() != 1 {
-        return Err(format!("expected 1 file in {zip_name}, got {}", archive.len()));
+        return Err(format!(
+            "expected 1 file in {zip_name}, got {}",
+            archive.len()
+        ));
     }
 
-    let mut entry = archive.by_index(0).map_err(|e| format!("read zip entry: {e}"))?;
+    let mut entry = archive
+        .by_index(0)
+        .map_err(|e| format!("read zip entry: {e}"))?;
     let name = entry.name().to_string();
     if !name.ends_with(".so") || name.contains('/') {
-        return Err(format!("unexpected file in {zip_name}: {name} (expected {core_filename})"));
+        return Err(format!(
+            "unexpected file in {zip_name}: {name} (expected {core_filename})"
+        ));
     }
 
     if let Some(parent) = core_path.parent() {
@@ -201,11 +247,13 @@ async fn download_and_extract(
     }
 
     let tmp_path = core_path.with_extension("tmp");
-    let mut out = std::fs::File::create(&tmp_path).map_err(|e| format!("create {tmp_path:?}: {e}"))?;
+    let mut out =
+        std::fs::File::create(&tmp_path).map_err(|e| format!("create {tmp_path:?}: {e}"))?;
     std::io::copy(&mut entry, &mut out).map_err(|e| format!("extract {name}: {e}"))?;
     drop(out);
 
-    #[cfg(unix)] {
+    #[cfg(unix)]
+    {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755))
             .map_err(|e| format!("chmod +x {tmp_path:?}: {e}"))?;
@@ -224,8 +272,10 @@ async fn download_and_extract(
 #[derive(Clone)]
 pub struct CoreFrame {
     pub pixels: Vec<u8>,
-    #[allow(dead_code)] pub width: u32,
-    #[allow(dead_code)] pub height: u32,
+    #[allow(dead_code)]
+    pub width: u32,
+    #[allow(dead_code)]
+    pub height: u32,
     pub audio: Vec<i16>,
 }
 
@@ -246,19 +296,25 @@ fn find_gv_core_binary() -> PathBuf {
     // Check env var first
     if let Ok(p) = std::env::var("GV_CORE_BIN") {
         let path = PathBuf::from(&p);
-        if path.exists() { return path; }
+        if path.exists() {
+            return path;
+        }
     }
     // Check next to gv-server binary
     if let Ok(exe) = std::env::current_exe() {
         let sibling = exe.with_file_name("gv-core");
-        if sibling.exists() { return sibling; }
+        if sibling.exists() {
+            return sibling;
+        }
     }
     // Check debug/release target dirs (cargo workspace root)
     let mut target = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     target.pop(); // gv-server → workspace root
     for profile in &["release", "debug"] {
         let p = target.join("target").join(profile).join("gv-core");
-        if p.exists() { return p; }
+        if p.exists() {
+            return p;
+        }
     }
     // Fallback
     PathBuf::from("gv-core")
@@ -279,13 +335,12 @@ pub async fn load_core_into_session(
 
     let core_path_str = match core_path {
         Some(p) => p.to_string_lossy().to_string(),
-        None => {
-            std::env::var("GV_CORE_PATH").unwrap_or_else(|_| {
-                let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-                p.pop(); p.push("test-data/cores/2048_libretro.so");
-                p.to_string_lossy().to_string()
-            })
-        }
+        None => std::env::var("GV_CORE_PATH").unwrap_or_else(|_| {
+            let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            p.pop();
+            p.push("test-data/cores/2048_libretro.so");
+            p.to_string_lossy().to_string()
+        }),
     };
 
     let rom_path = content_path.unwrap_or("");
@@ -297,11 +352,17 @@ pub async fn load_core_into_session(
     // Create shm
     let out_mmap = match map_shm::<OutputShm>(&out_name, OutputShm::size()) {
         Ok(m) => m,
-        Err(e) => { tracing::error!("[CORE] out shm: {e}"); return; }
+        Err(e) => {
+            tracing::error!("[CORE] out shm: {e}");
+            return;
+        }
     };
     let in_mmap = match map_shm::<InputShm>(&in_name, InputShm::size()) {
         Ok(m) => m,
-        Err(e) => { tracing::error!("[CORE] in shm: {e}"); return; }
+        Err(e) => {
+            tracing::error!("[CORE] in shm: {e}");
+            return;
+        }
     };
 
     let out: &OutputShm = unsafe { &*(out_mmap.as_ptr() as *const OutputShm) };
@@ -309,7 +370,13 @@ pub async fn load_core_into_session(
 
     // Find gv-core binary
     let core_bin = find_gv_core_binary();
-    tracing::info!("[CORE] spawning {} {} {} {}", core_bin.display(), core_path_str, actual_rom_path, game_id);
+    tracing::info!(
+        "[CORE] spawning {} {} {} {}",
+        core_bin.display(),
+        core_path_str,
+        actual_rom_path,
+        game_id
+    );
 
     let mut child = match std::process::Command::new(&core_bin)
         .args([&core_path_str, &actual_rom_path, &out_name, &in_name])
@@ -331,7 +398,8 @@ pub async fn load_core_into_session(
     let mut height: u32 = 0;
     let mut fps: f64 = 0.0;
     let mut core_sample_rate: f64 = 48000.0;
-    for _ in 0..30 { // 3 second timeout
+    for _ in 0..30 {
+        // 3 second timeout
         let bw = out.base_width.load(Ordering::Relaxed);
         let bh = out.base_height.load(Ordering::Relaxed);
         let fx = out.fps_x1000.load(Ordering::Relaxed);
@@ -345,10 +413,14 @@ pub async fn load_core_into_session(
         }
         // Check if child died early
         if let Ok(Some(status)) = child.try_wait() {
-            let stderr_out = child.stderr.take()
+            let stderr_out = child
+                .stderr
+                .take()
                 .and_then(|mut r| {
                     let mut s = String::new();
-                    std::io::Read::read_to_string(&mut r, &mut s).ok().map(|_| s)
+                    std::io::Read::read_to_string(&mut r, &mut s)
+                        .ok()
+                        .map(|_| s)
                 })
                 .unwrap_or_default();
             tracing::error!("[CORE] child exited early with {status}: {stderr_out}");
@@ -390,7 +462,11 @@ pub async fn load_core_into_session(
                     // Wait briefly for core to process
                     std::thread::sleep(Duration::from_millis(50));
                     inp.cmd_ready.store(false, Ordering::Release);
-                    tracing::info!("[SRAM] auto-loaded {} bytes from {}", len, sram_file.display());
+                    tracing::info!(
+                        "[SRAM] auto-loaded {} bytes from {}",
+                        len,
+                        sram_file.display()
+                    );
                 }
                 Ok(_) => {}
                 Err(e) => tracing::warn!("[SRAM] failed to read {}: {e}", sram_file.display()),
@@ -414,8 +490,12 @@ pub async fn load_core_into_session(
     *session.core_frame_rx.lock().await = Some(frame_rx);
     *session.core_cmd_tx.lock().await = Some(cmd_tx);
     *session.core_response_rx.lock().await = Some(response_rx);
-    session.core_loaded.store(true, std::sync::atomic::Ordering::Relaxed);
-    session.core_loading.store(false, std::sync::atomic::Ordering::Relaxed);
+    session
+        .core_loaded
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    session
+        .core_loading
+        .store(false, std::sync::atomic::Ordering::Relaxed);
 
     let cancel = session.cancel.clone();
     let out_name_clone = out_name.clone();
@@ -428,7 +508,7 @@ pub async fn load_core_into_session(
     let rom_hash_save = rom_hash.clone();
     std::thread::spawn(move || {
         let _out_mmap = out_mmap; // keep mmap alive for lifetime of thread
-        let _in_mmap = in_mmap;   // keep mmap alive for lifetime of thread
+        let _in_mmap = in_mmap; // keep mmap alive for lifetime of thread
         let mut frame_num: u64 = 0;
         let _frame_interval = Duration::from_secs_f64(1.0 / fps.max(1.0));
 
@@ -481,20 +561,34 @@ pub async fn load_core_into_session(
             // Check child alive
             match child.try_wait() {
                 Ok(Some(status)) => {
-                    let stderr_out = child.stderr.take()
+                    let stderr_out = child
+                        .stderr
+                        .take()
                         .and_then(|mut r| {
                             let mut s = String::new();
-                            std::io::Read::read_to_string(&mut r, &mut s).ok().map(|_| s)
+                            std::io::Read::read_to_string(&mut r, &mut s)
+                                .ok()
+                                .map(|_| s)
                         })
                         .unwrap_or_default();
                     tracing::warn!("[BRIDGE] child exited with {status}: {stderr_out}");
-                    let _ = frame_tx.send(CoreFrame { pixels: vec![], width: 0, height: 0, audio: vec![] });
+                    let _ = frame_tx.send(CoreFrame {
+                        pixels: vec![],
+                        width: 0,
+                        height: 0,
+                        audio: vec![],
+                    });
                     break;
                 }
                 Ok(None) => {} // still running
                 Err(e) => {
                     tracing::error!("[BRIDGE] try_wait error: {e}");
-                    let _ = frame_tx.send(CoreFrame { pixels: vec![], width: 0, height: 0, audio: vec![] });
+                    let _ = frame_tx.send(CoreFrame {
+                        pixels: vec![],
+                        width: 0,
+                        height: 0,
+                        audio: vec![],
+                    });
                     break;
                 }
             }
@@ -508,18 +602,34 @@ pub async fn load_core_into_session(
                 let px_count = (fw as usize * fh as usize * 3).min(gv_core::MAX_PIXELS);
                 let mut pixels = vec![0u8; px_count];
                 unsafe {
-                    std::ptr::copy_nonoverlapping(out.pixels.as_ptr(), pixels.as_mut_ptr(), px_count);
+                    std::ptr::copy_nonoverlapping(
+                        out.pixels.as_ptr(),
+                        pixels.as_mut_ptr(),
+                        px_count,
+                    );
                 }
 
                 let audio_count = audio_len.min(gv_core::MAX_AUDIO);
                 let mut audio = vec![0i16; audio_count];
                 unsafe {
-                    std::ptr::copy_nonoverlapping(out.audio.as_ptr(), audio.as_mut_ptr(), audio_count);
+                    std::ptr::copy_nonoverlapping(
+                        out.audio.as_ptr(),
+                        audio.as_mut_ptr(),
+                        audio_count,
+                    );
                 }
 
                 out.frame_ready.store(false, Ordering::Release);
 
-                if frame_tx.send(CoreFrame { pixels, width: fw, height: fh, audio }).is_err() {
+                if frame_tx
+                    .send(CoreFrame {
+                        pixels,
+                        width: fw,
+                        height: fh,
+                        audio,
+                    })
+                    .is_err()
+                {
                     break;
                 }
                 frame_num = frame_num.wrapping_add(1);
@@ -540,7 +650,9 @@ pub async fn load_core_into_session(
                 let data = &out.response_data[..len.min(gv_core::MAX_RESPONSE)];
                 let sram_file = saves::sram_path(hash);
                 match saves::write_atomic(&sram_file, data) {
-                    Ok(()) => tracing::info!("[SRAM] auto-saved {} bytes to {}", len, sram_file.display()),
+                    Ok(()) => {
+                        tracing::info!("[SRAM] auto-saved {} bytes to {}", len, sram_file.display())
+                    }
                     Err(e) => tracing::error!("[SRAM] write failed {}: {e}", sram_file.display()),
                 }
             }

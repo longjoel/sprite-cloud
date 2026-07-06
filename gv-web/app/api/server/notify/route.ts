@@ -8,6 +8,7 @@ import { applyRateLimit } from "@/lib/rate-limit";
 import { randomBytes } from "crypto";
 import { recordLaunchEvent } from "@/lib/launch-events";
 import { resolveSdpAnswer } from "@/lib/pending-sdp";
+import { logSignalingStage, type SignalingFlow } from "@/lib/signaling";
 
 const NOTIFY_RATE_LIMIT = 60; // requests per minute per IP (server-to-server)
 
@@ -63,6 +64,17 @@ export async function POST(request: NextRequest) {
   // if the caller didn't explicitly set action="stop".
   const isWorkerDead = body.command_id === "__worker_dead__";
   const effectiveAction = isWorkerDead ? "stop" : body.action;
+  let notifyFlow: SignalingFlow = effectiveAction === "stop" ? "stop" : "notify";
+  logSignalingStage("notify", "notify_received", {
+    action: effectiveAction,
+    command_id: body.command_id,
+    game_id: body.game_id,
+    has_lease_token: !!body.lease_token,
+    has_sdp_answer: typeof body.sdp_answer === "string",
+    has_session_id: typeof body.session_id === "string",
+    server_id: server.id,
+    worker_url: body.worker_url,
+  });
 
   const missing = effectiveAction === "stop"
     ? !body.command_id || !body.game_id
@@ -113,6 +125,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (session) {
+      logSignalingStage("stop", "session_resolved", {
+        game_id: body.game_id,
+        session_id: session.id,
+        session_status: session.status,
+      });
       await db
         .update(sessions)
         .set({
@@ -128,10 +145,18 @@ export async function POST(request: NextRequest) {
 
   // Verify this server owns the command
   const [cmd] = await db
-    .select({ id: commands.id, serverId: commands.serverId, workerToken: commands.workerToken })
+    .select({ id: commands.id, serverId: commands.serverId, workerToken: commands.workerToken, type: commands.type, payload: commands.payload })
     .from(commands)
     .where(and(eq(commands.id, body.command_id), eq(commands.serverId, server.id)))
     .limit(1);
+
+  notifyFlow = effectiveAction === "stop"
+    ? "stop"
+    : cmd
+      ? (cmd.type === "sdp_offer"
+          ? (((cmd.payload as Record<string, unknown> | null)?.peer_token || (cmd.payload as Record<string, unknown> | null)?.room_token) ? "guest_offer" : "host_reconnect")
+          : "host_start")
+      : "notify";
 
   if (!cmd || cmd.serverId !== server.id) {
     return NextResponse.json({ error: "command not found" }, { status: 404 });
@@ -193,13 +218,27 @@ export async function POST(request: NextRequest) {
   }
 
   // Determine target state
+  // Invariant: worker HTTP readiness promotes spawning -> ready.
+  // An SDP answer promotes the signaling path into connected.
   const targetStatus = body.sdp_answer ? SESSION_CONNECTED : SESSION_READY;
+  logSignalingStage(notifyFlow, "target_status_computed", {
+    command_id: body.command_id,
+    game_id: body.game_id,
+    target_status: targetStatus,
+  });
 
   let roomToken = bySession?.roomToken || randomBytes(16).toString("hex");
 
   if (bySession) {
-    // Found by session_id or command_id — update in place.
-    // Keep the existing room_token stable across SDP renegotiations.
+    // Invariant: when session_id/command_id hits, update that exact session row.
+    // Keep room_token stable across host reconnects and guest SDP renegotiations.
+    logSignalingStage(notifyFlow, "session_resolved", {
+      command_id: body.command_id,
+      game_id: body.game_id,
+      resolution: "session_or_command",
+      session_id: bySession.id,
+      session_status: bySession.status,
+    });
     await db
       .update(sessions)
       .set({
@@ -241,6 +280,13 @@ export async function POST(request: NextRequest) {
       .limit(1);
 
     if (byGame) {
+      logSignalingStage(notifyFlow, "session_resolved", {
+        command_id: body.command_id,
+        game_id: body.game_id,
+        resolution: "game_fallback",
+        session_id: byGame.id,
+        session_status: byGame.status,
+      });
       // Reject stale updates: if a newer generation exists and this notify
       // doesn't explicitly target the current generation, skip the update.
       // This prevents an old worker's SDP answer from overwriting a new session.
@@ -271,6 +317,10 @@ export async function POST(request: NextRequest) {
           .where(eq(commands.id, body.command_id));
       }
     } else {
+      logSignalingStage(notifyFlow, "session_missing_creating_legacy_row", {
+        command_id: body.command_id,
+        game_id: body.game_id,
+      });
       // No session at all — create one (legacy / edge case)
       await db.insert(sessions).values({
         userId: server.userId,
@@ -288,6 +338,12 @@ export async function POST(request: NextRequest) {
 
   // ── Record launch timeline event ────────────────────────────────────
   if (body.sdp_answer) {
+    logSignalingStage(notifyFlow, "sdp_answer_persisted", {
+      command_id: body.command_id,
+      game_id: body.game_id,
+      session_id: body.session_id ?? null,
+      target_status: targetStatus,
+    });
     await recordLaunchEvent({
       commandId: body.command_id,
       serverId: server.id,

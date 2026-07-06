@@ -204,14 +204,7 @@ export default function DevTools({ show, onClose }: DevToolsProps) {
       )}
       {workerUrl && (
         <div style={{ marginTop: "var(--space-4)" }}>
-          <a
-            style={S.link}
-            href={`/player/index.html?worker=${encodeURIComponent(workerUrl)}`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Open Player → {workerUrl}
-          </a>
+          <pre style={S.pre}>worker_url: {workerUrl}</pre>
         </div>
       )}
     </div>

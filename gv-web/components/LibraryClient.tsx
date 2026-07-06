@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
@@ -29,6 +29,7 @@ interface LibraryClientProps {
 }
 
 const PAGE_SIZE = 100;
+const MAX_PINS = 20;
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -80,7 +81,6 @@ function csrfHeaders(): Record<string, string> {
 
 async function fetchFavoriteIds(): Promise<Set<string>> {
   try {
-    // Fetch first page of favorites to get IDs for star display
     const resp = await fetch("/api/favorites?limit=200");
     if (!resp.ok) return new Set();
     const data = await resp.json();
@@ -100,6 +100,26 @@ async function toggleFavorite(gameId: string): Promise<boolean> {
   return data.favorited;
 }
 
+async function togglePin(gameId: string): Promise<{ pinned: boolean; pinCount: number }> {
+  const resp = await fetch("/api/pins", {
+    method: "POST",
+    headers: csrfHeaders(),
+    body: JSON.stringify({ gameId }),
+  });
+  return resp.json();
+}
+
+async function fetchPinnedIds(): Promise<Set<string>> {
+  try {
+    const resp = await fetch("/api/pins?ids_only=true");
+    if (!resp.ok) return new Set();
+    const data = await resp.json();
+    return new Set(data.ids || []);
+  } catch {
+    return new Set();
+  }
+}
+
 async function recordRecentPlay(gameId: string) {
   try {
     await fetch("/api/recent-plays", {
@@ -115,24 +135,24 @@ async function recordRecentPlay(gameId: string) {
 export default function LibraryClient({ serverIds, session }: LibraryClientProps) {
   const router = useRouter();
 
-  // Host picker state (still needed for multi-server selection)
   const [hostPickerGame, setHostPickerGame] = useState<string | null>(null);
   const [playableHosts, setPlayableHosts] = useState<PlayableHost[]>([]);
-  const [pickerLoading, setPickerLoading] = useState(false);
 
-  // Edit state
   const [editingGame, setEditingGame] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editSaving, setEditSaving] = useState(false);
 
-  // ── Library state ───────────────────────────────────────────────
   const [tab, setTab] = useState<"all" | "favorites" | "recent">("all");
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
-  // Platform filter: empty = show all, non-empty = only selected
+  // Platform filter: empty = show all
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(new Set());
+  const [platformDropdownOpen, setPlatformDropdownOpen] = useState(false);
+
+  // View toggle: "grid" | "table"
+  const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
 
   const [allGames, setAllGames] = useState<Game[]>([]);
   const [allTotal, setAllTotal] = useState(0);
@@ -147,23 +167,36 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   const [recentLoading, setRecentLoading] = useState(false);
 
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
 
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const filterRef = useRef<HTMLDivElement>(null);
   const hasServers = serverIds.length > 0;
 
-  // Load favorite IDs on mount
+  // Load favs + pins on mount
   useEffect(() => {
     if (session?.user?.id) {
       fetchFavoriteIds().then(setFavoriteIds);
+      fetchPinnedIds().then(setPinnedIds);
     }
   }, [session?.user?.id]);
+
+  // Close platform dropdown on outside click
+  useEffect(() => {
+    if (!platformDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
+        setPlatformDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [platformDropdownOpen]);
 
   // Debounced search
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current);
-    searchTimer.current = setTimeout(() => {
-      setSearch(searchInput);
-    }, 300);
+    searchTimer.current = setTimeout(() => setSearch(searchInput), 300);
     return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
   }, [searchInput]);
 
@@ -177,7 +210,6 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     return resp.json();
   }, []);
 
-  // Load all games
   const loadAllGames = useCallback(async (reset: boolean, searchTerm: string, current: Game[], total: number) => {
     if (allLoading) return;
     const offset = reset ? 0 : current.length;
@@ -196,17 +228,13 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     }
   }, [allLoading, fetchPage]);
 
-  // Load favorites
   const loadFavorites = useCallback(async (reset: boolean, current: Game[], total: number) => {
     if (favLoading) return;
     const offset = reset ? 0 : current.length;
     if (!reset && offset >= total && total > 0) return;
     setFavLoading(true);
     try {
-      const data = await fetchPage("/api/favorites", {
-        limit: String(PAGE_SIZE),
-        offset: String(offset),
-      });
+      const data = await fetchPage("/api/favorites", { limit: String(PAGE_SIZE), offset: String(offset) });
       setFavGames(reset ? data.games : [...current, ...data.games]);
       setFavTotal(data.total);
     } finally {
@@ -214,17 +242,13 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     }
   }, [favLoading, fetchPage]);
 
-  // Load recent plays
   const loadRecent = useCallback(async (reset: boolean, current: Game[], total: number) => {
     if (recentLoading) return;
     const offset = reset ? 0 : current.length;
     if (!reset && offset >= total && total > 0) return;
     setRecentLoading(true);
     try {
-      const data = await fetchPage("/api/recent-plays", {
-        limit: String(PAGE_SIZE),
-        offset: String(offset),
-      });
+      const data = await fetchPage("/api/recent-plays", { limit: String(PAGE_SIZE), offset: String(offset) });
       setRecentGames(reset ? data.games : [...current, ...data.games]);
       setRecentTotal(data.total);
     } finally {
@@ -232,13 +256,11 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     }
   }, [recentLoading, fetchPage]);
 
-  // Initial load + search reset
   useEffect(() => {
     if (!hasServers) return;
     loadAllGames(true, search, [], 0);
   }, [search, hasServers]);
 
-  // Initial load for favorites/recent when tab changes
   useEffect(() => {
     if (!hasServers || !session?.user?.id) return;
     if (tab === "favorites" && favGames.length === 0) loadFavorites(true, [], 0);
@@ -285,7 +307,6 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   const handlePlay = async (gameId: string) => {
     if (!hasServers) return;
     recordRecentPlay(gameId);
-    setPickerLoading(true);
     try {
       const resp = await fetch(`/api/playable-hosts?game_id=${encodeURIComponent(gameId)}`);
       if (!resp.ok) throw new Error("failed");
@@ -309,32 +330,21 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
         }
       }
 
-      if (withGame.length === 0) {
-        setHostPickerGame(gameId);
-        return;
-      }
-
+      if (withGame.length === 0) { setHostPickerGame(gameId); return; }
       if (withGame.length === 1) {
         const serverId = withGame[0].server_id;
         setPreferredServer(gameId, serverId);
         await navigateToGame(gameId, serverId);
         return;
       }
-
       setHostPickerGame(gameId);
-    } catch {
-      // navigateToGame/shorten failure is silent — user stays on library
-    } finally {
-      setPickerLoading(false);
-    }
+    } catch { /* silent */ }
   };
 
   const selectHost = async (gameId: string, serverId: string, _serverName: string) => {
     setHostPickerGame(null);
     setPreferredServer(gameId, serverId);
-    try {
-      await navigateToGame(gameId, serverId);
-    } catch { /* silent */ }
+    try { await navigateToGame(gameId, serverId); } catch { /* silent */ }
   };
 
   // ── Rename handlers ─────────────────────────────────────────────
@@ -349,7 +359,6 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     setEditName("");
   }, []);
 
-  // We need the full games list for rename lookup — use allGames
   const allGamesRef = allGames;
 
   const saveRename = useCallback(async (gameId: string) => {
@@ -366,15 +375,12 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
         body: JSON.stringify({ name: trimmed }),
       });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      // Update local state in all lists
       const update = (list: Game[]) => list.map((g) => g.id === gameId ? { ...g, name: trimmed } : g);
       setAllGames(update);
       setFavGames(update);
       setRecentGames(update);
       cancelRename();
-    } catch {
-      setEditSaving(false);
-    }
+    } catch { setEditSaving(false); }
   }, [editName, allGamesRef, cancelRename]);
 
   const handleEditKey = useCallback((e: React.KeyboardEvent, gameId: string) => {
@@ -389,16 +395,26 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     const newState = await toggleFavorite(gameId);
     setFavoriteIds((prev) => {
       const next = new Set(prev);
-      if (newState) next.add(gameId);
-      else next.delete(gameId);
+      if (newState) next.add(gameId); else next.delete(gameId);
       return next;
     });
-    // If unfavoriting from the favorites tab, remove from list
     if (!newState && tab === "favorites") {
       setFavGames((prev) => prev.filter((g) => g.id !== gameId));
       setFavTotal((prev) => prev - 1);
     }
   }, [tab]);
+
+  // ── Pin toggle ──────────────────────────────────────────────────
+
+  const handleTogglePin = useCallback(async (gameId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const result = await togglePin(gameId);
+    setPinnedIds((prev) => {
+      const next = new Set(prev);
+      if (result.pinned) next.add(gameId); else next.delete(gameId);
+      return next;
+    });
+  }, []);
 
   // ── Current tab's game list ─────────────────────────────────────
 
@@ -407,23 +423,111 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   const currentLoading = tab === "all" ? allLoading : tab === "favorites" ? favLoading : recentLoading;
   const hasMore = currentGames.length < currentTotal;
 
-  // Unique platforms from all games (for filter checkboxes)
   const uniquePlatforms = [...new Set(allGames.map((g) => g.platform))].sort();
+  const platformCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const g of allGames) m[g.platform] = (m[g.platform] || 0) + 1;
+    return m;
+  }, [allGames]);
 
-  // Toggle a platform in/out of the filter set
-  const togglePlatform = useCallback((platform: string) => {
-    setSelectedPlatforms((prev) => {
-      const next = new Set(prev);
-      if (next.has(platform)) next.delete(platform);
-      else next.add(platform);
-      return next;
-    });
-  }, []);
-
-  // Apply platform filter (empty set = show all)
+  // Apply platform filter
   const filteredGames = selectedPlatforms.size === 0
     ? currentGames
     : currentGames.filter((g) => selectedPlatforms.has(g.platform));
+
+  // Sort: pinned first
+  const sortedGames = useMemo(() => {
+    if (pinnedIds.size === 0 || tab !== "all") return filteredGames;
+    const pinned: Game[] = [];
+    const unpinned: Game[] = [];
+    for (const g of filteredGames) {
+      if (pinnedIds.has(g.id)) pinned.push(g);
+      else unpinned.push(g);
+    }
+    return [...pinned, ...unpinned];
+  }, [filteredGames, pinnedIds, tab]);
+
+  const pinnedCount = sortedGames.filter((g) => pinnedIds.has(g.id)).length;
+
+  // ── Render helpers ──────────────────────────────────────────────
+
+  const renderGameCard = (game: Game) => (
+    <GameTile
+      key={game.id}
+      game={game}
+      size="square"
+      isFavorite={favoriteIds.has(game.id)}
+      onPlay={handlePlay}
+      onToggleFavorite={session ? handleToggleFavorite : undefined}
+      onEdit={startRename}
+    />
+  );
+
+  const renderGameRow = (game: Game, index: number) => (
+    <tr
+      key={game.id}
+      onClick={() => handlePlay(game.id)}
+      style={{
+        cursor: "pointer",
+        background: index % 2 === 0 ? "rgba(17,24,39,0.3)" : "transparent",
+        transition: "background 0.1s",
+      }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(56,189,248,0.08)"; }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLElement).style.background = index % 2 === 0 ? "rgba(17,24,39,0.3)" : "transparent";
+      }}
+    >
+      <td style={{ padding: "10px 14px", fontSize: "var(--font-size-md)", color: "var(--color-cloud)" }}>
+        <span style={{ fontWeight: 600 }}>{game.name}</span>
+      </td>
+      <td style={{
+        padding: "10px 14px",
+        fontSize: "var(--font-size-xs)",
+        fontFamily: "var(--font-mono)",
+        color: "var(--color-cloud-dim)",
+        textTransform: "uppercase",
+        letterSpacing: "0.05em",
+      }}>
+        <Badge variant="info">{game.platform}</Badge>
+      </td>
+      <td style={{ padding: "10px 14px", textAlign: "center", fontSize: "var(--font-size-xs)", color: "var(--color-cloud-dim)" }}>
+        {game.maxPlayers > 1 ? `${game.maxPlayers}p` : "—"}
+      </td>
+      <td style={{ padding: "10px 14px", textAlign: "center" }}>
+        {session && (
+          <button
+            onClick={(e) => handleToggleFavorite(game.id, e)}
+            style={{ background: "none", border: "none", cursor: "pointer", color: favoriteIds.has(game.id) ? "#38bdf8" : "#4b5563" }}
+            title={favoriteIds.has(game.id) ? "Remove favorite" : "Add favorite"}
+          >
+            {favoriteIds.has(game.id) ? "★" : "☆"}
+          </button>
+        )}
+      </td>
+      <td style={{ padding: "10px 14px", textAlign: "center" }}>
+        {session && tab === "all" && (
+          <button
+            onClick={(e) => handleTogglePin(game.id, e)}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: pinnedIds.has(game.id) ? "#38bdf8" : "#4b5563",
+              fontSize: 14,
+            }}
+            title={pinnedIds.has(game.id) ? "Unpin" : `Pin (max ${MAX_PINS})`}
+          >
+            {pinnedIds.has(game.id) ? "📌" : "📍"}
+          </button>
+        )}
+      </td>
+      <td style={{ padding: "10px 14px", textAlign: "right" }}>
+        <Button variant="primary" size="sm" onClick={(e) => { e.stopPropagation(); handlePlay(game.id); }}>
+          Play
+        </Button>
+      </td>
+    </tr>
+  );
 
   // ── Render ──────────────────────────────────────────────────────
 
@@ -444,17 +548,57 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       )}
 
       <section style={styles.section}>
-        <h2 style={styles.h2}>Library</h2>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-4)" }}>
+          <h2 style={styles.h2}>Library</h2>
+
+          {/* View toggle */}
+          <div style={{ display: "flex", gap: 4, background: "var(--color-sky-mid)", borderRadius: 2, padding: 2 }}>
+            <button
+              onClick={() => setViewMode("grid")}
+              style={{
+                padding: "6px 14px",
+                background: viewMode === "grid" ? "var(--color-sky-high)" : "transparent",
+                border: "none",
+                borderRadius: 2,
+                color: viewMode === "grid" ? "var(--color-accent)" : "var(--color-cloud-dim)",
+                fontSize: "var(--font-size-xs)",
+                fontFamily: "var(--font-mono)",
+                cursor: "pointer",
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+              }}
+            >
+              ▦ Grid
+            </button>
+            <button
+              onClick={() => setViewMode("table")}
+              style={{
+                padding: "6px 14px",
+                background: viewMode === "table" ? "var(--color-sky-high)" : "transparent",
+                border: "none",
+                borderRadius: 2,
+                color: viewMode === "table" ? "var(--color-accent)" : "var(--color-cloud-dim)",
+                fontSize: "var(--font-size-xs)",
+                fontFamily: "var(--font-mono)",
+                cursor: "pointer",
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+              }}
+            >
+              ☰ Table
+            </button>
+          </div>
+        </div>
 
         {/* Tabs */}
-        <div style={{ display: "flex", gap: 0, marginBottom: "var(--space-5)" }}>
+        <div style={{ display: "flex", gap: 0, marginBottom: "var(--space-4)" }}>
           {(["all", "favorites", "recent"] as const).map((t) => {
             const isActive = tab === t;
             const counts: Record<string, number> = { all: allTotal, favorites: favTotal, recent: recentTotal };
             return (
               <button
                 key={t}
-                onClick={() => setTab(t)}
+                onClick={() => { setTab(t); setSelectedPlatforms(new Set()); }}
                 style={{
                   padding: "8px 20px",
                   background: isActive ? "var(--color-sky-high)" : "transparent",
@@ -470,150 +614,187 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
                 }}
               >
                 {t.charAt(0).toUpperCase() + t.slice(1)}
-                {t === "all" && counts.all > 0 ? ` (${counts.all})` : ""}
-                {t === "favorites" && counts.favorites > 0 ? ` (${counts.favorites})` : ""}
+                {counts[t] > 0 ? ` (${counts[t]})` : ""}
               </button>
             );
           })}
         </div>
 
-        {/* Search (All tab only) */}
+        {/* Search + Filter row */}
         {tab === "all" && (
-          <input
-            type="text"
-            placeholder="Search games..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            style={{
-              width: "100%",
-              maxWidth: 480,
-              padding: "10px 14px",
-              marginBottom: "var(--space-5)",
-              background: "var(--color-sky-high)",
-              border: "2px solid var(--color-sky-high)",
-              borderRadius: "var(--radius-sm)",
-              color: "var(--color-cloud)",
-              fontSize: "var(--font-size-base)",
-              fontFamily: "var(--font-mono)",
-              outline: "none",
-              transition: "border-color 0.15s",
-            }}
-            onFocus={(e) => {
-              e.target.style.borderColor = "var(--color-accent)";
-            }}
-            onBlur={(e) => {
-              e.target.style.borderColor = "var(--color-sky-high)";
-            }}
-          />
-        )}
+          <div style={{ display: "flex", gap: "var(--space-4)", marginBottom: "var(--space-5)", alignItems: "center", flexWrap: "wrap" }}>
+            <input
+              type="text"
+              placeholder="Search games..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              style={{
+                width: 280,
+                padding: "10px 14px",
+                background: "var(--color-sky-high)",
+                border: "2px solid var(--color-sky-high)",
+                borderRadius: "var(--radius-sm)",
+                color: "var(--color-cloud)",
+                fontSize: "var(--font-size-base)",
+                fontFamily: "var(--font-mono)",
+                outline: "none",
+                transition: "border-color 0.15s",
+              }}
+              onFocus={(e) => { e.target.style.borderColor = "var(--color-accent)"; }}
+              onBlur={(e) => { e.target.style.borderColor = "var(--color-sky-high)"; }}
+            />
 
-        {/* Platform filter checkboxes (All tab only) */}
-        {tab === "all" && uniquePlatforms.length > 0 && (
-          <div style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "var(--space-3)",
-            marginBottom: "var(--space-6)",
-            alignItems: "center",
-          }}>
-            <span style={{
-              fontSize: "var(--font-size-xs)",
-              color: "var(--color-cloud-dim)",
-              fontFamily: "var(--font-mono)",
-              textTransform: "uppercase",
-              letterSpacing: "0.06em",
-              marginRight: "var(--space-2)",
-            }}>
-              Platforms
-            </span>
-            {uniquePlatforms.map((platform) => {
-              const checked = selectedPlatforms.has(platform);
-              return (
-                <label
-                  key={platform}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "4px",
-                    padding: "4px 10px",
-                    background: checked ? "rgba(56,189,248,0.12)" : "transparent",
-                    border: checked
-                      ? "1px solid rgba(56,189,248,0.3)"
-                      : "1px solid var(--color-sky-high)",
-                    borderRadius: "2px",
-                    cursor: "pointer",
-                    fontSize: "var(--font-size-xs)",
-                    fontFamily: "var(--font-mono)",
-                    color: checked ? "var(--color-accent)" : "var(--color-cloud-dim)",
-                    transition: "all 0.15s",
-                    userSelect: "none",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => togglePlatform(platform)}
-                    style={{
-                      accentColor: "var(--color-accent)",
-                      margin: 0,
-                      width: 12,
-                      height: 12,
-                      cursor: "pointer",
-                    }}
-                  />
-                  {platform}
-                </label>
-              );
-            })}
-            {selectedPlatforms.size > 0 && (
+            {/* Platform dropdown filter */}
+            <div ref={filterRef} style={{ position: "relative" }}>
               <button
-                onClick={() => setSelectedPlatforms(new Set())}
+                onClick={() => setPlatformDropdownOpen((v) => !v)}
                 style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--color-cloud-dim)",
-                  fontSize: "var(--font-size-xs)",
+                  padding: "10px 14px",
+                  background: selectedPlatforms.size > 0 ? "rgba(56,189,248,0.12)" : "var(--color-sky-high)",
+                  border: selectedPlatforms.size > 0 ? "1px solid rgba(56,189,248,0.3)" : "1px solid var(--color-sky-high)",
+                  borderRadius: 2,
+                  color: selectedPlatforms.size > 0 ? "var(--color-accent)" : "var(--color-cloud-dim)",
+                  fontSize: "var(--font-size-sm)",
                   fontFamily: "var(--font-mono)",
                   cursor: "pointer",
-                  padding: "4px 6px",
-                  textDecoration: "underline",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  transition: "all 0.15s",
                 }}
               >
-                clear
+                <span>{selectedPlatforms.size > 0 ? `Systems (${selectedPlatforms.size})` : "All Systems"}</span>
+                <span style={{ fontSize: 10 }}>{platformDropdownOpen ? "▲" : "▼"}</span>
               </button>
+
+              {platformDropdownOpen && (
+                <div style={{
+                  position: "absolute",
+                  top: "100%",
+                  left: 0,
+                  marginTop: 4,
+                  background: "var(--color-sky-mid)",
+                  border: "1px solid var(--color-sky-high)",
+                  borderRadius: 2,
+                  zIndex: 50,
+                  minWidth: 220,
+                  maxHeight: 360,
+                  overflowY: "auto",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                }}>
+                  <button
+                    onClick={() => { setSelectedPlatforms(new Set()); setPlatformDropdownOpen(false); }}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      padding: "8px 14px",
+                      background: selectedPlatforms.size === 0 ? "var(--color-sky-high)" : "transparent",
+                      border: "none",
+                      color: selectedPlatforms.size === 0 ? "var(--color-accent)" : "var(--color-cloud-dim)",
+                      fontSize: "var(--font-size-sm)",
+                      fontFamily: "var(--font-mono)",
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                  >
+                    All Systems ({allTotal})
+                  </button>
+                  {uniquePlatforms.map((platform) => {
+                    const checked = selectedPlatforms.has(platform);
+                    return (
+                      <label
+                        key={platform}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          padding: "8px 14px",
+                          background: checked ? "var(--color-sky-high)" : "transparent",
+                          cursor: "pointer",
+                          fontSize: "var(--font-size-sm)",
+                          fontFamily: "var(--font-mono)",
+                          color: checked ? "var(--color-accent)" : "var(--color-cloud-dim)",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            setSelectedPlatforms((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(platform)) next.delete(platform);
+                              else next.add(platform);
+                              return next;
+                            });
+                          }}
+                          style={{ accentColor: "var(--color-accent)" }}
+                        />
+                        {platform}
+                        <span style={{ marginLeft: "auto", fontSize: "var(--font-size-xs)", opacity: 0.5 }}>
+                          ({platformCounts[platform] || 0})
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Pin count */}
+            {pinnedCount > 0 && (
+              <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-accent)", fontFamily: "var(--font-mono)" }}>
+                📌 {pinnedCount} pinned
+              </span>
             )}
           </div>
         )}
 
-        {/* Game grid */}
-        {filteredGames.length === 0 && !currentLoading ? (
+        {/* Game grid / table */}
+        {sortedGames.length === 0 && !currentLoading ? (
           <p style={styles.empty}>
             {selectedPlatforms.size > 0
               ? "No games match the selected platforms."
               : tab === "all" ? "No games found." : tab === "favorites" ? "No favorites yet." : "No recent plays."}
           </p>
-        ) : (
+        ) : viewMode === "grid" ? (
           <div className="game-tile-grid">
-            {filteredGames.map((game) => (
-              <GameTile
-                key={game.id}
-                game={game}
-                size="square"
-                isFavorite={favoriteIds.has(game.id)}
-                onPlay={handlePlay}
-                onToggleFavorite={session ? handleToggleFavorite : undefined}
-                onEdit={startRename}
-              />
-            ))}
+            {sortedGames.map((game) => renderGameCard(game))}
+          </div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              fontSize: "var(--font-size-sm)",
+              fontFamily: "var(--font-mono)",
+            }}>
+              <thead>
+                <tr style={{
+                  borderBottom: "2px solid var(--color-sky-high)",
+                  color: "var(--color-cloud-dim)",
+                  fontSize: "var(--font-size-xs)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                }}>
+                  <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600 }}>Name</th>
+                  <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600 }}>Platform</th>
+                  <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Players</th>
+                  <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Fav</th>
+                  {tab === "all" && <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Pin</th>}
+                  <th style={{ textAlign: "right", padding: "10px 14px", fontWeight: 600 }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedGames.map((game, i) => renderGameRow(game, i))}
+              </tbody>
+            </table>
           </div>
         )}
 
-        {/* Loading indicator */}
         {currentLoading && (
           <div style={styles.loading}>Loading...</div>
         )}
 
-        {/* Infinite scroll sentinel */}
         {hasMore && !currentLoading && (
           <div ref={sentinelRef} style={styles.sentinel} />
         )}
@@ -678,9 +859,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
             onBlur={(e) => { e.target.style.borderColor = "var(--color-sky-high)"; }}
           />
           <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "flex-end" }}>
-            <Button variant="secondary" onClick={cancelRename}>
-              Cancel
-            </Button>
+            <Button variant="secondary" onClick={cancelRename}>Cancel</Button>
             <Button
               variant="primary"
               onClick={() => editingGame && saveRename(editingGame)}
@@ -691,7 +870,6 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
           </div>
         </div>
       </Modal>
-
     </main>
   );
 }
@@ -716,7 +894,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   section: { padding: "0 24px", marginBottom: "var(--space-8)" },
   h2: {
-    margin: "0 0 var(--space-6)",
+    margin: 0,
     fontSize: "var(--font-size-lg)",
     fontWeight: 600,
     color: "var(--color-accent)",
@@ -725,7 +903,6 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: "0.05em",
   },
   empty: { fontSize: "var(--font-size-base)", color: "var(--color-cloud-dim)", fontStyle: "italic" },
-
   loading: {
     textAlign: "center" as const,
     padding: "var(--space-8)",
@@ -733,8 +910,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "var(--font-size-base)",
   },
   sentinel: { height: "1px" },
-
-  // Picker
   pickerRow: {
     display: "flex", alignItems: "center", gap: "var(--space-4)",
     padding: "var(--space-4) 0", borderBottom: "1px solid var(--color-sky-high)",

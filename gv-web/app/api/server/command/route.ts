@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { commands, gameFiles, games, peerTokens, serverMembers, servers, sessions } from "@/lib/db/schema";
-import { ACTIVE_SESSION_STATES, CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, CMD_BROWSE_FILES, CMD_SCAN_PATHS } from "@/lib/constants";
-import { and, eq, inArray } from "drizzle-orm";
+import { ACTIVE_SESSION_STATES, CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, CMD_BROWSE_FILES, CMD_SCAN_PATHS, SESSION_CONNECTED, SESSION_PLAYING, SESSION_READY, SESSION_SPAWNING, SESSION_STATE_TIMEOUT_MS } from "@/lib/constants";
+import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { applyRateLimit } from "@/lib/rate-limit";
 import { recordLaunchEvent } from "@/lib/launch-events";
 import { waitForSdpAnswer } from "@/lib/pending-sdp";
+import { classifyCommandFlow, logSignalingStage, type SignalingFlow } from "@/lib/signaling";
 import crypto from "crypto";
 
 const COMMAND_RATE_LIMIT = 30; // requests per minute per IP
@@ -14,6 +15,7 @@ const COMMAND_RATE_LIMIT = 30; // requests per minute per IP
 // ── Validation ─────────────────────────────────────────────────────────
 
 const VALID_TYPES = new Set<string>([CMD_START_GAME, CMD_STOP_GAME, CMD_SDP_OFFER, CMD_BROWSE_FILES, CMD_SCAN_PATHS]);
+const RECONNECT_TRANSIENT_STATES = [SESSION_SPAWNING, SESSION_READY, SESSION_CONNECTED] as const;
 
 interface CommandBody {
   server_id: string;
@@ -208,6 +210,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: payloadResult.error }, { status: 400 });
   }
 
+  const signalingFlow = classifyCommandFlow(body.type, payloadResult.payload);
+  if (signalingFlow) {
+    logSignalingStage(signalingFlow, "request_validated", {
+      command_type: body.type,
+      game_id: payloadResult.payload.game_id,
+      has_host_token: typeof payloadResult.payload.host_token === "string",
+      has_peer_token: typeof payloadResult.payload.peer_token === "string",
+      has_room_token: typeof payloadResult.payload.room_token === "string",
+      has_sdp: typeof payloadResult.payload.sdp === "string",
+      server_id: serverId,
+    });
+  }
+
   // Generate a worker token — used by the browser to prove it created
   // this command when polling for the worker URL.
   const workerToken = crypto.randomBytes(16).toString("hex");
@@ -220,25 +235,14 @@ export async function POST(request: NextRequest) {
     const t0 = Date.now();
     const sp = payloadResult.payload;
     if (typeof sp.game_id === "string") {
-      // ── LAN detection: check if client is on the same subnet as gv-server ──
-      const clientIp =
-        request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-        request.headers.get("x-real-ip") ||
-        "";
-      const lanIpsRaw = process.env.GV_SERVER_LAN_IPS || "";
-      let isLan = false;
-      if (clientIp && lanIpsRaw) {
-        const lanIps = lanIpsRaw.split(",").map((s) => s.trim()).filter(Boolean);
-        const clientPrefix = clientIp.split(".").slice(0, 3).join(".");
-        isLan = lanIps.some((lanIp) => {
-          if (lanIp === clientIp) return true;
-          const lanPrefix = lanIp.split(".").slice(0, 3).join(".");
-          return lanPrefix === clientPrefix;
-        });
-      }
-      if (isLan) {
-        console.log("[COMMAND] LAN detected for", clientIp, "— enabling direct ICE");
-        enrichedPayload = { ...sp, lan: true };
+      // Transport selection no longer guesses LAN proximity from public request
+      // headers. gv-web cannot reliably infer RFC1918 locality relative to the
+      // paired server from x-forwarded-for/x-real-ip, so command payloads must
+      // not auto-enable a LAN/direct path based on gateway-side heuristics.
+      if (sp.lan === true) {
+        console.info("[COMMAND] start_game received explicit lan=true hint from caller — preserving explicit transport hint");
+      } else {
+        console.info("[COMMAND] start_game using deterministic transport selection — no gateway-side LAN auto-detection");
       }
 
       // Look up the game and its file on this server
@@ -273,10 +277,17 @@ export async function POST(request: NextRequest) {
       }
     }
   } else if (body.type === CMD_SDP_OFFER) {
-    // Enrich with peer_role/peer_seat from peerTokens DB
+    // Invariant: guest/browser SDP offers carry peer_token and optionally room_token.
+    // Host reconnect offers carry host_token and MUST NOT be enriched with guest role/seat.
     const sp = payloadResult.payload;
     const peerToken = sp.peer_token as string | undefined;
-    console.log("[COMMAND] sdp_offer enrichment — peer_token:", !!peerToken);
+    logSignalingStage(peerToken ? "guest_offer" : "host_reconnect", "payload_enrichment_start", {
+      command_type: body.type,
+      game_id: sp.game_id,
+      has_peer_token: !!peerToken,
+      has_room_token: typeof sp.room_token === "string",
+      has_host_token: typeof sp.host_token === "string",
+    });
     if (peerToken) {
       const [peer] = await db
         .select({ role: peerTokens.role, seat: peerTokens.seat })
@@ -289,6 +300,16 @@ export async function POST(request: NextRequest) {
           peer_role: peer.role,
           peer_seat: peer.seat,
         };
+        logSignalingStage("guest_offer", "payload_enriched", {
+          game_id: sp.game_id,
+          peer_role: peer.role,
+          peer_seat: peer.seat,
+        });
+      } else {
+        logSignalingStage("guest_offer", "payload_enrichment_missing_peer", {
+          game_id: sp.game_id,
+          has_peer_token: true,
+        });
       }
     }
   }
@@ -304,7 +325,17 @@ export async function POST(request: NextRequest) {
     })
     .returning({ id: commands.id });
 
-  console.log("[COMMAND] inserted", body.type, "cmd:", cmd.id, "has_peer:", !!enrichedPayload.peer_token, "has_host:", !!enrichedPayload.host_token);
+  if (signalingFlow) {
+    logSignalingStage(signalingFlow, "command_inserted", {
+      command_id: cmd.id,
+      command_type: body.type,
+      game_id: typeof enrichedPayload.game_id === "string" ? enrichedPayload.game_id : undefined,
+      has_host_token: typeof enrichedPayload.host_token === "string",
+      has_peer_token: typeof enrichedPayload.peer_token === "string",
+      server_id: serverId,
+      worker_token: workerToken,
+    });
+  }
 
   await recordLaunchEvent({
     commandId: cmd.id,
@@ -343,23 +374,46 @@ export async function POST(request: NextRequest) {
     //     convert the start_game into an sdp_offer to avoid tearing down
     //     the running core and going through ICE gathering again. ──────
     if (enrichedPayload.sdp) {
+      const reconnectCutoff = new Date(Date.now() - SESSION_STATE_TIMEOUT_MS);
+
+      await db
+        .update(sessions)
+        .set({ status: "timed_out", endedAt: new Date(), stateEnteredAt: new Date() })
+        .where(
+          and(
+            eq(sessions.userId, uid),
+            eq(sessions.serverId, serverId),
+            eq(sessions.gameId, enrichedPayload.game_id as string),
+            inArray(sessions.status, [...RECONNECT_TRANSIENT_STATES]),
+            lt(sessions.stateEnteredAt, reconnectCutoff),
+          ),
+        );
+
       const [existing] = await db
-        .select({ id: sessions.id, commandId: sessions.commandId, roomToken: sessions.roomToken })
+        .select({ id: sessions.id, commandId: sessions.commandId, roomToken: sessions.roomToken, status: sessions.status })
         .from(sessions)
         .where(
           and(
             eq(sessions.userId, uid),
             eq(sessions.serverId, serverId),
             eq(sessions.gameId, enrichedPayload.game_id as string),
-            inArray(sessions.status, ["spawning", "ready", "connected", "playing"]),
+            inArray(sessions.status, [...RECONNECT_TRANSIENT_STATES, SESSION_PLAYING]),
           ),
         )
-        .orderBy(sessions.createdAt)
+        .orderBy(desc(sessions.createdAt))
         .limit(1);
 
       if (existing) {
-        // Active session found — reuse it via sdp_offer instead of killing + restarting.
-        console.log("[COMMAND] reusing active session", existing.id, "— converting start_game to sdp_offer");
+        // Invariant: host reconnect reuses the existing host session in-place.
+        // It MUST carry host_token only — never peer_token — so gv-server stays on
+        // the host reconnection path instead of the guest-PC creation path.
+        logSignalingStage("host_reconnect", "reuse_existing_session", {
+          command_id: cmd.id,
+          existing_command_id: existing.commandId,
+          game_id: enrichedPayload.game_id as string,
+          session_id: existing.id,
+          session_status: existing.status,
+        });
 
         // NOTE: we do NOT include peer_token — this is a HOST reconnect,
         // not a guest join. Including peer_token would cause gv-server to
@@ -395,6 +449,12 @@ export async function POST(request: NextRequest) {
         });
 
         // Return immediately — no need to long-poll for SDP answer on reconnect
+        logSignalingStage("host_reconnect", "response_ready", {
+          command_id: cmd.id,
+          host_peer_token: hostPeerToken,
+          session_id: existing.id,
+          worker_token: workerToken,
+        });
         return NextResponse.json(
           { id: cmd.id, worker_token: workerToken, host_peer_token: hostPeerToken },
           { status: 201 },
@@ -428,8 +488,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create a fresh session in "spawning" state.
-    // The server will transition it to "ready" when the worker is up.
+    // Invariant: a fresh host launch always creates a new DB session row in
+    // spawning state. gv-server owns the ready/connected transitions after poll.
     const [newSession] = await db.insert(sessions).values({
       userId: uid,
       serverId,
@@ -469,6 +529,15 @@ export async function POST(request: NextRequest) {
       .update(commands)
       .set({ payload: enrichedPayload })
       .where(eq(commands.id, cmd.id));
+
+    logSignalingStage("host_start", "session_created", {
+      command_id: cmd.id,
+      game_id: enrichedPayload.game_id as string,
+      host_peer_token: hostPeerToken,
+      session_id: newSession.id,
+      status: "spawning",
+      worker_token: workerToken,
+    });
   }
 
   if (body.type === CMD_STOP_GAME) {
@@ -485,12 +554,25 @@ export async function POST(request: NextRequest) {
       );
   }
 
-  // ── Long-poll: if this is a start_game with SDP, hold the response
-  //     open until gv-server processes the command and sends the answer
-  //     back via the notify endpoint.  Eliminates browser-side polling.
-  if (body.type === CMD_START_GAME && enrichedPayload.sdp) {
+  // ── Long-poll: if this is a start_game or sdp_offer with SDP, hold the
+  //     response open until gv-server processes the command and sends the
+  //     answer back via the notify endpoint.  Eliminates browser-side polling.
+  if ((body.type === CMD_START_GAME || body.type === CMD_SDP_OFFER) && enrichedPayload.sdp) {
+    const answerFlow: SignalingFlow = body.type === CMD_SDP_OFFER
+      ? (typeof enrichedPayload.peer_token === "string" || typeof enrichedPayload.room_token === "string" ? "guest_offer" : "host_reconnect")
+      : "host_start";
+    logSignalingStage(answerFlow, "waiting_for_sdp_answer", {
+      command_id: cmd.id,
+      game_id: typeof enrichedPayload.game_id === "string" ? enrichedPayload.game_id : undefined,
+      worker_token: workerToken,
+    });
     try {
       const sdpAnswer = await waitForSdpAnswer(cmd.id);
+      logSignalingStage(answerFlow, "sdp_answer_resolved", {
+        command_id: cmd.id,
+        game_id: typeof enrichedPayload.game_id === "string" ? enrichedPayload.game_id : undefined,
+        sdp_answer_length: sdpAnswer.length,
+      });
       return NextResponse.json(
         {
           id: cmd.id,
@@ -501,6 +583,11 @@ export async function POST(request: NextRequest) {
         { status: 201 },
       );
     } catch (err: any) {
+      logSignalingStage(answerFlow, "sdp_answer_wait_failed", {
+        command_id: cmd.id,
+        error: err?.message || "SDP answer timed out",
+        game_id: typeof enrichedPayload.game_id === "string" ? enrichedPayload.game_id : undefined,
+      });
       return NextResponse.json(
         {
           id: cmd.id,

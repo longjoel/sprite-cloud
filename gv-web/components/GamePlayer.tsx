@@ -71,6 +71,7 @@ declare global {
       show: () => void;
       hide: () => void;
       enterEditMode: () => void;
+      swapAB: () => void;
     };
   }
 }
@@ -86,6 +87,7 @@ interface GamePlayerProps {
   joinToken?: string;       // pre-existing room token for guest join
   onClose?: () => void;
   onConnected?: () => void; // fired when WebRTC connects
+  onFatalError?: (msg: string) => void; // fired on connection failure — page can show error screen
   sessionId?: string;
   initialPipeline?: Record<string, StepState>;
   initialStatus?: string;
@@ -104,6 +106,7 @@ export default function GamePlayer({
   joinToken: joinTokenProp,
   onClose,
   onConnected,
+  onFatalError,
   sessionId,
   initialPipeline,
   initialStatus,
@@ -150,6 +153,43 @@ export default function GamePlayer({
   const [pipeline, setPipeline] = useState<Record<string, StepState>>(
     () => mergePipeline(defaultPipeline(), initialPipeline),
   );
+
+  // ── Mobile detection & cast mode ──────────────────────────────────
+  const [isMobile, setIsMobile] = useState(false);
+  const [castMode, setCastMode] = useState(false);
+  const [showQr, setShowQr] = useState(false);
+
+  useEffect(() => {
+    const check = () => {
+      const touch = typeof window !== "undefined" && "ontouchstart" in window;
+      const coarse = window.matchMedia("(pointer: coarse)").matches;
+      const small = window.innerWidth < 768 || window.innerHeight < 768;
+      setIsMobile(Boolean(touch && (coarse || small)));
+    };
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
+  // When cast mode is on, expand gamepad to full screen + hide video
+  useEffect(() => {
+    const tg = window.__gvTouchGamepad;
+    if (!tg) return;
+    if (castMode) {
+      // Force gamepad visible
+      if (!tg.isVisible?.()) tg.show?.();
+      setTouchGamepadVisible(true);
+      // Make gamepad canvas full-screen (overrides the library's resize)
+      const canvas = (tg as any)._canvas;
+      if (canvas) {
+        canvas.style.position = "fixed";
+        canvas.style.inset = "0";
+        canvas.style.width = "100vw";
+        canvas.style.height = "100vh";
+        canvas.style.zIndex = "20";
+      }
+    }
+  }, [castMode]);
 
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedRef = useRef(false);
@@ -280,6 +320,7 @@ export default function GamePlayer({
             if (activeStep) failStep(activeStep.id);
             setError(detail ?? "connection error");
             setConnected(false);
+            setShowDisconnect(false); // hard error supersedes reconnect overlay
           }
           if (state === "idle") {
             setConnected(false);
@@ -300,6 +341,8 @@ export default function GamePlayer({
         },
         onError(msg: string) {
           setError(msg);
+          setShowDisconnect(false); // hard error supersedes reconnect overlay
+          onFatalError?.(msg);
           const activeStep = PIPELINE_STEPS.find(
             (s) => pipeline[s.id] === "active",
           );
@@ -323,6 +366,12 @@ export default function GamePlayer({
         },
         onReconnectFailed() {
           setReconnectMsg("Reconnection failed — refresh the page");
+          // In guest/hidePipeline mode, escalate to fatal error so the page
+          // shows a clean error screen instead of stacking overlays
+          if (hidePipeline) {
+            setShowDisconnect(false);
+            onFatalError?.("Reconnection failed — the host may have stopped streaming");
+          }
         },
         onRoute(routeLabel: string, detail: string) {
           setRoute(routeLabel);
@@ -387,7 +436,7 @@ export default function GamePlayer({
     if (!v || !connected) return;
     // Map platform name to gamepad preset
     const presetMap: Record<string, string> = {
-      'NES': 'nes', 'SNES': 'nes', 'Game Boy': 'nes', 'Game Boy Color': 'nes',
+      'NES': 'nes', 'SNES': 'snes', 'Game Boy': 'nes', 'Game Boy Color': 'nes',
       'Game Boy Advance': 'nes', 'Family Computer Disk System': 'nes',
       'Virtual Boy': 'nes', 'Pokemon Mini': 'nes', 'WonderSwan': 'nes',
       'WonderSwan Color': 'nes', 'Neo Geo Pocket': 'nes', 'Neo Geo Pocket Color': 'nes',
@@ -522,6 +571,18 @@ export default function GamePlayer({
     }
   }, [showToast]);
 
+  // ── Cast mode ─────────────────────────────────────────────────────
+
+  const handleCast = useCallback(() => {
+    setCastMode(true);
+    setShowOptions(false); // close overlay
+  }, []);
+
+  const handleQrCode = useCallback(() => {
+    setShowQr(true);
+    setShowOptions(false); // close overlay
+  }, []);
+
   // ── Restart game ──────────────────────────────────────────────────
 
   const handleRestart = useCallback(() => {
@@ -581,9 +642,17 @@ export default function GamePlayer({
       `}</style>
 
       <Script src="/player/touch-gamepad-v2.js" />
+      {/* Canonical browser player bootstrap path. Standalone legacy harness removed. */}
       <Script src="/player/play-v2.js" type="module" onLoad={() => setScriptReady(true)} />
 
-      <video ref={videoRef} autoPlay playsInline muted className={styles.video} />
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className={styles.video}
+        style={castMode ? { display: "none" } : undefined}
+      />
 
       {/* Top bar */}
       <div
@@ -625,6 +694,9 @@ export default function GamePlayer({
           onOpenSaves={() => { setShowSlots(!showSlots); handleListSaves(); }}
           onOpenKeys={() => setShowRemap(!showRemap)}
           onOpenRoom={() => setShowRoomControls(!showRoomControls)}
+          onCast={handleCast}
+          onQrCode={handleQrCode}
+          isMobile={isMobile}
         />
       )}
 
@@ -678,8 +750,26 @@ export default function GamePlayer({
         </div>
       )}
 
-      {/* Disconnect overlay */}
-      {showDisconnect && (
+      {/* Error shown even when pipeline is hidden (guest / shared link path).
+           Only show if there's no onFatalError handler — when the page provides one,
+           the page owns the error display; GamePlayer should stay silent. */}
+      {error && hidePipeline && !connected && !onFatalError && (
+        <div className={styles.overlay} style={{ zIndex: 30 }}>
+          <div className={styles.overlayPanel}>
+            <p className={styles.overlayTitle}>Connection failed</p>
+            <p className={styles.overlaySub} style={{ fontFamily: "monospace", fontSize: 11, wordBreak: "break-all", maxWidth: 320, margin: "12px auto" }}>
+              {error}
+            </p>
+            <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "center", marginTop: "var(--space-4)" }}>
+              <Button variant="secondary" onClick={() => onClose?.()}>← Home</Button>
+              <Button variant="primary" onClick={() => window.location.reload()}>↻ Retry</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Disconnect overlay — only when reconnecting, not when there's a hard error */}
+      {showDisconnect && !error && (
         <div className={styles.overlay}>
           <div className={styles.overlayPanel}>
             {reconnectAttempt < 3 ? (
@@ -822,7 +912,7 @@ export default function GamePlayer({
                   variant="secondary"
                   size="sm"
                   onClick={() => {
-                    const url = `${window.location.origin}/p/${shortCode}`;
+                    const url = `${window.location.origin}/p/${shortCode}?join`;
                     navigator.clipboard.writeText(url).then(
                       () => showToast("Share link copied!", true),
                       () => showToast("Copy failed", false)
@@ -835,6 +925,78 @@ export default function GamePlayer({
             </div>
           </div>
         </>
+      )}
+
+      {/* QR Code overlay */}
+      {showQr && shortCode && (
+        <>
+          <div className={styles.backdrop} onClick={() => setShowQr(false)} />
+          <div className={styles.roomPanel}>
+            <div className={styles.slotHeader}>
+              <span>Scan to Join</span>
+              <Button variant="ghost" onClick={() => setShowQr(false)}>✕</Button>
+            </div>
+            <div style={{ display: "flex", justifyContent: "center", padding: "var(--space-5)" }}>
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`${window.location.origin}/p/${shortCode}?join`)}`}
+                alt="QR Code to join game"
+                style={{ borderRadius: 4, background: "#fff", padding: 8 }}
+              />
+            </div>
+            <p style={{
+              color: "var(--color-muted)",
+              textAlign: "center",
+              fontSize: "var(--font-size-sm)",
+              wordBreak: "break-all",
+              padding: "0 var(--space-4)",
+            }}>
+              {window.location.origin}/p/{shortCode}?join
+            </p>
+          </div>
+        </>
+      )}
+
+      {/* Cast mode chip — shows when casting, tap to exit */}
+      {castMode && (
+        <div style={{
+          position: "fixed",
+          top: 12,
+          right: 12,
+          zIndex: 30,
+          display: "flex",
+          gap: 8,
+        }}>
+          <button
+            onClick={() => { setShowQr(true); }}
+            style={{
+              background: "rgba(17, 24, 39, 0.92)",
+              border: "1px solid rgba(56, 189, 248, 0.3)",
+              borderRadius: 2,
+              color: "#e5e7eb",
+              padding: "8px 14px",
+              fontSize: "var(--font-size-sm)",
+              fontFamily: "var(--font-mono)",
+              cursor: "pointer",
+            }}
+          >
+            📱 Show QR
+          </button>
+          <button
+            onClick={() => setCastMode(false)}
+            style={{
+              background: "rgba(248, 113, 113, 0.18)",
+              border: "1px solid rgba(248, 113, 113, 0.35)",
+              borderRadius: 2,
+              color: "#e5e7eb",
+              padding: "8px 14px",
+              fontSize: "var(--font-size-sm)",
+              fontFamily: "var(--font-mono)",
+              cursor: "pointer",
+            }}
+          >
+            ✕ Exit Cast
+          </button>
+        </div>
       )}
 
       {toast && (

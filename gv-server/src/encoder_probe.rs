@@ -94,10 +94,8 @@ mod tests {
         for i in 0..encoders.len() - 1 {
             let a = &encoders[i];
             let b = &encoders[i + 1];
-            let a_score =
-                a.accepts_dmabuf as i32 * 1000 + a.is_hardware as i32 * 100 + a.rank;
-            let b_score =
-                b.accepts_dmabuf as i32 * 1000 + b.is_hardware as i32 * 100 + b.rank;
+            let a_score = a.accepts_dmabuf as i32 * 1000 + a.is_hardware as i32 * 100 + a.rank;
+            let b_score = b.accepts_dmabuf as i32 * 1000 + b.is_hardware as i32 * 100 + b.rank;
             assert!(
                 a_score >= b_score,
                 "encoder order: {} (score={a_score}) before {} (score={b_score})",

@@ -54,7 +54,9 @@ pub(crate) async fn cmd_pair(code: &str, gv_web_url: &str) -> Result<()> {
     let resp = gv_web::GvWebClient::claim(code, gv_web_url, rom_roots.clone(), &hostname).await?;
 
     let cfg = config::Config {
-        gv_web: config::GvWeb { url: gv_web_url.to_string() },
+        gv_web: config::GvWeb {
+            url: gv_web_url.to_string(),
+        },
         auth: config::Auth {
             api_key: resp.api_key.clone(),
             server_id: resp.server_id.clone(),
@@ -70,7 +72,10 @@ pub(crate) async fn cmd_pair(code: &str, gv_web_url: &str) -> Result<()> {
 
     tracing::info!("Paired!");
     tracing::info!("  server_id: {}", resp.server_id);
-    tracing::info!("  api_key:   {}", &resp.api_key[..8.min(resp.api_key.len())]);
+    tracing::info!(
+        "  api_key:   {}",
+        &resp.api_key[..8.min(resp.api_key.len())]
+    );
     tracing::info!("  config saved");
 
     Ok(())
@@ -86,6 +91,27 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
     }
 
     let client = gv_web::GvWebClient::new(cfg.gv_web.url.clone(), cfg.auth.clone());
+
+    let ice_runtime = config::runtime_ice_config();
+    let ice_log = ice_runtime.startup_log_fields();
+    tracing::info!(
+        status = %ice_log.status,
+        transport_policy = %ice_log.transport_policy,
+        stun_url_count = ice_log.stun_url_count,
+        turn_url_count = ice_log.turn_url_count,
+        turn_username_present = ice_log.turn_username_present,
+        turn_credential_present = ice_log.turn_credential_present,
+        defaulted_to_public_stun = ice_log.defaulted_to_public_stun,
+        "[ICE] effective runtime config"
+    );
+    if ice_runtime.status == config::IceRuntimeStatus::TurnPartialInvalid {
+        tracing::warn!(
+            turn_url_count = ice_log.turn_url_count,
+            turn_username_present = ice_log.turn_username_present,
+            turn_credential_present = ice_log.turn_credential_present,
+            "[ICE] TURN URLs are configured but auth is incomplete — relay will not be usable"
+        );
+    }
 
     // Verify API key
     let metadata = collect_metadata(&cfg).await;
@@ -139,7 +165,10 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
         .unwrap_or_else(|_| "0.0.0.0:8787".into())
         .parse()
         .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 8787)));
-    tokio::spawn(crate::player_server::serve(player_addr, cfg.gv_web.url.clone()));
+    tokio::spawn(crate::player_server::serve(
+        player_addr,
+        cfg.gv_web.url.clone(),
+    ));
 
     const POLL_ERROR_BACKOFF_MS: u64 = 5_000;
     let mut sessions: HashMap<String, Arc<GameSession>> = HashMap::new();
@@ -232,8 +261,8 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
     Ok(())
 }
 
-mod game;
 mod dc_handler;
+mod game;
 mod save_handlers;
 
 // ── Shutdown signal ─────────────────────────────────────────────────
@@ -251,5 +280,7 @@ async fn shutdown_signal() {
 
 #[cfg(not(unix))]
 async fn shutdown_signal() {
-    tokio::signal::ctrl_c().await.expect("register Ctrl+C handler");
+    tokio::signal::ctrl_c()
+        .await
+        .expect("register Ctrl+C handler");
 }

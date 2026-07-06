@@ -7,6 +7,7 @@
 // Exposes window.gvPlay with startPlayer(), saveState(), loadState().
 
 import { GvPlayer, State } from "./gv-player.js";
+import { fetchEffectiveIceConfig, logBootstrapStart } from "./bootstrap-common.js";
 
 // ── UUID polyfill ────────────────────────────────────────────────────
 // crypto.randomUUID() is secure-context-only (HTTPS / localhost).
@@ -189,27 +190,15 @@ async function startGame(serverId, gameId, corePath, hostToken, callbacks, sdpOf
  * @param {object} callbacks
  * @returns {GvPlayer}
  */
-async function fetchIceConfig() {
-  try {
-    const r = await fetch("/api/ice-config");
-    if (r.ok) return await r.json();
-    console.warn("[gv] /api/ice-config returned HTTP", r.status);
-  } catch (e) {
-    console.warn("[gv] /api/ice-config unreachable:", e?.message || e);
-  }
-  // Fallback: Google STUN only. TURN will not be available.
-  // Configure GV_ICE_* env vars on gv-web for TURN support.
-  console.warn("[gv] ICE: using Google STUN fallback — no TURN, NAT may fail");
-  return { iceServers: [{ urls: "stun:stun.l.google.com:19302" }], iceTransportPolicy: "all" };
-}
-
 function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, hostTokenParam) {
   console.log("[gv] startPlayer called", { serverId, gameId, joinToken: !!joinToken, hostTokenParam: !!hostTokenParam });
 
-  // Fetch ICE config first, then create player with it
+  // Canonical bootstrap path for the React/Next.js player.
+  // All browser-player flows should source ICE config semantics from the same
+  // helper so iceServers + iceTransportPolicy stay aligned everywhere.
   let player = null;
-  let iceConfigPromise = fetchIceConfig();
-  player = new GvPlayer(video);  // temp, gets iceServers patched async
+  let iceConfigPromise = fetchEffectiveIceConfig();
+  player = new GvPlayer(video);  // temp, gets effective ICE config patched before PC creation
   console.log("[gv] GvPlayer created, calling doConnect");
 
   // ── Touch controls (all devices — also works with mouse on desktop) ──
@@ -281,6 +270,14 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
     // Wait for ICE config, then apply to player
     const iceConfig = await iceConfigPromise;
     if (iceConfig && iceConfig.iceServers) {
+      const bootstrapFlow = joinToken ? "guest-relay" : (hostTokenParam ? "host-reconnect" : "host-relay");
+      logBootstrapStart({
+        path: "play-v2",
+        flow: bootstrapFlow,
+        iceServers: iceConfig.iceServers,
+        iceTransportPolicy: iceConfig.iceTransportPolicy,
+        source: iceConfig.source,
+      });
       console.log("[gv] applying ICE config:", iceConfig.iceServers.length, "servers, policy:", iceConfig.iceTransportPolicy);
       player._iceServers = iceConfig.iceServers;
       if (iceConfig.iceTransportPolicy) {
