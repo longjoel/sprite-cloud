@@ -17,13 +17,13 @@ const SESSION_RETENTION_MS = 3_600_000; // 1 hour
 
 const STUCK_STATES = [SESSION_SPAWNING, SESSION_READY, SESSION_CONNECTED];
 
-export async function cleanupOnce() {
+export async function cleanupOnce(database = db) {
   try {
     const now = Date.now();
 
     // ── Time out stuck sessions ─────────────────────────────────────
     const timeoutCutoff = new Date(now - SESSION_STATE_TIMEOUT_MS);
-    await db
+    await database
       .update(sessions)
       .set({ status: "timed_out", endedAt: new Date() })
       .where(
@@ -39,31 +39,31 @@ export async function cleanupOnce() {
     // ── Delete old launch telemetry first ────────────────────────────
     // launch_events references both sessions and commands, so it must be
     // removed before either parent table can be pruned.
-    await db.delete(launchEvents).where(lt(launchEvents.createdAt, commandCutoff));
+    await database.delete(launchEvents).where(lt(launchEvents.createdAt, commandCutoff));
 
     // ── Delete stale/orphaned peer tokens ────────────────────────────
     // peer_tokens with no matching session (session was deleted above,
     // or deleted by other means). Also clean up tokens for ended sessions
     // that haven't been deleted yet — these stale rows inflate the seat
     // count in room/join.
-    await db.delete(peerTokens).where(
+    await database.delete(peerTokens).where(
       inArray(
         peerTokens.sessionId,
-        db.select({ id: sessions.id }).from(sessions).where(lt(sessions.endedAt, sessionCutoff)),
+        database.select({ id: sessions.id }).from(sessions).where(lt(sessions.endedAt, sessionCutoff)),
       ),
     );
-    await db.delete(peerTokens).where(
+    await database.delete(peerTokens).where(
       notInArray(
         peerTokens.sessionId,
-        db.select({ id: sessions.id }).from(sessions),
+        database.select({ id: sessions.id }).from(sessions),
       ),
     );
 
     // ── Delete old ended/timed-out sessions ──────────────────────────
-    await db.delete(sessions).where(lt(sessions.endedAt, sessionCutoff));
+    await database.delete(sessions).where(lt(sessions.endedAt, sessionCutoff));
 
     // ── Delete old unreferenced commands ─────────────────────────────
-    await db
+    await database
       .delete(commands)
       .where(
         and(
