@@ -48,10 +48,10 @@ mkdir -p /docker/gv-web
 cp ops/vps/docker-compose.yml /docker/gv-web/
 
 # environment (fill in real values from secrets)
-cp ops/vps/.env.example /docker/gv-web/.env
-$EDITOR /docker/gv-web/.env
+cp ops/vps/.env.example /root/games-vault/.env
+$EDITOR /root/games-vault/.env
 
-# deploy the web bundle (from dev machine)
+# build + deploy from dev machine
 ./scripts/deploy-gv-web.sh
 ```
 

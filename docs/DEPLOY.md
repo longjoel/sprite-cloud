@@ -44,7 +44,7 @@ pnpm build
 
 ## Gateway deploy
 
-Use a deploy directory containing `ops/vps/docker-compose.yml` and an `.env` derived from `ops/vps/.env.example`.
+Use the repo-tracked VPS templates plus the blessed deploy script. In this topology, `gv-web` and Postgres run with host networking on the VPS, and the live env file is `/root/games-vault/.env`.
 
 Required env:
 
@@ -52,24 +52,33 @@ Required env:
 |---|---|
 | `AUTH_SECRET` | Auth.js/NextAuth session encryption |
 | `AUTH_URL` | Public gateway origin |
-| `DATABASE_URL` | Postgres connection string |
+| `DATABASE_URL` | Postgres connection string — on the current VPS this must resolve to `postgresql://games_vault:...@127.0.0.1:5432/games_vault` |
 | `GV_WEB_SCHEMA_PUSH_ON_START` | `1` for simple self-hosted schema updates |
 | `GV_ICE_STUN_URLS` | STUN URLs |
 | `GV_ICE_TURN_URLS` | TURN URLs, recommended for public internet play |
 | `GV_ICE_TURN_USERNAME` | TURN username |
 | `GV_ICE_TURN_CREDENTIAL` | TURN credential |
 
-Start:
+Build + deploy from the dev machine:
 
 ```bash
-docker compose up -d
+./scripts/deploy-gv-web.sh
 ```
 
-First run:
+What the script does:
+- builds `gv-web` locally (`pnpm run lint && pnpm run build`)
+- rsyncs the monorepo to the VPS build context
+- builds `gv-web-prod:latest` on the VPS
+- repairs stale `DATABASE_URL` in `/root/games-vault/.env` if needed
+- restarts `gv-web-gv-web-1` on `--network host`
+- forces `HOSTNAME=0.0.0.0` so Next binds a reachable interface
+- verifies localhost health plus public `/`, `/watch`, and `/api/health`
+
+Manual fallback on the VPS:
 
 ```bash
-docker logs <gv-web-container>
-# Copy the setup code, then visit https://your-gateway.example/setup
+cd /root/gv-source
+bash ./deploy-gv-web.sh
 ```
 
 ## Host deploy
@@ -136,9 +145,9 @@ ss -tuln | grep 3478
 | Port | Service | Access |
 |---|---|---|
 | 443 | gv-web through reverse proxy | public |
-| 3000 | gv-web container/app | local/proxy |
+| 3000 | gv-web host-network app | local/proxy |
 | 3478 | TURN | public UDP/TCP if configured |
-| 5432 | PostgreSQL | private only |
+| 5432 | PostgreSQL (host-network on current VPS) | private only |
 | 8787 | gv-server local player endpoint | LAN/host network |
 
 ## Crash recovery
