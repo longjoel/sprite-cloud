@@ -19,6 +19,7 @@ export default function Error({
       code={500}
       title="Something crashed"
       message={error.message || "An unexpected error occurred. Try refreshing the page."}
+      action={{ label: "Retry", onClick: () => reset() }}
     />
   );
 }

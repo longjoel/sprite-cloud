@@ -1,12 +1,9 @@
 import NextAuth from "next-auth";
-import GitHub from "next-auth/providers/github";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
-
-// ── Types ──────────────────────────────────────────────────────────────
 
 interface DbUser {
   id: string;
@@ -15,22 +12,14 @@ interface DbUser {
   passwordHash: string | null;
 }
 
-// ── DB helpers ─────────────────────────────────────────────────────────
-
 async function findUserByEmail(email: string): Promise<DbUser | null> {
-  const [row] = await db
-    .select()
-    .from(users)
-    .where(eq(users.email, email))
-    .limit(1);
+  const [row] = await db.select().from(users).where(eq(users.email, email)).limit(1);
   return (row as DbUser) ?? null;
 }
 
-// ── Brute-force rate limiter (in-memory, per-IP) ──────────────────────
-
 const AUTH_MAX_ATTEMPTS = 5;
-const AUTH_WINDOW_MS = 60_000;        // 1 minute
-const AUTH_BLOCK_MS = 300_000;        // 5-minute block after threshold
+const AUTH_WINDOW_MS = 60_000;
+const AUTH_BLOCK_MS = 300_000;
 
 interface AttemptEntry {
   failures: number;
@@ -42,53 +31,43 @@ const attempts = new Map<string, AttemptEntry>();
 
 setInterval(() => {
   const now = Date.now();
-  for (const [key, e] of attempts) {
-    if (now - e.windowStart > AUTH_BLOCK_MS * 2) attempts.delete(key);
+  for (const [key, entry] of attempts) {
+    if (now - entry.windowStart > AUTH_BLOCK_MS * 2) attempts.delete(key);
   }
 }, 300_000).unref?.();
 
 function checkRateLimit(ip: string): { allowed: boolean; waitSec: number } {
   const now = Date.now();
-  let e = attempts.get(ip);
-  if (!e) {
-    e = { failures: 0, windowStart: now, blockedUntil: 0 };
-    attempts.set(ip, e);
+  let entry = attempts.get(ip);
+  if (!entry) {
+    entry = { failures: 0, windowStart: now, blockedUntil: 0 };
+    attempts.set(ip, entry);
   }
-  if (e.blockedUntil > 0) {
-    if (now < e.blockedUntil) return { allowed: false, waitSec: Math.ceil((e.blockedUntil - now) / 1000) };
-    e.blockedUntil = 0; e.failures = 0; e.windowStart = now;
+  if (entry.blockedUntil > 0) {
+    if (now < entry.blockedUntil) {
+      return { allowed: false, waitSec: Math.ceil((entry.blockedUntil - now) / 1000) };
+    }
+    entry.blockedUntil = 0;
+    entry.failures = 0;
+    entry.windowStart = now;
   }
-  if (now - e.windowStart > AUTH_WINDOW_MS) {
-    e.failures = 0; e.windowStart = now;
+  if (now - entry.windowStart > AUTH_WINDOW_MS) {
+    entry.failures = 0;
+    entry.windowStart = now;
   }
-  if (e.failures >= AUTH_MAX_ATTEMPTS) {
-    e.blockedUntil = now + AUTH_BLOCK_MS;
+  if (entry.failures >= AUTH_MAX_ATTEMPTS) {
+    entry.blockedUntil = now + AUTH_BLOCK_MS;
     return { allowed: false, waitSec: Math.ceil(AUTH_BLOCK_MS / 1000) };
   }
   return { allowed: true, waitSec: 0 };
 }
 
 function recordFailure(ip: string) {
-  const e = attempts.get(ip);
-  if (e) e.failures += 1;
+  const entry = attempts.get(ip);
+  if (entry) entry.failures += 1;
 }
 
-// ── Providers ──────────────────────────────────────────────────────────
-
-const providers = [];
-
-// GitHub OAuth — primary method (no SMTP, no password management)
-if (process.env.AUTH_GITHUB_ID && process.env.AUTH_GITHUB_SECRET) {
-  providers.push(
-    GitHub({
-      clientId: process.env.AUTH_GITHUB_ID,
-      clientSecret: process.env.AUTH_GITHUB_SECRET,
-    }),
-  );
-}
-
-// Email + password — fallback (optional, for users without GitHub)
-providers.push(
+const providers = [
   Credentials({
     id: "credentials",
     name: "Email",
@@ -105,15 +84,15 @@ providers.push(
       const rl = checkRateLimit(ip);
       if (!rl.allowed) return null;
 
-      const email = (credentials?.email as string || "").trim().toLowerCase();
-      const password = (credentials?.password as string) || "";
+      const email = (credentials?.email as string | undefined)?.trim().toLowerCase() || "";
+      const password = (credentials?.password as string | undefined) || "";
       if (!email || !password) {
         recordFailure(ip);
         return null;
       }
 
       const user = await findUserByEmail(email);
-      if (!user || !user.passwordHash) {
+      if (!user?.passwordHash) {
         recordFailure(ip);
         return null;
       }
@@ -127,9 +106,7 @@ providers.push(
       return { id: user.id, name: user.name || email, email: user.email };
     },
   }),
-);
-
-// ── Auth config ────────────────────────────────────────────────────────
+];
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers,
@@ -138,21 +115,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     signIn: "/signin",
   },
   callbacks: {
-    async signIn({ user, account }) {
-      // For OAuth providers: auto-create user on first sign-in
-      if (account?.provider === "github" && user.email) {
-        const existing = await findUserByEmail(user.email);
-        if (!existing) {
-          // Create user with OAuth-derived name, no password
-          await db.insert(users).values({
-            email: user.email,
-            name: user.name || user.email,
-            passwordHash: null, // OAuth users have no password
-          });
-        }
-      }
-      return true;
-    },
     session({ session, token }) {
       if (session.user && token.sub) {
         session.user.id = token.sub;
