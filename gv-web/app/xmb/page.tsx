@@ -141,10 +141,11 @@ export default function XmbPage() {
         sendDC({ cmd: "kbd_port", port: 0 });
         return;
       }
-      // Quick menu: Escape when playing (in addition to Select button)
+      // Quick menu: Escape when playing closes the player (return to XMB)
       if (playing && e.key === "Escape") {
         e.preventDefault();
-        setQuickMenu((v) => !v);
+        if (quickMenu) { setQuickMenu(false); return; }
+        closePlayer();
         return;
       }
       if (playing || quickMenu) return;
