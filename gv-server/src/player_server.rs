@@ -6,16 +6,55 @@ use axum::{
     Router,
     body::Body,
     extract::{Request, State},
-    response::Html,
+    response::{Html, Json},
     routing::{any, get},
 };
 use reqwest::Client;
+use serde::Serialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 struct AppState {
     client: Client,
     gv_web: String,
+    server_id: String,
+    user_id: String,
+    server_name: String,
+    bind: SocketAddr,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+struct PlayerHealth {
+    status: &'static str,
+    service: &'static str,
+    lan_player: bool,
+    version: &'static str,
+    server_id: String,
+    user_id: String,
+    server_name: String,
+    bind: String,
+}
+
+fn health_payload(state: &AppState) -> PlayerHealth {
+    PlayerHealth {
+        status: "ok",
+        service: "gv-server-player",
+        lan_player: true,
+        version: env!("CARGO_PKG_VERSION"),
+        server_id: state.server_id.clone(),
+        user_id: state.user_id.clone(),
+        server_name: state.server_name.clone(),
+        bind: state.bind.to_string(),
+    }
+}
+
+fn app_router(state: Arc<AppState>) -> Router {
+    Router::new()
+        .route("/health", get(health))
+        .route("/api/*path", any(proxy))
+        .route("/sdp", any(proxy))
+        .fallback(get(player_page))
+        .with_state(state)
 }
 
 /// HTML page with bundled GvPlayer JS and inline connection logic.
@@ -166,6 +205,10 @@ async fn player_page() -> Html<String> {
     Html(player_html())
 }
 
+async fn health(State(state): State<Arc<AppState>>) -> Json<PlayerHealth> {
+    Json(health_payload(&state))
+}
+
 /// Proxy all /api/* and /sdp requests to gv-web (same-origin → no CORS).
 async fn proxy(
     State(state): State<Arc<AppState>>,
@@ -225,17 +268,23 @@ async fn proxy(
     Ok(response)
 }
 
-pub async fn serve(bind: SocketAddr, gv_web: String) {
+pub async fn serve(
+    bind: SocketAddr,
+    gv_web: String,
+    server_id: String,
+    user_id: String,
+    server_name: String,
+) {
     let state = Arc::new(AppState {
         client: Client::new(),
         gv_web,
+        server_id,
+        user_id,
+        server_name,
+        bind,
     });
 
-    let app = Router::new()
-        .route("/api/*path", any(proxy))
-        .route("/sdp", any(proxy))
-        .fallback(get(player_page))
-        .with_state(state);
+    let app = app_router(state);
 
     tracing::info!("[player] HTTP server listening on http://{bind}");
 
@@ -249,5 +298,67 @@ pub async fn serve(bind: SocketAddr, gv_web: String) {
 
     if let Err(e) = axum::serve(listener, app).await {
         tracing::error!("[player] HTTP server error: {e:#}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    #[test]
+    fn health_payload_is_non_secret_lan_probe_identity() {
+        let state = AppState {
+            client: Client::new(),
+            gv_web: "https://lngnckr.tech".to_string(),
+            server_id: "server-bazzite".to_string(),
+            user_id: "user-joel".to_string(),
+            server_name: "Bazzite".to_string(),
+            bind: "0.0.0.0:8787".parse().unwrap(),
+        };
+
+        let payload = health_payload(&state);
+
+        assert_eq!(payload.status, "ok");
+        assert_eq!(payload.service, "gv-server-player");
+        assert!(payload.lan_player);
+        assert_eq!(payload.version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(payload.server_id, "server-bazzite");
+        assert_eq!(payload.user_id, "user-joel");
+        assert_eq!(payload.server_name, "Bazzite");
+        assert_eq!(payload.bind, "0.0.0.0:8787");
+    }
+
+    #[tokio::test]
+    async fn health_route_returns_json_without_proxying() {
+        let state = Arc::new(AppState {
+            client: Client::new(),
+            gv_web: "https://lngnckr.tech".to_string(),
+            server_id: "server-vault".to_string(),
+            user_id: "user-joel".to_string(),
+            server_name: "Vault".to_string(),
+            bind: "0.0.0.0:8787".parse().unwrap(),
+        });
+        let app = app_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let content_type = response
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        assert!(content_type.starts_with("application/json"));
     }
 }
