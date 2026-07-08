@@ -51,9 +51,40 @@ export default function XmbPage() {
   const [fadeIn, setFadeIn] = useState(false);
   const [quickMenu, setQuickMenu] = useState(false);
   const [kbdPort, setKbdPort] = useState(0); // 0 = auto, 1-4 = fixed port
+  const [isMobile, setIsMobile] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null); // GvPlayer instance for DC commands
+
+  // ── Mobile detection ────────────────────────────────────────────────
+  useEffect(() => {
+    const check = () => {
+      const touch = typeof window !== "undefined" && "ontouchstart" in window;
+      const coarse = window.matchMedia("(pointer: coarse)").matches;
+      const small = window.innerWidth < 768;
+      setIsMobile(touch && (coarse || small));
+    };
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
+  // ── Touch swipe for category switching ─────────────────────────────
+  useEffect(() => {
+    if (!isMobile) return;
+    let startX = 0;
+    const onTouchStart = (e: TouchEvent) => { startX = e.touches[0].clientX; };
+    const onTouchEnd = (e: TouchEvent) => {
+      const dx = e.changedTouches[0].clientX - startX;
+      if (Math.abs(dx) > 60) {
+        if (dx < 0) setFocusedCat((v) => Math.min(CATEGORIES.length - 1, v + 1));
+        else setFocusedCat((v) => Math.max(0, v - 1));
+      }
+    };
+    window.addEventListener("touchstart", onTouchStart, { passive: true });
+    window.addEventListener("touchend", onTouchEnd, { passive: true });
+    return () => { window.removeEventListener("touchstart", onTouchStart); window.removeEventListener("touchend", onTouchEnd); };
+  }, [isMobile]);
 
   // ── Fetch games ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -219,12 +250,13 @@ export default function XmbPage() {
 
   // ── Render categories ────────────────────────────────────────────────
   const renderCategories = () => (
-    <div style={s.categories}>
+    <div style={{ ...s.categories, ...(isMobile ? s.categoriesMobile : {}) }}>
       {CATEGORIES.map((cat, i) => (
         <div
           key={cat.id}
           style={{
             ...s.catItem,
+            ...(isMobile ? s.catItemMobile : {}),
             ...(i === focusedCat ? s.catFocused : {}),
           }}
           onClick={() => setFocusedCat(i)}
@@ -414,10 +446,16 @@ const s: Record<string, React.CSSProperties> = {
     gap: 4, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(12px)",
     borderTop: "1px solid rgba(255,255,255,0.04)",
   },
+  categoriesMobile: {
+    height: 56, gap: 0,
+  },
   catItem: {
     display: "flex", flexDirection: "column", alignItems: "center",
     padding: "6px 20px", borderRadius: 2, cursor: "pointer",
     transition: "all 0.15s ease", color: S.textDim,
+  },
+  catItemMobile: {
+    padding: "4px 12px", flex: 1, justifyContent: "center",
   },
   catFocused: {
     color: S.accent, background: S.accentDim,
