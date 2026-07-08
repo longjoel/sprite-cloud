@@ -1,12 +1,13 @@
-//! Minimal HTTP server that serves the LAN player page + proxies API calls.
-//! No cross-origin dependencies — GvPlayer JS is bundled inline, API calls
-//! are proxied same-origin through this server to gv-web.
+//! Minimal HTTP server that proxies the gv-web player page + all API calls.
+//! The browser loads the full Next.js GamePlayer UI from gv-web through this
+//! server (same-origin proxy).  All API calls and static assets flow through
+//! to gv-web — no inline HTML, no separate player bundle.
 
 use axum::{
     Router,
     body::Body,
     extract::{Request, State},
-    response::{Html, Json},
+    response::Json,
     routing::{any, get},
 };
 use reqwest::Client;
@@ -53,189 +54,67 @@ fn app_router(state: Arc<AppState>) -> Router {
         .route("/health", get(health))
         .route("/api/*path", any(proxy))
         .route("/sdp", any(proxy))
-        .fallback(get(player_page))
+        .route("/_next/*path", any(proxy))
+        .route("/player/*path", any(proxy))
+        .route("/favicon.ico", any(proxy))
+        .fallback(any(proxy_player_page))
         .with_state(state)
 }
 
-/// HTML page with bundled GvPlayer JS and inline connection logic.
-/// Loaded over HTTP so browser exposes real LAN IP (no mDNS).
-fn player_html() -> String {
-    let bundle = include_str!("player_bundle.js");
-    format!(
-        r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>GV LAN Player</title>
-<style>
-  *{{margin:0;padding:0;box-sizing:border-box}}
-  body{{background:#000;color:#fff;font-family:system-ui,sans-serif}}
-  video{{width:100%;height:100vh;object-fit:contain;display:block}}
-  #status{{position:fixed;top:10px;left:10px;padding:6px 14px;background:rgba(0,0,0,.7);border-radius:6px;font-size:13px;z-index:10}}
-  #status.ok{{color:#4f4}} #status.err{{color:#f44}}
-  #route-indicator{{position:fixed;top:10px;right:10px;padding:4px 10px;background:rgba(0,0,0,.7);border-radius:4px;font-size:12px;color:#aaa;z-index:10}}
-  .hidden{{display:none!important}}
-  #connecting-overlay{{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:20}}
-  .spinner{{width:40px;height:40px;border:3px solid #333;border-top-color:#4f4;border-radius:50%;animation:spin .8s linear infinite;margin-bottom:12px}}
-  @keyframes spin{{to{{transform:rotate(360deg)}}}}
-  #connecting-detail{{font-size:14px;color:#aaa}}
-  #controls{{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:8px;z-index:10}}
-  #controls button{{padding:8px 20px;background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2);border-radius:6px;font-size:14px;cursor:pointer}}
-  #controls button:hover{{background:rgba(255,255,255,.2)}}
-</style>
-</head>
-<body>
-<video id="video" autoplay playsinline muted></video>
-<div id="status">loading…</div>
-<div id="route-indicator"></div>
-<div id="connecting-overlay">
-  <div class="spinner"></div>
-  <div id="connecting-detail"></div>
-</div>
-<div id="controls">
-  <button id="save-btn" onclick="sendCmd('save_state')">💾 Save</button>
-  <button id="load-btn" onclick="sendCmd('load_state')">📂 Load</button>
-</div>
-<script>{bundle}</script>
-<script>
-// ── Polyfills for insecure HTTP context ──
-if (!crypto.randomUUID) {{
-  crypto.randomUUID = function() {{
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {{
-      var r = Math.random() * 16 | 0;
-      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-    }});
-  }};
-}}
-// ── LAN player — use bundled GvPlayer, all API calls same-origin ──
-const {{ GvPlayer, State }} = Gv;
+/// Proxy the gv-web player page.  Extracts the `code` query param from
+/// the LAN URL and proxies to gv-web's `/p/<code>` page so the browser
+/// gets the full Next.js GamePlayer UI.
+async fn proxy_player_page(
+    State(state): State<Arc<AppState>>,
+    req: Request,
+) -> Result<axum::response::Response, axum::http::StatusCode> {
+    let qs: Vec<(String, String)> = req
+        .uri()
+        .query()
+        .map(|q| {
+            url::form_urlencoded::parse(q.as_bytes())
+                .map(|(k, v)| (k.into_owned(), v.into_owned()))
+                .collect()
+        })
+        .unwrap_or_default();
 
-const q = new URLSearchParams(location.search);
-const fragment = new URLSearchParams(location.hash.replace(/^#/, ''));
-const joinToken = q.get('join') || '';
-const peerToken = q.get('peer_token') || '';
-const seat = parseInt(q.get('seat') || '0');
-const role = q.get('role') || 'player';
-const serverId = q.get('server_id') || '';
-const gameId = decodeURIComponent(location.pathname.split('/')[1] || '');
-let workerToken = q.get('worker_token') || '';
-let sdpAnswer = null;
+    let code = qs
+        .iter()
+        .find(|(k, _)| k == "code")
+        .map(|(_, v)| v.as_str())
+        .unwrap_or("");
 
-const ICE = [
-  {{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }},
-];
+    let path_and_query = if code.is_empty() {
+        req.uri()
+            .path_and_query()
+            .map(|pq| pq.as_str())
+            .unwrap_or("/")
+            .to_string()
+    } else {
+        let query_str = qs
+            .iter()
+            .map(|(k, v)| {
+                format!(
+                    "{}={}",
+                    url::form_urlencoded::byte_serialize(k.as_bytes())
+                        .collect::<String>(),
+                    url::form_urlencoded::byte_serialize(v.as_bytes())
+                        .collect::<String>(),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("&");
+        format!("/p/{}?{}", code, query_str)
+    };
 
-const el = (id) => document.getElementById(id);
-function status(msg, cls) {{
-  const s = el('status');
-  if (s) {{ s.textContent = msg; s.className = cls || ''; }}
-}}
-function hideOverlay() {{ el('connecting-overlay')?.classList.add('hidden'); }}
-
-const video = el('video');
-if (!video) throw new Error('no video element');
-
-const player = new GvPlayer(video, {{ seat, iceServers: ICE }});
-window._player = player;
-player._peerToken = peerToken;
-player._seat = seat;
-player._role = role;
-
-player.onStateChange = (s, d) => {{
-  if (s === State.CONNECTED) {{ status('connected', 'ok'); hideOverlay(); }}
-  else if (s === State.ERROR) status(d || 'error', 'err');
-  else status(s);
-}};
-
-player._onRoute = (route) => {{
-  const r = el('route-indicator');
-  if (r) r.textContent = route;
-}};
-
-status('joining…');
-
-(async () => {{
-  try {{
-    // Stable guest client ID for room/join (sessionStorage or random).
-    const clientId = (() => {{
-      try {{
-        let id = sessionStorage.getItem('gv_guest_client_id');
-        if (!id) {{ id = crypto.randomUUID(); sessionStorage.setItem('gv_guest_client_id', id); }}
-        return id;
-      }} catch (_) {{ return crypto.randomUUID(); }}
-    }})();
-
-    // Guest join via room token (same-origin — proxied to gv-web)
-    // Always join when joinToken is present — ignore stale peer_token from URL.
-    if (joinToken) {{
-      const jr = await fetch('/api/room/join', {{
-        method: 'POST',
-        headers: {{ 'Content-Type': 'application/json' }},
-        body: JSON.stringify({{ room_token: joinToken, client_id: clientId }}),
-      }});
-      const jd = await jr.json();
-      if (!jr.ok) throw new Error(jd.error || 'Join failed');
-      player._peerToken = jd.peer_token;
-      player._seat = jd.seat;
-      player._role = jd.role;
-    }}
-
-    async function startLanHostGame() {{
-      const hostToken = fragment.get('host_token') || q.get('host_token') || '';
-      if (!hostToken) throw new Error('missing LAN host token');
-      status('starting LAN game…');
-      player._createPeerConnection();
-      const offer = await player._pc.createOffer();
-      await player._pc.setLocalDescription(offer);
-      await player._waitForIceGatheringComplete();
-      const sdp = player._pc.localDescription?.sdp || offer.sdp;
-      const resp = await fetch('/api/server/command', {{
-        method: 'POST',
-        headers: {{ 'Content-Type': 'application/json' }},
-        body: JSON.stringify({{
-          server_id: serverId,
-          type: 'start_game',
-          payload: {{ game_id: gameId, host_token: hostToken, lan: true, sdp }},
-        }}),
-      }});
-      const data = await resp.json().catch(() => ({{}}));
-      if (!resp.ok) throw new Error(data.error || 'LAN start failed');
-      workerToken = data.worker_token || workerToken;
-      sdpAnswer = data.sdp_answer || null;
-      return hostToken;
-    }}
-
-    const hostToken = joinToken ? null : await startLanHostGame();
-    status('connecting…');
-    await player.connectViaRelay(serverId, gameId, hostToken, workerToken, joinToken, player._peerToken, sdpAnswer);
-  }} catch (e) {{
-    status(e.message || 'Connection failed', 'err');
-    console.error(e);
-  }}
-}})();
-
-window.sendCmd = (cmd) => {{
-  const dc = player._dc;
-  if (!dc || dc.readyState !== 'open') return false;
-  dc.send(JSON.stringify({{ cmd }}));
-  return true;
-}};
-</script>
-</body>
-</html>"#
-    )
-}
-
-async fn player_page() -> Html<String> {
-    Html(player_html())
+    proxy_to_gv_web(&state, req, &path_and_query).await
 }
 
 async fn health(State(state): State<Arc<AppState>>) -> Json<PlayerHealth> {
     Json(health_payload(&state))
 }
 
-/// Proxy all /api/* and /sdp requests to gv-web (same-origin → no CORS).
+/// Proxy all /api/*, /sdp, /_next/*, /player/* requests to gv-web.
 async fn proxy(
     State(state): State<Arc<AppState>>,
     req: Request,
@@ -244,7 +123,17 @@ async fn proxy(
         .uri()
         .path_and_query()
         .map(|pq| pq.as_str())
-        .unwrap_or("/");
+        .unwrap_or("/")
+        .to_string();
+    proxy_to_gv_web(&state, req, &path).await
+}
+
+/// Shared proxy helper — forwards the request to gv-web and returns the response.
+async fn proxy_to_gv_web(
+    state: &AppState,
+    req: Request,
+    path: &str,
+) -> Result<axum::response::Response, axum::http::StatusCode> {
     let target = format!("{}{}", state.gv_web, path);
 
     let method = req.method().clone();
@@ -253,7 +142,6 @@ async fn proxy(
         .iter()
         .filter_map(|(k, v)| {
             let name = k.as_str().to_lowercase();
-            // Skip hop-by-hop headers
             if name == "host" || name == "connection" {
                 return None;
             }
@@ -262,8 +150,8 @@ async fn proxy(
         .collect();
 
     let body_bytes = axum::body::to_bytes(req.into_body(), 1024 * 1024)
-        .await
-        .unwrap_or_default();
+    .await
+    .unwrap_or_default();
 
     let mut builder = state.client.request(method, &target);
     for (k, v) in &headers {
@@ -275,7 +163,7 @@ async fn proxy(
         .send()
         .await
         .map_err(|e| {
-            tracing::warn!("[player] proxy error: {e}");
+            tracing::warn!("[player] proxy error ({path}): {e}");
             axum::http::StatusCode::BAD_GATEWAY
         })?;
 
