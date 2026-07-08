@@ -485,6 +485,9 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
   // Start the connection flow
   doConnect();
 
+  // Expose globally so XMB quick menu can send DC commands
+  window.__gvPlayer = player;
+
   return player;
 }
 
