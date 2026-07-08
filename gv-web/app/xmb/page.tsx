@@ -141,6 +141,13 @@ export default function XmbPage() {
         sendDC({ cmd: "kbd_port", port: 0 });
         return;
       }
+      // Ctrl+G toggles touch gamepad
+      if (e.ctrlKey && e.key === "g") {
+        e.preventDefault();
+        const tg = window.__gvTouchGamepad;
+        if (tg) { try { tg.toggle(); } catch {} }
+        return;
+      }
       // Quick menu: Escape when playing closes the player (return to XMB)
       if (playing && e.key === "Escape") {
         e.preventDefault();
@@ -352,7 +359,7 @@ export default function XmbPage() {
           </div>
           {/* Back hint */}
           <div style={s.backHint} onClick={closePlayer}>
-            Press Esc or ○ to close  ·  Ctrl+1-4: port
+            Press Esc or ○ to close  ·  Ctrl+1-4: port  ·  Ctrl+G: gamepad
           </div>
 
           {/* Port badges */}
