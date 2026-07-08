@@ -112,13 +112,15 @@ if (!crypto.randomUUID) {{
 const {{ GvPlayer, State }} = Gv;
 
 const q = new URLSearchParams(location.search);
+const fragment = new URLSearchParams(location.hash.replace(/^#/, ''));
 const joinToken = q.get('join') || '';
 const peerToken = q.get('peer_token') || '';
 const seat = parseInt(q.get('seat') || '0');
 const role = q.get('role') || 'player';
 const serverId = q.get('server_id') || '';
-const gameId = location.pathname.split('/')[1] || '';
-const workerToken = q.get('worker_token') || '';
+const gameId = decodeURIComponent(location.pathname.split('/')[1] || '');
+let workerToken = q.get('worker_token') || '';
+let sdpAnswer = null;
 
 const ICE = [
   {{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }},
@@ -179,10 +181,34 @@ status('joining…');
       player._role = jd.role;
     }}
 
+    async function startLanHostGame() {{
+      const hostToken = fragment.get('host_token') || q.get('host_token') || '';
+      if (!hostToken) throw new Error('missing LAN host token');
+      status('starting LAN game…');
+      player._createPeerConnection();
+      const offer = await player._pc.createOffer();
+      await player._pc.setLocalDescription(offer);
+      await player._waitForIceGatheringComplete();
+      const sdp = player._pc.localDescription?.sdp || offer.sdp;
+      const resp = await fetch('/api/server/command', {{
+        method: 'POST',
+        headers: {{ 'Content-Type': 'application/json' }},
+        body: JSON.stringify({{
+          server_id: serverId,
+          type: 'start_game',
+          payload: {{ game_id: gameId, host_token: hostToken, lan: true, sdp }},
+        }}),
+      }});
+      const data = await resp.json().catch(() => ({{}}));
+      if (!resp.ok) throw new Error(data.error || 'LAN start failed');
+      workerToken = data.worker_token || workerToken;
+      sdpAnswer = data.sdp_answer || null;
+      return hostToken;
+    }}
+
+    const hostToken = joinToken ? null : await startLanHostGame();
     status('connecting…');
-    // For guests, pass null hostToken — only host connections should include host_token.
-    const ht = joinToken ? null : crypto.randomUUID();
-    await player.connectViaRelay(serverId, gameId, ht, workerToken, joinToken, player._peerToken);
+    await player.connectViaRelay(serverId, gameId, hostToken, workerToken, joinToken, player._peerToken, sdpAnswer);
   }} catch (e) {{
     status(e.message || 'Connection failed', 'err');
     console.error(e);

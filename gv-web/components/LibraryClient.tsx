@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
 import AppHeader from "@/components/fluent/AppHeader";
+import { buildLanPlayerLaunchUrl } from "@/lib/lan/launch";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -311,7 +312,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
 
   // ── Play handler ─────────────────────────────────────────────────
 
-  const navigateToGame = useCallback(async (gameId: string, serverId: string) => {
+  const navigateToGame = useCallback(async (gameId: string, serverId: string, lanPlayerUrls?: string[] | null) => {
     const hostToken = crypto.randomUUID();
     const resp = await fetch("/api/room/shorten", {
       method: "POST",
@@ -320,7 +321,13 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     });
     if (!resp.ok) throw new Error("shorten failed");
     const data = await resp.json();
-    router.push(`/p/${data.code}`);
+    const code = data.code as string;
+    const lanUrl = buildLanPlayerLaunchUrl({ playerUrls: lanPlayerUrls, gameId, serverId, code, hostToken });
+    if (lanUrl) {
+      window.location.assign(lanUrl);
+      return;
+    }
+    router.push(`/p/${code}`);
   }, [router]);
 
   async function probePlayableHosts(hosts: PlayableHost[]) {
@@ -331,6 +338,11 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       }),
     );
     setLanProbeByServer(Object.fromEntries(entries));
+  }
+
+  function lanPlayerUrlsWhenReachable(host: PlayableHost): string[] | null {
+    const probe = lanProbeByServer[host.server_id];
+    return probe?.reachable ? host.lan?.player_urls ?? null : null;
   }
 
   const handlePlay = async (gameId: string) => {
@@ -362,9 +374,11 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
 
       if (withGame.length === 0) { setHostPickerGame(gameId); void probePlayableHosts(hosts); return; }
       if (withGame.length === 1) {
-        const serverId = withGame[0].server_id;
+        const host = withGame[0];
+        const serverId = host.server_id;
         setPreferredServer(gameId, serverId);
-        await navigateToGame(gameId, serverId);
+        const probe = await probeLanHealth(host.lan?.health_urls, { timeoutMs: 1_200 });
+        await navigateToGame(gameId, serverId, probe.reachable ? host.lan?.player_urls : null);
         return;
       }
       setHostPickerGame(gameId);
@@ -373,9 +387,10 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   };
 
   const selectHost = async (gameId: string, serverId: string, _serverName: string) => {
+    const host = playableHosts.find((h) => h.server_id === serverId);
     setHostPickerGame(null);
     setPreferredServer(gameId, serverId);
-    try { await navigateToGame(gameId, serverId); } catch { /* silent */ }
+    try { await navigateToGame(gameId, serverId, host ? lanPlayerUrlsWhenReachable(host) : null); } catch { /* silent */ }
   };
 
   // ── Rename handlers ─────────────────────────────────────────────

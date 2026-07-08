@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { commands, gameFiles, games, peerTokens, serverMembers, servers, sessions } from "@/lib/db/schema";
+import { commands, gameFiles, games, peerTokens, serverMembers, servers, sessions, shortCodes } from "@/lib/db/schema";
 import { ACTIVE_SESSION_STATES, CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, CMD_BROWSE_FILES, CMD_SCAN_PATHS, SESSION_CONNECTED, SESSION_PLAYING, SESSION_READY, SESSION_SPAWNING, SESSION_STATE_TIMEOUT_MS } from "@/lib/constants";
 import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { applyRateLimit } from "@/lib/rate-limit";
@@ -124,8 +124,53 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ── Guest join via room_token (sdp_offer only) ────────────────────
-  if (body.type === CMD_SDP_OFFER) {
+  // Validate payload before any auth-mode branching so bearer LAN starts can
+  // prove exactly which game/server/host token they claim.
+  const payloadResult = validatePayload(body.type, body.payload ?? {});
+  if (!payloadResult.ok) {
+    return NextResponse.json({ error: payloadResult.error }, { status: 400 });
+  }
+
+  let lanStartUserId: string | undefined;
+
+  // ── LAN host start via short-code bearer token ─────────────────────
+  // The embedded LAN player runs on http://<server-ip>:8787, so it cannot
+  // send lngnckr auth cookies. The library page creates a short-code row,
+  // then sends host_token only in the LAN URL fragment. Accept start_game
+  // without cookies only when that host_token matches the short-code row for
+  // the selected server/game and the caller explicitly marks lan=true.
+  const lanStartPayload = payloadResult.payload;
+  if (
+    body.type === CMD_START_GAME &&
+    lanStartPayload.lan === true &&
+    typeof lanStartPayload.host_token === "string" &&
+    typeof lanStartPayload.game_id === "string"
+  ) {
+    const [shortCode] = await db
+      .select({ code: shortCodes.code })
+      .from(shortCodes)
+      .where(
+        and(
+          eq(shortCodes.serverId, body.server_id),
+          eq(shortCodes.gameId, lanStartPayload.game_id),
+          eq(shortCodes.hostToken, lanStartPayload.host_token),
+        ),
+      )
+      .limit(1);
+    if (!shortCode) {
+      return NextResponse.json({ error: "invalid LAN launch token" }, { status: 403 });
+    }
+    const [owner] = await db
+      .select({ userId: serverMembers.userId })
+      .from(serverMembers)
+      .where(and(eq(serverMembers.serverId, body.server_id), eq(serverMembers.role, "admin")))
+      .limit(1);
+    if (!owner) {
+      return NextResponse.json({ error: "server owner not found" }, { status: 403 });
+    }
+    lanStartUserId = owner.userId;
+    serverId = body.server_id;
+  } else if (body.type === CMD_SDP_OFFER) {
     const sdpPayload = body.payload as Record<string, unknown> | undefined;
     const roomToken = sdpPayload?.room_token as string | undefined;
     const peerToken = sdpPayload?.peer_token as string | undefined;
@@ -203,11 +248,6 @@ export async function POST(request: NextRequest) {
       );
     }
     serverId = body.server_id;
-  }
-
-  const payloadResult = validatePayload(body.type, body.payload ?? {});
-  if (!payloadResult.ok) {
-    return NextResponse.json({ error: payloadResult.error }, { status: 400 });
   }
 
   const signalingFlow = classifyCommandFlow(body.type, payloadResult.payload);
@@ -364,7 +404,7 @@ export async function POST(request: NextRequest) {
 
   if (body.type === CMD_START_GAME) {
     const hostToken = (payloadResult.payload as any).host_token as string | undefined;
-    const userId = (session?.user?.id as string) || undefined;
+    const userId = ((session?.user?.id as string) || lanStartUserId) || undefined;
     if (!userId) {
       return NextResponse.json({ error: "sign in first" }, { status: 401 });
     }

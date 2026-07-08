@@ -387,6 +387,40 @@ describe("POST /api/server/command", () => {
     expect(mockDb.insert).toHaveBeenCalledWith(launchEvents);
   });
 
+  it("allows LAN start_game with a matching short-code host token and no auth cookie", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ code: "ABC123" }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ userId: "user-1" }]))
+      .mockReturnValueOnce(mockQueryBuilder([
+        { romPath: "/roms/smw.sfc", platform: "snes", gameName: "Super Mario World" },
+      ]))
+      .mockReturnValueOnce(mockQueryBuilder([]));
+
+    const { launchEvents, commands: commandsTable, sessions: sessionsTable, peerTokens: peerTokensTable } = await import("@/lib/db/schema");
+    mockDb.insert.mockImplementation((table: unknown) => {
+      if (table === commandsTable) return { values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([{ id: "cmd-lan" }])) };
+      if (table === sessionsTable) return { values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([{ id: "sess-lan" }])) };
+      if (table === peerTokensTable) return { values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([])) };
+      if (table === launchEvents) return mockQueryBuilder([{ id: "launch-lan" }]);
+      return mockQueryBuilder([{ id: "fallback" }]);
+    });
+    mockDb.update.mockReturnValue({ set: vi.fn(() => ({ where: vi.fn(() => Promise.resolve(undefined)) })) });
+    mockWaitForSdpAnswer.mockResolvedValueOnce("v=0\r\nanswer");
+
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", jsonBody({
+      server_id: "server-1",
+      type: "start_game",
+      payload: { game_id: "smw", host_token: "host-secret", lan: true, sdp: "v=0\r\n" },
+    }));
+
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(201);
+    const body = await resp.json();
+    expect(body.sdp_answer).toBe("v=0\r\nanswer");
+  });
+
   it("does not auto-inject lan=true from request IP heuristics", async () => {
     const prevLanIps = process.env.GV_SERVER_LAN_IPS;
     process.env.GV_SERVER_LAN_IPS = "192.168.86.128";
