@@ -10,6 +10,7 @@ interface PlayableHost {
   status: string;
   has_game: boolean;
   route_hint: string;
+  role?: string;
 }
 
 interface HostPickerProps {
@@ -41,6 +42,11 @@ export default function HostPicker({
           return (
             <div key={host.server_id} style={styles.pickerRow}>
               <span style={styles.pickerName}>{host.name}</span>
+              {host.role && (
+                <Badge variant={host.role === "admin" ? "info" : "muted"}>
+                  {host.role}
+                </Badge>
+              )}
               <Badge variant={statusVariant(host.status)}>
                 {host.status}
               </Badge>
