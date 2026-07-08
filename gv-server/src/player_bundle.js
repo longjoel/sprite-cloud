@@ -412,8 +412,6 @@ var Gv = (() => {
         this._playbackDeferred = true;
         this._video.play().then(() => {
           this._playbackDeferred = false;
-          this._video.muted = false;
-          console.log("[gv] audio unmuted");
         }).catch((e) => {
           console.debug("play() deferred \u2014 waiting for user gesture:", e.message || e);
         });
