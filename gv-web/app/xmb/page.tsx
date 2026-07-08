@@ -48,7 +48,6 @@ export default function XmbPage() {
   const [playing, setPlaying] = useState(false);
   const [playGame, setPlayGame] = useState<{ gameId: string; serverId: string; hostToken?: string; gameName?: string; platform?: string } | null>(null);
   const [fadeIn, setFadeIn] = useState(false);
-  const [quickMenu, setQuickMenu] = useState(false);
   const [kbdPort, setKbdPort] = useState(0); // 0 = auto, 1-4 = fixed port
   const [isMobile, setIsMobile] = useState(false);
 
@@ -144,11 +143,10 @@ export default function XmbPage() {
       // Quick menu: Escape when playing closes the player (return to XMB)
       if (playing && e.key === "Escape") {
         e.preventDefault();
-        if (quickMenu) { setQuickMenu(false); return; }
         closePlayer();
         return;
       }
-      if (playing || quickMenu) return;
+      if (playing) return;
       switch (e.key) {
         case "ArrowLeft":
           if (focusedSub > 0) setFocusedSub((v) => v - 1);
@@ -175,60 +173,36 @@ export default function XmbPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [focusedCat, focusedSub, focusedGame, filteredGames, playing, selectedGame, quickMenu, sendDC]);
+  }, [focusedCat, focusedSub, focusedGame, filteredGames, playing, selectedGame, sendDC]);
 
   // ── Gamepad polling ──────────────────────────────────────────────────
   useEffect(() => {
-    if (playing && !quickMenu) return; // gamepad owned by GamePlayer during play
+    if (playing) return; // gamepad owned by GamePlayer during play
     let prevState = "";
     const interval = setInterval(() => {
       const pads = navigator.getGamepads?.() ?? [];
       const pad = pads[0]; if (!pad) return;
-      // Build state fingerprint: dpad axes + lower 16 buttons
       const state = `a${pad.axes[0]?.toFixed(1)},${pad.axes[1]?.toFixed(1)}|b${pad.buttons.slice(0, 16).map(b => b.pressed ? "1" : "0").join("")}`;
       if (state === prevState) return; prevState = state;
 
-      // In quick menu: D-pad navigates menu, B closes
-      if (quickMenu) {
-        if (pad.buttons[1]?.pressed) { prevState = ""; setQuickMenu(false); return; }
-        return; // menu navigation is keyboard-only for now
-      }
-
       const ax = pad.axes[0] ?? 0, ay = pad.axes[1] ?? 0;
-      if (!playing) {
-        // XMB navigation
-        if (ax < -0.5) {
-          if (focusedSub > 0) setFocusedSub((v) => v - 1);
-          else setFocusedCat((v) => Math.max(0, v - 1));
-        } else if (ax > 0.5) {
-          if (focusedSub < SUB_CATEGORIES.length - 1) setFocusedSub((v) => v + 1);
-          else setFocusedCat((v) => Math.min(CATEGORIES.length - 1, v + 1));
-        } else if (ay < -0.5) setFocusedGame((v) => Math.max(0, v - 1));
-        else if (ay > 0.5) setFocusedGame((v) => Math.min(filteredGames.length - 1, v + 1));
-        // A button (0): launch
-        else if (pad.buttons[0]?.pressed && focusedCat === 0 && selectedGame) {
-          prevState = "";
-          launchGame(selectedGame);
-        }
-        // Select button (8): quick menu — no-op while browsing
-        else if (pad.buttons[8]?.pressed) {
-          // no-op in XMB
-        }
-      } else if (quickMenu) {
-        // Quick menu navigation handled above
-      } else {
-        // Playing: Select opens quick menu, B doesn't close (return is handled by GamePlayer)
-        if (pad.buttons[8]?.pressed) {
-          prevState = "";
-          setQuickMenu(true);
-        }
-        if (pad.buttons[9]?.pressed) {
-          // Start: could pause, but GamePlayer handles via DC
-        }
+      // XMB navigation
+      if (ax < -0.5) {
+        if (focusedSub > 0) setFocusedSub((v) => v - 1);
+        else setFocusedCat((v) => Math.max(0, v - 1));
+      } else if (ax > 0.5) {
+        if (focusedSub < SUB_CATEGORIES.length - 1) setFocusedSub((v) => v + 1);
+        else setFocusedCat((v) => Math.min(CATEGORIES.length - 1, v + 1));
+      } else if (ay < -0.5) setFocusedGame((v) => Math.max(0, v - 1));
+      else if (ay > 0.5) setFocusedGame((v) => Math.min(filteredGames.length - 1, v + 1));
+      // A button (0): launch
+      else if (pad.buttons[0]?.pressed && focusedCat === 0 && selectedGame) {
+        prevState = "";
+        launchGame(selectedGame);
       }
     }, 120);
     return () => clearInterval(interval);
-  }, [playing, focusedSub, filteredGames.length, focusedCat, selectedGame, quickMenu]);
+  }, [playing, focusedSub, filteredGames.length, focusedCat, selectedGame]);
 
   // ── Launch / close ────────────────────────────────────────────────────
   const launchGame = useCallback((game: Game) => {
@@ -364,36 +338,6 @@ export default function XmbPage() {
           <div style={s.backHint} onClick={closePlayer}>
             Press Esc or ○ to close  ·  Ctrl+1-4: port
           </div>
-
-          {/* Quick menu overlay */}
-          {quickMenu && (
-            <>
-              <div style={s.qmBackdrop} onClick={() => setQuickMenu(false)} />
-              <div style={s.qmPanel}>
-                <div style={s.qmHeader}>Quick Menu</div>
-                <button style={s.qmBtn} onClick={() => { sendDC({ cmd: "save_state" }); setQuickMenu(false); }}>💾 Save State</button>
-                <button style={s.qmBtn} onClick={() => { sendDC({ cmd: "load_state" }); setQuickMenu(false); }}>📂 Load State</button>
-                <button style={s.qmBtn} onClick={() => { sendDC({ cmd: "reset" }); setQuickMenu(false); }}>↺ Reset Game</button>
-                <div style={s.qmDivider} />
-                <div style={s.qmLabel}>Keyboard Port</div>
-                <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                  {[0, 1, 2, 3, 4].map((p) => (
-                    <button
-                      key={p}
-                      style={{
-                        ...s.qmPortBtn,
-                        ...(kbdPort === p ? { background: S.accentDim, borderColor: S.accent, color: S.accent } : {}),
-                      }}
-                      onClick={() => { setKbdPort(p); sendDC({ cmd: "kbd_port", port: p }); }}
-                    >
-                      {p === 0 ? "Auto" : `P${p}`}
-                    </button>
-                  ))}
-                </div>
-                <button style={{ ...s.qmBtn, color: "#f87171" }} onClick={() => { closePlayer(); setQuickMenu(false); }}>✕ Disconnect</button>
-              </div>
-            </>
-          )}
 
           {/* Port badges */}
           <div style={s.portBadges}>
