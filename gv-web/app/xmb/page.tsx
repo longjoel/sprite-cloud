@@ -49,8 +49,11 @@ export default function XmbPage() {
   const [playing, setPlaying] = useState(false);
   const [playGame, setPlayGame] = useState<{ gameId: string; serverId: string; hostToken?: string; gameName?: string; platform?: string } | null>(null);
   const [fadeIn, setFadeIn] = useState(false);
+  const [quickMenu, setQuickMenu] = useState(false);
+  const [kbdPort, setKbdPort] = useState(0); // 0 = auto, 1-4 = fixed port
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<any>(null); // GvPlayer instance for DC commands
 
   // ── Fetch games ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -73,10 +76,38 @@ export default function XmbPage() {
   const safeGameIdx = Math.min(focusedGame, Math.max(0, filteredGames.length - 1));
   const selectedGame = filteredGames[safeGameIdx] ?? null;
 
-  // ── Navigation ───────────────────────────────────────────────────────
+  // ── DC command helper ─────────────────────────────────────────────────
+  const sendDC = useCallback((cmd: Record<string, unknown>) => {
+    const p = playerRef.current;
+    if (!p?._dc || p._dc.readyState !== "open") return false;
+    try { p._dc.send(JSON.stringify(cmd)); return true; } catch { return false; }
+  }, []);
+
+  // ── Keyboard port routing ────────────────────────────────────────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (playing) return; // gamepad/keyboard owned by player while playing
+      // Port routing hotkeys: Ctrl+1..4 assign keyboard to port 1-4
+      if (e.ctrlKey && e.key >= "1" && e.key <= "4") {
+        e.preventDefault();
+        const port = parseInt(e.key);
+        setKbdPort(port);
+        sendDC({ cmd: "kbd_port", port });
+        return;
+      }
+      // Ctrl+0 resets to auto mode
+      if (e.ctrlKey && e.key === "0") {
+        e.preventDefault();
+        setKbdPort(0);
+        sendDC({ cmd: "kbd_port", port: 0 });
+        return;
+      }
+      // Quick menu: Escape when playing (in addition to Select button)
+      if (playing && e.key === "Escape") {
+        e.preventDefault();
+        setQuickMenu((v) => !v);
+        return;
+      }
+      if (playing || quickMenu) return;
       switch (e.key) {
         case "ArrowLeft":
           if (focusedSub > 0) setFocusedSub((v) => v - 1);
@@ -99,36 +130,64 @@ export default function XmbPage() {
             launchGame(selectedGame);
           }
           break;
-        case "Escape":
-          if (playing) closePlayer();
-          break;
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [focusedCat, focusedSub, focusedGame, filteredGames, playing, selectedGame]);
+  }, [focusedCat, focusedSub, focusedGame, filteredGames, playing, selectedGame, quickMenu, sendDC]);
 
   // ── Gamepad polling ──────────────────────────────────────────────────
   useEffect(() => {
-    if (playing) return;
-    let prevDPad = "";
+    if (playing && !quickMenu) return; // gamepad owned by GamePlayer during play
+    let prevState = "";
     const interval = setInterval(() => {
       const pads = navigator.getGamepads?.() ?? [];
       const pad = pads[0]; if (!pad) return;
-      const dpad = `${pad.axes[0]?.toFixed(2)},${pad.axes[1]?.toFixed(2)}`;
-      if (dpad === prevDPad) return; prevDPad = dpad;
+      // Build state fingerprint: dpad axes + lower 16 buttons
+      const state = `a${pad.axes[0]?.toFixed(1)},${pad.axes[1]?.toFixed(1)}|b${pad.buttons.slice(0, 16).map(b => b.pressed ? "1" : "0").join("")}`;
+      if (state === prevState) return; prevState = state;
+
+      // In quick menu: D-pad navigates menu, B closes
+      if (quickMenu) {
+        if (pad.buttons[1]?.pressed) { prevState = ""; setQuickMenu(false); return; }
+        return; // menu navigation is keyboard-only for now
+      }
+
       const ax = pad.axes[0] ?? 0, ay = pad.axes[1] ?? 0;
-      if (ax < -0.5) {
-        if (focusedSub > 0) setFocusedSub((v) => v - 1);
-        else setFocusedCat((v) => Math.max(0, v - 1));
-      } else if (ax > 0.5) {
-        if (focusedSub < SUB_CATEGORIES.length - 1) setFocusedSub((v) => v + 1);
-        else setFocusedCat((v) => Math.min(CATEGORIES.length - 1, v + 1));
-      } else if (ay < -0.5) setFocusedGame((v) => Math.max(0, v - 1));
-      else if (ay > 0.5) setFocusedGame((v) => Math.min(filteredGames.length - 1, v + 1));
+      if (!playing) {
+        // XMB navigation
+        if (ax < -0.5) {
+          if (focusedSub > 0) setFocusedSub((v) => v - 1);
+          else setFocusedCat((v) => Math.max(0, v - 1));
+        } else if (ax > 0.5) {
+          if (focusedSub < SUB_CATEGORIES.length - 1) setFocusedSub((v) => v + 1);
+          else setFocusedCat((v) => Math.min(CATEGORIES.length - 1, v + 1));
+        } else if (ay < -0.5) setFocusedGame((v) => Math.max(0, v - 1));
+        else if (ay > 0.5) setFocusedGame((v) => Math.min(filteredGames.length - 1, v + 1));
+        // A button (0): launch
+        else if (pad.buttons[0]?.pressed && focusedCat === 0 && selectedGame) {
+          prevState = "";
+          launchGame(selectedGame);
+        }
+        // Select button (8): quick menu — no-op while browsing
+        else if (pad.buttons[8]?.pressed) {
+          // no-op in XMB
+        }
+      } else if (quickMenu) {
+        // Quick menu navigation handled above
+      } else {
+        // Playing: Select opens quick menu, B doesn't close (return is handled by GamePlayer)
+        if (pad.buttons[8]?.pressed) {
+          prevState = "";
+          setQuickMenu(true);
+        }
+        if (pad.buttons[9]?.pressed) {
+          // Start: could pause, but GamePlayer handles via DC
+        }
+      }
     }, 120);
     return () => clearInterval(interval);
-  }, [playing, focusedSub, filteredGames.length]);
+  }, [playing, focusedSub, filteredGames.length, focusedCat, selectedGame, quickMenu]);
 
   // ── Launch / close ────────────────────────────────────────────────────
   const launchGame = useCallback((game: Game) => {
@@ -145,6 +204,18 @@ export default function XmbPage() {
     setFadeIn(false);
     setTimeout(() => { setPlaying(false); setPlayGame(null); }, 400);
   }, []);
+
+  // Capture GvPlayer instance when connected
+  useEffect(() => {
+    if (!playing) return;
+    const interval = setInterval(() => {
+      if (window.__gvPlayer?._dc?.readyState === "open") {
+        playerRef.current = window.__gvPlayer;
+        clearInterval(interval);
+      }
+    }, 200);
+    return () => clearInterval(interval);
+  }, [playing]);
 
   // ── Render categories ────────────────────────────────────────────────
   const renderCategories = () => (
@@ -240,7 +311,43 @@ export default function XmbPage() {
           </div>
           {/* Back hint */}
           <div style={s.backHint} onClick={closePlayer}>
-            Press Esc or ○ to close
+            Press Esc or ○ to close  ·  Ctrl+1-4: port
+          </div>
+
+          {/* Quick menu overlay */}
+          {quickMenu && (
+            <>
+              <div style={s.qmBackdrop} onClick={() => setQuickMenu(false)} />
+              <div style={s.qmPanel}>
+                <div style={s.qmHeader}>Quick Menu</div>
+                <button style={s.qmBtn} onClick={() => { sendDC({ cmd: "save_state" }); setQuickMenu(false); }}>💾 Save State</button>
+                <button style={s.qmBtn} onClick={() => { sendDC({ cmd: "load_state" }); setQuickMenu(false); }}>📂 Load State</button>
+                <button style={s.qmBtn} onClick={() => { sendDC({ cmd: "reset" }); setQuickMenu(false); }}>↺ Reset Game</button>
+                <div style={s.qmDivider} />
+                <div style={s.qmLabel}>Keyboard Port</div>
+                <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                  {[0, 1, 2, 3, 4].map((p) => (
+                    <button
+                      key={p}
+                      style={{
+                        ...s.qmPortBtn,
+                        ...(kbdPort === p ? { background: S.accentDim, borderColor: S.accent, color: S.accent } : {}),
+                      }}
+                      onClick={() => { setKbdPort(p); sendDC({ cmd: "kbd_port", port: p }); }}
+                    >
+                      {p === 0 ? "Auto" : `P${p}`}
+                    </button>
+                  ))}
+                </div>
+                <button style={{ ...s.qmBtn, color: "#f87171" }} onClick={() => { closePlayer(); setQuickMenu(false); }}>✕ Disconnect</button>
+              </div>
+            </>
+          )}
+
+          {/* Port badges */}
+          <div style={s.portBadges}>
+            {kbdPort > 0 && <span style={s.portBadge}>⌨→P{kbdPort}</span>}
+            <span style={s.portBadge}>🎮0→P1</span>
           </div>
         </>
       ) : (
@@ -376,5 +483,37 @@ const s: Record<string, React.CSSProperties> = {
     zIndex: 30, padding: "4px 16px", borderRadius: 2,
     background: "rgba(0,0,0,0.6)", color: S.textDim,
     fontSize: 11, cursor: "pointer", backdropFilter: "blur(4px)",
+  },
+  // ── Quick menu ────────────────────────────────────────────────────
+  qmBackdrop: { position: "fixed", inset: 0, zIndex: 40, background: "rgba(0,0,0,0.4)" },
+  qmPanel: {
+    position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
+    zIndex: 41, width: 260, padding: 20, borderRadius: 4,
+    background: S.bgCard, border: "1px solid rgba(255,255,255,0.08)",
+    boxShadow: "0 8px 32px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column", gap: 8,
+  },
+  qmHeader: { fontSize: 14, fontWeight: 600, color: S.accent, marginBottom: 4 },
+  qmBtn: {
+    width: "100%", padding: "8px 12px", border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.04)", color: S.text,
+    borderRadius: 2, cursor: "pointer", fontSize: 13, textAlign: "left" as const,
+  },
+  qmDivider: { height: 1, background: "rgba(255,255,255,0.06)", margin: "4px 0" },
+  qmLabel: { fontSize: 11, color: S.textDim, marginTop: 4 },
+  qmPortBtn: {
+    flex: 1, padding: "6px 8px", border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.03)", color: S.textDim,
+    borderRadius: 2, cursor: "pointer", fontSize: 12, textAlign: "center" as const,
+  },
+  // ── Port badges ────────────────────────────────────────────────────
+  portBadges: {
+    position: "fixed", bottom: 12, right: 12, zIndex: 30,
+    display: "flex", gap: 6,
+  },
+  portBadge: {
+    padding: "3px 8px", borderRadius: 2,
+    background: "rgba(0,0,0,0.6)", color: S.textDim,
+    fontSize: 11, fontFamily: "monospace", backdropFilter: "blur(4px)",
+    border: "1px solid rgba(255,255,255,0.06)",
   },
 };

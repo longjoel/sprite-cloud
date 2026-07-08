@@ -73,6 +73,7 @@ declare global {
       enterEditMode: () => void;
       swapAB: () => void;
     };
+    __gvPlayer?: any; // GvPlayer instance for XMB quick menu
   }
 }
 
