@@ -57,6 +57,7 @@ export async function GET(request: NextRequest) {
       name: games.name,
       platform: games.platform,
       maxPlayers: games.maxPlayers,
+      serverId: gameFiles.serverId,
     })
     .from(games)
     .innerJoin(gameFiles, eq(games.id, gameFiles.gameId))
