@@ -324,9 +324,38 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     const code = data.code as string;
     const lanUrl = buildLanPlayerLaunchUrl({ playerUrls: lanPlayerUrls, gameId, serverId, code, hostToken });
     if (lanUrl) {
+      // Record the launch route before navigating
+      fetch("/api/launch-event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "launch_route_chosen",
+          game_id: gameId,
+          server_id: serverId,
+          detail: {
+            route: "lan_direct",
+            lan_url: lanUrl,
+            player_urls: lanPlayerUrls,
+          },
+        }),
+      }).catch(() => {});
       window.location.assign(lanUrl);
       return;
     }
+    // Relay fallback — no LAN player reachable
+    fetch("/api/launch-event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "launch_route_chosen",
+        game_id: gameId,
+        server_id: serverId,
+        detail: {
+          route: "relay",
+          reason: "lan_unreachable",
+        },
+      }),
+    }).catch(() => {});
     router.push(`/p/${code}`);
   }, [router]);
 
