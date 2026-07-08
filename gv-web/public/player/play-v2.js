@@ -117,6 +117,17 @@ async function startGame(serverId, gameId, corePath, hostToken, callbacks, sdpOf
   if (sdpOffer) {
     payload.sdp = sdpOffer;
   }
+  // Detect LAN launch — when the page is loaded from a gv-server LAN URL
+  // (http://<lan-ip>:8787/...?route=lan), pass lan:true so gv-server uses
+  // direct LAN WebRTC instead of the pre-warmed relay pool.
+  if (typeof window !== "undefined") {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      if (q.get("route") === "lan") {
+        payload.lan = true;
+      }
+    } catch { /* ignore */ }
+  }
 
   const cmdResp = await fetch("/api/server/command", {
     method: "POST",

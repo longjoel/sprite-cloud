@@ -703,8 +703,6 @@ export class GvPlayer {
       this._playbackDeferred = true;
       this._video.play().then(() => {
         this._playbackDeferred = false;
-        this._video.muted = false;
-        console.log("[gv] audio unmuted");
       }).catch((e) => {
         console.debug("play() deferred — waiting for user gesture:", e.message || e);
       });

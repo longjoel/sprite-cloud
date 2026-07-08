@@ -168,6 +168,9 @@ pub(crate) async fn cmd_start(gv_web_url: Option<String>) -> Result<()> {
     tokio::spawn(crate::player_server::serve(
         player_addr,
         cfg.gv_web.url.clone(),
+        verify.server_id.clone(),
+        verify.user_id.clone(),
+        verify.name.clone(),
     ));
 
     const POLL_ERROR_BACKOFF_MS: u64 = 5_000;

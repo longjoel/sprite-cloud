@@ -245,6 +245,13 @@ pub fn http_timeout() -> Duration {
     *TIMEOUT
 }
 
+/// LAN player HTTP port exposed by gv-server. GV_PLAYER_PORT, default 8787.
+pub fn player_port() -> u16 {
+    use std::sync::LazyLock;
+    static PORT: LazyLock<u16> = LazyLock::new(|| env_or("GV_PLAYER_PORT", 8787));
+    *PORT
+}
+
 // ── GStreamer encoder config ─────────────────────────────────────────
 
 /// Target bitrate in kbps. GV_GST_VIDEO_BITRATE_KBPS, default 800.
