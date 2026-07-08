@@ -38,22 +38,33 @@ export async function GET(
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
-  // Check if viewer is an authenticated member of this server → host
-  const session = await auth();
+  // LAN proxy pass-through: if the caller provides the correct host_token
+  // in the query string, treat them as the host (no auth session needed).
+  // This lets gv-server's player proxy negotiate host reconnection without
+  // browser auth cookies from the gv-web origin.
+  const tokenHint = url.searchParams.get("host_token") || undefined;
   let isHost = false;
-  if (!forceGuest && session?.user?.id) {
-    const [membership] = await db
-      .select({ role: serverMembers.role })
-      .from(serverMembers)
-      .innerJoin(servers, eq(servers.id, serverMembers.serverId))
-      .where(
-        and(
-          eq(serverMembers.serverId, entry.serverId),
-          eq(serverMembers.userId, session.user.id),
-        ),
-      )
-      .limit(1);
-    isHost = !!membership;
+  if (tokenHint && tokenHint === entry.hostToken) {
+    isHost = true;
+  }
+
+  // Fall back to auth session check if token hint didn't match
+  if (!isHost && !forceGuest) {
+    const session = await auth();
+    if (session?.user?.id) {
+      const [membership] = await db
+        .select({ role: serverMembers.role })
+        .from(serverMembers)
+        .innerJoin(servers, eq(servers.id, serverMembers.serverId))
+        .where(
+          and(
+            eq(serverMembers.serverId, entry.serverId),
+            eq(serverMembers.userId, session.user.id),
+          ),
+        )
+        .limit(1);
+      isHost = !!membership;
+    }
   }
 
   if (isHost) {

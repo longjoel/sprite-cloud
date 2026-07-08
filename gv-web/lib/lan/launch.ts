@@ -28,6 +28,6 @@ export function buildLanPlayerLaunchUrl(input: LanLaunchInput): string | null {
   url.searchParams.set("code", input.code);
   url.searchParams.set("server_id", input.serverId);
   url.searchParams.set("route", "lan");
-  url.hash = new URLSearchParams({ host_token: input.hostToken }).toString();
+  url.searchParams.set("host_token", input.hostToken);
   return url.toString();
 }
