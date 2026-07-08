@@ -53,7 +53,8 @@ export default function XmbPage() {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const gameListRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<any>(null); // GvPlayer instance for DC commands
+  const playerRef = useRef<any>(null);
+  const fadingOut = useRef(false);
 
   // ── Mobile detection ────────────────────────────────────────────────
   useEffect(() => {
@@ -217,13 +218,17 @@ export default function XmbPage() {
   }, []);
 
   const closePlayer = useCallback(() => {
+    fadingOut.current = true;
     setFadeIn(false);
   }, []);
 
-  // Unmount player after fade-out transition completes
   const handlePlayerTransitionEnd = useCallback(() => {
-    if (!fadeIn) { setPlaying(false); setPlayGame(null); }
-  }, [fadeIn]);
+    if (fadingOut.current) {
+      fadingOut.current = false;
+      setPlaying(false);
+      setPlayGame(null);
+    }
+  }, []);
 
   // Capture GvPlayer instance when connected
   useEffect(() => {
