@@ -218,8 +218,12 @@ export default function XmbPage() {
 
   const closePlayer = useCallback(() => {
     setFadeIn(false);
-    setTimeout(() => { setPlaying(false); setPlayGame(null); }, 400);
   }, []);
+
+  // Unmount player after fade-out transition completes
+  const handlePlayerTransitionEnd = useCallback(() => {
+    if (!fadeIn) { setPlaying(false); setPlayGame(null); }
+  }, [fadeIn]);
 
   // Capture GvPlayer instance when connected
   useEffect(() => {
@@ -320,7 +324,14 @@ export default function XmbPage() {
       {playing && playGame ? (
         <>
           {/* Player overlay */}
-          <div style={{ ...s.playerOverlay, opacity: fadeIn ? 1 : 0 }}>
+          <div
+            style={{
+              ...s.playerOverlay,
+              opacity: fadeIn ? 1 : 0,
+              pointerEvents: fadeIn ? "auto" : "none",
+            }}
+            onTransitionEnd={handlePlayerTransitionEnd}
+          >
             <GamePlayer
               gameId={playGame.gameId}
               serverId={playGame.serverId}
