@@ -85,6 +85,7 @@ interface GamePlayerProps {
   platform?: string;        // platform name for gamepad preset
   hostToken?: string;       // pre-existing host token for reconnection
   joinToken?: string;       // pre-existing room token for guest join
+  shortCode?: string;       // pre-existing short code (LAN proxy pass-through)
   onClose?: () => void;
   onConnected?: () => void; // fired when WebRTC connects
   onFatalError?: (msg: string) => void; // fired on connection failure — page can show error screen
@@ -104,6 +105,7 @@ export default function GamePlayer({
   platform,
   hostToken,
   joinToken: joinTokenProp,
+  shortCode: shortCodeProp,
   onClose,
   onConnected,
   onFatalError,
@@ -592,11 +594,13 @@ export default function GamePlayer({
 
   // ── Share ─────────────────────────────────────────────────────────
 
-  const [shortCode, setShortCode] = useState<string | null>(null);
+  const [shortCode, setShortCode] = useState<string | null>(shortCodeProp ?? null);
 
   useEffect(() => {
     if (!connected) return;
+    if (shortCodeProp) return; // already provided via props (LAN pass-through)
     if (roomToken) return;
+    if (shortCode) return; // already set
     (async () => {
       try {
         const resp = await fetch("/api/room/share", {
@@ -937,11 +941,17 @@ export default function GamePlayer({
               <Button variant="ghost" onClick={() => setShowQr(false)}>✕</Button>
             </div>
             <div style={{ display: "flex", justifyContent: "center", padding: "var(--space-5)" }}>
-              <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`${window.location.origin}/p/${shortCode}?join`)}`}
-                alt="QR Code to join game"
-                style={{ borderRadius: 4, background: "#fff", padding: 8 }}
-              />
+              {(() => {
+                const qrOrigin = shortCodeProp ? "https://lngnckr.tech" : window.location.origin;
+                const qrUrl = `${qrOrigin}/p/${shortCode}?join`;
+                return (
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUrl)}`}
+                    alt="QR Code to join game"
+                    style={{ borderRadius: 4, background: "#fff", padding: 8 }}
+                  />
+                );
+              })()}
             </div>
             <p style={{
               color: "var(--color-muted)",
@@ -950,7 +960,7 @@ export default function GamePlayer({
               wordBreak: "break-all",
               padding: "0 var(--space-4)",
             }}>
-              {window.location.origin}/p/{shortCode}?join
+              {(shortCodeProp ? "https://lngnckr.tech" : window.location.origin)}/p/{shortCode}?join
             </p>
           </div>
         </>
