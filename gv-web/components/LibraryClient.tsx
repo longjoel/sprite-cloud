@@ -340,9 +340,13 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     setLanProbeByServer(Object.fromEntries(entries));
   }
 
-  function lanPlayerUrlsWhenReachable(host: PlayableHost): string[] | null {
+  function canAttemptLanLaunch(probe: LanProbeResult | undefined): boolean {
+    return probe?.reachable === true || probe?.reason === "mixed_content_blocked";
+  }
+
+  function lanPlayerUrlsWhenDirectOrPolicyBlocked(host: PlayableHost): string[] | null {
     const probe = lanProbeByServer[host.server_id];
-    return probe?.reachable ? host.lan?.player_urls ?? null : null;
+    return canAttemptLanLaunch(probe) ? host.lan?.player_urls ?? null : null;
   }
 
   const handlePlay = async (gameId: string) => {
@@ -378,7 +382,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
         const serverId = host.server_id;
         setPreferredServer(gameId, serverId);
         const probe = await probeLanHealth(host.lan?.health_urls, { timeoutMs: 1_200 });
-        await navigateToGame(gameId, serverId, probe.reachable ? host.lan?.player_urls : null);
+        await navigateToGame(gameId, serverId, canAttemptLanLaunch(probe) ? host.lan?.player_urls : null);
         return;
       }
       setHostPickerGame(gameId);
@@ -390,7 +394,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     const host = playableHosts.find((h) => h.server_id === serverId);
     setHostPickerGame(null);
     setPreferredServer(gameId, serverId);
-    try { await navigateToGame(gameId, serverId, host ? lanPlayerUrlsWhenReachable(host) : null); } catch { /* silent */ }
+    try { await navigateToGame(gameId, serverId, host ? lanPlayerUrlsWhenDirectOrPolicyBlocked(host) : null); } catch { /* silent */ }
   };
 
   // ── Rename handlers ─────────────────────────────────────────────
@@ -517,7 +521,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       return <Badge variant="success">LAN direct {probe.latencyMs.toFixed(0)}ms</Badge>;
     }
     if (probe.reason === "mixed_content_blocked") {
-      return <Badge variant="warning">HTTPS blocked</Badge>;
+      return <Badge variant="warning">HTTPS probe blocked · click tries LAN</Badge>;
     }
     return <Badge variant="warning">Relay fallback</Badge>;
   }
