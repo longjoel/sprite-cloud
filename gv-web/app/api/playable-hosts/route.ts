@@ -15,18 +15,40 @@ function classifyStatus(lastSeenAt: Date | string | null): string {
   return "offline";
 }
 
+interface LanSummary {
+  player_port?: number;
+  player_urls?: string[];
+  health_urls?: string[];
+}
+
+function metadataRecord(metadata: unknown): Record<string, unknown> {
+  return (metadata || {}) as Record<string, unknown>;
+}
+
+function lanSummary(metadata: unknown): LanSummary | null {
+  const lan = metadataRecord(metadata).lan as LanSummary | undefined;
+  if (!lan || typeof lan !== "object") return null;
+  return {
+    player_port: typeof lan.player_port === "number" ? lan.player_port : undefined,
+    player_urls: Array.isArray(lan.player_urls) ? lan.player_urls.filter((url): url is string => typeof url === "string") : [],
+    health_urls: Array.isArray(lan.health_urls) ? lan.health_urls.filter((url): url is string => typeof url === "string") : [],
+  };
+}
+
 function classifyRouteHint(metadata: unknown): string {
-  const meta = (metadata || {}) as Record<string, unknown>;
+  const meta = metadataRecord(metadata);
+  const lan = lanSummary(metadata);
   const ice = meta.ice as Record<string, unknown> | undefined;
   const ifaces = meta.interfaces;
 
-  // Server on the LAN (has non-loopback interfaces) → "local"
+  // Explicit LAN player metadata is the strongest signal. Browser reachability
+  // is still checked client-side before direct launch is preferred.
+  if (lan?.health_urls?.length || lan?.player_urls?.length) return "local";
+
+  // Older gv-server metadata: server on LAN if it reports non-loopback interfaces.
   if (Array.isArray(ifaces) && ifaces.length > 0) return "local";
 
-  // Server with TURN configured → "relay"
   if (ice?.turn_configured) return "relay";
-
-  // Server with STUN but no TURN, no LAN → "direct"
   if (ice) return "direct";
 
   return "unknown";
@@ -68,6 +90,7 @@ export async function GET(request: NextRequest) {
     status: classifyStatus(row.lastSeenAt),
     has_game: row.gameFileId !== null,
     route_hint: classifyRouteHint(row.metadata),
+    lan: lanSummary(row.metadata),
     metadata: row.metadata ?? {},
   }));
 

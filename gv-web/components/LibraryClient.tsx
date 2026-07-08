@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
 import AppHeader from "@/components/fluent/AppHeader";
+import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -33,6 +34,11 @@ interface PlayableHost {
   status: string;
   has_game: boolean;
   route_hint: string;
+  lan?: {
+    player_port?: number;
+    player_urls?: string[];
+    health_urls?: string[];
+  } | null;
 }
 
 interface LibraryClientProps {
@@ -149,6 +155,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
 
   const [hostPickerGame, setHostPickerGame] = useState<string | null>(null);
   const [playableHosts, setPlayableHosts] = useState<PlayableHost[]>([]);
+  const [lanProbeByServer, setLanProbeByServer] = useState<Record<string, LanProbeResult>>({});
 
   const [editingGame, setEditingGame] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -316,6 +323,16 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     router.push(`/p/${data.code}`);
   }, [router]);
 
+  async function probePlayableHosts(hosts: PlayableHost[]) {
+    const entries = await Promise.all(
+      hosts.map(async (host) => {
+        const result = await probeLanHealth(host.lan?.health_urls, { timeoutMs: 1_200 });
+        return [host.server_id, result] as const;
+      }),
+    );
+    setLanProbeByServer(Object.fromEntries(entries));
+  }
+
   const handlePlay = async (gameId: string) => {
     if (!hasServers) return;
     recordRecentPlay(gameId);
@@ -325,6 +342,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       const data = await resp.json();
       const hosts: PlayableHost[] = data.hosts || [];
       setPlayableHosts(hosts);
+      setLanProbeByServer({});
 
       const withGame = hosts.filter((h) => h.has_game && h.status !== "offline");
       const routeOrder: Record<string, number> = { local: 0, direct: 1, relay: 2, unknown: 3 };
@@ -342,7 +360,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
         }
       }
 
-      if (withGame.length === 0) { setHostPickerGame(gameId); return; }
+      if (withGame.length === 0) { setHostPickerGame(gameId); void probePlayableHosts(hosts); return; }
       if (withGame.length === 1) {
         const serverId = withGame[0].server_id;
         setPreferredServer(gameId, serverId);
@@ -350,6 +368,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
         return;
       }
       setHostPickerGame(gameId);
+      void probePlayableHosts(hosts);
     } catch { /* silent */ }
   };
 
@@ -474,6 +493,19 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     onTogglePin: session?.user?.id ? handleTogglePin : undefined,
     onRename: session?.user?.id ? startRename : undefined,
   };
+
+  function renderLanRouteBadge(host: PlayableHost) {
+    if (!host.lan?.health_urls?.length) return null;
+    const probe = lanProbeByServer[host.server_id];
+    if (!probe) return <Badge variant="muted">LAN probing…</Badge>;
+    if (probe.reachable) {
+      return <Badge variant="success">LAN direct {probe.latencyMs.toFixed(0)}ms</Badge>;
+    }
+    if (probe.reason === "mixed_content_blocked") {
+      return <Badge variant="warning">HTTPS blocked</Badge>;
+    }
+    return <Badge variant="warning">Relay fallback</Badge>;
+  }
 
   const renderStatePills = (game: Game) => (
     <div style={styles.statePillRow}>
@@ -872,6 +904,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
                 {host.has_game && host.route_hint !== "unknown" && (
                   <Badge variant={routeVariant(host.route_hint)}>{host.route_hint}</Badge>
                 )}
+                {renderLanRouteBadge(host)}
                 {!host.has_game && (
                   <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-muted)" }}>no game</span>
                 )}
