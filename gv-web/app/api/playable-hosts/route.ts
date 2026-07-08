@@ -75,6 +75,7 @@ export async function GET(request: NextRequest) {
       lastSeenAt: servers.lastSeenAt,
       metadata: servers.metadata,
       gameFileId: gameFiles.id,
+      role: serverMembers.role,
     })
     .from(serverMembers)
     .innerJoin(servers, eq(serverMembers.serverId, servers.id))
@@ -91,6 +92,7 @@ export async function GET(request: NextRequest) {
     has_game: row.gameFileId !== null,
     route_hint: classifyRouteHint(row.metadata),
     lan: lanSummary(row.metadata),
+    role: row.role,
     metadata: row.metadata ?? {},
   }));
 
