@@ -74,6 +74,17 @@ pub struct ServerMetadata {
     pub rom_roots: Vec<String>,
     pub ice: IceMetadata,
     pub runtime: RuntimeMetadata,
+    pub lan: LanMetadata,
+}
+
+/// Non-secret LAN discovery data reported by gv-server.
+#[derive(Debug, Serialize)]
+pub struct LanMetadata {
+    pub player_port: u16,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub player_urls: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub health_urls: Vec<String>,
 }
 
 /// ICE configuration summary for route/connectivity diagnostics.

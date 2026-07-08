@@ -387,6 +387,40 @@ describe("POST /api/server/command", () => {
     expect(mockDb.insert).toHaveBeenCalledWith(launchEvents);
   });
 
+  it("allows LAN start_game with a matching short-code host token and no auth cookie", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ code: "ABC123" }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ userId: "user-1" }]))
+      .mockReturnValueOnce(mockQueryBuilder([
+        { romPath: "/roms/smw.sfc", platform: "snes", gameName: "Super Mario World" },
+      ]))
+      .mockReturnValueOnce(mockQueryBuilder([]));
+
+    const { launchEvents, commands: commandsTable, sessions: sessionsTable, peerTokens: peerTokensTable } = await import("@/lib/db/schema");
+    mockDb.insert.mockImplementation((table: unknown) => {
+      if (table === commandsTable) return { values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([{ id: "cmd-lan" }])) };
+      if (table === sessionsTable) return { values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([{ id: "sess-lan" }])) };
+      if (table === peerTokensTable) return { values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([])) };
+      if (table === launchEvents) return mockQueryBuilder([{ id: "launch-lan" }]);
+      return mockQueryBuilder([{ id: "fallback" }]);
+    });
+    mockDb.update.mockReturnValue({ set: vi.fn(() => ({ where: vi.fn(() => Promise.resolve(undefined)) })) });
+    mockWaitForSdpAnswer.mockResolvedValueOnce("v=0\r\nanswer");
+
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", jsonBody({
+      server_id: "server-1",
+      type: "start_game",
+      payload: { game_id: "smw", host_token: "host-secret", lan: true, sdp: "v=0\r\n" },
+    }));
+
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(201);
+    const body = await resp.json();
+    expect(body.sdp_answer).toBe("v=0\r\nanswer");
+  });
+
   it("does not auto-inject lan=true from request IP heuristics", async () => {
     const prevLanIps = process.env.GV_SERVER_LAN_IPS;
     process.env.GV_SERVER_LAN_IPS = "192.168.86.128";
@@ -1145,7 +1179,15 @@ describe("GET /api/playable-hosts", () => {
           serverId: "server-1",
           serverName: "Home PC",
           lastSeenAt: new Date(),
-          metadata: { interfaces: [{ name: "eth0", address: "192.168.1.100" }], ice: { turn_configured: false } },
+          metadata: {
+            interfaces: [{ name: "eth0", address: "192.168.1.100" }],
+            ice: { turn_configured: false },
+            lan: {
+              player_port: 8787,
+              player_urls: ["http://192.168.1.100:8787/"],
+              health_urls: ["http://192.168.1.100:8787/health"],
+            },
+          },
           gameFileId: "gf-1",
         },
         {
@@ -1168,6 +1210,12 @@ describe("GET /api/playable-hosts", () => {
       server_id: "server-1",
       name: "Home PC",
       has_game: true,
+      route_hint: "local",
+      lan: {
+        player_port: 8787,
+        player_urls: ["http://192.168.1.100:8787/"],
+        health_urls: ["http://192.168.1.100:8787/health"],
+      },
     });
     expect(body.hosts[1]).toMatchObject({
       server_id: "server-2",
@@ -1237,6 +1285,31 @@ describe("GET /api/playable-hosts", () => {
     expect(body.hosts[0].route_hint).toBe("local");
     expect(body.hosts[1].route_hint).toBe("direct");
     expect(body.hosts[2].route_hint).toBe("relay");
+  });
+
+  it("classifies explicit LAN health metadata as local", async () => {
+    mockDb.select.mockReturnValue(
+      mockQueryBuilder([
+        {
+          serverId: "s1",
+          serverName: "Vault",
+          lastSeenAt: new Date(),
+          metadata: {
+            interfaces: [],
+            ice: { turn_configured: true },
+            lan: { health_urls: ["http://192.168.86.50:8787/health"] },
+          },
+          gameFileId: "gf1",
+        },
+      ]),
+    );
+
+    const { GET } = await import("@/app/api/playable-hosts/route");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
+    const resp = await GET(req);
+    const body = await resp.json();
+    expect(body.hosts[0].route_hint).toBe("local");
+    expect(body.hosts[0].lan.health_urls).toEqual(["http://192.168.86.50:8787/health"]);
   });
 
   it("returns route_hint unknown when metadata is missing", async () => {

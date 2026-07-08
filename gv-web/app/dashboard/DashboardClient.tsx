@@ -6,6 +6,7 @@ import { Button } from "@/components/ui";
 import ServerPanel from "./ServerPanel";
 import DevTools from "./DevTools";
 import { serverStatus, timeAgo, csrfHeaders } from "./dashboard-utils";
+import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -21,6 +22,11 @@ interface ServerMetadataSummary {
   version?: string;
   public_ip?: string;
   rom_roots?: string[];
+  lan?: {
+    player_port?: number;
+    player_urls?: string[];
+    health_urls?: string[];
+  };
   ice?: {
     turn_configured?: boolean;
     transport_policy?: string;
@@ -48,6 +54,7 @@ export default function DashboardClient({ memberships }: Props) {
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [showDevTools, setShowDevTools] = useState(false);
   const [metadataByServer, setMetadataByServer] = useState<Record<string, ServerMetadataSummary>>({});
+  const [lanProbeByServer, setLanProbeByServer] = useState<Record<string, LanProbeResult>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -72,12 +79,22 @@ export default function DashboardClient({ memberships }: Props) {
         if (metadata) nextMetadata[id] = metadata;
       }
       setMetadataByServer(nextMetadata);
+
+      const probeEntries = await Promise.all(
+        Object.entries(nextMetadata).map(async ([id, metadata]) => {
+          const result = await probeLanHealth(metadata.lan?.health_urls, { timeoutMs: 1_200 });
+          return [id, result] as const;
+        }),
+      );
+      if (cancelled) return;
+      setLanProbeByServer(Object.fromEntries(probeEntries));
     }
 
     if (memberships.length > 0) {
       loadMetadata();
     } else {
       setMetadataByServer({});
+      setLanProbeByServer({});
     }
 
     return () => {
@@ -162,6 +179,7 @@ export default function DashboardClient({ memberships }: Props) {
 
   function renderSummaryPills(serverId: string, romRoots: string[]) {
     const metadata = metadataByServer[serverId];
+    const lanProbe = lanProbeByServer[serverId];
     const pills: Array<{ label: string; tone?: "info" | "success" | "warning" | "muted" }> = [];
 
     pills.push({
@@ -171,6 +189,17 @@ export default function DashboardClient({ memberships }: Props) {
 
     if (metadata?.version) {
       pills.push({ label: `server ${metadata.version}`, tone: "info" });
+    }
+    if (metadata?.lan?.health_urls?.length) {
+      if (!lanProbe) {
+        pills.push({ label: "LAN probing…", tone: "muted" });
+      } else if (lanProbe.reachable) {
+        pills.push({ label: `LAN ${lanProbe.latencyMs.toFixed(0)}ms`, tone: "success" });
+      } else if (lanProbe.reason === "mixed_content_blocked") {
+        pills.push({ label: "LAN blocked by HTTPS", tone: "warning" });
+      } else {
+        pills.push({ label: "LAN fallback", tone: "warning" });
+      }
     }
     if (metadata?.public_ip) {
       pills.push({ label: metadata.public_ip, tone: "info" });
