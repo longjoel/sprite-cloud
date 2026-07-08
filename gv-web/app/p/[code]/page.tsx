@@ -181,6 +181,7 @@ export default function ShortCodePage() {
             platform={gameMeta.platform}
             hostToken={gameMeta.hostToken}
             joinToken={gameMeta.roomToken}
+            shortCode={code}
             onClose={() => window.location.assign(homeUrl)}
             onConnected={onConnected}
             onFatalError={(msg) => {
