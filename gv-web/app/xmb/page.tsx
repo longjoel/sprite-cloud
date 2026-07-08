@@ -7,7 +7,7 @@ import GamePlayer from "@/components/GamePlayer";
 
 interface Game {
   id: string; name: string; platform: string;
-  cover_url?: string; server_id?: string;
+  cover_url?: string; serverId?: string; server_id?: string; // snake_case from API, camelCase from local
 }
 
 interface Category {
@@ -29,8 +29,6 @@ const CATEGORIES: Category[] = [
 
 const SUB_CATEGORIES: SubCategory[] = [
   { id: "all", label: "All", filter: () => true },
-  { id: "recent", label: "Recent", filter: () => true }, // placeholder
-  { id: "favorites", label: "Favorites", filter: () => false },
   { id: "nes", label: "NES", filter: (g) => g.platform === "NES" },
   { id: "snes", label: "SNES", filter: (g) => g.platform === "SNES" },
   { id: "genesis", label: "Genesis", filter: (g) => g.platform === "Genesis" },
@@ -45,6 +43,7 @@ export default function XmbPage() {
   const [focusedSub, setFocusedSub] = useState(0);
   const [focusedGame, setFocusedGame] = useState(0);
   const [games, setGames] = useState<Game[]>([]);
+  const [search, setSearch] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [playGame, setPlayGame] = useState<{ gameId: string; serverId: string; hostToken?: string; gameName?: string; platform?: string } | null>(null);
@@ -54,6 +53,7 @@ export default function XmbPage() {
   const [isMobile, setIsMobile] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const gameListRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null); // GvPlayer instance for DC commands
 
   // ── Mobile detection ────────────────────────────────────────────────
@@ -90,14 +90,15 @@ export default function XmbPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/games?limit=200");
+        const query = search ? `?search=${encodeURIComponent(search)}&limit=200` : "?limit=200";
+        const res = await fetch(`/api/games${query}`);
         if (!res.ok) return;
         const data = await res.json();
         setGames(data.games || []);
       } catch { /* fail silently */ }
       setLoaded(true);
     })();
-  }, []);
+  }, [search]);
 
   // ── Filtered games for current sub-category ──────────────────────────
   const sub = SUB_CATEGORIES[focusedSub];
@@ -106,6 +107,14 @@ export default function XmbPage() {
   // Clamp focused game index
   const safeGameIdx = Math.min(focusedGame, Math.max(0, filteredGames.length - 1));
   const selectedGame = filteredGames[safeGameIdx] ?? null;
+
+  // ── Auto-scroll focused game into view ───────────────────────────────
+  useEffect(() => {
+    if (!gameListRef.current) return;
+    const rows = gameListRef.current.querySelectorAll("[data-game-row]");
+    const el = rows[safeGameIdx] as HTMLElement | undefined;
+    if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [safeGameIdx]);
 
   // ── DC command helper ─────────────────────────────────────────────────
   const sendDC = useCallback((cmd: Record<string, unknown>) => {
@@ -222,9 +231,10 @@ export default function XmbPage() {
 
   // ── Launch / close ────────────────────────────────────────────────────
   const launchGame = useCallback((game: Game) => {
-    if (!game.server_id) return;
+    const sid = game.serverId || game.server_id;
+    if (!sid) return;
     setPlayGame({
-      gameId: game.id, serverId: game.server_id,
+      gameId: game.id, serverId: sid,
       gameName: game.name, platform: game.platform,
     });
     setPlaying(true);
@@ -281,22 +291,30 @@ export default function XmbPage() {
           {sc.label}
         </div>
       ))}
+      <input
+        type="text"
+        placeholder="Search…"
+        value={search}
+        onChange={(e) => { setSearch(e.target.value); setFocusedGame(0); }}
+        style={s.searchInput}
+        onClick={(e) => e.stopPropagation()}
+      />
     </div>
   );
 
   // ── Render game list ──────────────────────────────────────────────────
   const renderGameList = () => (
-    <div style={s.gameList}>
+    <div ref={gameListRef} style={s.gameList}>
       {filteredGames.map((game, i) => {
         const focused = i === safeGameIdx;
         const firstLetter = game.name.charAt(0).toUpperCase();
-        // Show a header when letter changes
         const prevLetter = i > 0 ? filteredGames[i - 1]?.name.charAt(0).toUpperCase() : "";
         const showHeader = firstLetter !== prevLetter;
         return (
           <div key={game.id}>
             {showHeader && <div style={s.letterHeader}>{firstLetter}</div>}
             <div
+              data-game-row
               style={{ ...s.gameRow, ...(focused ? s.gameFocused : {}) }}
               onClick={() => { setFocusedGame(i); launchGame(game); }}
               onMouseEnter={() => setFocusedGame(i)}
@@ -473,6 +491,11 @@ const s: Record<string, React.CSSProperties> = {
     letterSpacing: "0.04em", transition: "all 0.12s ease",
   },
   subFocused: { color: S.text, background: S.accentDim },
+  searchInput: {
+    marginLeft: "auto", padding: "4px 10px", border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(255,255,255,0.04)", color: S.text, borderRadius: 2,
+    fontSize: 12, width: 140, outline: "none",
+  },
   gameList: {
     flex: 1, overflowY: "auto", padding: "8px 16px",
   },
