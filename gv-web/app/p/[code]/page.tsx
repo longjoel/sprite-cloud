@@ -1,7 +1,7 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import GamePlayer from "@/components/GamePlayer";
 import BokehLoading from "@/components/BokehLoading";
 import type { StepState } from "@/components/GamePlayerPipeline";
@@ -24,6 +24,15 @@ const COVER_FALLBACK = (
 export default function ShortCodePage() {
   const { code } = useParams<{ code: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // When loaded from a LAN URL (proxied through gv-server), the Back button
+  // should go to the real gv-web origin — not / which would proxy without auth.
+  const homeUrl = useMemo(() => {
+    if (typeof window === "undefined") return "/";
+    try { if (new URLSearchParams(window.location.search).get("route") === "lan") return "https://lngnckr.tech/"; } catch {}
+    return "/";
+  }, []);
 
   const [phase, setPhase] = useState<"resolve" | "connecting" | "playing" | "error">("resolve");
   const [fadeOut, setFadeOut] = useState(false);
@@ -172,7 +181,7 @@ export default function ShortCodePage() {
             platform={gameMeta.platform}
             hostToken={gameMeta.hostToken}
             joinToken={gameMeta.roomToken}
-            onClose={() => router.push("/")}
+            onClose={() => window.location.assign(homeUrl)}
             onConnected={onConnected}
             onFatalError={(msg) => {
               setError(msg);
