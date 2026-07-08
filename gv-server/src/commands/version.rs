@@ -6,6 +6,23 @@
 use crate::config;
 use crate::gv_web;
 
+fn lan_metadata(interfaces: &[gv_web::InterfaceInfo], player_port: u16) -> gv_web::LanMetadata {
+    let player_urls = interfaces
+        .iter()
+        .map(|iface| format!("http://{}:{}/", iface.address, player_port))
+        .collect::<Vec<_>>();
+    let health_urls = interfaces
+        .iter()
+        .map(|iface| format!("http://{}:{}/health", iface.address, player_port))
+        .collect::<Vec<_>>();
+
+    gv_web::LanMetadata {
+        player_port,
+        player_urls,
+        health_urls,
+    }
+}
+
 /// Collect non-secret server metadata for connectivity diagnostics
 /// and version reporting during pairing/startup verification.
 pub(crate) async fn collect_metadata(cfg: &config::Config) -> gv_web::ServerMetadata {
@@ -87,6 +104,8 @@ pub(crate) async fn collect_metadata(cfg: &config::Config) -> gv_web::ServerMeta
         video_max_scale: config::gst_video_max_scale(),
     };
 
+    let lan = lan_metadata(&interfaces, config::player_port());
+
     gv_web::ServerMetadata {
         version: env!("CARGO_PKG_VERSION").to_string(),
         versions,
@@ -95,6 +114,7 @@ pub(crate) async fn collect_metadata(cfg: &config::Config) -> gv_web::ServerMeta
         rom_roots,
         ice,
         runtime,
+        lan,
     }
 }
 
@@ -105,4 +125,41 @@ async fn detect_public_ip() -> Option<String> {
         .ok()?;
     let resp = client.get("https://api.ipify.org").send().await.ok()?;
     resp.text().await.ok().map(|s| s.trim().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lan_metadata_builds_player_and_health_urls_for_each_interface() {
+        let interfaces = vec![
+            gv_web::InterfaceInfo {
+                name: "eth0".to_string(),
+                address: "192.168.86.128".to_string(),
+            },
+            gv_web::InterfaceInfo {
+                name: "tailscale0".to_string(),
+                address: "100.64.0.10".to_string(),
+            },
+        ];
+
+        let lan = lan_metadata(&interfaces, 8787);
+
+        assert_eq!(lan.player_port, 8787);
+        assert_eq!(
+            lan.player_urls,
+            vec![
+                "http://192.168.86.128:8787/".to_string(),
+                "http://100.64.0.10:8787/".to_string(),
+            ]
+        );
+        assert_eq!(
+            lan.health_urls,
+            vec![
+                "http://192.168.86.128:8787/health".to_string(),
+                "http://100.64.0.10:8787/health".to_string(),
+            ]
+        );
+    }
 }
