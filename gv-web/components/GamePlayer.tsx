@@ -123,9 +123,11 @@ export default function GamePlayer({
 
   const [status, setStatus] = useState("loading…");
   const [error, setError] = useState<string | null>(null);
+  const [connected, setConnected] = useState(false);
   const [rttMs, setRttMs] = useState<number | null>(null);
   const [showSlots, setShowSlots] = useState(false);
   const [showDisconnect, setShowDisconnect] = useState(false);
+  const [audioMuted, setAudioMuted] = useState(true);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
   const [reconnectMsg, setReconnectMsg] = useState("");
   const [toast, setToast] = useState<ToastData | null>(null);
@@ -133,7 +135,6 @@ export default function GamePlayer({
   const [routeDetail, setRouteDetail] = useState<string | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [connected, setConnected] = useState(false);
   const [scriptReady, setScriptReady] = useState(false);
   const [rttActive, setRttActive] = useState(false);
   const [roomToken, setRoomToken] = useState<string | null>(null);
@@ -654,7 +655,7 @@ export default function GamePlayer({
         ref={videoRef}
         autoPlay
         playsInline
-        muted
+        muted={audioMuted}
         className={styles.video}
         style={castMode ? { display: "none" } : undefined}
       />
@@ -668,11 +669,18 @@ export default function GamePlayer({
         }}
       >
         <span className={styles.gameTitle}>{gameName || gameId}</span>
-        {onClose && (
-          <Button variant="secondary" size="md" onClick={onClose}>
-            ← Back
-          </Button>
-        )}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {audioMuted && (
+            <Button variant="secondary" size="md" onClick={() => { setAudioMuted(false); }}>
+              🔊 Unmute
+            </Button>
+          )}
+          {onClose && (
+            <Button variant="secondary" size="md" onClick={onClose}>
+              ← Back
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Persistent game info chip — always visible while connected */}
