@@ -670,9 +670,9 @@ export default function GamePlayer({
       >
         <span className={styles.gameTitle}>{gameName || gameId}</span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {audioMuted && (
-            <Button variant="secondary" size="md" onClick={() => { setAudioMuted(false); }}>
-              🔊 Unmute
+          {(
+            <Button variant="secondary" size="md" onClick={() => { setAudioMuted((v) => !v); }}>
+              {audioMuted ? "🔇" : "🔊"}
             </Button>
           )}
           {onClose && (
