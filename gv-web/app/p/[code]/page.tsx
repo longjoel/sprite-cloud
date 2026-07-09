@@ -195,7 +195,7 @@ export default function ShortCodePage() {
           />
         )}
 
-        {/* Loading overlay on top */}
+        {/* Loading overlay — lowered z-index so touch gamepad canvas shows through */}
         {showOverlay && (
           <div
             style={{
@@ -203,7 +203,7 @@ export default function ShortCodePage() {
               opacity: phase === "playing" ? 0 : 1,
               transition: "opacity 0.5s ease",
               pointerEvents: phase === "playing" ? "none" : "auto",
-            }}
+            }}>
           >
             {/* Bokeh particle field — reacts to real pipeline progress */}
             <BokehLoading
@@ -248,7 +248,7 @@ export default function ShortCodePage() {
 
 const s = {
   overlay: {
-    position: "absolute", inset: 0, zIndex: 10,
+    position: "absolute", inset: 0, zIndex: 5,
     background: "linear-gradient(135deg, #060b14 0%, #0a0e1a 50%, #111827 100%)",
     fontFamily: "system-ui, sans-serif",
   },
