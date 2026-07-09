@@ -370,7 +370,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   }
 
   function canAttemptLanLaunch(probe: LanProbeResult | undefined): boolean {
-    return probe?.reachable === true || probe?.reason === "mixed_content_blocked";
+    return probe?.reachable === true;
   }
 
   function lanPlayerUrlsWhenDirectOrPolicyBlocked(host: PlayableHost): string[] | null {
