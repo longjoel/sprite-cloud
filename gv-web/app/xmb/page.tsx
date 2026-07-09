@@ -123,37 +123,56 @@ export default function XmbPage() {
     try { p._dc.send(JSON.stringify(cmd)); return true; } catch { return false; }
   }, []);
 
-  // ── Keyboard port routing ────────────────────────────────────────────
+  const closePlayer = useCallback(() => {
+    fadingOut.current = true;
+    setFadeIn(false);
+  }, []);
+
+  const handlePlayerTransitionEnd = useCallback(() => {
+    if (fadingOut.current) {
+      fadingOut.current = false;
+      setPlaying(false);
+      setPlayGame(null);
+    }
+  }, []);
+
+  // ── Escape listener (only active during play — lets gv-player handle all other keys) ──
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      // Port routing hotkeys: Ctrl+1..4 assign keyboard to port 1-4
-      if (e.ctrlKey && e.key >= "1" && e.key <= "4") {
+    if (!playing) return;
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); closePlayer(); }
+    };
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [playing, closePlayer]);
+
+  // ── Port routing hotkeys (Ctrl+1-4, Ctrl+0, Ctrl+G) — always active when playing ──
+  useEffect(() => {
+    if (!playing) return;
+    const onCtrlKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey) return;
+      if (e.key >= "1" && e.key <= "4") {
         e.preventDefault();
         const port = parseInt(e.key);
         setKbdPort(port);
         sendDC({ cmd: "kbd_port", port });
-        return;
-      }
-      // Ctrl+0 resets to auto mode
-      if (e.ctrlKey && e.key === "0") {
+      } else if (e.key === "0") {
         e.preventDefault();
         setKbdPort(0);
         sendDC({ cmd: "kbd_port", port: 0 });
-        return;
-      }
-      // Ctrl+G toggles touch gamepad
-      if (e.ctrlKey && e.key === "g") {
+      } else if (e.key === "g") {
         e.preventDefault();
         const tg = window.__gvTouchGamepad;
         if (tg) { try { tg.toggle(); } catch {} }
-        return;
       }
-      // Quick menu: Escape when playing closes the player (return to XMB)
-      if (playing && e.key === "Escape") {
-        e.preventDefault();
-        closePlayer();
-        return;
-      }
+    };
+    window.addEventListener("keydown", onCtrlKey);
+    return () => window.removeEventListener("keydown", onCtrlKey);
+  }, [playing, sendDC]);
+
+  // ── XMB navigation keyboard handler (inactive during play) ──────────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
       if (playing) return;
       switch (e.key) {
         case "ArrowLeft":
@@ -181,7 +200,7 @@ export default function XmbPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [focusedCat, focusedSub, focusedGame, filteredGames, playing, selectedGame, sendDC]);
+  }, [focusedCat, focusedSub, focusedGame, filteredGames, playing, selectedGame]);
 
   // ── Gamepad polling ──────────────────────────────────────────────────
   useEffect(() => {
@@ -222,19 +241,6 @@ export default function XmbPage() {
     });
     setPlaying(true);
     setTimeout(() => setFadeIn(true), 50);
-  }, []);
-
-  const closePlayer = useCallback(() => {
-    fadingOut.current = true;
-    setFadeIn(false);
-  }, []);
-
-  const handlePlayerTransitionEnd = useCallback(() => {
-    if (fadingOut.current) {
-      fadingOut.current = false;
-      setPlaying(false);
-      setPlayGame(null);
-    }
   }, []);
 
   // Capture GvPlayer instance when connected
