@@ -204,7 +204,6 @@ export default function ShortCodePage() {
               transition: "opacity 0.5s ease",
               pointerEvents: phase === "playing" ? "none" : "auto",
             }}>
-          >
             {/* Bokeh particle field — reacts to real pipeline progress */}
             <BokehLoading
               pipeline={pipeline}
