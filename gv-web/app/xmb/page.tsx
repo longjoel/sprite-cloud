@@ -191,10 +191,10 @@ export default function XmbPage() {
         e.preventDefault();
         const port = parseInt(e.key);
         setKbdPort(port);
-        // Set seat directly on GvPlayer for binary input mask
+        // Ctrl+1 → player 1, but emulator core uses 0-based port
         const p = playerRef.current || window.__gvPlayer;
-        if (p) { p._seat = port; }
-        sendDC({ cmd: "kbd_port", port });
+        if (p) { p._seat = port - 1; }
+        sendDC({ cmd: "kbd_port", port: port - 1 });
       } else if (e.key === "0") {
         e.preventDefault();
         setKbdPort(0);
