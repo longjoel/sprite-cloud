@@ -3,6 +3,7 @@ import "@/components/fluent/tiles.css";
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import SpriteCloudProvider from "@/components/fluent/SpriteCloudProvider";
+import { SessionProvider } from "next-auth/react";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -43,9 +44,11 @@ export default function RootLayout({
         />
       </head>
       <body>
-        <SpriteCloudProvider>
-          {children}
-        </SpriteCloudProvider>
+        <SessionProvider>
+          <SpriteCloudProvider>
+            {children}
+          </SpriteCloudProvider>
+        </SessionProvider>
         <script
           dangerouslySetInnerHTML={{
             __html: `
