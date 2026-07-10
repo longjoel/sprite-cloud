@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import GamePlayer from "@/components/GamePlayer";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -39,6 +41,9 @@ const SUB_CATEGORIES: SubCategory[] = [
 // ── Component ─────────────────────────────────────────────────────────
 
 export default function XmbPage() {
+  const router = useRouter();
+  const { data: session, status } = useSession();
+
   const [focusedCat, setFocusedCat] = useState(0);
   const [focusedSub, setFocusedSub] = useState(0);
   const [focusedGame, setFocusedGame] = useState(0);
@@ -55,6 +60,13 @@ export default function XmbPage() {
   const gameListRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const fadingOut = useRef(false);
+
+  // ── Auth guard — redirect to signin if not logged in ──────────────
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.replace("/api/auth/signin");
+    }
+  }, [status, router]);
 
   // ── Mobile detection ────────────────────────────────────────────────
   useEffect(() => {
@@ -155,10 +167,15 @@ export default function XmbPage() {
         e.preventDefault();
         const port = parseInt(e.key);
         setKbdPort(port);
+        // Set seat directly on GvPlayer for binary input mask
+        const p = playerRef.current || window.__gvPlayer;
+        if (p) { p._seat = port; }
         sendDC({ cmd: "kbd_port", port });
       } else if (e.key === "0") {
         e.preventDefault();
         setKbdPort(0);
+        const p = playerRef.current || window.__gvPlayer;
+        if (p) { p._seat = 0; }
         sendDC({ cmd: "kbd_port", port: 0 });
       } else if (e.key === "g") {
         e.preventDefault();
