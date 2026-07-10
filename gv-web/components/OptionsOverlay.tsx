@@ -101,7 +101,6 @@ export default function OptionsOverlay({
     { id: "saves", icon: "📋", label: "Saves", action: onOpenSaves },
     { id: "keys", icon: "🎮", label: "Keys", action: onOpenKeys },
     { id: "gamepad", icon: "📱", label: "Gamepad", action: onReposition },
-    { id: "room", icon: "👥", label: "Room", action: onOpenRoom },
     { id: "resetpos", icon: "⟲", label: "Reset Pos", action: onResetPosition },
     ...(isMobile && onCast ? [{ id: "cast", icon: "📺", label: "Cast", action: onCast }] : []),
     ...(onQrCode ? [{ id: "qrcode", icon: "📱", label: "QR Code", action: onQrCode }] : []),
