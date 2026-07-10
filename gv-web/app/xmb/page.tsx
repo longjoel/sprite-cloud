@@ -30,9 +30,7 @@ interface SubCategory {
 
 const CATEGORIES: Category[] = [
   { id: "games", label: "Game", icon: "▶" },
-  { id: "friends", label: "Friends", icon: "🎮" },
-  { id: "settings", label: "Settings", icon: "⚙" },
-  { id: "users", label: "Users", icon: "👤" },
+  { id: "classic", label: "Classic", icon: "🏠" },
 ];
 
 const SUB_CATEGORIES: SubCategory[] = [
@@ -307,17 +305,19 @@ export default function XmbPage() {
             ...(isMobile ? s.catItemMobile : {}),
             ...(i === focusedCat ? s.catFocused : {}),
           }}
-          onClick={() => setFocusedCat(i)}
+          onClick={() => {
+            if (cat.id === "classic") {
+              window.location.href = "/";
+            } else {
+              setFocusedCat(i);
+            }
+          }}
           title={cat.label}
         >
           <span style={s.catIcon}>{cat.icon}</span>
           <span style={s.catLabel}>{cat.label}</span>
         </div>
       ))}
-      <a href="/" style={{ ...s.catItem, textDecoration: "none" }}>
-        <span style={s.catIcon}>🏠</span>
-        <span style={s.catLabel}>Classic</span>
-      </a>
     </div>
   );
 
@@ -374,7 +374,6 @@ export default function XmbPage() {
           </div>
         );
       })}
-      {!loaded && <div style={s.loading}>Loading…</div>}
       {loaded && filteredGames.length === 0 && (
         <div style={s.empty}>No games found</div>
       )}
@@ -445,15 +444,6 @@ export default function XmbPage() {
                 {renderSubCategories()}
                 {renderGameList()}
               </>
-            )}
-            {focusedCat === 1 && (
-              <div style={s.placeholder}>Friends — coming soon</div>
-            )}
-            {focusedCat === 2 && (
-              <div style={s.placeholder}>Settings — use dashboard</div>
-            )}
-            {focusedCat === 3 && (
-              <div style={s.placeholder}>Users — coming soon</div>
             )}
           </div>
 
