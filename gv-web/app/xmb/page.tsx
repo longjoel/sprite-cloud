@@ -390,12 +390,6 @@ export default function XmbPage() {
           <div style={s.backHint} onClick={closePlayer}>
             Press Esc or ○ to close  ·  Ctrl+1-4: port  ·  Ctrl+G: gamepad
           </div>
-
-          {/* Port badges */}
-          <div style={s.portBadges}>
-            {kbdPort > 0 && <span style={s.portBadge}>⌨→P{kbdPort}</span>}
-            <span style={s.portBadge}>🎮0→P1</span>
-          </div>
         </>
       ) : (
         <>
