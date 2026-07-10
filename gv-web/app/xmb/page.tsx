@@ -417,22 +417,6 @@ export default function XmbPage() {
           {/* Background ambient */}
           <div style={s.bgGradient} />
 
-          {/* Server status bar (from bootstrap) */}
-          {bootstrap && bootstrap.servers.length > 0 && (
-            <div style={s.statusBar}>
-              <span style={s.statusLabel}>
-                {bootstrap.servers[0].name}
-              </span>
-              <span style={s.statusMeta}>
-                {bootstrap.library?.totalGames ?? 0} games
-                {bootstrap.library?.pinnedCount ? ` · ${bootstrap.library.pinnedCount} pinned` : ""}
-              </span>
-              {!bootstrap.ice.turnConfigured && (
-                <span style={s.statusWarn}>⚠ relay inactive</span>
-              )}
-            </div>
-          )}
-
           {/* Main XMB layout */}
           <div style={s.xmbBody}>
             {focusedCat === 0 && (
