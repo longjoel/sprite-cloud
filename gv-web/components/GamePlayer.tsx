@@ -297,95 +297,95 @@ export default function GamePlayer({
     startedRef.current = true;
     advanceStep("ice");
 
-    const player = gvPlay.startPlayer(
-      videoRef.current,
-      serverId,
-      gameId,
-      null,
-      {
-        onStateChange(state: string, detail?: string) {
-          setStatus(state);
-          if (state === "connecting") {
-            advanceStep("server");
-          }
-          if (state === "connected") {
-            advanceStep("media");
-            // Small delay then mark Playing — lets first frame paint
-            setTimeout(() => advanceStep("connected"), 300);
-            setError(null);
-            setConnected(true);
-            onConnected?.();
-            setShowDisconnect(false);
-          }
-          if (state === "error") {
-            const activeStep = PIPELINE_STEPS.find(
-              (s) => pipeline[s.id] === "active",
-            );
-            if (activeStep) failStep(activeStep.id);
-            setError(detail ?? "connection error");
-            setConnected(false);
-            setShowDisconnect(false); // hard error supersedes reconnect overlay
-          }
-          if (state === "idle") {
-            setConnected(false);
-          }
-        },
-        onStats(_stats: object) {},
-        onSaveResult(index: number, ok: boolean, error?: string) {
-          showToast(
-            ok ? `Saved (#${index})` : `Save failed — ${error || "unknown"}`,
-            ok,
-          );
-        },
-        onLoadResult(ok: boolean, error?: string) {
-          showToast(ok ? "Loaded" : `Load failed — ${error || "unknown"}`, ok);
-        },
-        onListSaves(entries: any[], _nextIndex: number) {
-          setSaveEntries(entries || []);
-        },
-        onError(msg: string) {
-          setError(msg);
-          setShowDisconnect(false); // hard error supersedes reconnect overlay
-          onFatalError?.(msg);
-          const activeStep = PIPELINE_STEPS.find(
-            (s) => pipeline[s.id] === "active",
-          );
-          if (activeStep) failStep(activeStep.id);
-        },
-        onProgress(msg: string) {
-          setStatus(msg);
-          if (msg.includes("Starting game")) advanceStep("core");
-          else if (msg.includes("Worker") || msg.includes("SDP")) advanceStep("sdp");
-          else if (msg.includes("handshak")) advanceStep("encode");
-        },
-        onReconnecting(attempt: number) {
-          setShowDisconnect(true);
-          setReconnectAttempt(attempt);
-          setReconnectMsg(`Reconnecting in 3s… (attempt ${attempt})`);
-        },
-        onReconnected() {
-          setShowDisconnect(false);
-          setReconnectAttempt(0);
-          showToast("Reconnected", true);
-        },
-        onReconnectFailed() {
-          setReconnectMsg("Reconnection failed — refresh the page");
-          // In guest/hidePipeline mode, escalate to fatal error so the page
-          // shows a clean error screen instead of stacking overlays
-          if (hidePipeline) {
-            setShowDisconnect(false);
-            onFatalError?.("Reconnection failed — the host may have stopped streaming");
-          }
-        },
-        onRoute(routeLabel: string, detail: string) {
-          setRoute(routeLabel);
-          setRouteDetail(detail);
-        },
-      },
-      joinToken,
-      hostToken,
-    );
+    const player = (() => {
+      if (typeof RTCPeerConnection === "undefined") {
+        const msg = "WebRTC unavailable — your browser or network may block it";
+        setError(msg);
+        onFatalError?.(msg);
+        return null;
+      }
+      try {
+        return gvPlay.startPlayer(
+          videoRef.current,
+          serverId,
+          gameId,
+          null,
+          {
+            onStateChange(state: string, detail?: string) {
+              setStatus(state);
+              if (state === "connecting") {
+                advanceStep("server");
+              }
+              if (state === "connected") {
+                advanceStep("media");
+                setTimeout(() => advanceStep("connected"), 300);
+                setError(null);
+                setConnected(true);
+                onConnected?.();
+                setShowDisconnect(false);
+              }
+              if (state === "error") {
+                const activeStep = PIPELINE_STEPS.find(
+                  (s) => pipeline[s.id] === "active",
+                );
+                if (activeStep) failStep(activeStep.id);
+                setError(detail ?? "connection error");
+                setConnected(false);
+                setShowDisconnect(false);
+              }
+              if (state === "idle") {
+                setConnected(false);
+              }
+            },
+            onStats(_stats: object) {},
+            onSaveResult(index: number, ok: boolean, error?: string) {
+              showToast(
+                ok ? `Saved (#${index})` : `Save failed — ${error || "unknown"}`,
+                ok,
+              );
+            },
+            onLoadResult(ok: boolean, error?: string) {
+              showToast(ok ? "Loaded" : `Load failed — ${error || "unknown"}`, ok);
+            },
+            onListSaves(_entries: any[], _nextIndex: number) {},
+            onError(msg: string) {
+              setError(msg);
+              setShowDisconnect(false);
+              onFatalError?.(msg);
+              const activeStep = PIPELINE_STEPS.find(
+                (s) => pipeline[s.id] === "active",
+              );
+              if (activeStep) failStep(activeStep.id);
+            },
+            onProgress(_msg: string) {},
+            onReconnecting(_attempt: number) {},
+            onReconnected() {
+              setShowDisconnect(false);
+              setError(null);
+            },
+            onReconnectFailed() {
+              if (hidePipeline) {
+                setShowDisconnect(false);
+                onFatalError?.("Reconnection failed — the host may have stopped streaming");
+              }
+            },
+            onRoute(routeLabel: string, detail: string) {
+              setRoute(routeLabel);
+              setRouteDetail(detail);
+            },
+          },
+          joinToken,
+          hostToken,
+        );
+      } catch (e: any) {
+        const msg = e?.message || String(e);
+        setError(msg);
+        onFatalError?.(msg);
+        return null;
+      }
+    })();
 
+    if (!player) return;
     playerRef.current = player;
     setRttActive(true);
 
