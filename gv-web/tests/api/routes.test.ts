@@ -37,18 +37,15 @@ function mockQueryBuilder(returnValue: unknown) {
     leftJoin: vi.fn().mockReturnThis(),
     orderBy: vi.fn().mockReturnThis(),
     limit: vi.fn().mockReturnThis(),
+    offset: vi.fn().mockReturnThis(),
+    groupBy: vi.fn().mockReturnThis(),
     returning: vi.fn().mockReturnThis(),
     values: vi.fn().mockReturnThis(),
     set: vi.fn().mockReturnThis(),
     for: vi.fn().mockReturnThis(),
   };
-  // When awaited, return the requested value
-  builder.from.mockImplementation(() => {
-    const self = { ...builder };
-    // Make it thenable so await works
-    return Object.assign(Promise.resolve(returnValue), self);
-  });
-  return builder;
+  const thenable = Promise.resolve(returnValue);
+  return Object.assign(thenable, builder);
 }
 
 // Make db methods return chainable builders
@@ -1323,5 +1320,52 @@ describe("GET /api/playable-hosts", () => {
     const resp = await GET(req);
     const body = await resp.json();
     expect(body.hosts[0].route_hint).toBe("unknown");
+  });
+});
+
+// ── /api/client/bootstrap ─────────────────────────────────────────────
+
+describe("GET /api/client/bootstrap", () => {
+  it("returns minimal bootstrap when unauthenticated", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    const { GET } = await import("@/app/api/client/bootstrap/route");
+    const req = mkReq("http://localhost/api/client/bootstrap");
+    const resp = await GET();
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.auth.authenticated).toBe(false);
+    expect(body.servers).toEqual([]);
+    expect(body.library).toBeNull();
+    expect(body.deepLinks.hostPattern).toBe("/p/:code");
+    expect(body.features.xmb).toBe(true);
+  });
+
+  it("returns auth + servers when signed in", async () => {
+    // Auth returns user
+    // DB returns server memberships
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{ id: "server-1", name: "Bazzite" }]),
+    );
+    // DB returns game counts
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{ serverId: "server-1", count: 24 }]),
+    );
+    // DB returns pinned count
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{ pinnedCount: 2 }]),
+    );
+
+    const { GET } = await import("@/app/api/client/bootstrap/route");
+    const resp = await GET();
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.auth.authenticated).toBe(true);
+    expect(body.auth.userId).toBe("user-1");
+    expect(body.servers).toHaveLength(1);
+    expect(body.servers[0].name).toBe("Bazzite");
+    expect(body.servers[0].gameCount).toBe(24);
+    expect(body.library.totalGames).toBe(24);
+    expect(body.library.pinnedCount).toBe(2);
+    expect(typeof body.ice.stunConfigured).toBe("boolean");
   });
 });
