@@ -47,9 +47,10 @@ export const config = {
   matcher: [
     "/player/:path*",
     "/api/:path*",
+    "/p/:path*",
+    "/xmb",
     "/signin",
     "/setup",
-    // Error pages
     "/unauthorized",
     "/forbidden",
   ],
