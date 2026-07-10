@@ -427,6 +427,7 @@ export default function XmbPage() {
               {!bootstrap.ice.turnConfigured && (
                 <span style={s.statusWarn}>⚠ relay inactive</span>
               )}
+              <a href="/" style={s.statusLink}>Classic</a>
             </div>
           )}
 
@@ -488,6 +489,11 @@ const s: Record<string, React.CSSProperties> = {
   statusLabel: { color: S.accent, fontWeight: 600 },
   statusMeta: { color: "rgba(255,255,255,0.45)" },
   statusWarn: { color: "rgba(251,191,36,0.8)", marginLeft: "auto" },
+  statusLink: {
+    color: S.accent, textDecoration: "none", fontWeight: 500,
+    marginLeft: 12, padding: "2px 8px", border: "1px solid rgba(56,189,248,0.2)",
+    borderRadius: 4, fontSize: "var(--font-size-xs)",
+  },
   xmbBody: {
     position: "absolute", inset: 0, bottom: 72, zIndex: 1,
     display: "flex", flexDirection: "column", overflow: "hidden",
