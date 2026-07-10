@@ -8,8 +8,14 @@ import GamePlayer from "@/components/GamePlayer";
 // ── Types ────────────────────────────────────────────────────────────
 
 interface Game {
-  id: string; name: string; platform: string;
-  cover_url?: string; serverId?: string; server_id?: string; // snake_case from API, camelCase from local
+  id: string;
+  name: string;
+  platform: string;
+  maxPlayers?: number;
+  serverId?: string;
+  server_id?: string;
+  cover_url?: string;
+  pinned?: boolean;
 }
 
 interface Category {
@@ -102,7 +108,7 @@ export default function XmbPage() {
   useEffect(() => {
     (async () => {
       try {
-        const query = search ? `?search=${encodeURIComponent(search)}&limit=200` : "?limit=200";
+        const query = search ? `?search=${encodeURIComponent(search)}&limit=200&pins_first=true` : "?limit=200&pins_first=true";
         const res = await fetch(`/api/games${query}`);
         if (!res.ok) return;
         const data = await res.json();

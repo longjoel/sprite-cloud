@@ -240,6 +240,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
         limit: String(PAGE_SIZE),
         offset: String(offset),
         search: searchTerm,
+        ...(reset ? { pins_first: "true" } : {}),
       });
       setAllGames(reset ? data.games : [...current, ...data.games]);
       setAllTotal(data.total);
