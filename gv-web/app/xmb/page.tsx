@@ -56,6 +56,11 @@ export default function XmbPage() {
   const [games, setGames] = useState<Game[]>([]);
   const [search, setSearch] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [bootstrap, setBootstrap] = useState<{
+    servers: Array<{ id: string; name: string; gameCount: number }>;
+    library: { totalGames: number; pinnedCount: number } | null;
+    ice: { stunConfigured: boolean; turnConfigured: boolean; transportPolicy: string };
+  } | null>(null);
   const [playing, setPlaying] = useState(false);
   const [playGame, setPlayGame] = useState<{ gameId: string; serverId: string; hostToken?: string; gameName?: string; platform?: string } | null>(null);
   const [fadeIn, setFadeIn] = useState(false);
@@ -117,6 +122,19 @@ export default function XmbPage() {
       setLoaded(true);
     })();
   }, [search]);
+
+  // ── Fetch bootstrap (once, when authenticated) ───────────────────
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    (async () => {
+      try {
+        const res = await fetch("/api/client/bootstrap");
+        if (!res.ok) return;
+        const data = await res.json();
+        setBootstrap({ servers: data.servers || [], library: data.library, ice: data.ice });
+      } catch { /* fail silently */ }
+    })();
+  }, [status]);
 
   // ── Filtered games for current sub-category ──────────────────────────
   const sub = SUB_CATEGORIES[focusedSub];
@@ -396,6 +414,22 @@ export default function XmbPage() {
           {/* Background ambient */}
           <div style={s.bgGradient} />
 
+          {/* Server status bar (from bootstrap) */}
+          {bootstrap && bootstrap.servers.length > 0 && (
+            <div style={s.statusBar}>
+              <span style={s.statusLabel}>
+                {bootstrap.servers[0].name}
+              </span>
+              <span style={s.statusMeta}>
+                {bootstrap.library?.totalGames ?? 0} games
+                {bootstrap.library?.pinnedCount ? ` · ${bootstrap.library.pinnedCount} pinned` : ""}
+              </span>
+              {!bootstrap.ice.turnConfigured && (
+                <span style={s.statusWarn}>⚠ relay inactive</span>
+              )}
+            </div>
+          )}
+
           {/* Main XMB layout */}
           <div style={s.xmbBody}>
             {focusedCat === 0 && (
@@ -445,6 +479,15 @@ const s: Record<string, React.CSSProperties> = {
     background: `radial-gradient(ellipse at 50% 30%, rgba(56,189,248,0.06) 0%, transparent 60%),
                  radial-gradient(ellipse at 80% 70%, rgba(99,102,241,0.04) 0%, transparent 50%)`,
   },
+  statusBar: {
+    position: "absolute", top: 0, left: 0, right: 0, zIndex: 2,
+    height: 32, display: "flex", alignItems: "center", gap: 12,
+    padding: "0 16px", background: "rgba(0,0,0,0.3)", backdropFilter: "blur(6px)",
+    fontSize: "var(--font-size-xs)", borderBottom: "1px solid rgba(56,189,248,0.1)",
+  },
+  statusLabel: { color: S.accent, fontWeight: 600 },
+  statusMeta: { color: "rgba(255,255,255,0.45)" },
+  statusWarn: { color: "rgba(251,191,36,0.8)", marginLeft: "auto" },
   xmbBody: {
     position: "absolute", inset: 0, bottom: 72, zIndex: 1,
     display: "flex", flexDirection: "column", overflow: "hidden",
