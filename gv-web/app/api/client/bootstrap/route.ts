@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { serverMembers, servers, games, gameFiles, pinnedGames } from "@/lib/db/schema";
-import { eq, sql, and } from "drizzle-orm";
+import { eq, sql, inArray } from "drizzle-orm";
 
 // ── GET /api/client/bootstrap ───────────────────────────────────────────
 //
@@ -135,9 +135,7 @@ export async function GET() {
       })
       .from(games)
       .innerJoin(gameFiles, eq(games.id, gameFiles.gameId))
-      .where(and(
-        sql`${gameFiles.serverId} IN (${serverIds.join(",")})`,
-      ))
+      .where(inArray(gameFiles.serverId, serverIds))
       .groupBy(gameFiles.serverId);
 
     const countMap = new Map(counts.map((c) => [c.serverId, Number(c.count)]));
@@ -150,17 +148,18 @@ export async function GET() {
   }
 
   // Pinned game count
-  const [{ pinnedCount }] = await db
+  const [pinRow] = await db
     .select({ pinnedCount: sql<number>`count(*)` })
     .from(pinnedGames)
     .where(eq(pinnedGames.userId, session.user.id));
+  const pinnedCount = Number(pinRow?.pinnedCount ?? 0);
 
   return NextResponse.json({
     ...base,
     servers: serversWithCounts,
     library: {
       totalGames: serversWithCounts.reduce((sum, s) => sum + s.gameCount, 0),
-      pinnedCount: Number(pinnedCount),
+      pinnedCount,
     },
   });
 }
