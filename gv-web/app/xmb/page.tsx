@@ -16,6 +16,7 @@ interface Game {
   server_id?: string;
   cover_url?: string;
   pinned?: boolean;
+  favorited?: boolean;
 }
 
 interface Category {
@@ -30,10 +31,14 @@ interface SubCategory {
 
 const CATEGORIES: Category[] = [
   { id: "games", label: "Game", icon: "▶" },
+  { id: "settings", label: "Settings", icon: "⚙" },
   { id: "classic", label: "Classic", icon: "🏠" },
 ];
 
 const SUB_CATEGORIES: SubCategory[] = [
+  { id: "favorites", label: "★", filter: (g) => !!g.favorited },
+  { id: "recent", label: "🕐", filter: () => false }, // placeholder — filtered in render
+  { id: "pins", label: "📌", filter: (g) => !!g.pinned },
   { id: "all", label: "All", filter: () => true },
   { id: "nes", label: "NES", filter: (g) => g.platform === "NES" },
   { id: "snes", label: "SNES", filter: (g) => g.platform === "SNES" },
@@ -59,6 +64,7 @@ export default function XmbPage() {
     library: { totalGames: number; pinnedCount: number } | null;
     ice: { stunConfigured: boolean; turnConfigured: boolean; transportPolicy: string };
   } | null>(null);
+  const [recentIds, setRecentIds] = useState<string[]>([]);
   const [playing, setPlaying] = useState(false);
   const [playGame, setPlayGame] = useState<{ gameId: string; serverId: string; hostToken?: string; gameName?: string; platform?: string } | null>(null);
   const [fadeIn, setFadeIn] = useState(false);
@@ -121,7 +127,7 @@ export default function XmbPage() {
     })();
   }, [search]);
 
-  // ── Fetch bootstrap (once, when authenticated) ───────────────────
+  // ── Fetch bootstrap + recent plays (once, when authenticated) ─────
   useEffect(() => {
     if (status !== "authenticated") return;
     (async () => {
@@ -129,14 +135,24 @@ export default function XmbPage() {
         const res = await fetch("/api/client/bootstrap");
         if (!res.ok) return;
         const data = await res.json();
-        setBootstrap({ servers: data.servers || [], library: data.library, ice: data.ice });
+        setBootstrap(data);
+      } catch { /* fail silently */ }
+      try {
+        const recentRes = await fetch("/api/recent-plays");
+        if (recentRes.ok) {
+          const recentData = await recentRes.json();
+          setRecentIds((recentData.items || []).map((item: any) => item.gameId));
+        }
       } catch { /* fail silently */ }
     })();
   }, [status]);
 
   // ── Filtered games for current sub-category ──────────────────────────
   const sub = SUB_CATEGORIES[focusedSub];
-  const filteredGames = games.filter(sub?.filter ?? (() => true));
+  const filteredGames = games.filter((g) => {
+    if (sub?.id === "recent") return recentIds.includes(g.id);
+    return sub?.filter ? sub.filter(g) : true;
+  });
 
   // Clamp focused game index
   const safeGameIdx = Math.min(focusedGame, Math.max(0, filteredGames.length - 1));
@@ -297,27 +313,37 @@ export default function XmbPage() {
   // ── Render categories ────────────────────────────────────────────────
   const renderCategories = () => (
     <div style={{ ...s.categories, ...(isMobile ? s.categoriesMobile : {}) }}>
-      {CATEGORIES.map((cat, i) => (
-        <div
-          key={cat.id}
-          style={{
-            ...s.catItem,
-            ...(isMobile ? s.catItemMobile : {}),
-            ...(i === focusedCat ? s.catFocused : {}),
-          }}
-          onClick={() => {
-            if (cat.id === "classic") {
-              window.location.href = "/";
-            } else {
-              setFocusedCat(i);
-            }
-          }}
-          title={cat.label}
-        >
-          <span style={s.catIcon}>{cat.icon}</span>
-          <span style={s.catLabel}>{cat.label}</span>
-        </div>
-      ))}
+      <input
+        type="text"
+        placeholder="Search…"
+        value={search}
+        onChange={(e) => { setSearch(e.target.value); setFocusedGame(0); }}
+        style={s.searchInput}
+        onClick={(e) => e.stopPropagation()}
+      />
+      <div style={s.catGroup}>
+        {CATEGORIES.map((cat, i) => (
+          <div
+            key={cat.id}
+            style={{
+              ...s.catItem,
+              ...(isMobile ? s.catItemMobile : {}),
+              ...(i === focusedCat ? s.catFocused : {}),
+            }}
+            onClick={() => {
+              if (cat.id === "classic") {
+                window.location.href = "/";
+              } else {
+                setFocusedCat(i);
+              }
+            }}
+            title={cat.label}
+          >
+            <span style={s.catIcon}>{cat.icon}</span>
+            <span style={s.catLabel}>{cat.label}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 
@@ -333,14 +359,6 @@ export default function XmbPage() {
           {sc.label}
         </div>
       ))}
-      <input
-        type="text"
-        placeholder="Search…"
-        value={search}
-        onChange={(e) => { setSearch(e.target.value); setFocusedGame(0); }}
-        style={s.searchInput}
-        onClick={(e) => e.stopPropagation()}
-      />
     </div>
   );
 
@@ -425,6 +443,14 @@ export default function XmbPage() {
                 {renderGameList()}
               </>
             )}
+            {focusedCat === 1 && (
+              <iframe
+                src="/dashboard"
+                style={s.settingsFrame}
+                title="Settings"
+                sandbox="allow-scripts allow-same-origin allow-forms"
+              />
+            )}
           </div>
 
           {/* Bottom category bar */}
@@ -477,9 +503,12 @@ const s: Record<string, React.CSSProperties> = {
   },
   categories: {
     position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 10,
-    height: 68, display: "flex", alignItems: "center", justifyContent: "center",
+    height: 68, display: "flex", alignItems: "center", justifyContent: "space-between",
     gap: 4, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(12px)",
-    borderTop: "1px solid rgba(255,255,255,0.04)",
+    borderTop: "1px solid rgba(255,255,255,0.04)", padding: "0 8px",
+  },
+  catGroup: {
+    display: "flex", alignItems: "center", gap: 4,
   },
   categoriesMobile: {
     height: 56, gap: 0,
@@ -509,9 +538,12 @@ const s: Record<string, React.CSSProperties> = {
   },
   subFocused: { color: S.text, background: S.accentDim },
   searchInput: {
-    marginLeft: "auto", padding: "4px 10px", border: "1px solid rgba(255,255,255,0.08)",
+    padding: "4px 10px", border: "1px solid rgba(255,255,255,0.08)",
     background: "rgba(255,255,255,0.04)", color: S.text, borderRadius: 2,
     fontSize: 12, width: 140, outline: "none",
+  },
+  settingsFrame: {
+    width: "100%", height: "100%", border: "none",
   },
   gameList: {
     flex: 1, overflowY: "auto", padding: "8px 16px",
