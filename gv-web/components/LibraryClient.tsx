@@ -663,6 +663,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
         userName={session?.user?.name || session?.user?.email || undefined}
         links={[
           ...(session ? [{ label: "Dashboard", href: "/dashboard" }] : []),
+          { label: "XMB", href: "/xmb" },
           ...(session
             ? [{ label: "Sign out", href: "/api/auth/signout" }]
             : [{ label: "Sign in", href: "/api/auth/signin" }]),
