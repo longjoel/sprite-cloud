@@ -91,6 +91,97 @@ Command payloads are JSON objects with a `type`, `server_id`, and type-specific 
 |---|---:|---|---|
 | `/api/health` | `GET` | none | Gateway health/status check |
 | `/api/ice-config` | `GET` | none/session-safe | Return STUN/TURN config for browser WebRTC setup |
+| `/api/client/bootstrap` | `GET` | optional session | Stable client bootstrap — auth state, servers, ICE summary, feature flags |
+
+### Client bootstrap contract
+
+`GET /api/client/bootstrap` is the canonical first call for any native-ish shell
+(PWA, desktop, mobile). It returns everything needed to render the first screen
+— no secondary calls required.
+
+**Response (authenticated):**
+
+```json
+{
+  "version": "0.2.0",
+  "auth": {
+    "authenticated": true,
+    "userId": "00000000-0000-0000-0000-000000000000",
+    "name": "Joel",
+    "email": "joel@example.com"
+  },
+  "servers": [
+    { "id": "server-uuid", "name": "Bazzite", "gameCount": 24 }
+  ],
+  "library": {
+    "totalGames": 24,
+    "pinnedCount": 2
+  },
+  "ice": {
+    "stunConfigured": true,
+    "turnConfigured": false,
+    "transportPolicy": "all"
+  },
+  "features": {
+    "pwa": true,
+    "xmb": true,
+    "guestPlay": true,
+    "multiController": true
+  },
+  "deepLinks": {
+    "hostPattern": "/p/:code",
+    "guestPattern": "/p/:code?join",
+    "resolvePattern": "/p/:code"
+  }
+}
+```
+
+**Response (unauthenticated):**
+
+```json
+{
+  "version": "0.2.0",
+  "auth": { "authenticated": false },
+  "servers": [],
+  "library": null,
+  "ice": { … },
+  "features": { … },
+  "deepLinks": { … }
+}
+```
+
+### Deep-link resolution
+
+| Pattern | Purpose | Auth required |
+|---|---|---|
+| `/p/:code` | Short-code host/reconnect link | Session (host) |
+| `/p/:code?join` | Guest join via share link | None (room token) |
+| `/r/:roomToken` | Direct room join | None |
+| `/api/room/resolve/:code` | Resolve a short code to game metadata | Optional session |
+
+**Host flow:** A signed-in user receives a short code (`TLMDLV`) and navigates to
+`/p/TLMDLV`. The page resolves the code via `/api/room/resolve/TLMDLV`, fetches
+game metadata, and starts the player as the host.
+
+**Guest flow:** A guest receives a share link (`/p/TLMDLV?join`). The page detects
+`?join` in the URL, extracts the room token, and joins as a guest without requiring
+a user account.
+
+### Token persistence rules
+
+| Token | Scope | Storage | Lifetime |
+|---|---|---|---|
+| Session cookie | Browser auth | `next-auth.session-token` (httpOnly, secure) | Session |
+| Host token | Bearer launch secret | In-memory only; passed via URL on reconnect | Until session ends |
+| Room token | Guest join secret | In-memory only; embedded in share link | Until session ends |
+| Peer token | Per-guest identifier | In-memory only | Until guest disconnects |
+| ICE credentials | TURN auth | Never stored client-side (fetched from `/api/ice-config`) | Per TURN allocation |
+| CSRF token | Mutation guard | `gv_csrf_token` cookie + `x-csrf-token` header | Session |
+
+**Critical rule:** Host tokens and room tokens must never be persisted to
+`localStorage` or `sessionStorage` in the PWA context. Reconnection uses
+URL-embedded tokens only. Long-lived session secrets in diagnostics or logs
+are forbidden.
 
 Example ICE response:
 
