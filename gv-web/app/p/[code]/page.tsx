@@ -110,6 +110,19 @@ export default function ShortCodePage() {
     setPipeline(p);
   }, []);
 
+  // ── Ctrl+G — toggle touch gamepad ────────────────────────────────────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === "g") {
+        e.preventDefault();
+        const tg = (window as any).__gvTouchGamepad;
+        if (tg && tg.toggle) { try { tg.toggle(); } catch {} }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // ── Error ──────────────────────────────────────────────────────────
   if (phase === "error") {
     // Parse diagnostic info from error messages
