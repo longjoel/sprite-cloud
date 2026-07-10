@@ -94,7 +94,6 @@ export default function OptionsOverlay({
       label: isFullscreen ? "Windowed" : "Fullscreen",
       action: onFullscreen,
     },
-    { id: "reposition", icon: "🖐", label: "Toggle Pad", action: onReposition },
     { id: "restart", icon: "↺", label: "Restart", action: onRestart, danger: true },
   ];
 

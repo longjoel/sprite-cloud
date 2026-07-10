@@ -423,16 +423,18 @@ export default function GamePlayer({
 
   const toggleTouchGamepad = useCallback(() => {
     const tg = window.__gvTouchGamepad;
-    if (tg) {
-      if (tg.isVisible()) {
-        tg.hide();
-        setTouchGamepadVisible(false);
-      } else {
-        tg.show();
-        setTouchGamepadVisible(true);
-      }
+    if (!tg) return;
+    // Use React state as source of truth — tg.isVisible() gets out of sync
+    if (touchGamepadVisible) {
+      tg.hide();
+      setTouchGamepadVisible(false);
+      try { localStorage.setItem('gv:touch-visible', '0'); } catch {}
+    } else {
+      tg.show();
+      setTouchGamepadVisible(true);
+      try { localStorage.setItem('gv:touch-visible', '1'); } catch {}
     }
-  }, []);
+  }, [touchGamepadVisible]);
 
   // Set video dataset attributes for touch-gamepad.js to read
   useEffect(() => {
