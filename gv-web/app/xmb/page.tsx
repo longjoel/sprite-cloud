@@ -314,6 +314,10 @@ export default function XmbPage() {
           <span style={s.catLabel}>{cat.label}</span>
         </div>
       ))}
+      <a href="/" style={{ ...s.catItem, textDecoration: "none" }}>
+        <span style={s.catIcon}>🏠</span>
+        <span style={s.catLabel}>Classic</span>
+      </a>
     </div>
   );
 
@@ -432,7 +436,6 @@ export default function XmbPage() {
             ) : (
               <span style={s.statusMeta}>loading…</span>
             )}
-            <a href="/" style={{...s.statusLink, marginLeft: "auto"}}>Classic</a>
           </div>
 
           {/* Main XMB layout */}
