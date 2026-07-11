@@ -21,6 +21,7 @@ const mockWebVersionEnv = {
 
 const mockDb = {
   select: vi.fn(),
+  selectDistinct: vi.fn(),
   insert: vi.fn(),
   update: vi.fn(),
   delete: vi.fn(),
@@ -51,6 +52,7 @@ function mockQueryBuilder(returnValue: unknown) {
 // Make db methods return chainable builders
 Object.assign(mockDb, {
   select: vi.fn(() => mockQueryBuilder([])),
+  selectDistinct: vi.fn(() => mockQueryBuilder([])),
   insert: vi.fn(() => mockQueryBuilder([{ id: "test-id" }])),
   update: vi.fn(() => mockQueryBuilder(undefined)),
   delete: vi.fn(() => mockQueryBuilder(undefined)),
@@ -120,9 +122,18 @@ function mkReq(url: string, init?: RequestInit): NextRequest {
   return Object.assign(req, { nextUrl: u }) as unknown as NextRequest;
 }
 
+function collectQueryValues(value: unknown, seen = new Set<object>()): string[] {
+  if (typeof value === "string") return [value];
+  if (value === null || typeof value !== "object" || seen.has(value)) return [];
+  seen.add(value);
+  if (Array.isArray(value)) return value.flatMap((item) => collectQueryValues(item, seen));
+  return Object.values(value).flatMap((item) => collectQueryValues(item, seen));
+}
+
 function resetAllMocks() {
   vi.clearAllMocks();
   mockDb.select.mockReset().mockImplementation(() => mockQueryBuilder([]));
+  mockDb.selectDistinct.mockReset().mockImplementation(() => mockQueryBuilder([]));
   mockDb.insert.mockReset().mockImplementation(() => mockQueryBuilder([{ id: "test-id" }]));
   mockDb.update.mockReset().mockImplementation(() => mockQueryBuilder(undefined));
   mockDb.delete.mockReset().mockImplementation(() => mockQueryBuilder(undefined));
@@ -1367,5 +1378,74 @@ describe("GET /api/client/bootstrap", () => {
     expect(body.library.totalGames).toBe(24);
     expect(body.library.pinnedCount).toBe(2);
     expect(typeof body.ice.stunConfigured).toBe("boolean");
+  });
+});
+
+describe.each([
+  ["favorites", () => import("@/app/api/favorites/route")],
+  ["recent-plays", () => import("@/app/api/recent-plays/route")],
+] as const)("GET /api/%s paginated search", (endpoint, loadRoute) => {
+  it("filters by game name before pagination and reports the filtered total", async () => {
+    const membershipsQuery = mockQueryBuilder([{ serverId: "server-1" }]);
+    const countQuery = mockQueryBuilder([{ count: 1 }]);
+    const pageQuery = mockQueryBuilder([{ id: "mario", name: "Super Mario", platform: "SNES", maxPlayers: 2 }]);
+    mockDb.select
+      .mockReturnValueOnce(membershipsQuery)
+      .mockReturnValueOnce(countQuery)
+      .mockReturnValueOnce(pageQuery);
+    mockDb.selectDistinct.mockReturnValueOnce(pageQuery);
+
+    const { GET } = await loadRoute();
+    const resp = await GET(mkReq(`http://localhost/api/${endpoint}?limit=1&offset=1&search=mArIo`));
+    const body = await resp.json();
+
+    expect(body).toEqual({
+      games: [{ id: "mario", name: "Super Mario", platform: "SNES", maxPlayers: 2 }],
+      total: 1,
+    });
+    expect(pageQuery.limit).toHaveBeenCalledWith(1);
+    expect(pageQuery.offset).toHaveBeenCalledWith(1);
+    for (const query of [countQuery, pageQuery]) {
+      expect(collectQueryValues(query.where.mock.calls[0][0])).toContain("%mArIo%");
+    }
+  });
+});
+
+describe("GET /api/recent-plays deterministic pagination", () => {
+  it("groups games and uses a stable secondary order", async () => {
+    const membershipsQuery = mockQueryBuilder([{ serverId: "server-1" }]);
+    const countQuery = mockQueryBuilder([{ count: 2 }]);
+    const pageQuery = mockQueryBuilder([]);
+    mockDb.select
+      .mockReturnValueOnce(membershipsQuery)
+      .mockReturnValueOnce(countQuery)
+      .mockReturnValueOnce(pageQuery);
+
+    const { GET } = await import("@/app/api/recent-plays/route");
+    await GET(mkReq("http://localhost/api/recent-plays?limit=1&offset=1"));
+
+    expect(pageQuery.groupBy).toHaveBeenCalledTimes(1);
+    expect(pageQuery.orderBy).toHaveBeenCalledTimes(1);
+    const [primaryOrder, secondaryOrder] = pageQuery.orderBy.mock.calls[0];
+    const { games, recentPlays } = await import("@/lib/db/schema");
+    const sqlParts = (expression: unknown): unknown[] => {
+      if (!expression || typeof expression !== "object") return [];
+      const chunks = (expression as { queryChunks?: unknown[] }).queryChunks;
+      if (!chunks) return [expression];
+      return chunks.flatMap((chunk) => {
+        const values = (chunk as { value?: string[] }).value;
+        return values ? values : sqlParts(chunk);
+      });
+    };
+    const primaryParts = sqlParts(primaryOrder);
+    const secondaryParts = sqlParts(secondaryOrder);
+    expect(primaryParts).toContain(recentPlays.playedAt);
+    expect(primaryParts.filter((part): part is string => typeof part === "string").join(""))
+      .toMatch(/max\(.*\).*desc/);
+    expect(secondaryParts).toContain(games.id);
+    expect(secondaryParts.filter((part): part is string => typeof part === "string").join(""))
+      .toMatch(/asc/);
+    expect(pageQuery.limit).toHaveBeenCalledWith(1);
+    expect(pageQuery.offset).toHaveBeenCalledWith(1);
   });
 });

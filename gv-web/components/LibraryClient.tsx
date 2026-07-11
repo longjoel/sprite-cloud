@@ -7,6 +7,7 @@ import GameTile from "@/components/fluent/GameTile";
 import AppHeader from "@/components/fluent/AppHeader";
 import { buildLanPlayerLaunchUrl } from "@/lib/lan/launch";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
+import { LIBRARY_SECTIONS, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, filterLibraryGames, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -162,7 +163,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   const [editName, setEditName] = useState("");
   const [editSaving, setEditSaving] = useState(false);
 
-  const [tab, setTab] = useState<"all" | "favorites" | "recent">("all");
+  const [tab, setTab] = useState<LibrarySection>("all");
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -185,6 +186,8 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   const [recentGames, setRecentGames] = useState<Game[]>([]);
   const [recentTotal, setRecentTotal] = useState(0);
   const [recentLoading, setRecentLoading] = useState(false);
+  const favoritesRequests = useRef(createLatestRequestGate());
+  const recentRequests = useRef(createLatestRequestGate());
 
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
@@ -249,31 +252,35 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     }
   }, [allLoading, fetchPage]);
 
-  const loadFavorites = useCallback(async (reset: boolean, current: Game[], total: number) => {
-    if (favLoading) return;
+  const loadFavorites = useCallback(async (reset: boolean, searchTerm: string, current: Game[], total: number) => {
+    if (favLoading && !reset) return;
     const offset = reset ? 0 : current.length;
     if (!reset && offset >= total && total > 0) return;
+    const generation = reset ? favoritesRequests.current.beginReset() : favoritesRequests.current.current();
     setFavLoading(true);
     try {
-      const data = await fetchPage("/api/favorites", { limit: String(PAGE_SIZE), offset: String(offset) });
+      const data = await fetchPage("/api/favorites", createLibraryPageParams(PAGE_SIZE, offset, searchTerm));
+      if (!favoritesRequests.current.isCurrent(generation)) return;
       setFavGames(reset ? data.games : [...current, ...data.games]);
       setFavTotal(data.total);
     } finally {
-      setFavLoading(false);
+      if (favoritesRequests.current.isCurrent(generation)) setFavLoading(false);
     }
   }, [favLoading, fetchPage]);
 
-  const loadRecent = useCallback(async (reset: boolean, current: Game[], total: number) => {
-    if (recentLoading) return;
+  const loadRecent = useCallback(async (reset: boolean, searchTerm: string, current: Game[], total: number) => {
+    if (recentLoading && !reset) return;
     const offset = reset ? 0 : current.length;
     if (!reset && offset >= total && total > 0) return;
+    const generation = reset ? recentRequests.current.beginReset() : recentRequests.current.current();
     setRecentLoading(true);
     try {
-      const data = await fetchPage("/api/recent-plays", { limit: String(PAGE_SIZE), offset: String(offset) });
+      const data = await fetchPage("/api/recent-plays", createLibraryPageParams(PAGE_SIZE, offset, searchTerm));
+      if (!recentRequests.current.isCurrent(generation)) return;
       setRecentGames(reset ? data.games : [...current, ...data.games]);
       setRecentTotal(data.total);
     } finally {
-      setRecentLoading(false);
+      if (recentRequests.current.isCurrent(generation)) setRecentLoading(false);
     }
   }, [recentLoading, fetchPage]);
 
@@ -284,9 +291,9 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
 
   useEffect(() => {
     if (!hasServers || !session?.user?.id) return;
-    if (tab === "favorites" && favGames.length === 0) loadFavorites(true, [], 0);
-    if (tab === "recent" && recentGames.length === 0) loadRecent(true, [], 0);
-  }, [tab, hasServers, session?.user?.id]);
+    if (tab === "favorites") loadFavorites(true, search, [], 0);
+    if (tab === "recent") loadRecent(true, search, [], 0);
+  }, [tab, search, hasServers, session?.user?.id]);
 
   // ── Infinite scroll sentinel ────────────────────────────────────
 
@@ -299,9 +306,9 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
           if (tab === "all" && allGames.length < allTotal) {
             loadAllGames(false, search, allGames, allTotal);
           } else if (tab === "favorites" && favGames.length < favTotal) {
-            loadFavorites(false, favGames, favTotal);
+            loadFavorites(false, search, favGames, favTotal);
           } else if (tab === "recent" && recentGames.length < recentTotal) {
-            loadRecent(false, recentGames, recentTotal);
+            loadRecent(false, search, recentGames, recentTotal);
           }
         }
       },
@@ -510,22 +517,19 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     return m;
   }, [allGames]);
 
-  // Apply platform filter
-  const filteredGames = selectedPlatforms.size === 0
-    ? currentGames
-    : currentGames.filter((g) => selectedPlatforms.has(g.platform));
-
-  // Sort: pinned first
   const sortedGames = useMemo(() => {
-    if (pinnedIds.size === 0 || tab !== "all") return filteredGames;
-    const pinned: Game[] = [];
-    const unpinned: Game[] = [];
-    for (const g of filteredGames) {
-      if (pinnedIds.has(g.id)) pinned.push(g);
-      else unpinned.push(g);
-    }
-    return [...pinned, ...unpinned];
-  }, [filteredGames, pinnedIds, tab]);
+    const normalized: LibraryGame[] = currentGames.map((game, index) => ({
+      ...game,
+      favorite: tab === "favorites" || favoriteIds.has(game.id),
+      pinned: pinnedIds.has(game.id),
+      recentRank: tab === "recent" ? index : null,
+      serverId: null,
+      coverUrl: null,
+    }));
+    const filtered = filterLibraryGames(normalized, createLibraryFilters(tab, search, selectedPlatforms));
+    const byId = new Map(currentGames.map((game) => [game.id, game]));
+    return filtered.map((game) => byId.get(game.id)!);
+  }, [currentGames, favoriteIds, pinnedIds, search, selectedPlatforms, tab]);
 
   const pinnedCount = sortedGames.filter((g) => pinnedIds.has(g.id)).length;
 
@@ -719,7 +723,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
 
         {/* Tabs */}
         <div style={{ display: "flex", gap: 0, marginBottom: "var(--space-4)" }}>
-          {(["all", "favorites", "recent"] as const).map((t) => {
+          {LIBRARY_SECTIONS.slice(0, 3).map(({ id: t, label }) => {
             const isActive = tab === t;
             const counts: Record<string, number> = { all: allTotal, favorites: favTotal, recent: recentTotal };
             return (
@@ -740,7 +744,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
                   transition: "all 0.15s",
                 }}
               >
-                {t.charAt(0).toUpperCase() + t.slice(1)}
+                {label}
                 {counts[t] > 0 ? ` (${counts[t]})` : ""}
               </button>
             );
