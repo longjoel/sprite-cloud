@@ -199,7 +199,7 @@ export async function POST(request: NextRequest) {
       if (!validateCsrf(request)) {
         return NextResponse.json({ error: "csrf token invalid" }, { status: 403 });
       }
-      // Verify the user owns this server (admin role)
+      // Verify the user is a member of this server (admin or viewer)
       const [membership] = await db
         .select({ role: serverMembers.role })
         .from(serverMembers)
@@ -208,7 +208,6 @@ export async function POST(request: NextRequest) {
           and(
             eq(serverMembers.serverId, body.server_id),
             eq(serverMembers.userId, session.user.id),
-            eq(serverMembers.role, "admin"),
           ),
         )
         .limit(1);
@@ -228,7 +227,7 @@ export async function POST(request: NextRequest) {
     if (!validateCsrf(request)) {
       return NextResponse.json({ error: "csrf token invalid" }, { status: 403 });
     }
-    // Verify the user owns this server (admin role)
+    // Verify the user is a member of this server (admin or viewer)
     const [membership] = await db
       .select({ role: serverMembers.role })
       .from(serverMembers)
@@ -237,7 +236,6 @@ export async function POST(request: NextRequest) {
         and(
           eq(serverMembers.serverId, body.server_id),
           eq(serverMembers.userId, session.user.id),
-          eq(serverMembers.role, "admin"),
         ),
       )
       .limit(1);
