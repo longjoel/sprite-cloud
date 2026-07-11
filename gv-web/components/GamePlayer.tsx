@@ -142,6 +142,8 @@ export default function GamePlayer({
   const [remapWaiting, setRemapWaiting] = useState<string | null>(null);
   const [showRoomControls, setShowRoomControls] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
+  const [showStats, setShowStats] = useState(false);
+  const [statsData, setStatsData] = useState<Record<string, any>>({ video: {}, audio: {}, pipeline: {} });
   const [snapshotFlash, setSnapshotFlash] = useState(false);
   const [touchGamepadVisible, setTouchGamepadVisible] = useState(() => {
     // Hide by default on desktop (non-touch), show on mobile
@@ -337,7 +339,9 @@ export default function GamePlayer({
                 setConnected(false);
               }
             },
-            onStats(_stats: object) {},
+            onStats(stats: object) {
+              setStatsData(stats as Record<string, any>);
+            },
             onSaveResult(index: number, ok: boolean, error?: string) {
               showToast(
                 ok ? `Saved (#${index})` : `Save failed — ${error || "unknown"}`,
@@ -711,8 +715,47 @@ export default function GamePlayer({
           onOpenRoom={() => setShowRoomControls(!showRoomControls)}
           onCast={handleCast}
           onQrCode={handleQrCode}
+          onStats={() => setShowStats(!showStats)}
           isMobile={isMobile}
         />
+      )}
+
+      {/* Stats for Nerds overlay */}
+      {showStats && (
+        <div
+          className={styles.overlay}
+          style={{ zIndex: 35 }}
+          onClick={() => setShowStats(false)}
+        >
+          <div
+            className={styles.overlayPanel}
+            style={{ maxWidth: 420, fontSize: 11, fontFamily: "monospace", padding: 16 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className={styles.overlayTitle}>Stats for Nerds</p>
+            {Object.entries(statsData).map(([section, data]) =>
+              data && typeof data === "object" && Object.keys(data as object).length > 0 ? (
+                <div key={section} style={{ marginTop: 8 }}>
+                  <strong style={{ color: "var(--color-accent)", textTransform: "uppercase", fontSize: 10 }}>
+                    {section}
+                  </strong>
+                  <pre style={{ margin: "4px 0 0", font: "inherit", color: "var(--color-text-dim)" }}>
+                    {Object.entries(data as object)
+                      .map(([k, v]) => `${k}: ${typeof v === "number" ? v.toFixed(1) : v}`)
+                      .join("\n")}
+                  </pre>
+                </div>
+              ) : null
+            )}
+            {Object.values(statsData).every(
+              (d) => !d || typeof d !== "object" || Object.keys(d as object).length === 0
+            ) && (
+              <p style={{ color: "var(--color-text-dim)", marginTop: 8 }}>
+                Waiting for stats from server…
+              </p>
+            )}
+          </div>
+        </div>
       )}
 
       {/* Pipeline loading — suppressed when page has its own overlay */}

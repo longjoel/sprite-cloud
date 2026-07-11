@@ -29,6 +29,7 @@ interface OptionsOverlayProps {
   onOpenRoom: () => void;
   onCast?: () => void;
   onQrCode?: () => void;
+  onStats?: () => void;
   isMobile?: boolean;
 }
 
@@ -50,6 +51,7 @@ export default function OptionsOverlay({
   onOpenRoom,
   onCast,
   onQrCode,
+  onStats,
   isMobile = false,
 }: OptionsOverlayProps) {
   const [flash, setFlash] = useState(false);
@@ -104,6 +106,7 @@ export default function OptionsOverlay({
     { id: "resetpos", icon: "⟲", label: "Reset Pos", action: onResetPosition },
     ...(isMobile && onCast ? [{ id: "cast", icon: "📺", label: "Cast", action: onCast }] : []),
     ...(onQrCode ? [{ id: "qrcode", icon: "📱", label: "QR Code", action: onQrCode }] : []),
+    ...(onStats ? [{ id: "stats", icon: "📊", label: "Stats", action: onStats }] : []),
   ];
 
   return (
