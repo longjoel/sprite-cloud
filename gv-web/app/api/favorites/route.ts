@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { favorites, games, gameFiles, serverMembers } from "@/lib/db/schema";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and, inArray, sql, ilike } from "drizzle-orm";
 
 // ── GET /api/favorites ──────────────────────────────────────────────────
 //
 // Paginated list of the user's favorited games.
 //
-// Query params: limit (default 100), offset (default 0)
+// Query params: limit (default 100), offset (default 0), search (game name)
 
 export async function GET(request: NextRequest) {
   const session = await auth();
@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "100"), 1), 200);
   const offset = Math.max(parseInt(url.searchParams.get("offset") || "0"), 0);
+  const search = (url.searchParams.get("search") || "").trim();
 
   // Get user's server memberships so we only show games on their servers
   const memberships = await db
@@ -31,6 +32,9 @@ export async function GET(request: NextRequest) {
   const conditions = [eq(favorites.userId, session.user.id)];
   if (serverIds.length > 0) {
     conditions.push(inArray(gameFiles.serverId, serverIds));
+  }
+  if (search) {
+    conditions.push(ilike(games.name, `%${search}%`));
   }
   const [{ count }] = await db
     .select({ count: sql<number>`count(DISTINCT ${games.id})` })

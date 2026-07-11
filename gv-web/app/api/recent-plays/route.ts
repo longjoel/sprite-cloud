@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { recentPlays, games, gameFiles, serverMembers } from "@/lib/db/schema";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and, inArray, sql, ilike, desc, asc } from "drizzle-orm";
 
 // ── GET /api/recent-plays ───────────────────────────────────────────────
 //
 // Paginated list of the user's recently played games (distinct, most recent first).
 //
-// Query params: limit (default 50), offset (default 0)
+// Query params: limit (default 50), offset (default 0), search (game name)
 
 export async function GET(request: NextRequest) {
   const session = await auth();
@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "50"), 1), 200);
   const offset = Math.max(parseInt(url.searchParams.get("offset") || "0"), 0);
+  const search = (url.searchParams.get("search") || "").trim();
 
   // Get user's server memberships
   const memberships = await db
@@ -32,6 +33,9 @@ export async function GET(request: NextRequest) {
   if (serverIds.length > 0) {
     conditions.push(inArray(gameFiles.serverId, serverIds));
   }
+  if (search) {
+    conditions.push(ilike(games.name, `%${search}%`));
+  }
   const [{ count }] = await db
     .select({ count: sql<number>`count(DISTINCT ${games.id})` })
     .from(recentPlays)
@@ -43,41 +47,24 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ games: [], total: 0 });
   }
 
-  // Fetch most recent per distinct game
+  // Group before paginating so each game appears once, ordered by latest play.
   const rows = await db
-    .selectDistinctOn([recentPlays.gameId], {
-      id: games.id,
-      name: games.name,
-      platform: games.platform,
-      maxPlayers: games.maxPlayers,
-    })
-    .from(recentPlays)
-    .innerJoin(games, eq(recentPlays.gameId, games.id))
-    .innerJoin(gameFiles, eq(games.id, gameFiles.gameId))
-    .where(and(...conditions))
-    .orderBy(recentPlays.gameId, recentPlays.playedAt)
-    .limit(limit)
-    .offset(offset);
-
-  // Re-sort client-side by playedAt desc (DISTINCT ON requires the first ORDER BY to match)
-  // We'll just fetch the raw played_at and sort
-  const withTime = await db
     .select({
       id: games.id,
       name: games.name,
       platform: games.platform,
       maxPlayers: games.maxPlayers,
-      playedAt: recentPlays.playedAt,
     })
     .from(recentPlays)
     .innerJoin(games, eq(recentPlays.gameId, games.id))
     .innerJoin(gameFiles, eq(games.id, gameFiles.gameId))
     .where(and(...conditions))
-    .orderBy(recentPlays.playedAt)
+    .groupBy(games.id, games.name, games.platform, games.maxPlayers)
+    .orderBy(desc(sql`max(${recentPlays.playedAt})`), asc(games.id))
     .limit(limit)
     .offset(offset);
 
-  return NextResponse.json({ games: withTime.map(({ playedAt, ...rest }) => rest), total: Number(count) });
+  return NextResponse.json({ games: rows, total: Number(count) });
 }
 
 // ── POST /api/recent-plays ──────────────────────────────────────────────

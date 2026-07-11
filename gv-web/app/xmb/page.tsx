@@ -4,19 +4,27 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import GamePlayer from "@/components/GamePlayer";
+import { LIBRARY_SECTIONS, filterLibraryGames, normalizeRecentGameIds, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
+import { loadXmbAuthenticatedData } from "@/lib/ui/xmb-authenticated-load";
 
 // ── Types ────────────────────────────────────────────────────────────
 
-interface Game {
+interface Game extends LibraryGame {
+  maxPlayers?: number;
+}
+
+interface RawGame {
   id: string;
   name: string;
   platform: string;
   maxPlayers?: number;
-  serverId?: string;
-  server_id?: string;
-  cover_url?: string;
-  pinned?: boolean;
+  serverId?: string | null;
+  server_id?: string | null;
+  coverUrl?: string | null;
+  cover_url?: string | null;
+  favorite?: boolean;
   favorited?: boolean;
+  pinned?: boolean;
 }
 
 interface Category {
@@ -24,7 +32,7 @@ interface Category {
 }
 
 interface SubCategory {
-  id: string; label: string; filter: (g: Game) => boolean;
+  id: string; label: string; section?: LibrarySection; platforms?: readonly string[];
 }
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -35,16 +43,17 @@ const CATEGORIES: Category[] = [
   { id: "classic", label: "Classic", icon: "🏠" },
 ];
 
+const sectionLabel = (section: LibrarySection) => LIBRARY_SECTIONS.find(({ id }) => id === section)!.label;
 const SUB_CATEGORIES: SubCategory[] = [
-  { id: "favorites", label: "★", filter: (g) => !!g.favorited },
-  { id: "recent", label: "🕐", filter: () => false }, // placeholder — filtered in render
-  { id: "pins", label: "📌", filter: (g) => !!g.pinned },
-  { id: "all", label: "All", filter: () => true },
-  { id: "nes", label: "NES", filter: (g) => g.platform === "NES" },
-  { id: "snes", label: "SNES", filter: (g) => g.platform === "SNES" },
-  { id: "genesis", label: "Genesis", filter: (g) => g.platform === "Genesis" },
-  { id: "gba", label: "GBA", filter: (g) => g.platform === "Game Boy Advance" },
-  { id: "gb", label: "GB/GBC", filter: (g) => g.platform === "Game Boy" || g.platform === "Game Boy Color" },
+  { id: "favorites", label: "★", section: "favorites" },
+  { id: "recent", label: "🕐", section: "recent" },
+  { id: "pins", label: "📌", section: "pins" },
+  { id: "all", label: sectionLabel("all"), section: "all" },
+  { id: "nes", label: "NES", section: "all", platforms: ["NES"] },
+  { id: "snes", label: "SNES", section: "all", platforms: ["SNES"] },
+  { id: "genesis", label: "Genesis", section: "all", platforms: ["Genesis"] },
+  { id: "gba", label: "GBA", section: "all", platforms: ["Game Boy Advance"] },
+  { id: "gb", label: "GB/GBC", section: "all", platforms: ["Game Boy", "Game Boy Color"] },
 ];
 
 // ── Component ─────────────────────────────────────────────────────────
@@ -115,44 +124,61 @@ export default function XmbPage() {
 
   // ── Fetch games ──────────────────────────────────────────────────────
   useEffect(() => {
+    const controller = new AbortController();
     (async () => {
       try {
         const query = search ? `?search=${encodeURIComponent(search)}&limit=200&pins_first=true` : "?limit=200&pins_first=true";
-        const res = await fetch(`/api/games${query}`);
+        const [res, favoritesRes] = await Promise.all([
+          fetch(`/api/games${query}`, { signal: controller.signal }),
+          status === "authenticated" ? fetch("/api/favorites?limit=200", { signal: controller.signal }) : Promise.resolve(null),
+        ]);
         if (!res.ok) return;
         const data = await res.json();
-        setGames(data.games || []);
-      } catch { /* fail silently */ }
-      setLoaded(true);
+        const favoritesData = favoritesRes?.ok ? await favoritesRes.json() : { games: [] };
+        const favoriteIds = new Set<string>((favoritesData.games || []).map((game: { id: string }) => game.id));
+        setGames((data.games || []).map((game: RawGame) => ({
+          id: game.id,
+          name: game.name,
+          platform: game.platform,
+          maxPlayers: game.maxPlayers,
+          favorite: favoriteIds.has(game.id) || Boolean(game.favorite ?? game.favorited),
+          pinned: Boolean(game.pinned),
+          recentRank: null,
+          serverId: game.serverId ?? game.server_id ?? null,
+          coverUrl: game.coverUrl ?? game.cover_url ?? null,
+        })));
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) { /* fail silently */ }
+      }
+      if (!controller.signal.aborted) setLoaded(true);
     })();
-  }, [search]);
+    return () => controller.abort();
+  }, [search, status]);
 
   // ── Fetch bootstrap + recent plays (once, when authenticated) ─────
   useEffect(() => {
     if (status !== "authenticated") return;
-    (async () => {
-      try {
-        const res = await fetch("/api/client/bootstrap");
-        if (!res.ok) return;
-        const data = await res.json();
-        setBootstrap(data);
-      } catch { /* fail silently */ }
-      try {
-        const recentRes = await fetch("/api/recent-plays");
-        if (recentRes.ok) {
-          const recentData = await recentRes.json();
-          setRecentIds((recentData.items || []).map((item: any) => item.gameId));
-        }
-      } catch { /* fail silently */ }
-    })();
+    const controller = new AbortController();
+    void loadXmbAuthenticatedData({
+      signal: controller.signal,
+      fetcher: fetch,
+      setBootstrap,
+      setRecentIds,
+    });
+    return () => controller.abort();
   }, [status]);
 
   // ── Filtered games for current sub-category ──────────────────────────
   const sub = SUB_CATEGORIES[focusedSub];
-  const filteredGames = games.filter((g) => {
-    if (sub?.id === "recent") return recentIds.includes(g.id);
-    return sub?.filter ? sub.filter(g) : true;
-  });
+  const normalizedGames = games.map((game) => ({
+    ...game,
+    recentRank: recentIds.includes(game.id) ? recentIds.indexOf(game.id) : null,
+  }));
+  const filteredGames = filterLibraryGames(normalizedGames, {
+    section: sub?.section ?? "all",
+    search,
+    platforms: sub?.platforms,
+  }) as Game[];
 
   // Clamp focused game index
   const safeGameIdx = Math.min(focusedGame, Math.max(0, filteredGames.length - 1));
@@ -288,7 +314,7 @@ export default function XmbPage() {
 
   // ── Launch / close ────────────────────────────────────────────────────
   const launchGame = useCallback((game: Game) => {
-    const sid = game.serverId || game.server_id;
+    const sid = game.serverId;
     if (!sid) return;
     setPlayGame({
       gameId: game.id, serverId: sid,
@@ -379,8 +405,8 @@ export default function XmbPage() {
               onClick={() => { setFocusedGame(i); launchGame(game); }}
               onMouseEnter={() => setFocusedGame(i)}
             >
-              {game.cover_url ? (
-                <img src={game.cover_url} alt="" style={s.cover} />
+              {game.coverUrl ? (
+                <img src={game.coverUrl} alt="" style={s.cover} />
               ) : (
                 <div style={s.coverPlaceholder}>🎮</div>
               )}
