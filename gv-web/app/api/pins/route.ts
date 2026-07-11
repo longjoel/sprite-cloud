@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { pinnedGames, games, gameFiles, serverMembers } from "@/lib/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 
 const MAX_PINS = 20;
 
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
     .innerJoin(gameFiles, eq(games.id, gameFiles.gameId))
     .where(and(
       eq(pinnedGames.userId, session.user.id),
-      sql`${gameFiles.serverId} IN (${serverIds.join(",")})`
+      inArray(gameFiles.serverId, serverIds),
     ))
     .orderBy(pinnedGames.position);
 
