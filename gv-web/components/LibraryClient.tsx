@@ -8,7 +8,7 @@ import AppHeader from "@/components/fluent/AppHeader";
 import LibraryToolbar from "@/components/LibraryToolbar";
 import { buildLanPlayerLaunchUrl } from "@/lib/lan/launch";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
-import { createAllLibraryPageParams, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, filterLibraryGames, mergeLibraryPages, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
+import { createAllLibraryPageParams, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, filterLibraryGames, formatRecentGroupLabel, formatRelativeAge, groupRecentGamesByLocalDate, mergeLibraryPages, mergeRecentLibraryPages, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -17,6 +17,7 @@ interface Game {
   name: string;
   platform: string;
   maxPlayers: number;
+  playedAt?: string;
 }
 
 interface GameActionModel {
@@ -269,7 +270,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     try {
       const data = await fetchPage("/api/recent-plays", createLibraryPageParams(PAGE_SIZE, offset, searchTerm));
       if (!recentRequests.current.isCurrent(generation)) return;
-      setRecentGames(reset ? data.games : [...current, ...data.games]);
+      setRecentGames(reset ? mergeRecentLibraryPages([], data.games) : mergeRecentLibraryPages(current, data.games));
       setRecentTotal(data.total);
     } finally {
       if (recentRequests.current.isCurrent(generation)) setRecentLoading(false);
@@ -527,6 +528,12 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     const byId = new Map(currentGames.map((game) => [game.id, game]));
     return filtered.map((game) => byId.get(game.id)!);
   }, [currentGames, favoriteIds, pinnedIds, search, selectedPlatforms, tab]);
+  const recentGroups = useMemo(
+    () => tab === "recent"
+      ? groupRecentGamesByLocalDate(sortedGames)
+      : [],
+    [sortedGames, tab],
+  );
 
   // ── Render helpers ──────────────────────────────────────────────
 
@@ -604,6 +611,11 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       <td style={{ padding: "12px 14px", textAlign: "center", fontSize: "var(--font-size-xs)", color: "var(--color-cloud-dim)" }}>
         {game.maxPlayers > 1 ? `${game.maxPlayers}p` : "1p"}
       </td>
+      {tab === "recent" && (
+        <td style={{ padding: "12px 14px", whiteSpace: "nowrap", color: "var(--color-cloud-dim)" }}>
+          {formatRelativeAge(game.playedAt)}
+        </td>
+      )}
       <td style={{ padding: "10px 14px", textAlign: "center" }}>
         {gameActions.canFavorite && gameActions.onToggleFavorite && (
           <button
@@ -709,9 +721,23 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
               <span style={styles.librarySurfaceTitle}>Tile view</span>
               <span style={styles.librarySurfaceHint}>Metro tiles with the same play, favorite, pin, and rename actions.</span>
             </div>
-            <div className="game-tile-grid">
-              {sortedGames.map((game) => renderGameCard(game))}
-            </div>
+            {tab === "recent" ? recentGroups.map((group) => (
+              <section key={group.date} style={styles.recentGroup}>
+                <h3 style={styles.recentDate}>{formatRecentGroupLabel(group.date)}</h3>
+                <div className="game-tile-grid">
+                  {group.games.map((game) => (
+                    <div key={game.id}>
+                      {renderGameCard(game)}
+                      <div style={styles.recentAge}>{formatRelativeAge(game.playedAt)}</div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )) : (
+              <div className="game-tile-grid">
+                {sortedGames.map((game) => renderGameCard(game))}
+              </div>
+            )}
           </div>
         ) : (
           <div style={styles.librarySurfaceCard}>
@@ -737,6 +763,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
                   <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600 }}>Name</th>
                   <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600 }}>Platform</th>
                   <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Players</th>
+                  {tab === "recent" && <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600 }}>Last played</th>}
                   <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Fav</th>
                   <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Pin</th>
                   <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Rename</th>
@@ -744,7 +771,15 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
                 </tr>
               </thead>
               <tbody>
-                {sortedGames.map((game, i) => renderGameRow(game, i))}
+                {tab === "recent" ? recentGroups.flatMap((group, groupIndex) => [
+                  <tr key={`date-${group.date}`}>
+                    <th scope="rowgroup" colSpan={8} style={styles.recentTableDate}>{formatRecentGroupLabel(group.date)}</th>
+                  </tr>,
+                  ...group.games.map((game, index) => renderGameRow(
+                    game,
+                    recentGroups.slice(0, groupIndex).reduce((count, previous) => count + previous.games.length, 0) + index,
+                  )),
+                ]) : sortedGames.map((game, i) => renderGameRow(game, i))}
               </tbody>
             </table>
           </div>
@@ -874,6 +909,25 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "var(--font-size-sm)",
     textTransform: "uppercase",
     letterSpacing: "0.08em",
+  },
+  recentGroup: { marginBottom: "var(--space-6)" },
+  recentDate: {
+    margin: "0 0 var(--space-3)",
+    color: "var(--color-cloud)",
+    fontSize: "var(--font-size-md)",
+    letterSpacing: "0.06em",
+  },
+  recentAge: {
+    marginTop: "var(--space-2)",
+    color: "var(--color-cloud-dim)",
+    fontSize: "var(--font-size-xs)",
+  },
+  recentTableDate: {
+    padding: "12px 14px",
+    textAlign: "left",
+    color: "var(--color-accent)",
+    background: "rgba(56,189,248,0.08)",
+    letterSpacing: "0.06em",
   },
   librarySurfaceHint: {
     color: "var(--color-cloud-dim)",

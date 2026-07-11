@@ -69,6 +69,85 @@ export function mergeLibraryPages<T extends { id: string }>(current: readonly T[
   return [...current, ...next.filter((game) => !seen.has(game.id))];
 }
 
+export interface RecentGameLike { id: string; playedAt?: string | null; }
+export type RecentDateKey = string | "unknown";
+export interface RecentDateGroup<T extends RecentGameLike> { date: RecentDateKey; games: T[]; }
+
+function timestampMillis(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function localDateKey(value: string | Date, timeZone?: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(typeof value === "string" ? new Date(value) : value);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+export function formatRecentGroupLabel(date: RecentDateKey, now = new Date(), timeZone?: string): string {
+  if (date === "unknown") return "Unknown date";
+  const today = localDateKey(now, timeZone);
+  if (date === today) return `Today — ${date}`;
+  const yesterday = new Date(`${today}T00:00:00.000Z`);
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  if (date === yesterday.toISOString().slice(0, 10)) return `Yesterday — ${date}`;
+  return date;
+}
+
+function preferNewest<T extends RecentGameLike>(previous: T | undefined, candidate: T): T {
+  if (!previous) return candidate;
+  const previousTime = timestampMillis(previous.playedAt);
+  const candidateTime = timestampMillis(candidate.playedAt);
+  if (candidateTime !== null && (previousTime === null || candidateTime > previousTime)) return candidate;
+  return previous;
+}
+
+function sortRecentGames<T extends RecentGameLike>(games: readonly T[]): T[] {
+  return [...games].sort((a, b) => {
+    const aTime = timestampMillis(a.playedAt);
+    const bTime = timestampMillis(b.playedAt);
+    if (aTime === null && bTime === null) return a.id.localeCompare(b.id);
+    if (aTime === null) return 1;
+    if (bTime === null) return -1;
+    return bTime - aTime || a.id.localeCompare(b.id);
+  });
+}
+
+export function mergeRecentLibraryPages<T extends RecentGameLike>(current: readonly T[], incoming: readonly T[]): T[] {
+  const latestById = new Map<string, T>();
+  for (const game of [...current, ...incoming]) {
+    latestById.set(game.id, preferNewest(latestById.get(game.id), game));
+  }
+  return sortRecentGames([...latestById.values()]);
+}
+
+export function groupRecentGamesByLocalDate<T extends RecentGameLike>(games: readonly T[], timeZone?: string): RecentDateGroup<T>[] {
+  const sorted = mergeRecentLibraryPages([], games);
+  const groups: RecentDateGroup<T>[] = [];
+  for (const game of sorted) {
+    const date: RecentDateKey = timestampMillis(game.playedAt) === null ? "unknown" : localDateKey(game.playedAt!, timeZone);
+    const last = groups.at(-1);
+    if (last?.date === date) last.games.push(game);
+    else groups.push({ date, games: [game] });
+  }
+  return groups;
+}
+
+export function formatRelativeAge(playedAt: string | null | undefined, now = new Date()): string {
+  const timestamp = timestampMillis(playedAt);
+  if (timestamp === null) return "time unavailable";
+  const seconds = Math.max(0, Math.floor((now.getTime() - timestamp) / 1000));
+  if (seconds < 60) return "now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 86400 * 30) return `${Math.floor(seconds / 86400)}d ago`;
+  if (seconds < 86400 * 365) return `${Math.floor(seconds / (86400 * 30))}mo ago`;
+  return `${Math.floor(seconds / (86400 * 365))}y ago`;
+}
+
 export function normalizeRecentGameIds(response: unknown): string[] {
   if (!response || typeof response !== "object" || !("games" in response) || !Array.isArray(response.games)) return [];
   return response.games
