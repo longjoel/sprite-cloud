@@ -11,6 +11,6 @@ describe("Recent library rendering", () => {
   });
 
   it("marks table date headings as row-group headers", () => {
-    expect(source).toMatch(/<th scope="rowgroup" colSpan=\{8\}/);
+    expect(source).toMatch(/<th scope="rowgroup" colSpan=\{5\}/);
   });
 });

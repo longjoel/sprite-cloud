@@ -6,6 +6,7 @@ import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
 import AppHeader from "@/components/fluent/AppHeader";
 import LibraryToolbar from "@/components/LibraryToolbar";
+import { Star20Filled, Star20Regular, Pin20Filled, Pin20Regular, Edit20Regular } from "@fluentui/react-icons";
 import { buildLanPlayerLaunchUrl } from "@/lib/lan/launch";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
 import { createAllLibraryPageParams, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, filterLibraryGames, formatRecentGroupLabel, formatRelativeAge, groupRecentGamesByLocalDate, mergeLibraryPages, mergeRecentLibraryPages, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
@@ -562,14 +563,6 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     return <Badge variant="warning">Relay fallback</Badge>;
   }
 
-  const renderStatePills = (game: Game) => (
-    <div style={styles.statePillRow}>
-      <span style={styles.statePill}>{game.platform}</span>
-      <span style={styles.statePill}>{game.maxPlayers > 1 ? `${game.maxPlayers}p` : "1p"}</span>
-      {gameActions.isPinned(game.id) && <span style={{ ...styles.statePill, ...styles.statePillAccent }}>Pinned</span>}
-      {gameActions.isFavorite(game.id) && <span style={{ ...styles.statePill, ...styles.statePillAccent }}>Favorite</span>}
-    </div>
-  );
 
   const renderGameCard = (game: Game) => (
     <GameTile
@@ -588,9 +581,8 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   const renderGameRow = (game: Game, index: number) => (
     <tr
       key={game.id}
-      onClick={() => handlePlay(game.id)}
+      className="library-game-row"
       style={{
-        cursor: "pointer",
         background: index % 2 === 0 ? "rgba(17,24,39,0.3)" : "transparent",
         transition: "background 0.1s",
       }}
@@ -600,10 +592,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       }}
     >
       <td style={{ padding: "12px 14px", fontSize: "var(--font-size-md)", color: "var(--color-cloud)" }}>
-        <div style={styles.tableNameCell}>
-          <span style={styles.tableName}>{game.name}</span>
-          {renderStatePills(game)}
-        </div>
+        <span style={styles.tableName}>{game.name}</span>
       </td>
       <td style={{ padding: "12px 14px" }}>
         <Badge variant="info">{game.platform}</Badge>
@@ -616,52 +605,27 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
           {formatRelativeAge(game.playedAt)}
         </td>
       )}
-      <td style={{ padding: "10px 14px", textAlign: "center" }}>
-        {gameActions.canFavorite && gameActions.onToggleFavorite && (
-          <button
-            onClick={(e) => gameActions.onToggleFavorite?.(game.id, e)}
-            style={{ background: "none", border: "none", cursor: "pointer", color: gameActions.isFavorite(game.id) ? "#38bdf8" : "#4b5563" }}
-            title={gameActions.isFavorite(game.id) ? "Remove favorite" : "Add favorite"}
-          >
-            {gameActions.isFavorite(game.id) ? "★" : "☆"}
-          </button>
-        )}
-      </td>
-      <td style={{ padding: "10px 14px", textAlign: "center" }}>
-        {gameActions.canPin && gameActions.onTogglePin && (
-          <button
-            onClick={(e) => gameActions.onTogglePin?.(game.id, e)}
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              color: gameActions.isPinned(game.id) ? "#38bdf8" : "#4b5563",
-              fontSize: 14,
-            }}
-            title={gameActions.isPinned(game.id) ? "Unpin" : `Pin (max ${MAX_PINS})`}
-          >
-            {gameActions.isPinned(game.id) ? "📌" : "📍"}
-          </button>
-        )}
-      </td>
-      <td style={{ padding: "10px 14px", textAlign: "center" }}>
-        {gameActions.canRename && gameActions.onRename && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              gameActions.onRename?.(game);
-            }}
-          >
-            Rename
+      <td style={{ padding: "8px 14px", textAlign: "right" }}>
+        <div className="library-row-actions">
+          <div className="library-row-secondary-actions">
+            {gameActions.canFavorite && gameActions.onToggleFavorite && <button aria-label={gameActions.isFavorite(game.id) ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`} onClick={(e) => gameActions.onToggleFavorite?.(game.id, e)}>{gameActions.isFavorite(game.id) ? <Star20Filled /> : <Star20Regular />}</button>}
+            {gameActions.canPin && gameActions.onTogglePin && <button aria-label={gameActions.isPinned(game.id) ? `Unpin ${game.name}` : `Pin ${game.name}`} onClick={(e) => gameActions.onTogglePin?.(game.id, e)}>{gameActions.isPinned(game.id) ? <Pin20Filled /> : <Pin20Regular />}</button>}
+            {gameActions.canRename && gameActions.onRename && <button aria-label={`Rename ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onRename?.(game); }}><Edit20Regular /></button>}
+          </div>
+          {(gameActions.canFavorite || gameActions.canPin || gameActions.canRename) && (
+            <details className="library-row-overflow">
+              <summary aria-label={`More actions for ${game.name}`}><span aria-hidden="true">⋯</span></summary>
+              <div className="library-row-overflow-actions">
+                {gameActions.canFavorite && gameActions.onToggleFavorite && <button aria-label={gameActions.isFavorite(game.id) ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`} onClick={(e) => gameActions.onToggleFavorite?.(game.id, e)}>{gameActions.isFavorite(game.id) ? <Star20Filled /> : <Star20Regular />}<span>{gameActions.isFavorite(game.id) ? "Remove favorite" : "Add favorite"}</span></button>}
+                {gameActions.canPin && gameActions.onTogglePin && <button aria-label={gameActions.isPinned(game.id) ? `Unpin ${game.name}` : `Pin ${game.name}`} onClick={(e) => gameActions.onTogglePin?.(game.id, e)}>{gameActions.isPinned(game.id) ? <Pin20Filled /> : <Pin20Regular />}<span>{gameActions.isPinned(game.id) ? "Unpin" : "Pin"}</span></button>}
+                {gameActions.canRename && gameActions.onRename && <button aria-label={`Rename ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onRename?.(game); }}><Edit20Regular /><span>Rename</span></button>}
+              </div>
+            </details>
+          )}
+          <Button variant="primary" size="sm" aria-label={`Play ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onPlay(game.id); }}>
+            Play
           </Button>
-        )}
-      </td>
-      <td style={{ padding: "10px 14px", textAlign: "right" }}>
-        <Button variant="primary" size="sm" onClick={(e) => { e.stopPropagation(); gameActions.onPlay(game.id); }}>
-          Play
-        </Button>
+        </div>
       </td>
     </tr>
   );
@@ -709,18 +673,24 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
 
 
         {/* Game grid / table */}
-        {sortedGames.length === 0 && !currentLoading ? (
+        {currentLoading && currentGames.length === 0 ? (
+          viewMode === "grid" ? (
+            <div className="library-skeleton-grid" aria-label="Loading games">
+              {Array.from({ length: 8 }, (_, index) => <div key={index} className="library-skeleton-tile" />)}
+            </div>
+          ) : (
+            <div aria-label="Loading games">
+              {Array.from({ length: 8 }, (_, index) => <div key={index} className="library-skeleton-row" />)}
+            </div>
+          )
+        ) : sortedGames.length === 0 ? (
           <p style={styles.empty}>
             {selectedPlatforms.size > 0
               ? "No games match the selected platforms."
               : tab === "all" ? "No games found." : tab === "favorites" ? "No favorites yet." : tab === "pins" ? "No pinned games yet." : "No recent plays."}
           </p>
         ) : viewMode === "grid" ? (
-          <div style={styles.librarySurfaceCard}>
-            <div style={styles.librarySurfaceHeader}>
-              <span style={styles.librarySurfaceTitle}>Tile view</span>
-              <span style={styles.librarySurfaceHint}>Metro tiles with the same play, favorite, pin, and rename actions.</span>
-            </div>
+          <>
             {tab === "recent" ? recentGroups.map((group) => (
               <section key={group.date} style={styles.recentGroup}>
                 <h3 style={styles.recentDate}>{formatRecentGroupLabel(group.date)}</h3>
@@ -738,13 +708,8 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
                 {sortedGames.map((game) => renderGameCard(game))}
               </div>
             )}
-          </div>
+          </>
         ) : (
-          <div style={styles.librarySurfaceCard}>
-            <div style={styles.librarySurfaceHeader}>
-              <span style={styles.librarySurfaceTitle}>Table view</span>
-              <span style={styles.librarySurfaceHint}>Dense library scan with the same state and actions as tiles.</span>
-            </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{
               width: "100%",
@@ -764,16 +729,13 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
                   <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600 }}>Platform</th>
                   <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Players</th>
                   {tab === "recent" && <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600 }}>Last played</th>}
-                  <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Fav</th>
-                  <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Pin</th>
-                  <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Rename</th>
-                  <th style={{ textAlign: "right", padding: "10px 14px", fontWeight: 600 }}>Play</th>
+                  <th style={{ textAlign: "right", padding: "10px 14px", fontWeight: 600 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {tab === "recent" ? recentGroups.flatMap((group, groupIndex) => [
                   <tr key={`date-${group.date}`}>
-                    <th scope="rowgroup" colSpan={8} style={styles.recentTableDate}>{formatRecentGroupLabel(group.date)}</th>
+                    <th scope="rowgroup" colSpan={5} style={styles.recentTableDate}>{formatRecentGroupLabel(group.date)}</th>
                   </tr>,
                   ...group.games.map((game, index) => renderGameRow(
                     game,
@@ -783,15 +745,10 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
               </tbody>
             </table>
           </div>
-          </div>
         )}
 
-        {currentLoading && (
-          <div style={styles.loading}>Loading...</div>
-        )}
-
-        {hasMore && !currentLoading && (
-          <div ref={sentinelRef} style={styles.sentinel} />
+        {hasMore && currentGames.length > 0 && (
+          <div ref={sentinelRef} className={`library-load-sentinel${currentLoading ? " is-loading" : ""}`} aria-hidden="true" />
         )}
       </section>
 
@@ -889,27 +846,7 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "var(--font-mono)",
   },
   section: { padding: "0 24px", marginBottom: "var(--space-8)" },
-  librarySurfaceCard: {
-    border: "1px solid rgba(56, 189, 248, 0.12)",
-    background: "rgba(17, 24, 39, 0.7)",
-    padding: "var(--space-5)",
-    boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.02)",
-  },
-  librarySurfaceHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "var(--space-4)",
-    marginBottom: "var(--space-5)",
-    flexWrap: "wrap",
-  },
-  librarySurfaceTitle: {
-    color: "var(--color-accent)",
-    fontFamily: "var(--font-mono)",
-    fontSize: "var(--font-size-sm)",
-    textTransform: "uppercase",
-    letterSpacing: "0.08em",
-  },
+
   recentGroup: { marginBottom: "var(--space-6)" },
   recentDate: {
     margin: "0 0 var(--space-3)",
@@ -929,10 +866,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: "rgba(56,189,248,0.08)",
     letterSpacing: "0.06em",
   },
-  librarySurfaceHint: {
-    color: "var(--color-cloud-dim)",
-    fontSize: "var(--font-size-sm)",
-  },
+
   h2: {
     margin: 0,
     fontSize: "var(--font-size-lg)",
@@ -943,45 +877,13 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: "0.05em",
   },
   empty: { fontSize: "var(--font-size-base)", color: "var(--color-cloud-dim)", fontStyle: "italic" },
-  tableNameCell: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "var(--space-2)",
-  },
+
   tableName: {
     fontWeight: 600,
     color: "var(--color-cloud)",
     fontSize: "var(--font-size-md)",
   },
-  statePillRow: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: "var(--space-2)",
-  },
-  statePill: {
-    display: "inline-flex",
-    alignItems: "center",
-    padding: "2px 6px",
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(10,14,26,0.5)",
-    color: "var(--color-cloud-dim)",
-    fontFamily: "var(--font-mono)",
-    fontSize: "var(--font-size-xs)",
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
-  },
-  statePillAccent: {
-    color: "var(--color-accent)",
-    border: "1px solid rgba(56,189,248,0.24)",
-    background: "rgba(56,189,248,0.12)",
-  },
-  loading: {
-    textAlign: "center" as const,
-    padding: "var(--space-8)",
-    color: "var(--color-cloud-dim)",
-    fontSize: "var(--font-size-base)",
-  },
-  sentinel: { height: "1px" },
+
   pickerRow: {
     display: "flex", alignItems: "center", gap: "var(--space-4)",
     padding: "var(--space-4) 0", borderBottom: "1px solid var(--color-sky-high)",

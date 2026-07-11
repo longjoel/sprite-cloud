@@ -1,24 +1,12 @@
 "use client";
 
 import { useRef, useEffect, useState } from "react";
-import { Card, Text, Badge } from "@fluentui/react-components";
-import { Star20Regular, Star20Filled, Edit20Regular, Pin20Regular, Pin20Filled } from "@fluentui/react-icons";
+import { Card, Badge } from "@fluentui/react-components";
+import { Star20Regular, Star20Filled, Edit20Regular, Pin20Regular, Pin20Filled, MoreHorizontal20Regular } from "@fluentui/react-icons";
 import { getPlatformColor } from "@/lib/platformColors";
 
-// ── GameTile — Metro-style tile for the game library grid ──────────
-//
-// Sizes:
-//   "square" → 1×1 (default)
-//   "wide"   → 2×1 (span 2 columns)
-//   "large"  → 2×2 (span 2 columns + 2 rows)
-
 interface GameTileProps {
-  game: {
-    id: string;
-    name: string;
-    platform: string;
-    maxPlayers: number;
-  };
+  game: { id: string; name: string; platform: string; maxPlayers: number };
   size?: "square" | "wide" | "large";
   isFavorite?: boolean;
   isPinned?: boolean;
@@ -28,154 +16,57 @@ interface GameTileProps {
   onEdit?: (game: { id: string; name: string; platform: string; maxPlayers: number }) => void;
 }
 
-const sizeClassMap: Record<string, string> = {
-  square: "tile-square",
-  wide: "tile-wide",
-  large: "tile-large",
-};
+const sizeClassMap = { square: "tile-square", wide: "tile-wide", large: "tile-large" } as const;
 
-export default function GameTile({
-  game,
-  size = "square",
-  isFavorite = false,
-  isPinned = false,
-  onPlay,
-  onToggleFavorite,
-  onTogglePin,
-  onEdit,
-}: GameTileProps) {
-  const sizeClass = sizeClassMap[size];
-  const stateClasses = [
-    isFavorite ? "is-favorite" : "",
-    isPinned ? "is-pinned" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
+export default function GameTile({ game, size = "square", isFavorite = false, isPinned = false, onPlay, onToggleFavorite, onTogglePin, onEdit }: GameTileProps) {
   const nameRef = useRef<HTMLSpanElement>(null);
   const [overflows, setOverflows] = useState(false);
-  const platformBg = getPlatformColor(game.platform);
 
   useEffect(() => {
-    const el = nameRef.current;
-    if (el) setOverflows(el.scrollWidth > el.clientWidth);
+    const element = nameRef.current;
+    if (element) setOverflows(element.scrollWidth > element.clientWidth);
   }, [game.name]);
 
-  return (
-    <Card
-    className={`game-tile ${sizeClass} ${stateClasses}`.trim()}
-    onClick={() => onPlay(game.id)}
-    appearance="filled-alternative"
-    style={{ cursor: "pointer", userSelect: "none", background: platformBg }}
-    >
-      {/* Platform badge — top-left */}
-      <Badge
-        appearance="tint"
-        color="informative"
-        style={{
-          position: "absolute",
-          top: 8,
-          left: 8,
-          fontSize: 10,
-          textTransform: "uppercase",
-          letterSpacing: "0.05em",
-        }}
-      >
-        {game.platform}
-      </Badge>
+  const stop = (action: (event: React.MouseEvent) => void) => (event: React.MouseEvent) => {
+    event.stopPropagation();
+    action(event);
+  };
+  const favoriteLabel = isFavorite ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`;
+  const pinLabel = isPinned ? `Unpin ${game.name}` : `Pin ${game.name}`;
 
-      {/* Quick actions — top-right */}
-      {(onToggleFavorite || onTogglePin) && (
-        <div
-          style={{
-            position: "absolute",
-            top: 8,
-            right: 8,
-            display: "flex",
-            alignItems: "center",
-            gap: 4,
-          }}
-        >
-          {onTogglePin && (
-            <button
-              onClick={(e) => onTogglePin(game.id, e)}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                color: isPinned ? "#38bdf8" : "#4b5563",
-                padding: 2,
-                lineHeight: 0,
-              }}
-              title={isPinned ? "Unpin" : "Pin"}
-            >
-              {isPinned ? <Pin20Filled /> : <Pin20Regular />}
-            </button>
-          )}
-          {onToggleFavorite && (
-            <button
-              onClick={(e) => onToggleFavorite(game.id, e)}
-              style={{
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                color: isFavorite ? "#38bdf8" : "#4b5563",
-                padding: 2,
-                lineHeight: 0,
-              }}
-              title={isFavorite ? "Remove favorite" : "Add favorite"}
-            >
-              {isFavorite ? <Star20Filled /> : <Star20Regular />}
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Game name — centered bottom */}
-      <div
-        style={{
-          position: "absolute",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          padding: "12px 36px 12px 16px",
-          background: "linear-gradient(transparent, rgba(0,0,0,0.85))",
-        }}
-      >
-        <span
-          ref={nameRef}
-          className={`game-tile-name${overflows ? "" : " no-overflow"}`}
-          style={{
-            fontWeight: 600,
-            fontSize: size === "square" ? 13 : 14,
-            lineHeight: 1.2,
-            color: "var(--color-cloud)",
-          }}
-        >
-          {game.name}
-        </span>
-        <div className="game-tile-meta-row">
-          <span className="game-tile-meta-pill">{game.platform}</span>
-          <span className="game-tile-meta-pill">
-            {game.maxPlayers > 1 ? `${game.maxPlayers}p` : "1p"}
-          </span>
-          {isPinned && <span className="game-tile-meta-pill is-accent">Pinned</span>}
-          {isFavorite && <span className="game-tile-meta-pill is-accent">Favorite</span>}
-        </div>
-      </div>
-
-      {/* Edit button — bottom-right, appears on hover */}
-      {onEdit && (
-        <button
-          className="game-tile-edit-btn"
-          onClick={(e) => {
-            e.stopPropagation();
-            onEdit(game);
-          }}
-          title="Rename game"
-        >
-          <Edit20Regular />
+  const actions = (mobile = false) => (
+    <div className={mobile ? "game-tile-overflow-actions" : "game-tile-secondary-actions"}>
+      {onToggleFavorite && (
+        <button aria-label={favoriteLabel} title={favoriteLabel} onClick={stop((event) => onToggleFavorite(game.id, event))}>
+          {isFavorite ? <Star20Filled /> : <Star20Regular />}{mobile && <span>{isFavorite ? "Remove favorite" : "Favorite"}</span>}
         </button>
       )}
+      {onTogglePin && (
+        <button aria-label={pinLabel} title={pinLabel} onClick={stop((event) => onTogglePin(game.id, event))}>
+          {isPinned ? <Pin20Filled /> : <Pin20Regular />}{mobile && <span>{isPinned ? "Unpin" : "Pin"}</span>}
+        </button>
+      )}
+      {onEdit && (
+        <button aria-label={`Rename ${game.name}`} title={`Rename ${game.name}`} onClick={stop(() => onEdit(game))}>
+          <Edit20Regular />{mobile && <span>Rename</span>}
+        </button>
+      )}
+    </div>
+  );
+
+  return (
+    <Card focusMode="off" className={`game-tile ${sizeClassMap[size]} ${isFavorite ? "is-favorite" : ""} ${isPinned ? "is-pinned" : ""}`.trim()} appearance="filled-alternative" style={{ userSelect: "none", background: getPlatformColor(game.platform) }}>
+      <button className="game-tile-play-target" aria-label={`Play ${game.name}`} onClick={() => onPlay(game.id)} />
+      <Badge appearance="tint" color="informative" className="game-tile-platform">{game.platform}</Badge>
+      {actions()}
+      <details className="game-tile-overflow" onClick={(event) => event.stopPropagation()}>
+        <summary aria-label={`More actions for ${game.name}`}><MoreHorizontal20Regular /></summary>
+        {actions(true)}
+      </details>
+      <div className="game-tile-caption">
+        <span ref={nameRef} className={`game-tile-name${overflows ? "" : " no-overflow"}`}>{game.name}</span>
+        <span className="game-tile-platform-text">{game.platform}</span>
+      </div>
     </Card>
   );
 }
