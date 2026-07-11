@@ -1,0 +1,60 @@
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+  padding: 4px;
+  background: rgba(17, 24, 39, 0.72);
+  border: 1px solid rgba(56, 189, 248, 0.12);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+}
+
+.tabs { display: flex; flex: 0 0 auto; overflow-x: auto; scrollbar-width: thin; }
+.tab, .control, .chip, .systemButton {
+  border: 0;
+  border-radius: 2px;
+  color: var(--color-cloud-dim);
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  cursor: pointer;
+}
+.tab { min-height: 36px; padding: 6px 12px; border-bottom: 2px solid transparent; white-space: nowrap; }
+.tab[aria-pressed="true"] { color: var(--color-accent); background: var(--color-sky-high); border-bottom-color: var(--color-accent); }
+.commands { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; min-width: 0; }
+.search {
+  flex: 1 1 220px;
+  min-width: 140px;
+  height: 36px;
+  padding: 6px 10px;
+  border: 2px solid var(--color-sky-high);
+  border-radius: 2px;
+  color: var(--color-cloud);
+  background: var(--color-sky-high);
+  font: inherit;
+}
+.filter { position: relative; flex: 0 0 auto; }
+.systemButton, .control { min-height: 36px; padding: 6px 10px; background: var(--color-sky-high); white-space: nowrap; }
+.systemButton[data-active="true"] { color: var(--color-accent); background: rgba(56,189,248,.12); }
+.menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 50; min-width: 220px; max-height: 360px; overflow-y: auto; padding: 4px; border: 1px solid var(--color-sky-high); border-radius: 2px; background: var(--color-sky-mid); box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+.option { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; padding: 6px 10px; color: var(--color-cloud-dim); font: inherit; font-size: var(--font-size-sm); cursor: pointer; }
+.optionCount { margin-left: auto; opacity: .55; }
+.views { display: flex; padding: 2px; border-radius: 2px; background: var(--color-sky-mid); }
+.control[aria-pressed="true"] { color: var(--color-accent); background: var(--color-sky-high); }
+.chips { display: flex; align-items: center; gap: 4px; }
+.chip { min-height: 36px; padding: 5px 8px; color: var(--color-accent); background: rgba(56,189,248,.12); border: 1px solid rgba(56,189,248,.24); }
+.tab:focus-visible, .control:focus-visible, .chip:focus-visible, .systemButton:focus-visible, .search:focus-visible, .option:focus-within { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+@media (max-width: 720px) {
+  .toolbar { flex-direction: column; align-items: stretch; gap: 4px; padding: 0; background: transparent; border: 0; }
+  .tabs { width: 100%; background: rgba(17,24,39,.72); border: 1px solid rgba(56,189,248,.12); border-radius: 2px; }
+  .commands { width: 100%; }
+  .search { min-width: 0; height: 44px; }
+  .tab, .control, .chip, .systemButton, .option { min-height: 44px; min-width: 44px; }
+  .systemButton .longLabel { display: none; }
+  .chips { max-width: 38%; overflow-x: auto; }
+  .chip { white-space: nowrap; }
+}

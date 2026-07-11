@@ -60,6 +60,15 @@ export function createLibraryPageParams(pageSize: number, offset: number, search
   };
 }
 
+export function createAllLibraryPageParams(pageSize: number, offset: number, search: string): Record<string, string> {
+  return { ...createLibraryPageParams(pageSize, offset, search), pins_first: "true" };
+}
+
+export function mergeLibraryPages<T extends { id: string }>(current: readonly T[], next: readonly T[]): T[] {
+  const seen = new Set(current.map((game) => game.id));
+  return [...current, ...next.filter((game) => !seen.has(game.id))];
+}
+
 export function normalizeRecentGameIds(response: unknown): string[] {
   if (!response || typeof response !== "object" || !("games" in response) || !Array.isArray(response.games)) return [];
   return response.games

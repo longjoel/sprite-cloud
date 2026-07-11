@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   LIBRARY_SECTIONS,
+  createAllLibraryPageParams,
   createLibraryFilters,
   createLibraryPageParams,
   createLatestRequestGate,
   filterLibraryGames,
+  mergeLibraryPages,
   normalizeRecentGameIds,
   type LibraryGame,
 } from "@/lib/ui/library-view-model";
@@ -65,6 +67,21 @@ describe("library view model", () => {
       offset: "50",
       search: "mario",
     });
+  });
+
+  it("keeps every all-library page in pins-first offset semantics", () => {
+    expect(createAllLibraryPageParams(100, 0, " mario ")).toEqual({
+      limit: "100", offset: "0", search: "mario", pins_first: "true",
+    });
+    expect(createAllLibraryPageParams(100, 100, " mario ")).toEqual({
+      limit: "100", offset: "100", search: "mario", pins_first: "true",
+    });
+  });
+
+  it("does not count repeated pins as appended rows or skip the next offset", () => {
+    const merged = mergeLibraryPages([games[1], games[0], games[2]], [games[1], games[3]]);
+    expect(ids(merged)).toEqual(["beta", "alpha", "gamma", "delta"]);
+    expect(createAllLibraryPageParams(3, merged.length, "").offset).toBe("4");
   });
 
   it("accepts only the latest reset response when searches resolve out of order", () => {

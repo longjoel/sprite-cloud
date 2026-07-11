@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
 import AppHeader from "@/components/fluent/AppHeader";
+import LibraryToolbar from "@/components/LibraryToolbar";
 import { buildLanPlayerLaunchUrl } from "@/lib/lan/launch";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
-import { LIBRARY_SECTIONS, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, filterLibraryGames, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
+import { createAllLibraryPageParams, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, filterLibraryGames, mergeLibraryPages, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -129,14 +130,14 @@ async function togglePin(gameId: string): Promise<{ pinned: boolean; pinCount: n
   return resp.json();
 }
 
-async function fetchPinnedIds(): Promise<Set<string>> {
+async function fetchPinnedGames(): Promise<Game[]> {
   try {
-    const resp = await fetch("/api/pins?ids_only=true");
-    if (!resp.ok) return new Set();
+    const resp = await fetch("/api/pins");
+    if (!resp.ok) return [];
     const data = await resp.json();
-    return new Set(data.ids || []);
+    return (data.games || []).slice(0, MAX_PINS);
   } catch {
-    return new Set();
+    return [];
   }
 }
 
@@ -170,7 +171,6 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
 
   // Platform filter: empty = show all
   const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(new Set());
-  const [platformDropdownOpen, setPlatformDropdownOpen] = useState(false);
 
   // View toggle: "grid" | "table"
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
@@ -191,30 +191,27 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
 
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
+  const [pinnedGames, setPinnedGames] = useState<Game[]>([]);
+  const [pinsLoading, setPinsLoading] = useState(false);
 
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const filterRef = useRef<HTMLDivElement>(null);
   const hasServers = serverIds.length > 0;
 
-  // Load favs + pins on mount
+  // Load favorites and the complete (max 20) pinned rows on mount.
   useEffect(() => {
-    if (session?.user?.id) {
-      fetchFavoriteIds().then(setFavoriteIds);
-      fetchPinnedIds().then(setPinnedIds);
+    if (!session?.user?.id) {
+      setPinnedGames([]);
+      setPinnedIds(new Set());
+      return;
     }
+    fetchFavoriteIds().then(setFavoriteIds);
+    setPinsLoading(true);
+    fetchPinnedGames().then((games) => {
+      setPinnedGames(games);
+      setPinnedIds(new Set(games.map((game) => game.id)));
+    }).finally(() => setPinsLoading(false));
   }, [session?.user?.id]);
 
-  // Close platform dropdown on outside click
-  useEffect(() => {
-    if (!platformDropdownOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
-        setPlatformDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [platformDropdownOpen]);
 
   // Debounced search
   useEffect(() => {
@@ -239,13 +236,8 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     if (!reset && offset >= total && total > 0) return;
     setAllLoading(true);
     try {
-      const data = await fetchPage("/api/games", {
-        limit: String(PAGE_SIZE),
-        offset: String(offset),
-        search: searchTerm,
-        ...(reset ? { pins_first: "true" } : {}),
-      });
-      setAllGames(reset ? data.games : [...current, ...data.games]);
+      const data = await fetchPage("/api/games", createAllLibraryPageParams(PAGE_SIZE, offset, searchTerm));
+      setAllGames(reset ? data.games : mergeLibraryPages(current, data.games));
       setAllTotal(data.total);
     } finally {
       setAllLoading(false);
@@ -466,6 +458,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       setAllGames(update);
       setFavGames(update);
       setRecentGames(update);
+      setPinnedGames(update);
       cancelRename();
     } catch { setEditSaving(false); }
   }, [editName, allGamesRef, cancelRename]);
@@ -495,27 +488,31 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
 
   const handleTogglePin = useCallback(async (gameId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const result = await togglePin(gameId);
-    setPinnedIds((prev) => {
-      const next = new Set(prev);
-      if (result.pinned) next.add(gameId); else next.delete(gameId);
-      return next;
-    });
+    await togglePin(gameId);
+    setPinsLoading(true);
+    try {
+      const games = await fetchPinnedGames();
+      setPinnedGames(games);
+      setPinnedIds(new Set(games.map((game) => game.id)));
+    } finally {
+      setPinsLoading(false);
+    }
   }, []);
 
   // ── Current tab's game list ─────────────────────────────────────
 
-  const currentGames = tab === "all" ? allGames : tab === "favorites" ? favGames : recentGames;
-  const currentTotal = tab === "all" ? allTotal : tab === "favorites" ? favTotal : recentTotal;
-  const currentLoading = tab === "all" ? allLoading : tab === "favorites" ? favLoading : recentLoading;
-  const hasMore = currentGames.length < currentTotal;
+  const currentGames = tab === "all" ? allGames : tab === "pins" ? pinnedGames : tab === "favorites" ? favGames : recentGames;
+  const currentTotal = tab === "all" ? allTotal : tab === "pins" ? pinnedGames.length : tab === "favorites" ? favTotal : recentTotal;
+  const currentLoading = tab === "all" ? allLoading : tab === "pins" ? pinsLoading : tab === "favorites" ? favLoading : recentLoading;
+  const hasMore = tab !== "pins" && currentGames.length < currentTotal;
 
-  const uniquePlatforms = [...new Set(allGames.map((g) => g.platform))].sort();
+  const platformSource = mergeLibraryPages(allGames, pinnedGames);
+  const uniquePlatforms = [...new Set(platformSource.map((g) => g.platform))].sort();
   const platformCounts = useMemo(() => {
     const m: Record<string, number> = {};
-    for (const g of allGames) m[g.platform] = (m[g.platform] || 0) + 1;
+    for (const g of platformSource) m[g.platform] = (m[g.platform] || 0) + 1;
     return m;
-  }, [allGames]);
+  }, [allGames, pinnedGames]);
 
   const sortedGames = useMemo(() => {
     const normalized: LibraryGame[] = currentGames.map((game, index) => ({
@@ -530,8 +527,6 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     const byId = new Map(currentGames.map((game) => [game.id, game]));
     return filtered.map((game) => byId.get(game.id)!);
   }, [currentGames, favoriteIds, pinnedIds, search, selectedPlatforms, tab]);
-
-  const pinnedCount = sortedGames.filter((g) => pinnedIds.has(g.id)).length;
 
   // ── Render helpers ──────────────────────────────────────────────
 
@@ -679,213 +674,34 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       )}
 
       <section style={styles.section}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-4)" }}>
-          <h2 style={styles.h2}>Library</h2>
+        <h2 style={{ ...styles.h2, marginBottom: "var(--space-4)" }}>Library</h2>
 
-          {/* View toggle */}
-          <div style={{ display: "flex", gap: 4, background: "var(--color-sky-mid)", borderRadius: 2, padding: 2 }}>
-            <button
-              onClick={() => setViewMode("grid")}
-              style={{
-                padding: "6px 14px",
-                background: viewMode === "grid" ? "var(--color-sky-high)" : "transparent",
-                border: "none",
-                borderRadius: 2,
-                color: viewMode === "grid" ? "var(--color-accent)" : "var(--color-cloud-dim)",
-                fontSize: "var(--font-size-xs)",
-                fontFamily: "var(--font-mono)",
-                cursor: "pointer",
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-              }}
-            >
-              ▦ Grid
-            </button>
-            <button
-              onClick={() => setViewMode("table")}
-              style={{
-                padding: "6px 14px",
-                background: viewMode === "table" ? "var(--color-sky-high)" : "transparent",
-                border: "none",
-                borderRadius: 2,
-                color: viewMode === "table" ? "var(--color-accent)" : "var(--color-cloud-dim)",
-                fontSize: "var(--font-size-xs)",
-                fontFamily: "var(--font-mono)",
-                cursor: "pointer",
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-              }}
-            >
-              ☰ Table
-            </button>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div style={{ display: "flex", gap: 0, marginBottom: "var(--space-4)" }}>
-          {LIBRARY_SECTIONS.slice(0, 3).map(({ id: t, label }) => {
-            const isActive = tab === t;
-            const counts: Record<string, number> = { all: allTotal, favorites: favTotal, recent: recentTotal };
-            return (
-              <button
-                key={t}
-                onClick={() => { setTab(t); setSelectedPlatforms(new Set()); }}
-                style={{
-                  padding: "8px 20px",
-                  background: isActive ? "var(--color-sky-high)" : "transparent",
-                  border: "none",
-                  borderBottom: isActive ? "2px solid var(--color-accent)" : "2px solid transparent",
-                  color: isActive ? "var(--color-accent)" : "var(--color-cloud-dim)",
-                  fontSize: "var(--font-size-sm)",
-                  fontFamily: "var(--font-mono)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.05em",
-                  cursor: "pointer",
-                  transition: "all 0.15s",
-                }}
-              >
-                {label}
-                {counts[t] > 0 ? ` (${counts[t]})` : ""}
-              </button>
-            );
+        <LibraryToolbar
+          activeSection={tab}
+          counts={{ all: allTotal, favorites: favTotal, recent: recentTotal, pins: pinnedGames.length }}
+          search={searchInput}
+          platforms={uniquePlatforms}
+          platformCounts={platformCounts}
+          selectedPlatforms={selectedPlatforms}
+          viewMode={viewMode}
+          onSectionChange={setTab}
+          onSearchChange={setSearchInput}
+          onPlatformToggle={(platform) => setSelectedPlatforms((previous) => {
+            const next = new Set(previous);
+            if (next.has(platform)) next.delete(platform); else next.add(platform);
+            return next;
           })}
-        </div>
+          onClearPlatforms={() => setSelectedPlatforms(new Set())}
+          onViewModeChange={setViewMode}
+        />
 
-        {/* Search + Filter row */}
-        {tab === "all" && (
-          <div style={{ display: "flex", gap: "var(--space-4)", marginBottom: "var(--space-5)", alignItems: "center", flexWrap: "wrap" }}>
-            <input
-              type="text"
-              placeholder="Search games..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              style={{
-                width: 280,
-                padding: "10px 14px",
-                background: "var(--color-sky-high)",
-                border: "2px solid var(--color-sky-high)",
-                borderRadius: "var(--radius-sm)",
-                color: "var(--color-cloud)",
-                fontSize: "var(--font-size-base)",
-                fontFamily: "var(--font-mono)",
-                outline: "none",
-                transition: "border-color 0.15s",
-              }}
-              onFocus={(e) => { e.target.style.borderColor = "var(--color-accent)"; }}
-              onBlur={(e) => { e.target.style.borderColor = "var(--color-sky-high)"; }}
-            />
-
-            {/* Platform dropdown filter */}
-            <div ref={filterRef} style={{ position: "relative" }}>
-              <button
-                onClick={() => setPlatformDropdownOpen((v) => !v)}
-                style={{
-                  padding: "10px 14px",
-                  background: selectedPlatforms.size > 0 ? "rgba(56,189,248,0.12)" : "var(--color-sky-high)",
-                  border: selectedPlatforms.size > 0 ? "1px solid rgba(56,189,248,0.3)" : "1px solid var(--color-sky-high)",
-                  borderRadius: 2,
-                  color: selectedPlatforms.size > 0 ? "var(--color-accent)" : "var(--color-cloud-dim)",
-                  fontSize: "var(--font-size-sm)",
-                  fontFamily: "var(--font-mono)",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  transition: "all 0.15s",
-                }}
-              >
-                <span>{selectedPlatforms.size > 0 ? `Systems (${selectedPlatforms.size})` : "All Systems"}</span>
-                <span style={{ fontSize: 10 }}>{platformDropdownOpen ? "▲" : "▼"}</span>
-              </button>
-
-              {platformDropdownOpen && (
-                <div style={{
-                  position: "absolute",
-                  top: "100%",
-                  left: 0,
-                  marginTop: 4,
-                  background: "var(--color-sky-mid)",
-                  border: "1px solid var(--color-sky-high)",
-                  borderRadius: 2,
-                  zIndex: 50,
-                  minWidth: 220,
-                  maxHeight: 360,
-                  overflowY: "auto",
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-                }}>
-                  <button
-                    onClick={() => { setSelectedPlatforms(new Set()); setPlatformDropdownOpen(false); }}
-                    style={{
-                      display: "block",
-                      width: "100%",
-                      padding: "8px 14px",
-                      background: selectedPlatforms.size === 0 ? "var(--color-sky-high)" : "transparent",
-                      border: "none",
-                      color: selectedPlatforms.size === 0 ? "var(--color-accent)" : "var(--color-cloud-dim)",
-                      fontSize: "var(--font-size-sm)",
-                      fontFamily: "var(--font-mono)",
-                      cursor: "pointer",
-                      textAlign: "left",
-                    }}
-                  >
-                    All Systems ({allTotal})
-                  </button>
-                  {uniquePlatforms.map((platform) => {
-                    const checked = selectedPlatforms.has(platform);
-                    return (
-                      <label
-                        key={platform}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          padding: "8px 14px",
-                          background: checked ? "var(--color-sky-high)" : "transparent",
-                          cursor: "pointer",
-                          fontSize: "var(--font-size-sm)",
-                          fontFamily: "var(--font-mono)",
-                          color: checked ? "var(--color-accent)" : "var(--color-cloud-dim)",
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => {
-                            setSelectedPlatforms((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(platform)) next.delete(platform);
-                              else next.add(platform);
-                              return next;
-                            });
-                          }}
-                          style={{ accentColor: "var(--color-accent)" }}
-                        />
-                        {platform}
-                        <span style={{ marginLeft: "auto", fontSize: "var(--font-size-xs)", opacity: 0.5 }}>
-                          ({platformCounts[platform] || 0})
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Pin count */}
-            {pinnedCount > 0 && (
-              <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-accent)", fontFamily: "var(--font-mono)" }}>
-                📌 {pinnedCount} pinned
-              </span>
-            )}
-          </div>
-        )}
 
         {/* Game grid / table */}
         {sortedGames.length === 0 && !currentLoading ? (
           <p style={styles.empty}>
             {selectedPlatforms.size > 0
               ? "No games match the selected platforms."
-              : tab === "all" ? "No games found." : tab === "favorites" ? "No favorites yet." : "No recent plays."}
+              : tab === "all" ? "No games found." : tab === "favorites" ? "No favorites yet." : tab === "pins" ? "No pinned games yet." : "No recent plays."}
           </p>
         ) : viewMode === "grid" ? (
           <div style={styles.librarySurfaceCard}>
