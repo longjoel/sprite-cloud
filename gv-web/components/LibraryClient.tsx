@@ -6,8 +6,8 @@ import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
 import AppHeader from "@/components/fluent/AppHeader";
 import LibraryToolbar from "@/components/LibraryToolbar";
-import { Star20Filled, Star20Regular, Pin20Filled, Pin20Regular, Edit20Regular } from "@fluentui/react-icons";
-import { buildLanPlayerLaunchUrl } from "@/lib/lan/launch";
+import { Star20Filled, Star20Regular, Pin20Filled, Pin20Regular, Edit20Regular, Desktop20Regular } from "@fluentui/react-icons";
+import { buildLanPlayerLaunchUrl, chooseLaunchHost, createLaunchRequestGate, formatLaunchError } from "@/lib/lan/launch";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
 import { createAllLibraryPageParams, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, filterLibraryGames, formatRecentGroupLabel, formatRelativeAge, groupRecentGamesByLocalDate, mergeLibraryPages, mergeRecentLibraryPages, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
 
@@ -31,6 +31,7 @@ interface GameActionModel {
   onToggleFavorite?: (gameId: string, e: React.MouseEvent) => void;
   onTogglePin?: (gameId: string, e: React.MouseEvent) => void;
   onRename?: (game: Game) => void;
+  onChooseHost?: (gameId: string) => void;
 }
 
 interface PlayableHost {
@@ -76,13 +77,6 @@ function statusVariant(status: string) {
     online: "success", stale: "warning", offline: "error",
   };
   return map[status] || "error";
-}
-
-function routeVariant(route: string) {
-  const map: Record<string, "success" | "info" | "warning" | "muted"> = {
-    local: "success", direct: "info", relay: "warning", unknown: "muted",
-  };
-  return map[route] || "muted";
 }
 
 function csrfHeaders(): Record<string, string> {
@@ -161,6 +155,12 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   const [hostPickerGame, setHostPickerGame] = useState<string | null>(null);
   const [playableHosts, setPlayableHosts] = useState<PlayableHost[]>([]);
   const [lanProbeByServer, setLanProbeByServer] = useState<Record<string, LanProbeResult>>({});
+  const [rememberSelectedHost, setRememberSelectedHost] = useState(false);
+  const [hostPickerLoading, setHostPickerLoading] = useState(false);
+  const [launchingGame, setLaunchingGame] = useState<string | null>(null);
+  const [launchError, setLaunchError] = useState<string | null>(null);
+  const launchGate = useRef(createLaunchRequestGate());
+  const launchAbort = useRef<AbortController | null>(null);
 
   const [editingGame, setEditingGame] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -314,61 +314,79 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
 
   // ── Play handler ─────────────────────────────────────────────────
 
-  const navigateToGame = useCallback(async (gameId: string, serverId: string, lanPlayerUrls?: string[] | null) => {
+  async function responseError(response: Response, fallback: string): Promise<Error> {
+    let detail = "";
+    try {
+      const body = await response.json() as { error?: unknown; message?: unknown };
+      const candidate = typeof body.error === "string" ? body.error : typeof body.message === "string" ? body.message : "";
+      detail = candidate.trim();
+    } catch (error) {
+      console.warn("Could not parse launch error response", error);
+    }
+    return new Error(detail || `${fallback} (HTTP ${response.status})`);
+  }
+
+  const closeHostPicker = useCallback(() => {
+    launchAbort.current?.abort();
+    launchAbort.current = null;
+    launchGate.current.invalidate();
+    setHostPickerGame(null);
+    setPlayableHosts([]);
+    setLanProbeByServer({});
+    setHostPickerLoading(false);
+    setLaunchError(null);
+    setRememberSelectedHost(false);
+  }, []);
+
+  const openHostPicker = useCallback((gameId: string, visible = true) => {
+    launchAbort.current?.abort();
+    launchAbort.current = new AbortController();
+    const generation = launchGate.current.beginRequest();
+    setHostPickerGame(visible ? gameId : null);
+    setPlayableHosts([]);
+    setLanProbeByServer({});
+    setRememberSelectedHost(false);
+    setLaunchError(null);
+    setHostPickerLoading(true);
+    return generation;
+  }, []);
+
+  const navigateToGame = useCallback(async (gameId: string, serverId: string, generation: number, lanPlayerUrls?: string[] | null) => {
     const hostToken = crypto.randomUUID();
     const resp = await fetch("/api/room/shorten", {
       method: "POST",
       headers: csrfHeaders(),
       body: JSON.stringify({ game_id: gameId, host_token: hostToken, server_id: serverId }),
+      signal: launchAbort.current?.signal,
     });
-    if (!resp.ok) throw new Error("shorten failed");
-    const data = await resp.json();
-    const code = data.code as string;
+    if (!resp.ok) throw await responseError(resp, "Could not create a play link");
+    const data = await resp.json() as { code?: unknown };
+    if (typeof data.code !== "string" || !data.code.trim()) throw new Error("The play link response did not include a code");
+    if (!launchGate.current.isCurrent(generation)) return;
+    const code = data.code;
     const lanUrl = buildLanPlayerLaunchUrl({ playerUrls: lanPlayerUrls, gameId, serverId, code, hostToken });
-    if (lanUrl) {
-      // Record the launch route before navigating
-      fetch("/api/launch-event", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event: "launch_route_chosen",
-          game_id: gameId,
-          server_id: serverId,
-          detail: {
-            route: "lan_direct",
-            lan_url: lanUrl,
-            player_urls: lanPlayerUrls,
-          },
-        }),
-      }).catch(() => {});
-      window.location.assign(lanUrl);
-      return;
-    }
-    // Relay fallback — no LAN player reachable
-    fetch("/api/launch-event", {
+    const detail = lanUrl
+      ? { route: "lan_direct", lan_url: lanUrl, player_urls: lanPlayerUrls }
+      : { route: "relay", reason: "lan_unreachable" };
+    void fetch("/api/launch-event", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        event: "launch_route_chosen",
-        game_id: gameId,
-        server_id: serverId,
-        detail: {
-          route: "relay",
-          reason: "lan_unreachable",
-        },
-      }),
-    }).catch(() => {});
-    router.push(`/p/${code}`);
+      body: JSON.stringify({ event: "launch_route_chosen", game_id: gameId, server_id: serverId, detail }),
+    }).catch((error) => console.warn("Could not record launch route", error));
+    if (lanUrl) window.location.assign(lanUrl);
+    else router.push(`/p/${code}`);
   }, [router]);
 
-  async function probePlayableHosts(hosts: PlayableHost[]) {
-    const entries = await Promise.all(
-      hosts.map(async (host) => {
-        const result = await probeLanHealth(host.lan?.health_urls, { timeoutMs: 1_200 });
-        return [host.server_id, result] as const;
-      }),
-    );
-    setLanProbeByServer(Object.fromEntries(entries));
+  async function probePlayableHosts(hosts: PlayableHost[], generation: number) {
+    try {
+      const entries = await Promise.all(hosts.map(async (host) => [
+        host.server_id,
+        await probeLanHealth(host.lan?.health_urls, { timeoutMs: 1_200 }),
+      ] as const));
+      if (launchGate.current.isCurrent(generation)) setLanProbeByServer(Object.fromEntries(entries));
+    } catch (error) {
+      if (launchGate.current.isCurrent(generation)) setLaunchError(formatLaunchError(error, "Could not check host connections. You can retry."));
+    }
   }
 
   function canAttemptLanLaunch(probe: LanProbeResult | undefined): boolean {
@@ -380,52 +398,65 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     return canAttemptLanLaunch(probe) ? host.lan?.player_urls ?? null : null;
   }
 
-  const handlePlay = async (gameId: string) => {
-    if (!hasServers) return;
-    recordRecentPlay(gameId);
+  const loadHosts = async (gameId: string, automatic: boolean) => {
+    if (!hasServers || !launchGate.current.tryBeginLaunch()) return;
+    const generation = openHostPicker(gameId, !automatic);
+    setLaunchingGame(gameId);
     try {
-      const resp = await fetch(`/api/playable-hosts?game_id=${encodeURIComponent(gameId)}`);
-      if (!resp.ok) throw new Error("failed");
-      const data = await resp.json();
-      const hosts: PlayableHost[] = data.hosts || [];
+      const resp = await fetch(`/api/playable-hosts?game_id=${encodeURIComponent(gameId)}`, { signal: launchAbort.current?.signal });
+      if (!resp.ok) throw await responseError(resp, "Could not load hosts");
+      const data = await resp.json() as { hosts?: PlayableHost[] };
+      if (!launchGate.current.isCurrent(generation)) return;
+      const hosts = Array.isArray(data.hosts) ? data.hosts : [];
       setPlayableHosts(hosts);
-      setLanProbeByServer({});
+      setHostPickerLoading(false);
 
-      const withGame = hosts.filter((h) => h.has_game && h.status !== "offline");
-      const routeOrder: Record<string, number> = { local: 0, direct: 1, relay: 2, unknown: 3 };
-      withGame.sort((a, b) => {
-        if (a.status !== b.status) return a.status === "online" ? -1 : 1;
-        return (routeOrder[a.route_hint] ?? 3) - (routeOrder[b.route_hint] ?? 3);
-      });
-
-      const preferredId = getPreferredServer(gameId);
-      if (preferredId) {
-        const prefIdx = withGame.findIndex((h) => h.server_id === preferredId);
-        if (prefIdx > 0) {
-          const [pref] = withGame.splice(prefIdx, 1);
-          withGame.unshift(pref);
-        }
-      }
-
-      if (withGame.length === 0) { setHostPickerGame(gameId); void probePlayableHosts(hosts); return; }
-      if (withGame.length === 1) {
-        const host = withGame[0];
-        const serverId = host.server_id;
-        setPreferredServer(gameId, serverId);
+      const host = automatic ? chooseLaunchHost(hosts, getPreferredServer(gameId)) : null;
+      if (host) {
         const probe = await probeLanHealth(host.lan?.health_urls, { timeoutMs: 1_200 });
-        await navigateToGame(gameId, serverId, canAttemptLanLaunch(probe) ? host.lan?.player_urls : null);
+        if (!launchGate.current.isCurrent(generation)) return;
+        await navigateToGame(gameId, host.server_id, generation, canAttemptLanLaunch(probe) ? host.lan?.player_urls : null);
+        if (launchGate.current.isCurrent(generation)) closeHostPicker();
         return;
       }
       setHostPickerGame(gameId);
-      void probePlayableHosts(hosts);
-    } catch { /* silent */ }
+      await probePlayableHosts(hosts, generation);
+    } catch (error) {
+      if (launchGate.current.isCurrent(generation)) {
+        setHostPickerGame(gameId);
+        setHostPickerLoading(false);
+        setLaunchError(formatLaunchError(error, "Could not start the game. Please retry."));
+      }
+    } finally {
+      launchGate.current.finishLaunch();
+      setLaunchingGame(null);
+    }
   };
 
+  const handlePlay = (gameId: string) => {
+    recordRecentPlay(gameId);
+    void loadHosts(gameId, true);
+  };
+
+  const chooseHost = (gameId: string) => void loadHosts(gameId, false);
+
   const selectHost = async (gameId: string, serverId: string, _serverName: string) => {
-    const host = playableHosts.find((h) => h.server_id === serverId);
-    setHostPickerGame(null);
-    setPreferredServer(gameId, serverId);
-    try { await navigateToGame(gameId, serverId, host ? lanPlayerUrlsWhenDirectOrPolicyBlocked(host) : null); } catch { /* silent */ }
+    if (!launchGate.current.tryBeginLaunch()) return;
+    const generation = launchGate.current.beginRequest();
+    const host = playableHosts.find((candidate) => candidate.server_id === serverId);
+    setLaunchingGame(gameId);
+    setLaunchError(null);
+    try {
+      await navigateToGame(gameId, serverId, generation, host ? lanPlayerUrlsWhenDirectOrPolicyBlocked(host) : null);
+      if (!launchGate.current.isCurrent(generation)) return;
+      if (rememberSelectedHost) setPreferredServer(gameId, serverId);
+      closeHostPicker();
+    } catch (error) {
+      setLaunchError(formatLaunchError(error, "Could not start the game. Please retry."));
+    } finally {
+      launchGate.current.finishLaunch();
+      setLaunchingGame(null);
+    }
   };
 
   // ── Rename handlers ─────────────────────────────────────────────
@@ -548,20 +579,8 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     onToggleFavorite: session?.user?.id ? handleToggleFavorite : undefined,
     onTogglePin: session?.user?.id ? handleTogglePin : undefined,
     onRename: session?.user?.id ? startRename : undefined,
+    onChooseHost: hasServers ? chooseHost : undefined,
   };
-
-  function renderLanRouteBadge(host: PlayableHost) {
-    if (!host.lan?.health_urls?.length) return null;
-    const probe = lanProbeByServer[host.server_id];
-    if (!probe) return <Badge variant="muted">LAN probing…</Badge>;
-    if (probe.reachable) {
-      return <Badge variant="success">LAN direct {probe.latencyMs.toFixed(0)}ms</Badge>;
-    }
-    if (probe.reason === "mixed_content_blocked") {
-      return <Badge variant="warning">HTTPS probe blocked · click tries LAN</Badge>;
-    }
-    return <Badge variant="warning">Relay fallback</Badge>;
-  }
 
 
   const renderGameCard = (game: Game) => (
@@ -575,6 +594,8 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       onToggleFavorite={gameActions.onToggleFavorite}
       onTogglePin={gameActions.onTogglePin}
       onEdit={gameActions.onRename}
+      onChooseHost={gameActions.onChooseHost}
+      launching={launchingGame === game.id}
     />
   );
 
@@ -612,18 +633,17 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
             {gameActions.canPin && gameActions.onTogglePin && <button aria-label={gameActions.isPinned(game.id) ? `Unpin ${game.name}` : `Pin ${game.name}`} onClick={(e) => gameActions.onTogglePin?.(game.id, e)}>{gameActions.isPinned(game.id) ? <Pin20Filled /> : <Pin20Regular />}</button>}
             {gameActions.canRename && gameActions.onRename && <button aria-label={`Rename ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onRename?.(game); }}><Edit20Regular /></button>}
           </div>
-          {(gameActions.canFavorite || gameActions.canPin || gameActions.canRename) && (
-            <details className="library-row-overflow">
+          {(gameActions.canFavorite || gameActions.canPin || gameActions.canRename || gameActions.onChooseHost) && <details className="library-row-overflow">
               <summary aria-label={`More actions for ${game.name}`}><span aria-hidden="true">⋯</span></summary>
               <div className="library-row-overflow-actions">
                 {gameActions.canFavorite && gameActions.onToggleFavorite && <button aria-label={gameActions.isFavorite(game.id) ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`} onClick={(e) => gameActions.onToggleFavorite?.(game.id, e)}>{gameActions.isFavorite(game.id) ? <Star20Filled /> : <Star20Regular />}<span>{gameActions.isFavorite(game.id) ? "Remove favorite" : "Add favorite"}</span></button>}
                 {gameActions.canPin && gameActions.onTogglePin && <button aria-label={gameActions.isPinned(game.id) ? `Unpin ${game.name}` : `Pin ${game.name}`} onClick={(e) => gameActions.onTogglePin?.(game.id, e)}>{gameActions.isPinned(game.id) ? <Pin20Filled /> : <Pin20Regular />}<span>{gameActions.isPinned(game.id) ? "Unpin" : "Pin"}</span></button>}
                 {gameActions.canRename && gameActions.onRename && <button aria-label={`Rename ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onRename?.(game); }}><Edit20Regular /><span>Rename</span></button>}
+                {gameActions.onChooseHost && <button disabled={launchingGame === game.id} aria-label={`Choose host for ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onChooseHost?.(game.id); }}><Desktop20Regular /><span>Choose host…</span></button>}
               </div>
-            </details>
-          )}
-          <Button variant="primary" size="sm" aria-label={`Play ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onPlay(game.id); }}>
-            Play
+            </details>}
+          <Button disabled={!hasServers || launchingGame === game.id} variant="primary" size="sm" aria-label={`Play ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onPlay(game.id); }}>
+            {launchingGame === game.id ? "Launching…" : "Play"}
           </Button>
         </div>
       </td>
@@ -753,38 +773,46 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       </section>
 
       {/* ── Host picker ──────────────────────────────────────────── */}
-      <Modal open={hostPickerGame !== null} onClose={() => setHostPickerGame(null)} title="Choose host">
-        {playableHosts.length === 0 ? (
-          <p style={styles.empty}>No hosts available.</p>
+      <Modal open={hostPickerGame !== null} onClose={closeHostPicker} title="Choose host">
+        {launchError && (
+          <div role="alert" style={{ marginBottom: "var(--space-4)", color: "var(--color-error)" }}>
+            <p>{launchError}</p>
+            {hostPickerGame && <Button variant="secondary" size="sm" disabled={hostPickerLoading || launchingGame !== null} onClick={() => chooseHost(hostPickerGame)}>Retry</Button>}
+          </div>
+        )}
+        {hostPickerLoading ? (
+          <p style={styles.empty}>Loading hosts…</p>
+        ) : playableHosts.length === 0 ? (
+          <p style={styles.empty}>{launchError ? "No host information is available." : "No hosts available."}</p>
         ) : (
           playableHosts.map((host) => {
-            const playable = host.has_game && host.status !== "offline";
+            const playable = host.has_game && (host.status === "online" || host.status === "stale");
             return (
               <div key={host.server_id} style={styles.pickerRow}>
                 <span style={styles.pickerName}>{host.name}</span>
-                <Badge variant={statusVariant(host.status)}>{host.status}</Badge>
-                {host.has_game && host.route_hint !== "unknown" && (
-                  <Badge variant={routeVariant(host.route_hint)}>{host.route_hint}</Badge>
-                )}
-                {renderLanRouteBadge(host)}
+                <Badge variant={statusVariant(host.status)}>{host.has_game ? host.status : `${host.status} · game unavailable`}</Badge>
                 {!host.has_game && (
                   <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-muted)" }}>no game</span>
                 )}
                 <Button
                   variant="primary"
                   size="sm"
-                  disabled={!playable}
+                  disabled={!playable || launchingGame !== null}
                   onClick={() => selectHost(hostPickerGame!, host.server_id, host.name)}
                   style={{ opacity: playable ? 1 : 0.4, cursor: playable ? "pointer" : "default" }}
                 >
-                  {playable ? "Select" : "—"}
+                  {launchingGame !== null ? "Launching…" : playable ? "Select" : "—"}
                 </Button>
               </div>
             );
           })
         )}
+        <label style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", marginTop: "var(--space-4)" }}>
+          <input disabled={hostPickerLoading || launchingGame !== null} type="checkbox" checked={rememberSelectedHost} onChange={(event) => setRememberSelectedHost(event.target.checked)} />
+          Always use this host
+        </label>
         <div style={{ marginTop: "var(--space-5)", textAlign: "center" }}>
-          <Button variant="secondary" onClick={() => setHostPickerGame(null)}>Cancel</Button>
+          <Button variant="secondary" onClick={closeHostPicker}>Cancel</Button>
         </div>
       </Modal>
 

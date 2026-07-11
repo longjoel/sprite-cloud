@@ -118,6 +118,45 @@ describe("GameTile actions", () => {
     expect(menuActions).toHaveLength(3);
     expect(menuActions.every((action) => action.tagName === "BUTTON" && !(action as HTMLButtonElement).disabled)).toBe(true);
   });
+
+  it("disables Play and host selection during launch without removing native controls", () => {
+    const tile = renderTile({ onChooseHost: vi.fn(), launching: true });
+    const play = tile.querySelector('[aria-label="Play Super Test"]') as HTMLButtonElement;
+    const choose = tile.querySelector('.game-tile-secondary-actions [aria-label="Choose host for Super Test"]') as HTMLButtonElement;
+
+    expect(play.tagName).toBe("BUTTON");
+    expect(choose.tagName).toBe("BUTTON");
+    expect(play.disabled).toBe(true);
+    expect(choose.disabled).toBe(true);
+    expect(play.textContent).toContain("Launching");
+  });
+
+  it("uses a recognizable Fluent desktop icon and a visible desktop label", () => {
+    const tile = renderTile({ onChooseHost: vi.fn() });
+    const choose = tile.querySelector('.game-tile-secondary-actions [aria-label="Choose host for Super Test"]') as HTMLButtonElement;
+    expect(choose.querySelector("svg")).not.toBeNull();
+    expect(choose.textContent).toContain("Host");
+    expect(choose.textContent).not.toContain("⌁");
+  });
+});
+
+describe("host selection actions", () => {
+  it("offers an explicit host override without persisting ordinary selections", () => {
+    expect(librarySource).toContain("Choose host for ${game.name}");
+    expect(librarySource).toContain("Always use this host");
+    expect(librarySource).toContain("openHostPicker(gameId, !automatic)");
+    expect(librarySource).not.toContain("const generation = openHostPicker(gameId);\n    setLaunchingGame");
+    expect(librarySource).toContain("if (rememberSelectedHost) setPreferredServer(gameId, serverId);");
+    expect(librarySource).not.toContain("setPreferredServer(gameId, serverId);\n        const probe");
+  });
+
+  it("shows launch errors with retry and resets remembered selection on every close path", () => {
+    expect(librarySource).toContain('role="alert"');
+    expect(librarySource).toContain("Retry");
+    expect(librarySource).toContain("setRememberSelectedHost(false)");
+    expect(librarySource).toContain("closeHostPicker");
+    expect(librarySource).not.toContain("catch { /* silent */ }");
+  });
 });
 
 describe("motion preferences", () => {
