@@ -1448,4 +1448,23 @@ describe("GET /api/recent-plays deterministic pagination", () => {
     expect(pageQuery.limit).toHaveBeenCalledWith(1);
     expect(pageQuery.offset).toHaveBeenCalledWith(1);
   });
+
+  it("selects and returns the latest playedAt for each grouped game", async () => {
+    const membershipsQuery = mockQueryBuilder([{ serverId: "server-1" }]);
+    const countQuery = mockQueryBuilder([{ count: 1 }]);
+    const pageQuery = mockQueryBuilder([{ id: "mario", playedAt: "2026-07-11T10:00:00.000Z" }]);
+    mockDb.select
+      .mockReturnValueOnce(membershipsQuery)
+      .mockReturnValueOnce(countQuery)
+      .mockReturnValueOnce(pageQuery);
+
+    const { GET } = await import("@/app/api/recent-plays/route");
+    const response = await GET(mkReq("http://localhost/api/recent-plays"));
+
+    expect(await response.json()).toEqual({
+      games: [{ id: "mario", playedAt: "2026-07-11T10:00:00.000Z" }],
+      total: 1,
+    });
+    expect(mockDb.select.mock.calls[2][0]).toHaveProperty("playedAt");
+  });
 });

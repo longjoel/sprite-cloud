@@ -6,7 +6,11 @@ import {
   createLibraryPageParams,
   createLatestRequestGate,
   filterLibraryGames,
+  formatRecentGroupLabel,
+  formatRelativeAge,
+  groupRecentGamesByLocalDate,
   mergeLibraryPages,
+  mergeRecentLibraryPages,
   normalizeRecentGameIds,
   type LibraryGame,
 } from "@/lib/ui/library-view-model";
@@ -59,6 +63,77 @@ describe("library view model", () => {
   it("normalizes recent IDs and ranks from the recent-plays games response", () => {
     const response = { games: [{ id: "gamma" }, { id: "beta" }], total: 2 };
     expect(normalizeRecentGameIds(response)).toEqual(["gamma", "beta"]);
+  });
+
+  it("de-duplicates and sorts recent games newest-first before grouping by local date", () => {
+    const result = groupRecentGamesByLocalDate([
+      { id: "older", playedAt: "2026-07-10T20:00:00.000Z" },
+      { id: "same-b", playedAt: "2026-07-11T10:00:00.000Z" },
+      { id: "older", playedAt: "2026-07-11T09:00:00.000Z" },
+      { id: "same-a", playedAt: "2026-07-11T10:00:00.000Z" },
+    ], "UTC");
+    expect(result.map((group) => [group.date, group.games.map((game) => game.id)])).toEqual([
+      ["2026-07-11", ["same-a", "same-b", "older"]],
+    ]);
+  });
+
+  it("groups recent games using local calendar dates with YYYY-MM-DD labels", () => {
+    const result = groupRecentGamesByLocalDate([
+      { id: "after-midnight", playedAt: "2026-07-11T00:30:00.000Z" },
+      { id: "before-midnight", playedAt: "2026-07-10T23:30:00.000Z" },
+    ], "America/New_York");
+    expect(result.map((group) => group.date)).toEqual(["2026-07-10"]);
+  });
+
+  it("prefixes today's and yesterday's local date headings without dropping the date", () => {
+    const now = new Date("2026-07-11T04:30:00.000Z");
+    expect(formatRecentGroupLabel("2026-07-11", now, "America/New_York")).toBe("Today — 2026-07-11");
+    expect(formatRecentGroupLabel("2026-07-10", now, "America/New_York")).toBe("Yesterday — 2026-07-10");
+    expect(formatRecentGroupLabel("2026-07-09", now, "America/New_York")).toBe("2026-07-09");
+    expect(formatRecentGroupLabel("unknown", now, "America/New_York")).toBe("Unknown date");
+  });
+
+  it("keeps missing and invalid timestamps visible in an Unknown date group", () => {
+    const result = groupRecentGamesByLocalDate([
+      { id: "valid", playedAt: "2026-07-11T10:00:00.000Z" },
+      { id: "missing" },
+      { id: "invalid", playedAt: "not-a-date" },
+    ], "UTC");
+    expect(result.map((group) => [group.date, group.games.map((game) => game.id)])).toEqual([
+      ["2026-07-11", ["valid"]],
+      ["unknown", ["invalid", "missing"]],
+    ]);
+    expect(formatRelativeAge(undefined)).toBe("time unavailable");
+    expect(formatRelativeAge("not-a-date")).toBe("time unavailable");
+  });
+
+  it("merges recent pages by retaining the newest valid timestamp per ID", () => {
+    const current = [
+      { id: "newer-incoming", playedAt: "2026-07-10T10:00:00.000Z" },
+      { id: "older-incoming", playedAt: "2026-07-11T10:00:00.000Z" },
+      { id: "valid-beats-invalid", playedAt: "2026-07-09T10:00:00.000Z" },
+      { id: "invalid-replaced", playedAt: "bad" },
+    ];
+    const incoming = [
+      { id: "newer-incoming", playedAt: "2026-07-12T10:00:00.000Z" },
+      { id: "older-incoming", playedAt: "2026-07-08T10:00:00.000Z" },
+      { id: "valid-beats-invalid", playedAt: "bad" },
+      { id: "invalid-replaced", playedAt: "2026-07-07T10:00:00.000Z" },
+    ];
+    const merged = mergeRecentLibraryPages(current, incoming);
+    expect(merged.map((game) => [game.id, game.playedAt])).toEqual([
+      ["newer-incoming", "2026-07-12T10:00:00.000Z"],
+      ["older-incoming", "2026-07-11T10:00:00.000Z"],
+      ["valid-beats-invalid", "2026-07-09T10:00:00.000Z"],
+      ["invalid-replaced", "2026-07-07T10:00:00.000Z"],
+    ]);
+  });
+
+  it("formats compact relative ages", () => {
+    const now = new Date("2026-07-11T12:00:00.000Z");
+    expect(formatRelativeAge("2026-07-11T11:59:40.000Z", now)).toBe("now");
+    expect(formatRelativeAge("2026-07-11T07:00:00.000Z", now)).toBe("5h ago");
+    expect(formatRelativeAge("2026-07-08T12:00:00.000Z", now)).toBe("3d ago");
   });
 
   it("builds paginated section params with the debounced server search convention", () => {

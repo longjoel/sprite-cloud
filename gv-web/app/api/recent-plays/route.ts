@@ -54,6 +54,7 @@ export async function GET(request: NextRequest) {
       name: games.name,
       platform: games.platform,
       maxPlayers: games.maxPlayers,
+      playedAt: sql<Date>`max(${recentPlays.playedAt})`,
     })
     .from(recentPlays)
     .innerJoin(games, eq(recentPlays.gameId, games.id))
