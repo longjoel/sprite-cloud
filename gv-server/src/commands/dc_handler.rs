@@ -64,25 +64,18 @@ pub(super) fn wire_dc_handler(session: &Arc<GameSession>) {
                 Box::pin(async {})
             }));
 
-            // ── Host DC close — only cancel if no guests ────────────
+            // The SCTP data channel may close independently while audio/video ICE
+            // remains healthy (observed on Android Chrome). Do not tear down media
+            // here; the peer-connection ICE callbacks own session liveness.
             let session_close = Arc::clone(&session);
             dc_for_open.on_close(Box::new(move || {
                 let session = Arc::clone(&session_close);
                 Box::pin(async move {
-                    tracing::warn!("[DC] host DC closed — checking guests");
+                    tracing::warn!("[DC] host DC closed — preserving media until ICE disconnects");
                     session
                         .host_connected
                         .store(false, std::sync::atomic::Ordering::Relaxed);
-                    let has_guests = !session.guests.lock().await.is_empty();
-                    if !has_guests {
-                        tracing::info!("[DC] host gone, no guests — cancelling session");
-                        session.cancel.cancel();
-                    } else {
-                        tracing::info!(
-                            "[DC] host gone, {} guests present — session stays alive",
-                            session.guests.lock().await.len()
-                        );
-                    }
+                    *session.dc.lock().await = None;
                 })
             }));
 
