@@ -16,6 +16,7 @@ import {
   releaseVisibleTouchGamepad,
   type PlayerPanel,
 } from "@/lib/ui/player-overlay-state";
+import { touchPresetForPlatform } from "@/lib/ui/touch-preset";
 import styles from "./GamePlayer.module.css";
 import {
   type StepState,
@@ -519,27 +520,6 @@ export default function GamePlayer({
     return () => window.removeEventListener("keydown", handleEscape);
   }, [closePanel, higherPriorityBlocking, overlayState.activePanel]);
 
-  // Set video dataset attributes for touch-gamepad.js to read
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v || !connected) return;
-    // Map platform name to gamepad preset
-    const presetMap: Record<string, string> = {
-      'NES': 'nes', 'SNES': 'snes', 'Game Boy': 'nes', 'Game Boy Color': 'nes',
-      'Game Boy Advance': 'nes', 'Family Computer Disk System': 'nes',
-      'Virtual Boy': 'nes', 'Pokemon Mini': 'nes', 'WonderSwan': 'nes',
-      'WonderSwan Color': 'nes', 'Neo Geo Pocket': 'nes', 'Neo Geo Pocket Color': 'nes',
-      'Nintendo 64': 'nes', 'Nintendo DS': 'nes',
-      'Genesis': 'genesis', 'Master System': 'genesis', 'Game Gear': 'genesis',
-      'Sega CD': 'genesis', 'Sega 32X': 'genesis', 'Saturn': 'genesis', 'Dreamcast': 'genesis',
-      'Atari 2600': 'atari', 'Atari 5200': 'atari', 'Atari 7800': 'atari', 'Atari Lynx': 'atari',
-      'Arcade': 'arcade', 'Neo Geo CD': 'arcade',
-      'PlayStation': 'nes', 'PSP': 'nes', 'PC Engine': 'nes',
-    };
-    v.dataset.gvPreset = presetMap[platform || ''] || 'nes';
-    v.dataset.gvLayout = 'auto';
-  }, [connected, platform]);
-
   // ── Fullscreen ────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -737,6 +717,8 @@ export default function GamePlayer({
 
       <video
         ref={videoRef}
+        data-gv-preset={touchPresetForPlatform(platform)}
+        data-gv-layout="auto"
         autoPlay
         playsInline
         muted={audioMuted}
