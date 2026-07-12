@@ -7,7 +7,7 @@ import GameTile from "@/components/fluent/GameTile";
 import AppHeader from "@/components/fluent/AppHeader";
 import LibraryToolbar from "@/components/LibraryToolbar";
 import { Star20Filled, Star20Regular, Pin20Filled, Pin20Regular, Edit20Regular, Desktop20Regular } from "@fluentui/react-icons";
-import { buildLanPlayerLaunchUrl, chooseLaunchHost, createLaunchRequestGate, formatLaunchError } from "@/lib/lan/launch";
+import { buildLanPlayerLaunchUrl, canUseLanPlayer, chooseLaunchHost, createLaunchRequestGate, formatLaunchError } from "@/lib/lan/launch";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
 import { createAllLibraryPageParams, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, filterLibraryGames, formatRecentGroupLabel, formatRelativeAge, groupRecentGamesByLocalDate, mergeLibraryPages, mergeRecentLibraryPages, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
 
@@ -389,13 +389,13 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     }
   }
 
-  function canAttemptLanLaunch(probe: LanProbeResult | undefined): boolean {
-    return probe?.reachable === true;
+  function canAttemptLanLaunch(probe: LanProbeResult | undefined, host: PlayableHost): boolean {
+    return probe ? canUseLanPlayer(probe, host.route_hint) : false;
   }
 
   function lanPlayerUrlsWhenDirectOrPolicyBlocked(host: PlayableHost): string[] | null {
     const probe = lanProbeByServer[host.server_id];
-    return canAttemptLanLaunch(probe) ? host.lan?.player_urls ?? null : null;
+    return canAttemptLanLaunch(probe, host) ? host.lan?.player_urls ?? null : null;
   }
 
   const loadHosts = async (gameId: string, automatic: boolean) => {
@@ -415,7 +415,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       if (host) {
         const probe = await probeLanHealth(host.lan?.health_urls, { timeoutMs: 1_200 });
         if (!launchGate.current.isCurrent(generation)) return;
-        await navigateToGame(gameId, host.server_id, generation, canAttemptLanLaunch(probe) ? host.lan?.player_urls : null);
+        await navigateToGame(gameId, host.server_id, generation, canAttemptLanLaunch(probe, host) ? host.lan?.player_urls : null);
         if (launchGate.current.isCurrent(generation)) closeHostPicker();
         return;
       }

@@ -22,6 +22,13 @@ export interface LaunchHost {
   has_game: boolean;
 }
 
+export function canUseLanPlayer(
+  probe: { reachable: boolean; reason?: string },
+  routeHint: string,
+): boolean {
+  return probe.reachable || (routeHint === "local" && probe.reason === "mixed_content_blocked");
+}
+
 /** Returns a host only when normal Play has an unambiguous healthy target. */
 export function chooseLaunchHost<T extends LaunchHost>(hosts: readonly T[], preferredId: string | null): T | null {
   const playable = hosts.filter((host) => host.has_game && (host.status === "online" || host.status === "stale"));
