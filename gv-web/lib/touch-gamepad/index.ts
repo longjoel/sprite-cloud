@@ -115,17 +115,37 @@ function layoutKey(this: TouchGamepad): string {
   const orientation = resolveOrientation(this._layoutName);
   const key = this._preset + ":" + orientation;
   const stored = this._layouts[key] || null;
-  const src = stored || computeDefaults(this._preset, orientation);
+  const defaults = computeDefaults(this._preset, orientation);
+  const expected = PRESETS[this._preset] || PRESETS.nes;
+  const labelsMatch = (group: any, config: Array<{ label: string }>) =>
+    Array.isArray(group)
+    && group.length === config.length
+    && group.every((button: any, index: number) => button?.label === config[index].label);
+
+  const dpad = stored?.dpad || defaults.dpad;
+  const face = stored && labelsMatch(stored.face, expected.face) ? stored.face : defaults.face;
+  const system = stored && labelsMatch(stored.system, expected.system) ? stored.system : defaults.system;
+  const migrated = stored && (face !== stored.face || system !== stored.system);
+  const src = { dpad, face, system };
 
   this._dpad = { x: src.dpad.x, y: src.dpad.y, w: src.dpad.w, h: src.dpad.h };
-  this._face = (src.face || []).map((b: any) => ({
+  this._face = src.face.map((b: any) => ({
     x: b.x, y: b.y, w: b.w, h: b.h, label: b.label || "",
   }));
-  this._system = (src.system || []).map((b: any) => ({
+  this._system = src.system.map((b: any) => ({
     x: b.x, y: b.y, w: b.w, h: b.h, label: b.label || "",
   }));
   this._faceStates = new Array(this._face.length).fill(false);
   this._systemStates = new Array(this._system.length).fill(false);
+
+  if (migrated) {
+    this._layouts[key] = {
+      dpad: { ...this._dpad },
+      face: this._face.map((button) => ({ ...button })),
+      system: this._system.map((button) => ({ ...button })),
+    };
+    saveLayouts(this._layouts);
+  }
 };
 
 (TouchGamepad.prototype as any)._saveLayout = function (this: TouchGamepad) {

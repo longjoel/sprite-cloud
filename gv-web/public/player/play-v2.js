@@ -8,6 +8,7 @@
 
 import { GvPlayer, State } from "./gv-player.js";
 import { fetchEffectiveIceConfig, logBootstrapStart } from "./bootstrap-common.js";
+import { touchStateToStandardButtons } from "./input-mapping.js";
 
 // ── UUID polyfill ────────────────────────────────────────────────────
 // crypto.randomUUID() is secure-context-only (HTTPS / localhost).
@@ -222,27 +223,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
       _touchGamepad = new window.TouchGamepad(video, { preset: preset, layout: layout });
       _touchGamepad.onInput = function (state) {
         if (!player || !player._sendInput) return;
-        // Convert v2 state format ({dpad, face, system}) to button array
-        var b = new Array(16).fill(false);
-        // D-pad → buttons 12-15
-        if (state.dpad) {
-          if (state.dpad[0]) b[12] = true; // Up
-          if (state.dpad[1]) b[13] = true; // Down
-          if (state.dpad[2]) b[14] = true; // Left
-          if (state.dpad[3]) b[15] = true; // Right
-        }
-        // Face buttons → positions 0-3
-        if (state.face) {
-          if (state.face[0]) b[1] = true; // First face → B
-          if (state.face[1]) b[0] = true; // Second face → A
-          if (state.face[2]) b[2] = true; // Third face → X
-          if (state.face[3]) b[3] = true; // Fourth face → Y
-        }
-        // System buttons
-        if (state.system) {
-          if (state.system[0]) b[8] = true; // Select
-          if (state.system[1]) b[9] = true; // Start
-        }
+        var b = touchStateToStandardButtons(preset, state);
         player._sendInput({ index: 0, buttons: b, axes: [] });
       };
       // Only auto-show on touch-first devices; desktop users toggle via 🎮 button
