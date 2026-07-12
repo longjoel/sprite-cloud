@@ -860,7 +860,9 @@ export class GvPlayer {
     }
 
     const isRelayOnly = this._iceTransportPolicy === "relay";
-    const timeout = isRelayOnly ? 60_000 : this._iceTimeout;
+    const isLanDirect = typeof location !== "undefined"
+      && new URLSearchParams(location.search).get("route") === "lan";
+    const timeout = isRelayOnly ? 60_000 : (isLanDirect ? 3_000 : this._iceTimeout);
 
     console.log("[gv] _waitForIceGatheringComplete: waiting (state=" + this._pc.iceGatheringState + ", timeout=" + timeout + "ms, relay=" + isRelayOnly + ")");
 
@@ -872,6 +874,13 @@ export class GvPlayer {
         return;
       }
       const st = this._pc.iceGatheringState;
+      if (isLanDirect) {
+        const sdp = this._pc.localDescription?.sdp || "";
+        if (/a=candidate:.* typ host(?:\s|$)/m.test(sdp)) {
+          console.log("[gv] _waitForIceGatheringComplete: LAN host candidate ready after " + (Date.now() - start) + "ms");
+          return;
+        }
+      }
       if (st === "complete") {
         // For relay-only, also verify the SDP actually contains candidates.
         // Chrome may report "complete" before adding relay candidates to the SDP.
