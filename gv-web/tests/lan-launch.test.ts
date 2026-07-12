@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildLanPlayerLaunchUrl, chooseLaunchHost, createLaunchRequestGate, formatLaunchError } from "@/lib/lan/launch";
+import { buildLanPlayerLaunchUrl, canUseLanPlayer, chooseLaunchHost, createLaunchRequestGate, formatLaunchError } from "@/lib/lan/launch";
 
 describe("buildLanPlayerLaunchUrl", () => {
+  it("permits top-level LAN navigation when HTTPS blocked only the local HTTP health probe", () => {
+    expect(canUseLanPlayer({ reachable: false, reason: "mixed_content_blocked" }, "local")).toBe(true);
+    expect(canUseLanPlayer({ reachable: false, reason: "mixed_content_blocked" }, "relay")).toBe(false);
+    expect(canUseLanPlayer({ reachable: false, reason: "timeout" }, "local")).toBe(false);
+  });
   it("builds a LAN player URL with host token as query param for proxy forwarding", () => {
     const url = buildLanPlayerLaunchUrl({
       playerUrls: ["http://192.168.86.128:8787/"],
