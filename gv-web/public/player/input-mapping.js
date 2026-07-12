@@ -53,7 +53,14 @@ export function touchStateToStandardButtons(preset, state) {
   const system = state.system || [];
 
   for (let index = 0; index < 4; index++) buttons[12 + index] = Boolean(dpad[index]);
-  for (let index = 0; index < 4; index++) buttons[index] = Boolean(face[index]);
+  if (preset === "genesis") {
+    // Genesis A/B/C correspond to libretro Y/B/A positions.
+    buttons[2] = Boolean(face[0]);
+    buttons[0] = Boolean(face[1]);
+    buttons[1] = Boolean(face[2]);
+  } else {
+    for (let index = 0; index < 4; index++) buttons[index] = Boolean(face[index]);
+  }
 
   if (preset === "snes") {
     buttons[4] = Boolean(system[0]);

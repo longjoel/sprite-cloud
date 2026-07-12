@@ -55,6 +55,18 @@ describe("standard gamepad to libretro mapping", () => {
 });
 
 describe("touch adapter", () => {
+  it.each([
+    ["A", 0, 2],
+    ["B", 1, 0],
+    ["C", 2, 1],
+  ])("maps Genesis touch %s to its libretro-compatible standard position", (_name, faceIndex, buttonIndex) => {
+    const face = new Array(3).fill(false);
+    face[faceIndex] = true;
+    const buttons = touchStateToStandardButtons("genesis", { dpad: [], face, system: [] });
+    expect(buttons[buttonIndex]).toBe(true);
+    expect(buttons.filter(Boolean)).toHaveLength(1);
+  });
+
   it("represents SNES B, A, Y and X as canonical standard buttons", () => {
     const buttons = touchStateToStandardButtons("snes", {
       dpad: [false, false, false, false],
