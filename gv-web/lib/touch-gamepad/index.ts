@@ -18,8 +18,11 @@ interface TouchGamepad {
   _faceStates: boolean[];
   _systemStates: boolean[];
   _canvas: HTMLCanvasElement | null;
+  _islandLayer: HTMLDivElement | null;
   _ctx: CanvasRenderingContext2D | null;
   _visible: boolean;
+  _inputSuspended: boolean;
+  _reducedMotion: boolean;
   _animId: number | null;
   _dragTarget: DragTarget | null;
   _dragStart: {
@@ -30,6 +33,8 @@ interface TouchGamepad {
   } | null;
   _editMode: boolean;
   _showHandles: boolean;
+  _activePointers: Map<number, { identifier: number; clientX: number; clientY: number; target: HTMLElement }>;
+  _blockedPointerIds: Set<number>;
   _lockBtn: NormalisedRect;
   _closeBtn: NormalisedRect;
   _swapBtn: NormalisedRect;
@@ -37,9 +42,7 @@ interface TouchGamepad {
   _layouts: Record<string, any>;
   _castMode: boolean;
   // Bound handlers
-  _onTouchStart: (e: TouchEvent) => void;
-  _onTouchMove: (e: TouchEvent) => void;
-  _onTouchEnd: (e: TouchEvent) => void;
+
   _onPointerDown: (e: PointerEvent) => void;
   _onPointerMove: (e: PointerEvent) => void;
   _onPointerUp: (e: PointerEvent) => void;
@@ -60,16 +63,22 @@ function TouchGamepad(this: TouchGamepad, video: HTMLVideoElement, opts?: TouchG
   this._faceStates = [];
   this._systemStates = [];
   this._canvas = null;
+  this._islandLayer = null;
   this._ctx = null;
   this._visible = false;
+  this._inputSuspended = false;
+  this._reducedMotion = typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   this._animId = null;
   this._dragTarget = null;
   this._dragStart = null;
   this._editMode = false;
   this._showHandles = false;
-  this._lockBtn = { x: 0.91, y: 0.01, w: 0.07, h: 0.07 };
-  this._closeBtn = { x: 0.82, y: 0.01, w: 0.07, h: 0.07 };
-  this._swapBtn = { x: 0.73, y: 0.01, w: 0.07, h: 0.07 };
+  this._activePointers = new Map();
+  this._blockedPointerIds = new Set();
+  this._lockBtn = { x: 0.895, y: 0.04, w: 0.07, h: 0.07 };
+  this._closeBtn = { x: 0.755, y: 0.04, w: 0.07, h: 0.07 };
+  this._swapBtn = { x: 0.615, y: 0.04, w: 0.07, h: 0.07 };
   this.onInput = null;
   this._castMode = false;
 
@@ -77,9 +86,7 @@ function TouchGamepad(this: TouchGamepad, video: HTMLVideoElement, opts?: TouchG
   (this as any)._loadLayout();
 
   // Bind handlers
-  this._onTouchStart = (this as any)._onTouchStart.bind(this);
-  this._onTouchMove = (this as any)._onTouchMove.bind(this);
-  this._onTouchEnd = (this as any)._onTouchEnd.bind(this);
+
   this._onPointerDown = (this as any)._onPointerDown.bind(this);
   this._onPointerMove = (this as any)._onPointerMove.bind(this);
   this._onPointerUp = (this as any)._onPointerUp.bind(this);
@@ -137,12 +144,14 @@ TouchGamepad.prototype.setPreset = function (this: TouchGamepad, preset: string)
   if (!PRESETS[preset]) return;
   this._preset = preset as PresetName;
   (this as any)._loadLayout();
+  (this as any)._syncTouchIslands();
   if (this._visible) { (this as any)._resizeCanvas(); (this as any)._scheduleRender(); }
 };
 
 TouchGamepad.prototype.setLayout = function (this: TouchGamepad, layout: string) {
   this._layoutName = layout as Orientation;
   (this as any)._loadLayout();
+  (this as any)._syncTouchIslands();
   if (this._visible) { (this as any)._resizeCanvas(); (this as any)._scheduleRender(); }
 };
 
@@ -158,6 +167,7 @@ TouchGamepad.prototype.exitEditMode = function (this: TouchGamepad) {
   this._editMode = false;
   this._showHandles = false;
   (this as any)._saveLayout();
+  (this as any)._syncTouchIslands();
   (this as any)._scheduleRender();
 };
 
@@ -176,6 +186,7 @@ TouchGamepad.prototype.swapAB = function (this: TouchGamepad) {
   swap(this._face, 0, 1);
   if (this._face.length >= 4) swap(this._face, 2, 3);
   (this as any)._saveLayout();
+  (this as any)._syncTouchIslands();
   if (this._visible) (this as any)._scheduleRender();
 };
 
@@ -185,6 +196,7 @@ TouchGamepad.prototype.show = function (this: TouchGamepad) {
   if (this._visible) return;
   this._visible = true;
   (this as any)._ensureCanvas();
+  if (this._islandLayer) this._islandLayer.style.display = "block";
   if (this._layoutName === "auto") {
     window.addEventListener("orientationchange", this._onOrientationChange);
   }
@@ -196,15 +208,47 @@ TouchGamepad.prototype.show = function (this: TouchGamepad) {
 TouchGamepad.prototype.hide = function (this: TouchGamepad) {
   this._visible = false;
   if (this._canvas) this._canvas.style.display = "none";
+  if (this._islandLayer) this._islandLayer.style.display = "none";
   if (this._animId) { cancelAnimationFrame(this._animId); this._animId = null; }
   this._video.style.maxHeight = "";
   this._video.style.objectFit = "";
   (this as any)._clearInputs();
+  this._dragTarget = null;
+  this._dragStart = null;
+  this._activePointers.forEach((pointer, id) => pointer.target.releasePointerCapture?.(id));
+  this._activePointers.clear();
+  this._blockedPointerIds.clear();
   (this as any)._emitState();
   if (this._layoutName === "auto") {
     window.removeEventListener("orientationchange", this._onOrientationChange);
   }
   saveToggleState(false);
+};
+
+TouchGamepad.prototype.suspendInput = function (this: TouchGamepad) {
+  this._inputSuspended = true;
+  this._activePointers.forEach((pointer, id) => {
+    this._blockedPointerIds.add(id);
+    pointer.target.releasePointerCapture?.(id);
+  });
+  if (this._islandLayer) {
+    this._islandLayer.querySelectorAll<HTMLElement>("[data-touch-target]")
+      .forEach((target) => { target.style.pointerEvents = "none"; });
+  }
+  (this as any)._clearInputs();
+  this._dragTarget = null;
+  this._dragStart = null;
+  this._activePointers.clear();
+  (this as any)._emitState();
+};
+
+TouchGamepad.prototype.resumeInput = function (this: TouchGamepad) {
+  this._inputSuspended = false;
+  this._blockedPointerIds.clear();
+  if (this._islandLayer) {
+    this._islandLayer.querySelectorAll<HTMLElement>("[data-touch-target]")
+      .forEach((target) => { target.style.pointerEvents = "auto"; });
+  }
 };
 
 TouchGamepad.prototype.toggle = function (this: TouchGamepad) {
@@ -221,7 +265,11 @@ TouchGamepad.prototype.destroy = function (this: TouchGamepad) {
   if (this._canvas && this._canvas.parentNode) {
     this._canvas.parentNode.removeChild(this._canvas);
   }
+  if (this._islandLayer?.parentNode) {
+    this._islandLayer.parentNode.removeChild(this._islandLayer);
+  }
   this._canvas = null;
+  this._islandLayer = null;
   this._ctx = null;
 };
 
@@ -235,11 +283,9 @@ TouchGamepad.prototype.destroy = function (this: TouchGamepad) {
   const c = document.createElement("canvas");
   c.style.position = "absolute";
   c.style.touchAction = "none";
-  c.style.pointerEvents = "auto";
+  c.style.pointerEvents = "none";
   c.style.zIndex = "10";
-  c.style.outline = "2px solid rgba(0,255,100,0.8)";
-  const self = this;
-  setTimeout(() => { if (c) c.style.outline = "none"; }, 5000);
+  c.dataset.reducedMotion = String(this._reducedMotion);
 
   const parent = this._video.parentNode as HTMLElement | null;
   if (parent && getComputedStyle(parent).position === "static") {
@@ -249,14 +295,83 @@ TouchGamepad.prototype.destroy = function (this: TouchGamepad) {
   this._canvas = c;
   this._ctx = c.getContext("2d")!;
 
-  c.addEventListener("touchstart", this._onTouchStart, { passive: false });
-  c.addEventListener("touchmove", this._onTouchMove, { passive: false });
-  c.addEventListener("touchend", this._onTouchEnd);
-  c.addEventListener("touchcancel", this._onTouchEnd);
-  c.addEventListener("pointerdown", this._onPointerDown, { passive: false });
-  c.addEventListener("pointermove", this._onPointerMove, { passive: false });
-  c.addEventListener("pointerup", this._onPointerUp);
-  c.addEventListener("pointercancel", this._onPointerUp);
+  const layer = document.createElement("div");
+  layer.dataset.touchIslands = "";
+  Object.assign(layer.style, {
+    position: "absolute", pointerEvents: "none", touchAction: "none", zIndex: "11",
+    boxSizing: "border-box",
+  });
+  for (const kind of ["dpad", "face", "system", "utility"]) {
+    const island = document.createElement("div");
+    island.dataset.touchIsland = kind;
+    island.setAttribute("role", "group");
+    island.setAttribute("aria-label", `${kind} touch controls`);
+    Object.assign(island.style, { position: "absolute", inset: "0", pointerEvents: "none", touchAction: "none" });
+    layer.appendChild(island);
+  }
+  parent!.appendChild(layer);
+  this._islandLayer = layer;
+  (this as any)._syncTouchIslands();
+
+  layer.addEventListener("pointerdown", this._onPointerDown);
+  layer.addEventListener("pointermove", this._onPointerMove);
+  layer.addEventListener("pointerup", this._onPointerUp);
+  layer.addEventListener("pointercancel", this._onPointerUp);
+};
+
+(TouchGamepad.prototype as any)._syncTouchIslands = function (this: TouchGamepad) {
+  if (!this._islandLayer) return;
+  const groups = Object.fromEntries(Array.from(this._islandLayer.children).map((el) => [
+    (el as HTMLElement).dataset.touchIsland!, el as HTMLElement,
+  ])) as Record<string, HTMLElement>;
+  const setIslandBounds = (group: HTMLElement, rects: NormalisedRect[]) => {
+    const left = Math.min(...rects.map((rect) => rect.x));
+    const top = Math.min(...rects.map((rect) => rect.y));
+    const right = Math.max(...rects.map((rect) => rect.x + rect.w));
+    const bottom = Math.max(...rects.map((rect) => rect.y + rect.h));
+    Object.assign(group.style, { inset: "0", pointerEvents: "none" });
+    return { left, top, width: right - left, height: bottom - top };
+  };
+  const bounds = {
+    dpad: setIslandBounds(groups.dpad, [this._dpad]),
+    face: setIslandBounds(groups.face, this._face),
+    system: setIslandBounds(groups.system, this._system),
+    utility: setIslandBounds(groups.utility, [this._closeBtn, this._lockBtn, ...(this._face.length >= 4 ? [this._swapBtn] : [])]),
+  };
+  const desiredTargets = new Set<string>();
+  const target = (group: HTMLElement, rect: NormalisedRect, label: string, _bound: { left: number; top: number; width: number; height: number }) => {
+    desiredTargets.add(label);
+    const el = group.querySelector<HTMLElement>(`[data-touch-target="${label}"]`)
+      ?? document.createElement("span");
+    el.dataset.touchTarget = label;
+    el.dataset.normX = String(rect.x);
+    el.dataset.normY = String(rect.y);
+    el.dataset.normW = String(rect.w);
+    el.dataset.normH = String(rect.h);
+    el.setAttribute("aria-hidden", "true");
+    Object.assign(el.style, {
+      position: "absolute",
+      left: `${(rect.x + rect.w / 2) * 100}%`,
+      top: `${(rect.y + rect.h / 2) * 100}%`,
+      transform: "translate(-50%, -50%)",
+      width: `${rect.w * 100}%`,
+      height: `${rect.h * 100}%`,
+      minWidth: "44px", minHeight: "44px", boxSizing: "border-box", borderStyle: "solid",
+      borderWidth: "2px", borderColor: "transparent", pointerEvents: this._inputSuspended ? "none" : "auto",
+    });
+    return el;
+  };
+  const attachIfNeeded = (group: HTMLElement, el: HTMLElement) => {
+    if (el.parentElement !== group) group.appendChild(el);
+  };
+  attachIfNeeded(groups.dpad, target(groups.dpad, this._dpad, "dpad", bounds.dpad));
+  this._face.forEach((zone, i) => attachIfNeeded(groups.face, target(groups.face, zone, `face-${i}`, bounds.face)));
+  this._system.forEach((zone, i) => attachIfNeeded(groups.system, target(groups.system, zone, `system-${i}`, bounds.system)));
+  [this._closeBtn, this._lockBtn, ...(this._face.length >= 4 ? [this._swapBtn] : [])]
+    .forEach((zone, i) => attachIfNeeded(groups.utility, target(groups.utility, zone, `utility-${i}`, bounds.utility)));
+  this._islandLayer.querySelectorAll<HTMLElement>("[data-touch-target]").forEach((el) => {
+    if (!desiredTargets.has(el.dataset.touchTarget!)) el.remove();
+  });
 };
 
 // ── Canvas resize ─────────────────────────────────────────────────────────
@@ -265,46 +380,60 @@ TouchGamepad.prototype.destroy = function (this: TouchGamepad) {
   if (!this._canvas) return;
   const orientation = resolveOrientation(this._layoutName);
   let w: number, h: number;
+  const safeLeft = "env(safe-area-inset-left, 0px)";
+  const safeRight = "env(safe-area-inset-right, 0px)";
+  const safeTop = "env(safe-area-inset-top, 0px)";
+  const safeBottom = "env(safe-area-inset-bottom, 0px)";
 
   if (this._castMode) {
-    this._canvas.style.position = "fixed";
-    this._canvas.style.inset = "0";
-    this._canvas.style.width = "100vw";
-    this._canvas.style.height = "100vh";
-    this._canvas.style.zIndex = "20";
+    Object.assign(this._canvas.style, {
+      position: "fixed", left: safeLeft, right: safeRight, top: safeTop, bottom: safeBottom,
+      width: `calc(100vw - ${safeLeft} - ${safeRight})`,
+      height: `calc(100vh - ${safeTop} - ${safeBottom})`, zIndex: "20",
+    });
     w = Math.round(window.innerWidth);
     h = Math.round(window.innerHeight);
   } else if (orientation === "vertical") {
-    this._canvas.style.position = "fixed";
-    this._canvas.style.bottom = "0";
-    this._canvas.style.left = "0";
-    this._canvas.style.top = "auto";
-    this._canvas.style.width = "100vw";
-    this._canvas.style.height = "50vh";
-    this._canvas.style.zIndex = "10";
+    Object.assign(this._canvas.style, {
+      position: "fixed", left: safeLeft, right: safeRight, top: "auto", bottom: safeBottom,
+      width: `calc(100vw - ${safeLeft} - ${safeRight})`,
+      height: `calc(50vh - ${safeTop} - ${safeBottom})`, zIndex: "10",
+    });
     this._video.style.maxHeight = "50vh";
     this._video.style.objectFit = "contain";
     w = Math.round(window.innerWidth);
     h = Math.round(window.innerHeight * 0.5);
   } else {
-    this._canvas.style.position = "absolute";
-    this._canvas.style.bottom = "auto";
-    this._canvas.style.zIndex = "10";
-    this._video.style.maxHeight = "";
-    this._video.style.objectFit = "";
     const vr = this._video.getBoundingClientRect();
     const pr = (this._canvas.parentNode as HTMLElement).getBoundingClientRect();
-    this._canvas.style.left = (vr.left - pr.left) + "px";
-    this._canvas.style.top = (vr.top - pr.top) + "px";
     w = Math.round(vr.width);
     h = Math.round(vr.height);
-    this._canvas.style.width = w + "px";
-    this._canvas.style.height = h + "px";
+    Object.assign(this._canvas.style, {
+      position: "absolute",
+      left: `calc(${vr.left - pr.left}px + ${safeLeft})`, right: safeRight,
+      top: `calc(${vr.top - pr.top}px + ${safeTop})`, bottom: safeBottom,
+      width: `calc(${w}px - ${safeLeft} - ${safeRight})`,
+      height: `calc(${h}px - ${safeTop} - ${safeBottom})`, zIndex: "10",
+    });
+    this._video.style.maxHeight = "";
+    this._video.style.objectFit = "";
   }
 
   if (w !== this._canvas.width || h !== this._canvas.height) {
     this._canvas.width = w;
     this._canvas.height = h;
+  }
+  if (this._islandLayer) {
+    Object.assign(this._islandLayer.style, {
+      position: this._canvas.style.position,
+      left: this._canvas.style.left,
+      right: this._canvas.style.right,
+      top: this._canvas.style.top,
+      bottom: this._canvas.style.bottom,
+      width: this._canvas.style.width,
+      height: this._canvas.style.height,
+    });
+    (this as any)._syncTouchIslands();
   }
 };
 
@@ -318,6 +447,12 @@ TouchGamepad.prototype.destroy = function (this: TouchGamepad) {
 
 (TouchGamepad.prototype as any)._onOrientationChange = function (this: TouchGamepad) {
   if (!this._visible) return;
+  this._dragTarget = null;
+  this._dragStart = null;
+  this._activePointers.forEach((pointer, id) => pointer.target.releasePointerCapture?.(id));
+  this._activePointers.clear();
+  (this as any)._clearInputs();
+  (this as any)._emitState();
   const self = this;
   setTimeout(() => {
     (self as any)._loadLayout();
@@ -520,7 +655,7 @@ function touchToNorm(this: TouchGamepad, touch: Touch) {
     ctx.fillText("Unlocked — drag zones, corner handles to resize. Tap 🔓 to lock.", 8, 12);
   }
 
-  this._animId = requestAnimationFrame(this._render);
+  this._animId = this._reducedMotion ? null : requestAnimationFrame(this._render);
 };
 
 // ── Drawing helpers (inlined in _render) ──────────────────────────────────
@@ -561,10 +696,10 @@ function drawButton(ctx: CanvasRenderingContext2D, zone: ButtonZone, cw: number,
   const x = zone.x * cw, y = zone.y * ch, w = zone.w * cw, h = zone.h * ch;
   ctx.fillStyle = pressed ? "rgba(56,189,248,0.4)" : "rgba(255,255,255,0.1)";
   ctx.beginPath();
-  ctx.roundRect(x, y, w, h, 8);
+  ctx.roundRect(x, y, w, h, 2);
   ctx.fill();
   ctx.strokeStyle = pressed ? "rgba(56,189,248,0.5)" : "rgba(255,255,255,0.15)";
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = 2;
   ctx.stroke();
   if (showHandles) {
     ctx.strokeStyle = "rgba(255,200,50,0.5)";
@@ -743,6 +878,7 @@ function handleMove(
         tgt.x = Math.max(0, Math.min(1 - tgt.w, tgt.x));
         tgt.y = Math.max(0, Math.min(1 - tgt.h, tgt.y));
       }
+      (gp as any)._syncTouchIslands();
       (gp as any)._scheduleRender();
       return;
     }
@@ -784,6 +920,7 @@ function handleEnd(
         gp._dragTarget = null;
         gp._dragStart = null;
         (gp as any)._saveLayout();
+        (gp as any)._syncTouchIslands();
         (gp as any)._scheduleRender();
         break;
       }
@@ -849,43 +986,47 @@ function applyInput(
   }
 }
 
-TouchGamepad.prototype._onTouchStart = function (this: TouchGamepad, e: TouchEvent) {
-  e.preventDefault();
+// Pointer Events are the sole input path for touch, mouse, and pen. Keeping one
+// event model avoids compatibility touch events double-applying a press.
+function pointerSample(e: PointerEvent, target: HTMLElement) {
+  return { identifier: e.pointerId, clientX: e.clientX, clientY: e.clientY, target };
+}
 
-  // Calibrate canvas from first touch
-  if (this._canvas && !this._canvas.width) {
-    (this as any)._resizeCanvas();
-  }
+function activePointerList(gp: TouchGamepad): TouchList {
+  return Array.from(gp._activePointers.values()) as unknown as TouchList;
+}
 
-  const touches = e.changedTouches;
-  const canvas = this._canvas;
-  if (!canvas) return;
-  const cw = canvas.width;
-
-  for (let i = 0; i < touches.length; i++) {
-    handleStart(this, touches[i], cw, this);
-  }
-  (this as any)._emitState();
-};
-
-TouchGamepad.prototype._onTouchMove = function (this: TouchGamepad, e: TouchEvent) {
-  e.preventDefault();
-  handleMove(this, e.touches);
-};
-
-TouchGamepad.prototype._onTouchEnd = function (this: TouchGamepad, e: TouchEvent) {
-  handleEnd(this, e.changedTouches, e.touches);
-};
-
-// Pointer fallbacks (desktop)
 TouchGamepad.prototype._onPointerDown = function (this: TouchGamepad, e: PointerEvent) {
-  // Only handle if no touch events (desktop fallback)
-  // Already handled by touch events on mobile
+  const target = (e.target as HTMLElement | null)?.closest<HTMLElement>("[data-touch-target]");
+  if (!target || this._inputSuspended || this._blockedPointerIds.has(e.pointerId) || e.button !== 0) return;
+  e.preventDefault();
+  target.setPointerCapture?.(e.pointerId);
+  const sample = pointerSample(e, target);
+  this._activePointers.set(e.pointerId, sample);
+  handleStart(this, sample as unknown as Touch, this._canvas?.width || 1, this);
+  (this as any)._emitState();
+  if (!this._editMode) (this as any)._scheduleRender();
 };
 
-TouchGamepad.prototype._onPointerMove = function (this: TouchGamepad, e: PointerEvent) {};
+TouchGamepad.prototype._onPointerMove = function (this: TouchGamepad, e: PointerEvent) {
+  if (this._inputSuspended || this._blockedPointerIds.has(e.pointerId) || !this._activePointers.has(e.pointerId)) return;
+  e.preventDefault();
+  const previous = this._activePointers.get(e.pointerId)!;
+  this._activePointers.set(e.pointerId, pointerSample(e, previous.target));
+  handleMove(this, activePointerList(this));
+  if (!this._editMode) (this as any)._scheduleRender();
+};
 
-TouchGamepad.prototype._onPointerUp = function (this: TouchGamepad, e: PointerEvent) {};
+TouchGamepad.prototype._onPointerUp = function (this: TouchGamepad, e: PointerEvent) {
+  if (this._blockedPointerIds.delete(e.pointerId)) return;
+  const sample = this._activePointers.get(e.pointerId);
+  if (this._inputSuspended || !sample) return;
+  e.preventDefault();
+  sample.target.releasePointerCapture?.(e.pointerId);
+  this._activePointers.delete(e.pointerId);
+  handleEnd(this, [sample] as unknown as TouchList, activePointerList(this));
+  if (!this._editMode) (this as any)._scheduleRender();
+};
 
 // ── Cast mode ──────────────────────────────────────────────────────────────
 

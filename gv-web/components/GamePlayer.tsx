@@ -79,6 +79,8 @@ declare global {
       setPreset: (preset: string) => void;
       show: () => void;
       hide: () => void;
+      suspendInput: () => void;
+      resumeInput: () => void;
       enterEditMode: () => void;
       swapAB: () => void;
     };
@@ -472,8 +474,12 @@ export default function GamePlayer({
   const higherPriorityBlocking = showDisconnect || Boolean(error);
 
   useEffect(() => {
-    if (!blockingPanelOpen) return;
-    releaseVisibleTouchGamepad(window.__gvTouchGamepad, touchGamepadVisible);
+    const touchGamepad = window.__gvTouchGamepad;
+    if (blockingPanelOpen) {
+      releaseVisibleTouchGamepad(touchGamepad, touchGamepadVisible);
+    } else {
+      touchGamepad?.resumeInput();
+    }
   }, [blockingPanelOpen, touchGamepadVisible]);
 
   useEffect(() => {
