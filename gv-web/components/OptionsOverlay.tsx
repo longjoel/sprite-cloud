@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type RefObject } from "react";
 import styles from "./OptionsOverlay.module.css";
 
 // ── Types ─────────────────────────────────────────────────────────────
@@ -31,6 +31,8 @@ interface OptionsOverlayProps {
   onQrCode?: () => void;
   onStats?: () => void;
   isMobile?: boolean;
+  triggerRef?: RefObject<HTMLButtonElement | null>;
+  triggerDisabled?: boolean;
 }
 
 // ── Component ─────────────────────────────────────────────────────────
@@ -53,6 +55,8 @@ export default function OptionsOverlay({
   onQrCode,
   onStats,
   isMobile = false,
+  triggerRef,
+  triggerDisabled = false,
 }: OptionsOverlayProps) {
   const [flash, setFlash] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -77,6 +81,8 @@ export default function OptionsOverlay({
     return (
       <button
         className={styles.toggleBtn}
+        ref={triggerRef}
+        disabled={triggerDisabled}
         onClick={onToggle}
         aria-label="Open options"
         title="Options"
@@ -102,6 +108,7 @@ export default function OptionsOverlay({
   const subCards: ActionCard[] = [
     { id: "saves", icon: "📋", label: "Saves", action: onOpenSaves },
     { id: "keys", icon: "🎮", label: "Keys", action: onOpenKeys },
+    ...(onOpenRoom ? [{ id: "room", icon: "👥", label: "Room", action: onOpenRoom }] : []),
     { id: "gamepad", icon: "📱", label: "Gamepad", action: onReposition },
     { id: "resetpos", icon: "⟲", label: "Reset Pos", action: onResetPosition },
     ...(isMobile && onCast ? [{ id: "cast", icon: "📺", label: "Cast", action: onCast }] : []),
@@ -113,7 +120,7 @@ export default function OptionsOverlay({
     <>
       {flash && <div className={styles.flash} />}
       <div className={styles.backdrop} onClick={handleBackdropClick}>
-        <div className={styles.panel} ref={panelRef}>
+        <div className={styles.panel} ref={panelRef} data-player-panel role="dialog" aria-modal="true" aria-label="Player options" tabIndex={-1}>
           {/* Row 1: Main actions */}
           <div className={styles.grid}>
             {mainCards.map((card) => (

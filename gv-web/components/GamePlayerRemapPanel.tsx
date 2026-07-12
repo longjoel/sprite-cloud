@@ -82,11 +82,13 @@ export default function RemapPanel({
   waiting,
   setWaiting,
   onClose,
+  onBack,
 }: {
   playerRef: React.RefObject<any>;
   waiting: string | null;
   setWaiting: (v: string | null) => void;
   onClose: () => void;
+  onBack: () => void;
 }) {
   const mapping = playerRef.current?.getKeyMapping?.() || {};
 
@@ -117,6 +119,7 @@ export default function RemapPanel({
   return (
     <div style={remapStyles.panel}>
       <div style={remapStyles.header}>
+        <button style={remapStyles.resetBtn} onClick={onBack}>← Options</button>
         <span>Key Mapping</span>
         <div style={{ display: "flex", gap: "var(--space-3)" }}>
           <button
