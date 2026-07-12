@@ -29,7 +29,7 @@ export const PRESETS: Record<string, ConsolePreset> = {
   },
   snes: {
     face: [{ label: "B" }, { label: "A" }, { label: "Y" }, { label: "X" }],
-    system: [{ label: "SELECT" }, { label: "START" }],
+    system: [{ label: "L" }, { label: "SELECT" }, { label: "START" }, { label: "R" }],
   },
 };
 

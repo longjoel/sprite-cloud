@@ -5,9 +5,13 @@
 // bootstrap at the bottom auto-connects when loaded in a browser
 // with a `?worker=` query parameter.
 
+import {
+  DEFAULT_GAMEPAD_MAPPING,
+  GAMEPAD_MASK,
+  standardGamepadToLibretro,
+} from "./input-mapping.js";
+
 // ── Constants (no magic values) ───────────────────────────────────────
-
-
 // ── Route classification ────────────────────────────────────────────────
 
 /**
@@ -129,20 +133,6 @@ const RELAY_TIMEOUT_MS = 30_000;
 /** Max time for a host reconnect — session is either alive (fast) or dead. */
 const RECONNECT_RELAY_TIMEOUT_MS = 5_000;
 
-/** Bits in the RetroArch mask that the gamepad can set.
- *  Keyboard and gamepad share the same mask; gamepad-owned bits
- *  are cleared each frame so keyboard presses persist across
- *  gamepad poll frames.
- *
- *  Bit layout: B=0, Y=1, Select=2, Start=3, Up=4, Down=5,
- *  Left=6, Right=7, A=8, X=9, L=10, R=11, L2=12, R2=13,
- *  L3=14, R3=15 (RetroArch RETRO_DEVICE_ID_JOYPAD_*).
- *
- *  KEEP IN SYNC with the canonical source:
- *  libretro-runner/src/lib.rs — JoypadButton enum. */
-const GAMEPAD_MASK = (1 << 0) | (1 << 2) | (1 << 3) | (1 << 4)
-                   | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8);
-
 /**
  * Default gamepad button mapping for the standard layout
  * (https://w3c.github.io/gamepad/#remapping).
@@ -156,22 +146,10 @@ const GAMEPAD_MASK = (1 << 0) | (1 << 2) | (1 << 3) | (1 << 4)
  *
  * @typedef {{ dpadUp: number, dpadDown: number, dpadLeft: number,
  *             dpadRight: number, start: number, select: number,
- *             a: number, b: number, leftStickX: number,
+ *             a: number, b: number, x: number, y: number,
+ *             l: number, r: number, leftStickX: number,
  *             leftStickY: number, axisThreshold: number }} GamepadMapping
  */
-const DEFAULT_GAMEPAD_MAPPING = Object.freeze({
-  dpadUp: 12,
-  dpadDown: 13,
-  dpadLeft: 14,
-  dpadRight: 15,
-  start: 9,
-  select: 8,
-  a: 0,           // cross / bottom face button
-  b: 1,           // circle / right face button
-  leftStickX: 0,  // axis index for horizontal
-  leftStickY: 1,  // axis index for vertical
-  axisThreshold: 0.5,
-});
 
 // ── State machine ─────────────────────────────────────────────────────
 
@@ -1135,14 +1113,15 @@ export class GvPlayer {
    * Poll navigator.getGamepads() on every rAF frame and merge
    * each connected gamepad's state into its port's RetroArch joypad mask.
    *
-   * Gamepad[0] merges into the shared `_inputState` on seat 0 along with
-   * keyboard input (GAMEPAD_MASK bits only).
-   * Gamepad[i] for i>0 sends on its own seat (this._seat + i) directly
-   * over the DataChannel, one 3-byte packet per port per change.
+   * Connected browser slots are compacted into contiguous local seats and capped
+   * at the four ports advertised during authentication. Local seat 0 merges into
+   * the shared `_inputState`; higher seats send directly over the DataChannel.
+   * Seats that disappear are explicitly released.
    *
    * Button → bit mapping (KEEP IN SYNC with
    * libretro-runner/src/lib.rs — JoypadButton enum):
-   *   Up=4, Down=5, Left=6, Right=7, Start=3, Select=2, A=8, B=0
+   *   Up=4, Down=5, Left=6, Right=7, Start=3, Select=2,
+   *   B=0, Y=1, A=8, X=9, L=10, R=11
    * @private
    */
   _setupGamepadInput() {
@@ -1151,62 +1130,41 @@ export class GvPlayer {
     this._gamepadActive = true;
     this._gamepadStates = [];
 
+    const sendSeat = (localSeat, state) => {
+      if (localSeat === 0) {
+        this._inputState = (this._inputState & ~GAMEPAD_MASK) | state;
+        this._sendMask?.();
+        return;
+      }
+      if (this._dc && this._dc.readyState === "open") {
+        try {
+          const seat = this._seat + localSeat;
+          this._dc.send(new Uint8Array([seat, state & 0xFF, state >> 8]).buffer);
+        } catch (e) {
+          console.warn("[INPUT] gamepad seat " + localSeat + " send failed:", e?.message || e);
+          if (this._dc) this._dc.close();
+        }
+      }
+    };
+
     const poll = () => {
       if (!this._gamepadActive) return;
 
       const gps = navigator.getGamepads();
-      if (!gps) {
-        this._gamepadRAF = requestAnimationFrame(poll);
-        return;
+      const connected = gps
+        ? Array.from(gps).filter(Boolean).slice(0, Math.max(0, 4 - this._seat))
+        : [];
+      const nextStates = connected.map((gp) =>
+        standardGamepadToLibretro(gp.buttons, gp.axes, this._gamepadMapping));
+      const seatCount = Math.max(this._gamepadStates.length, nextStates.length);
+
+      for (let localSeat = 0; localSeat < seatCount; localSeat++) {
+        const state = nextStates[localSeat] ?? 0;
+        const prev = this._gamepadStates[localSeat] ?? 0;
+        if (state !== prev) sendSeat(localSeat, state);
       }
 
-      const m = this._gamepadMapping;
-
-      for (let i = 0; i < gps.length; i++) {
-        const gp = gps[i];
-        if (!gp) continue;
-
-        // Log first-time gamepad discovery
-        if (this._gamepadStates[i] === undefined) {
-          console.log("[GPAD] detected gamepad[" + i + "]:", (gp.id || "unknown").slice(0, 60));
-        }
-
-        let state = 0;
-        // D-pad: use configured button indices; fall back to left stick axes
-        if (gp.buttons[m.dpadUp]?.pressed    || gp.axes[m.leftStickY] < -m.axisThreshold) state |= (1 << 4); // Up
-        if (gp.buttons[m.dpadDown]?.pressed  || gp.axes[m.leftStickY] >  m.axisThreshold) state |= (1 << 5); // Down
-        if (gp.buttons[m.dpadLeft]?.pressed  || gp.axes[m.leftStickX] < -m.axisThreshold) state |= (1 << 6); // Left
-        if (gp.buttons[m.dpadRight]?.pressed || gp.axes[m.leftStickX] >  m.axisThreshold) state |= (1 << 7); // Right
-
-        // Face / shoulder / start / select — use configured button indices
-        if (gp.buttons[m.start]?.pressed)  state |= (1 << 3); // Start
-        if (gp.buttons[m.select]?.pressed) state |= (1 << 2); // Select
-        if (gp.buttons[m.a]?.pressed)      state |= (1 << 8); // A (cross / bottom)
-        if (gp.buttons[m.b]?.pressed)      state |= (1 << 0); // B (circle / right)
-
-        const prev = this._gamepadStates[i] ?? 0;
-        if (state === prev) continue;
-        this._gamepadStates[i] = state;
-
-        if (i === 0) {
-          // Gamepad 0: merge into shared _inputState, reuse _sendMask
-          this._inputState = (this._inputState & ~GAMEPAD_MASK) | state;
-          this._sendMask?.();
-        } else {
-          // Gamepad i>0: send on its own seat directly
-          if (this._dc && this._dc.readyState === "open") {
-            try {
-              const seat = this._seat + i;
-              this._dc.send(new Uint8Array([seat, state & 0xFF, state >> 8]).buffer);
-              console.log("[GPAD] gamepad[" + i + "] → seat", seat, "state=" + state.toString(16));
-            } catch (e) {
-              console.warn("[INPUT] gamepad[" + i + "] send failed:", e?.message || e);
-              if (this._dc) this._dc.close();
-            }
-          }
-        }
-      }
-
+      this._gamepadStates = nextStates;
       this._gamepadRAF = requestAnimationFrame(poll);
     };
     this._gamepadRAF = requestAnimationFrame(poll);
@@ -1228,41 +1186,18 @@ export class GvPlayer {
    * gamepad input.
    *
    * Bit layout (must match libretro-runner/src/lib.rs JoypadButton):
-   *   B=0, Select=2, Start=3, Up=4, Down=5, Left=6, Right=7, A=8
+   *   B=0, Y=1, Select=2, Start=3, Up=4, Down=5, Left=6, Right=7,
+   *   A=8, X=9, L=10, R=11
    *
    * @param {{ index: number, buttons: boolean[], axes: number[] }} ev
    */
   _sendInput(ev) {
-    console.log('[GPAD] _sendInput called, _sendMask:', typeof this._sendMask, 'dc:', this._dc?.readyState, 'state:', ev.buttons?.slice(0,4).map(b=>b?1:0).join(''), 'dpad:', [ev.buttons?.[12],ev.buttons?.[13],ev.buttons?.[14],ev.buttons?.[15]].map(b=>b?1:0).join(''));
-    if (!this._sendMask) { console.log('[GPAD] _sendInput blocked — no _sendMask'); return; }
-    let state = 0;
-    const b = ev.buttons || [];
-    const a = ev.axes || [];
-
-    // Face buttons (Standard Gamepad mapping → bit layout)
-    if (b[0]) state |= (1 << 8);  // A
-    if (b[1]) state |= (1 << 0);  // B
-    if (b[2]) state |= (1 << 1);  // X
-    if (b[3]) state |= (1 << 9);  // Y
-
-    // System buttons
-    if (b[8])  state |= (1 << 2);  // Select / Coin
-    if (b[9])  state |= (1 << 3);  // Start
-
-    // D-pad via buttons 12–15 or left-stick axes
-    if (b[12] || a[1] < -0.5) state |= (1 << 4);  // Up
-    if (b[13] || a[1] >  0.5) state |= (1 << 5);  // Down
-    if (b[14] || a[0] < -0.5) state |= (1 << 6);  // Left
-    if (b[15] || a[0] >  0.5) state |= (1 << 7);  // Right
-
-    console.log('[GPAD] bitmask = 0x' + state.toString(16).padStart(3,'0'), 'index:', ev.index);
+    if (!this._sendMask) return;
+    const state = standardGamepadToLibretro(ev.buttons, ev.axes);
 
     if ((ev.index || 0) === 0) {
       // Merge into shared _inputState (preserve keyboard bits)
-      const GAMEPAD_MASK = (1 << 0) | (1 << 2) | (1 << 3) | (1 << 4)
-                         | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9);
       this._inputState = (this._inputState & ~GAMEPAD_MASK) | state;
-      console.log('[GPAD] calling _sendMask, dc readyState:', this._dc?.readyState);
       this._sendMask();
     } else if (this._dc && this._dc.readyState === 'open') {
       try {

@@ -27,7 +27,7 @@ var __touchGamepadBundle = (() => {
     },
     snes: {
       face: [{ label: "B" }, { label: "A" }, { label: "Y" }, { label: "X" }],
-      system: [{ label: "SELECT" }, { label: "START" }]
+      system: [{ label: "L" }, { label: "SELECT" }, { label: "START" }, { label: "R" }]
     }
   };
   function computeDefaults(preset, orientation) {
@@ -193,16 +193,23 @@ var __touchGamepadBundle = (() => {
     const orientation = resolveOrientation(this._layoutName);
     const key = this._preset + ":" + orientation;
     const stored = this._layouts[key] || null;
-    const src = stored || computeDefaults(this._preset, orientation);
+    const defaults = computeDefaults(this._preset, orientation);
+    const expected = PRESETS[this._preset] || PRESETS.nes;
+    const labelsMatch = (group, config) => Array.isArray(group) && group.length === config.length && group.every((button, index) => button?.label === config[index].label);
+    const dpad = stored?.dpad || defaults.dpad;
+    const face = stored && labelsMatch(stored.face, expected.face) ? stored.face : defaults.face;
+    const system = stored && labelsMatch(stored.system, expected.system) ? stored.system : defaults.system;
+    const migrated = stored && (face !== stored.face || system !== stored.system);
+    const src = { dpad, face, system };
     this._dpad = { x: src.dpad.x, y: src.dpad.y, w: src.dpad.w, h: src.dpad.h };
-    this._face = (src.face || []).map((b) => ({
+    this._face = src.face.map((b) => ({
       x: b.x,
       y: b.y,
       w: b.w,
       h: b.h,
       label: b.label || ""
     }));
-    this._system = (src.system || []).map((b) => ({
+    this._system = src.system.map((b) => ({
       x: b.x,
       y: b.y,
       w: b.w,
@@ -211,6 +218,14 @@ var __touchGamepadBundle = (() => {
     }));
     this._faceStates = new Array(this._face.length).fill(false);
     this._systemStates = new Array(this._system.length).fill(false);
+    if (migrated) {
+      this._layouts[key] = {
+        dpad: { ...this._dpad },
+        face: this._face.map((button) => ({ ...button })),
+        system: this._system.map((button) => ({ ...button }))
+      };
+      saveLayouts(this._layouts);
+    }
   };
   TouchGamepad.prototype._saveLayout = function() {
     const key = layoutKey.call(this);
