@@ -35,6 +35,8 @@ export function blockPlayerPanels(_state: PlayerOverlayState): PlayerOverlayStat
 export interface TouchGamepadVisibilityApi {
   hide: () => void;
   show: () => void;
+  suspendInput?: () => void;
+  resumeInput?: () => void;
 }
 
 export function releaseVisibleTouchGamepad(
@@ -42,6 +44,10 @@ export function releaseVisibleTouchGamepad(
   visible: boolean,
 ): void {
   if (!touchGamepad || !visible) return;
+  if (touchGamepad.suspendInput) {
+    touchGamepad.suspendInput();
+    return;
+  }
   touchGamepad.hide();
   touchGamepad.show();
 }

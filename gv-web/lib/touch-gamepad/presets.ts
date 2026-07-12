@@ -101,27 +101,32 @@ export function computeDefaults(
     // Vertical: controls below video (canvas = dedicated control area)
     dpad = { x: 0.03, y: 0.08, w: 0.24, h: 0.52 };
 
-    // Face buttons: horizontal row in center of control bar
+    // Face buttons: compact action island anchored on the right.
+    const vcols = Math.min(2, nFace);
+    const vrows = Math.ceil(nFace / vcols);
     const vbw = 0.12, vbh = 0.16, vgap = 0.03;
-    const faceW = nFace * vbw + (nFace - 1) * vgap;
-    const faceX = 0.50 - faceW / 2;
-    const faceY = (1.0 - vbh) / 2;
+    const faceW = vcols * vbw + (vcols - 1) * vgap;
+    const faceH = vrows * vbh + (vrows - 1) * vgap;
+    const faceX = 0.97 - faceW;
+    const faceY = (0.72 - faceH) / 2;
 
     for (let vfi = 0; vfi < nFace; vfi++) {
+      const col = vfi % vcols;
+      const row = Math.floor(vfi / vcols);
       face.push({
-        x: faceX + vfi * (vbw + vgap),
-        y: faceY,
+        x: faceX + col * (vbw + vgap),
+        y: faceY + row * (vbh + vgap),
         w: vbw,
         h: vbh,
         label: cfg.face[vfi].label,
       });
     }
 
-    // System buttons: right side
-    const vsw = 0.09, vsh = 0.05, vsGap = 0.015;
+    // Compact Select/Start island centered below the primary controls.
+    const vsw = 0.12, vsh = 0.12, vsGap = 0.02;
     const sysW2 = nSys * vsw + (nSys - 1) * vsGap;
-    const sysX2 = 0.97 - sysW2;
-    const sysY2 = (1.0 - vsh) / 2;
+    const sysX2 = 0.50 - sysW2 / 2;
+    const sysY2 = 0.80;
     for (let vsi = 0; vsi < nSys; vsi++) {
       system.push({
         x: sysX2 + vsi * (vsw + vsGap),
