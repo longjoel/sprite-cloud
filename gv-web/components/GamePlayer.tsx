@@ -7,15 +7,6 @@ import { useInterval } from "@/lib/poll";
 import { Button, Toast } from "@/components/ui";
 import RemapPanel from "./GamePlayerRemapPanel";
 import OptionsOverlay from "./OptionsOverlay";
-import {
-  backPlayerPanel,
-  blockPlayerPanels,
-  closePlayerPanel,
-  INITIAL_PLAYER_OVERLAY_STATE,
-  openPlayerPanel,
-  releaseVisibleTouchGamepad,
-  type PlayerPanel,
-} from "@/lib/ui/player-overlay-state";
 import styles from "./GamePlayer.module.css";
 import {
   type StepState,
@@ -134,7 +125,7 @@ export default function GamePlayer({
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [rttMs, setRttMs] = useState<number | null>(null);
-  const [overlayState, setOverlayState] = useState(INITIAL_PLAYER_OVERLAY_STATE);
+  const [showSlots, setShowSlots] = useState(false);
   const [showDisconnect, setShowDisconnect] = useState(false);
   const [audioMuted, setAudioMuted] = useState(true);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
@@ -147,7 +138,11 @@ export default function GamePlayer({
   const [scriptReady, setScriptReady] = useState(false);
   const [rttActive, setRttActive] = useState(false);
   const [roomToken, setRoomToken] = useState<string | null>(null);
+  const [showRemap, setShowRemap] = useState(false);
   const [remapWaiting, setRemapWaiting] = useState<string | null>(null);
+  const [showRoomControls, setShowRoomControls] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
+  const [showStats, setShowStats] = useState(false);
   const [statsData, setStatsData] = useState<Record<string, any>>({ video: {}, audio: {}, pipeline: {} });
   const [snapshotFlash, setSnapshotFlash] = useState(false);
   const [touchGamepadVisible, setTouchGamepadVisible] = useState(() => {
@@ -168,7 +163,7 @@ export default function GamePlayer({
   // ── Mobile detection & cast mode ──────────────────────────────────
   const [isMobile, setIsMobile] = useState(false);
   const [castMode, setCastMode] = useState(false);
-  const optionsTriggerRef = useRef<HTMLButtonElement>(null);
+  const [showQr, setShowQr] = useState(false);
 
   useEffect(() => {
     const check = () => {
@@ -445,74 +440,6 @@ export default function GamePlayer({
     }
   }, [touchGamepadVisible]);
 
-  const openPanel = useCallback((panel: PlayerPanel) => {
-    setOverlayState((state) => openPlayerPanel(state, panel));
-  }, []);
-
-  const closePanel = useCallback(() => {
-    setOverlayState((state) => closePlayerPanel(state));
-    setRemapWaiting(null);
-    requestAnimationFrame(() => optionsTriggerRef.current?.focus());
-  }, []);
-
-  const handleBack = useCallback(() => {
-    if (overlayState.activePanel === "none") {
-      onClose?.();
-      return;
-    }
-    if (overlayState.activePanel === "options") {
-      closePanel();
-      return;
-    }
-    setOverlayState((state) => backPlayerPanel(state));
-    setRemapWaiting(null);
-  }, [closePanel, onClose, overlayState.activePanel]);
-
-  const blockingPanelOpen = overlayState.activePanel !== "none" || showDisconnect || Boolean(error);
-  const higherPriorityBlocking = showDisconnect || Boolean(error);
-
-  useEffect(() => {
-    if (!blockingPanelOpen) return;
-    releaseVisibleTouchGamepad(window.__gvTouchGamepad, touchGamepadVisible);
-  }, [blockingPanelOpen, touchGamepadVisible]);
-
-  useEffect(() => {
-    if (!higherPriorityBlocking) return;
-    setOverlayState((state) => blockPlayerPanels(state));
-    setRemapWaiting(null);
-  }, [higherPriorityBlocking]);
-
-  useEffect(() => {
-    if (higherPriorityBlocking || overlayState.activePanel === "none") return;
-    const panel = document.querySelector<HTMLElement>("[data-player-panel]");
-    if (!panel) return;
-    const focusable = () => Array.from(panel.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ));
-    (focusable()[0] ?? panel).focus();
-    const trapPanelFocus = (event: KeyboardEvent) => {
-      if (event.key !== "Tab") return;
-      const items = focusable();
-      if (items.length === 0) { event.preventDefault(); panel.focus(); return; }
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    panel.addEventListener("keydown", trapPanelFocus);
-    return () => panel.removeEventListener("keydown", trapPanelFocus);
-  }, [higherPriorityBlocking, overlayState.activePanel]);
-
-  useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || higherPriorityBlocking || overlayState.activePanel === "none") return;
-      event.preventDefault();
-      closePanel();
-    };
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [closePanel, higherPriorityBlocking, overlayState.activePanel]);
-
   // Set video dataset attributes for touch-gamepad.js to read
   useEffect(() => {
     const v = videoRef.current;
@@ -658,12 +585,13 @@ export default function GamePlayer({
 
   const handleCast = useCallback(() => {
     setCastMode(true);
-    closePanel();
-  }, [closePanel]);
+    setShowOptions(false); // close overlay
+  }, []);
 
   const handleQrCode = useCallback(() => {
-    openPanel("share");
-  }, [openPanel]);
+    setShowQr(true);
+    setShowOptions(false); // close overlay
+  }, []);
 
   // ── Restart game ──────────────────────────────────────────────────
 
@@ -753,8 +681,8 @@ export default function GamePlayer({
               {audioMuted ? "🔇" : "🔊"}
             </Button>
           )}
-          {(onClose || overlayState.activePanel !== "none") && (
-            <Button variant="secondary" size="md" onClick={handleBack}>
+          {onClose && (
+            <Button variant="secondary" size="md" onClick={onClose}>
               ← Back
             </Button>
           )}
@@ -772,10 +700,8 @@ export default function GamePlayer({
       {/* Options toggle + overlay — replaces old bottom bar */}
       {connected && (
         <OptionsOverlay
-          visible={!higherPriorityBlocking && overlayState.activePanel === "options"}
-          onToggle={() => overlayState.activePanel === "options" ? closePanel() : openPanel("options")}
-          triggerRef={optionsTriggerRef}
-          triggerDisabled={overlayState.activePanel !== "none" || higherPriorityBlocking}
+          visible={showOptions}
+          onToggle={() => setShowOptions((v) => !v)}
           onSave={() => { sendDC({ cmd: "save_state" }); showToast("Saved", true); }}
           onLoad={() => { sendDC({ cmd: "load_state" }); showToast("Loaded", true); }}
           onSnapshot={handleSnapshot}
@@ -784,30 +710,28 @@ export default function GamePlayer({
           onReposition={handleReposition}
           onResetPosition={handleResetPosition}
           onRestart={handleRestart}
-          onOpenSaves={() => { openPanel("saves"); handleListSaves(); }}
-          onOpenKeys={() => openPanel("keys")}
-          onOpenRoom={() => openPanel("room")}
+          onOpenSaves={() => { setShowSlots(!showSlots); handleListSaves(); }}
+          onOpenKeys={() => setShowRemap(!showRemap)}
+          onOpenRoom={() => setShowRoomControls(!showRoomControls)}
           onCast={handleCast}
           onQrCode={handleQrCode}
-          onStats={() => openPanel("stats")}
+          onStats={() => setShowStats(!showStats)}
           isMobile={isMobile}
         />
       )}
 
       {/* Stats for Nerds overlay */}
-      {!higherPriorityBlocking && overlayState.activePanel === "stats" && (
+      {showStats && (
         <div
           className={styles.overlay}
           style={{ zIndex: 35 }}
-          onClick={closePanel}
+          onClick={() => setShowStats(false)}
         >
           <div
             className={styles.overlayPanel}
             style={{ maxWidth: 420, fontSize: 11, fontFamily: "monospace", padding: 16 }}
             onClick={(e) => e.stopPropagation()}
-            data-player-panel role="dialog" aria-modal="true" aria-label="Stats for Nerds" tabIndex={-1}
           >
-            <Button variant="ghost" size="sm" onClick={() => openPanel("options")}>← Options</Button>
             <p className={styles.overlayTitle}>Stats for Nerds</p>
             {Object.entries(statsData).map(([section, data]) =>
               data && typeof data === "object" && Object.keys(data as object).length > 0 ? (
@@ -958,14 +882,13 @@ export default function GamePlayer({
       )}
 
       {/* Save stack */}
-      {!higherPriorityBlocking && overlayState.activePanel === "saves" && (
+      {showSlots && (
         <>
-          <div className={styles.backdrop} onClick={closePanel} />
-          <div className={styles.slotPanel} data-player-panel role="dialog" aria-modal="true" aria-label="Save Stack" tabIndex={-1}>
+          <div className={styles.backdrop} onClick={() => setShowSlots(false)} />
+          <div className={styles.slotPanel}>
             <div className={styles.slotHeader}>
               <span>Save Stack</span>
-              <Button variant="ghost" size="sm" onClick={() => openPanel("options")}>← Options</Button>
-              <Button variant="ghost" onClick={closePanel}>✕</Button>
+              <Button variant="ghost" onClick={() => setShowSlots(false)}>✕</Button>
             </div>
             <div className={styles.roomGrid}>
               <Button variant="secondary" size="sm" onClick={() => { handleSave(); handleListSaves(); }}>
@@ -1008,30 +931,26 @@ export default function GamePlayer({
       )}
 
       {/* Key remap overlay */}
-      {!higherPriorityBlocking && overlayState.activePanel === "keys" && (
+      {showRemap && (
         <>
-          <div className={styles.backdrop} onClick={closePanel} />
-          <div data-player-panel role="dialog" aria-modal="true" aria-label="Key remapping" tabIndex={-1}>
+          <div className={styles.backdrop} onClick={() => { setShowRemap(false); setRemapWaiting(null); }} />
           <RemapPanel
             playerRef={playerRef}
             waiting={remapWaiting}
             setWaiting={setRemapWaiting}
-            onClose={closePanel}
-            onBack={() => openPanel("options")}
+            onClose={() => { setShowRemap(false); setRemapWaiting(null); }}
           />
-          </div>
         </>
       )}
 
       {/* Room controls overlay */}
-      {!higherPriorityBlocking && overlayState.activePanel === "room" && (
+      {showRoomControls && (
         <>
-          <div className={styles.backdrop} onClick={closePanel} />
-          <div className={styles.roomPanel} data-player-panel role="dialog" aria-modal="true" aria-label="Room controls" tabIndex={-1}>
+          <div className={styles.backdrop} onClick={() => setShowRoomControls(false)} />
+          <div className={styles.roomPanel}>
             <div className={styles.slotHeader}>
               <span>Room</span>
-              <Button variant="ghost" size="sm" onClick={() => openPanel("options")}>← Options</Button>
-              <Button variant="ghost" onClick={closePanel}>✕</Button>
+              <Button variant="ghost" onClick={() => setShowRoomControls(false)}>✕</Button>
             </div>
             <div className={styles.roomGrid}>
               <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "reset" }); showToast("Reset", true); }}>
@@ -1067,16 +986,14 @@ export default function GamePlayer({
       )}
 
       {/* QR Code overlay */}
-      {!higherPriorityBlocking && overlayState.activePanel === "share" && (
+      {showQr && shortCode && (
         <>
-          <div className={styles.backdrop} onClick={closePanel} />
-          <div className={styles.roomPanel} data-player-panel role="dialog" aria-modal="true" aria-label="Scan to Join" tabIndex={-1}>
+          <div className={styles.backdrop} onClick={() => setShowQr(false)} />
+          <div className={styles.roomPanel}>
             <div className={styles.slotHeader}>
               <span>Scan to Join</span>
-              <Button variant="ghost" size="sm" onClick={() => openPanel("options")}>← Options</Button>
-              <Button variant="ghost" onClick={closePanel}>✕</Button>
+              <Button variant="ghost" onClick={() => setShowQr(false)}>✕</Button>
             </div>
-            {shortCode ? (<>
             <div style={{ display: "flex", justifyContent: "center", padding: "var(--space-5)" }}>
               {(() => {
                 const qrOrigin = shortCodeProp ? "https://lngnckr.tech" : window.location.origin;
@@ -1099,12 +1016,6 @@ export default function GamePlayer({
             }}>
               {(shortCodeProp ? "https://lngnckr.tech" : window.location.origin)}/p/{shortCode}?join
             </p>
-            </>
-            ) : (
-              <p style={{ color: "var(--color-muted)", textAlign: "center", padding: "var(--space-5)" }}>
-                Preparing share code…
-              </p>
-            )}
           </div>
         </>
       )}
@@ -1120,7 +1031,7 @@ export default function GamePlayer({
           gap: 8,
         }}>
           <button
-            onClick={() => openPanel("share")}
+            onClick={() => { setShowQr(true); }}
             style={{
               background: "rgba(17, 24, 39, 0.92)",
               border: "1px solid rgba(56, 189, 248, 0.3)",
