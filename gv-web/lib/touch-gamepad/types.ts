@@ -42,6 +42,7 @@ export interface TouchGamepadOptions {
 export interface DragTarget {
   kind: "resize" | "move";
   zone: string;
+  index?: number;
   tag?: string;
 }
 

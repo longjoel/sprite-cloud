@@ -472,9 +472,14 @@ function touchToNorm(this: TouchGamepad, touch: Touch) {
 
 // ── Zone finder ───────────────────────────────────────────────────────────
 
-(TouchGamepad.prototype as any)._findTouchZone = function (this: TouchGamepad, n: { x: number; y: number }) {
+(TouchGamepad.prototype as any)._findTouchZone = function (this: TouchGamepad, n: { x: number; y: number }, preferredTarget?: string) {
   const nx = n.x, ny = n.y;
-  const RESIZE_R = 16 / (this._canvas?.width || 1);
+  const canvasRect = this._canvas?.getBoundingClientRect();
+  // A forgiving 28px corner radius works for broad fingertips. Convert each
+  // axis independently so short landscape canvases do not shrink vertical
+  // resize handles.
+  const RESIZE_RX = 28 / (canvasRect?.width || 1);
+  const RESIZE_RY = 28 / (canvasRect?.height || 1);
 
   if (this._showHandles) {
     const d = this._dpad;
@@ -485,14 +490,26 @@ function touchToNorm(this: TouchGamepad, touch: Touch) {
       { x: d.x + d.w, y: d.y + d.h, tag: "resize:dpad:se" },
     ];
     for (const c of corners) {
-      if (Math.abs(nx - c.x) < RESIZE_R * 1.5 && Math.abs(ny - c.y) < RESIZE_R * 1.5) {
+      if (preferredTarget && preferredTarget !== "dpad") continue;
+      if (Math.abs(nx - c.x) < RESIZE_RX && Math.abs(ny - c.y) < RESIZE_RY) {
         return { kind: "resize", zone: "dpad", tag: c.tag };
       }
     }
-    for (let i = 0; i < this._face.length; i++) {
-      const f = this._face[i];
-      if (Math.abs(nx - (f.x + f.w)) < RESIZE_R * 1.5 && Math.abs(ny - (f.y + f.h)) < RESIZE_R * 1.5) {
-        return { kind: "resize", zone: "face", tag: `resize:face:${i}` };
+    for (const [zoneName, zones] of [["face", this._face], ["system", this._system]] as const) {
+      for (let i = 0; i < zones.length; i++) {
+        if (preferredTarget && preferredTarget !== `${zoneName}-${i}`) continue;
+        const button = zones[i];
+        const corners = [
+          { x: button.x, y: button.y, tag: "nw" },
+          { x: button.x + button.w, y: button.y, tag: "ne" },
+          { x: button.x, y: button.y + button.h, tag: "sw" },
+          { x: button.x + button.w, y: button.y + button.h, tag: "se" },
+        ];
+        for (const corner of corners) {
+          if (Math.abs(nx - corner.x) < RESIZE_RX && Math.abs(ny - corner.y) < RESIZE_RY) {
+            return { kind: "resize", zone: zoneName, index: i, tag: `resize:${zoneName}:${corner.tag}` };
+          }
+        }
       }
     }
   }
@@ -579,7 +596,10 @@ function touchToNorm(this: TouchGamepad, touch: Touch) {
   if (this._showHandles) {
     drawResizeHandles(ctx, this._dpad, cw, ch);
     for (let i = 0; i < this._face.length; i++) {
-      drawCornerHandle(ctx, this._face[i], cw, ch);
+      drawResizeHandles(ctx, this._face[i], cw, ch);
+    }
+    for (let i = 0; i < this._system.length; i++) {
+      drawResizeHandles(ctx, this._system[i], cw, ch);
     }
   }
 
@@ -729,13 +749,6 @@ function drawResizeHandles(ctx: CanvasRenderingContext2D, d: NormalisedRect, cw:
   }
 }
 
-function drawCornerHandle(ctx: CanvasRenderingContext2D, zone: ButtonZone, cw: number, ch: number) {
-  ctx.fillStyle = "rgba(255,200,50,0.7)";
-  ctx.beginPath();
-  ctx.arc((zone.x + zone.w) * cw, (zone.y + zone.h) * ch, 6, 0, Math.PI * 2);
-  ctx.fill();
-}
-
 // ── Tower of touch handlers ────────────────────────────────────────────────
 // These are complex. They incorporate the domain logic directly since
 // extracting them cleanly requires a more substantial refactor.
@@ -766,18 +779,16 @@ function handleStart(
     return false;
   }
 
-  const RESIZE_R = 16 / (cw || 1);
-  const zone = (gp as any)._findTouchZone(n);
+  const preferredTarget = (t.target as HTMLElement | undefined)?.dataset?.touchTarget;
+  const zone = (gp as any)._findTouchZone(n, preferredTarget);
 
   // Edit mode: resize or drag
   if (gp._showHandles && zone && zone.kind === "resize") {
-    gp._dragTarget = { kind: "resize", zone: zone.zone, tag: zone.tag };
+    gp._dragTarget = { kind: "resize", zone: zone.zone, index: zone.index, tag: zone.tag };
     let tgt: NormalisedRect | null = null;
     if (zone.zone === "dpad") tgt = gp._dpad;
-    else if (zone.zone === "face") {
-      const idx = parseInt(String(zone.tag).split(":")[2] || "", 10);
-      tgt = gp._face[idx] || null;
-    }
+    else if (zone.zone === "face") tgt = gp._face[zone.index] || null;
+    else if (zone.zone === "system") tgt = gp._system[zone.index] || null;
     if (tgt) {
       gp._dragStart = {
         fingerId: t.identifier,
@@ -792,17 +803,14 @@ function handleStart(
 
   // Edit mode: zone drag
   if (gp._editMode && zone && zone.kind !== "resize") {
-    const dragZone: DragTarget =
-      zone.kind === "dpad" ? { kind: "move", zone: "dpad" } :
-      zone.kind === "face" ? { kind: "move", zone: zone.zone! } :
-      { kind: "move", zone: zone.zone || "system" };
+    const dragZone: DragTarget = zone.kind === "dpad"
+      ? { kind: "move", zone: "dpad" }
+      : { kind: "move", zone: zone.kind, index: Number.parseInt(zone.zone!, 10) };
     gp._dragTarget = dragZone;
     let tgt2: NormalisedRect | null = null;
     if (dragZone.zone === "dpad") tgt2 = gp._dpad;
-    else if (dragZone.zone && !isNaN(parseInt(dragZone.zone))) {
-      const idx = parseInt(dragZone.zone, 10);
-      tgt2 = gp._face[idx] || gp._system[idx] || null;
-    }
+    else if (dragZone.zone === "face") tgt2 = gp._face[dragZone.index!] || null;
+    else if (dragZone.zone === "system") tgt2 = gp._system[dragZone.index!] || null;
     if (tgt2) {
       gp._dragStart = {
         fingerId: t.identifier,
@@ -842,11 +850,8 @@ function handleMove(
       const dy = n.y - gp._dragStart.ny;
       let tgt: NormalisedRect | null = null;
       if (gp._dragTarget.zone === "dpad") tgt = gp._dpad;
-      else if (gp._dragTarget.zone === "face") {
-        tgt = gp._face[parseInt(gp._dragTarget.zone, 10)] || null;
-      } else if (gp._dragTarget.zone === "system") {
-        tgt = gp._system[parseInt(gp._dragTarget.zone, 10)] || null;
-      }
+      else if (gp._dragTarget.zone === "face") tgt = gp._face[gp._dragTarget.index!] || null;
+      else if (gp._dragTarget.zone === "system") tgt = gp._system[gp._dragTarget.index!] || null;
       if (!tgt) return;
 
       if (gp._dragStart.mode === "resize") {
@@ -914,9 +919,11 @@ function handleEnd(
   const cw = rect.width, ch = rect.height;
 
   // End drag
+  let completedDrag = false;
   if (gp._dragTarget && gp._dragStart) {
     for (let i = 0; i < changedTouches.length; i++) {
       if (changedTouches[i].identifier === gp._dragStart!.fingerId) {
+        completedDrag = true;
         gp._dragTarget = null;
         gp._dragStart = null;
         (gp as any)._saveLayout();
@@ -928,7 +935,7 @@ function handleEnd(
   }
 
   // Unlocked: tap empty space → lock
-  if (gp._editMode && !gp._dragTarget) {
+  if (gp._editMode && !gp._dragTarget && !completedDrag) {
     for (let j = 0; j < changedTouches.length; j++) {
       const nn = {
         x: (changedTouches[j].clientX - rect.left) / (cw || 1),
