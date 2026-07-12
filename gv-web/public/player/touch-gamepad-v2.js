@@ -544,9 +544,11 @@ var __touchGamepadBundle = (() => {
       self._resizeCanvas();
     }, 200);
   };
-  TouchGamepad.prototype._findTouchZone = function(n) {
+  TouchGamepad.prototype._findTouchZone = function(n, preferredTarget) {
     const nx = n.x, ny = n.y;
-    const RESIZE_R = 16 / (this._canvas?.width || 1);
+    const canvasRect = this._canvas?.getBoundingClientRect();
+    const RESIZE_RX = 28 / (canvasRect?.width || 1);
+    const RESIZE_RY = 28 / (canvasRect?.height || 1);
     if (this._showHandles) {
       const d = this._dpad;
       const corners = [
@@ -556,14 +558,26 @@ var __touchGamepadBundle = (() => {
         { x: d.x + d.w, y: d.y + d.h, tag: "resize:dpad:se" }
       ];
       for (const c of corners) {
-        if (Math.abs(nx - c.x) < RESIZE_R * 1.5 && Math.abs(ny - c.y) < RESIZE_R * 1.5) {
+        if (preferredTarget && preferredTarget !== "dpad") continue;
+        if (Math.abs(nx - c.x) < RESIZE_RX && Math.abs(ny - c.y) < RESIZE_RY) {
           return { kind: "resize", zone: "dpad", tag: c.tag };
         }
       }
-      for (let i = 0; i < this._face.length; i++) {
-        const f = this._face[i];
-        if (Math.abs(nx - (f.x + f.w)) < RESIZE_R * 1.5 && Math.abs(ny - (f.y + f.h)) < RESIZE_R * 1.5) {
-          return { kind: "resize", zone: "face", tag: `resize:face:${i}` };
+      for (const [zoneName, zones] of [["face", this._face], ["system", this._system]]) {
+        for (let i = 0; i < zones.length; i++) {
+          if (preferredTarget && preferredTarget !== `${zoneName}-${i}`) continue;
+          const button = zones[i];
+          const corners2 = [
+            { x: button.x, y: button.y, tag: "nw" },
+            { x: button.x + button.w, y: button.y, tag: "ne" },
+            { x: button.x, y: button.y + button.h, tag: "sw" },
+            { x: button.x + button.w, y: button.y + button.h, tag: "se" }
+          ];
+          for (const corner of corners2) {
+            if (Math.abs(nx - corner.x) < RESIZE_RX && Math.abs(ny - corner.y) < RESIZE_RY) {
+              return { kind: "resize", zone: zoneName, index: i, tag: `resize:${zoneName}:${corner.tag}` };
+            }
+          }
         }
       }
     }
@@ -628,7 +642,10 @@ var __touchGamepadBundle = (() => {
     if (this._showHandles) {
       drawResizeHandles(ctx, this._dpad, cw, ch);
       for (let i = 0; i < this._face.length; i++) {
-        drawCornerHandle(ctx, this._face[i], cw, ch);
+        drawResizeHandles(ctx, this._face[i], cw, ch);
+      }
+      for (let i = 0; i < this._system.length; i++) {
+        drawResizeHandles(ctx, this._system[i], cw, ch);
       }
     }
     {
@@ -760,12 +777,6 @@ var __touchGamepadBundle = (() => {
       ctx.fill();
     }
   }
-  function drawCornerHandle(ctx, zone, cw, ch) {
-    ctx.fillStyle = "rgba(255,200,50,0.7)";
-    ctx.beginPath();
-    ctx.arc((zone.x + zone.w) * cw, (zone.y + zone.h) * ch, 6, 0, Math.PI * 2);
-    ctx.fill();
-  }
   function handleStart(gp, t, cw, self) {
     const rect = gp._canvas.getBoundingClientRect();
     const n = {
@@ -785,16 +796,14 @@ var __touchGamepadBundle = (() => {
       gp.swapAB();
       return false;
     }
-    const RESIZE_R = 16 / (cw || 1);
-    const zone = gp._findTouchZone(n);
+    const preferredTarget = t.target?.dataset?.touchTarget;
+    const zone = gp._findTouchZone(n, preferredTarget);
     if (gp._showHandles && zone && zone.kind === "resize") {
-      gp._dragTarget = { kind: "resize", zone: zone.zone, tag: zone.tag };
+      gp._dragTarget = { kind: "resize", zone: zone.zone, index: zone.index, tag: zone.tag };
       let tgt = null;
       if (zone.zone === "dpad") tgt = gp._dpad;
-      else if (zone.zone === "face") {
-        const idx = parseInt(String(zone.tag).split(":")[2] || "", 10);
-        tgt = gp._face[idx] || null;
-      }
+      else if (zone.zone === "face") tgt = gp._face[zone.index] || null;
+      else if (zone.zone === "system") tgt = gp._system[zone.index] || null;
       if (tgt) {
         gp._dragStart = {
           fingerId: t.identifier,
@@ -811,14 +820,12 @@ var __touchGamepadBundle = (() => {
       return false;
     }
     if (gp._editMode && zone && zone.kind !== "resize") {
-      const dragZone = zone.kind === "dpad" ? { kind: "move", zone: "dpad" } : zone.kind === "face" ? { kind: "move", zone: zone.zone } : { kind: "move", zone: zone.zone || "system" };
+      const dragZone = zone.kind === "dpad" ? { kind: "move", zone: "dpad" } : { kind: "move", zone: zone.kind, index: Number.parseInt(zone.zone, 10) };
       gp._dragTarget = dragZone;
       let tgt2 = null;
       if (dragZone.zone === "dpad") tgt2 = gp._dpad;
-      else if (dragZone.zone && !isNaN(parseInt(dragZone.zone))) {
-        const idx = parseInt(dragZone.zone, 10);
-        tgt2 = gp._face[idx] || gp._system[idx] || null;
-      }
+      else if (dragZone.zone === "face") tgt2 = gp._face[dragZone.index] || null;
+      else if (dragZone.zone === "system") tgt2 = gp._system[dragZone.index] || null;
       if (tgt2) {
         gp._dragStart = {
           fingerId: t.identifier,
@@ -856,11 +863,8 @@ var __touchGamepadBundle = (() => {
         const dy = n.y - gp._dragStart.ny;
         let tgt = null;
         if (gp._dragTarget.zone === "dpad") tgt = gp._dpad;
-        else if (gp._dragTarget.zone === "face") {
-          tgt = gp._face[parseInt(gp._dragTarget.zone, 10)] || null;
-        } else if (gp._dragTarget.zone === "system") {
-          tgt = gp._system[parseInt(gp._dragTarget.zone, 10)] || null;
-        }
+        else if (gp._dragTarget.zone === "face") tgt = gp._face[gp._dragTarget.index] || null;
+        else if (gp._dragTarget.zone === "system") tgt = gp._system[gp._dragTarget.index] || null;
         if (!tgt) return;
         if (gp._dragStart.mode === "resize") {
           const tag = gp._dragTarget.tag || "";
@@ -920,9 +924,11 @@ var __touchGamepadBundle = (() => {
     if (!gp._canvas) return;
     const rect = gp._canvas.getBoundingClientRect();
     const cw = rect.width, ch = rect.height;
+    let completedDrag = false;
     if (gp._dragTarget && gp._dragStart) {
       for (let i = 0; i < changedTouches.length; i++) {
         if (changedTouches[i].identifier === gp._dragStart.fingerId) {
+          completedDrag = true;
           gp._dragTarget = null;
           gp._dragStart = null;
           gp._saveLayout();
@@ -932,7 +938,7 @@ var __touchGamepadBundle = (() => {
         }
       }
     }
-    if (gp._editMode && !gp._dragTarget) {
+    if (gp._editMode && !gp._dragTarget && !completedDrag) {
       for (let j = 0; j < changedTouches.length; j++) {
         const nn = {
           x: (changedTouches[j].clientX - rect.left) / (cw || 1),

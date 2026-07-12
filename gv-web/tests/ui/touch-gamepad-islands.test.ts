@@ -251,6 +251,79 @@ describe("mobile touch-control islands", () => {
     expect(movedDpad.style.left).not.toBe(before);
   });
 
+  it.each([
+    ["face", "face-0", "_face", 0],
+    ["system", "system-0", "_system", 0],
+  ] as const)("moves the %s button independently in edit mode", (_name, targetName, collection, index) => {
+    const { gamepad, shell } = createGamepad();
+    gamepad.enterEditMode();
+    const target = shell.querySelector<HTMLElement>(`[data-touch-target="${targetName}"]`)!;
+    const zone = gamepad[collection][index];
+    const startX = (zone.x + zone.w / 2) * 844;
+    const startY = (zone.y + zone.h / 2) * 390;
+    const before = zone.x;
+
+    dispatchPointer(target, "pointerdown", startX, startY, 31);
+    dispatchPointer(target, "pointermove", startX - 48, startY, 31);
+    dispatchPointer(target, "pointerup", startX - 48, startY, 31);
+
+    expect(zone.x).toBeLessThan(before);
+  });
+
+  it.each([
+    ["face", "face-0", "_face", 0],
+    ["system", "system-0", "_system", 0],
+  ] as const)("resizes the %s button with a finger-sized corner handle", (_name, targetName, collection, index) => {
+    const { gamepad, shell } = createGamepad();
+    gamepad.enterEditMode();
+    const target = shell.querySelector<HTMLElement>(`[data-touch-target="${targetName}"]`)!;
+    const zone = gamepad[collection][index];
+    const cornerX = (zone.x + zone.w) * 844;
+    const cornerY = (zone.y + zone.h) * 390;
+    const beforeWidth = zone.w;
+
+    dispatchPointer(target, "pointerdown", cornerX - 18, cornerY - 18, 32);
+    expect(gamepad._dragTarget).toEqual(expect.objectContaining({ kind: "resize", zone: _name, index }));
+    dispatchPointer(target, "pointermove", cornerX + 38, cornerY + 38, 32);
+    dispatchPointer(target, "pointerup", cornerX + 38, cornerY + 38, 32);
+
+    expect(zone.w).toBeGreaterThan(beforeWidth);
+  });
+
+  it("chooses the touched button when broad resize handles overlap", () => {
+    const { gamepad, shell } = createGamepad();
+    gamepad.enterEditMode();
+    const face = shell.querySelector<HTMLElement>('[data-touch-target="face-1"]')!;
+    const zone = gamepad._face[1];
+    const cornerX = zone.x * 844;
+    const cornerY = zone.y * 390;
+
+    dispatchPointer(face, "pointerdown", cornerX + 8, cornerY + 8, 33);
+
+    expect(gamepad._dragTarget).toEqual(expect.objectContaining({ kind: "resize", zone: "face", index: 1 }));
+  });
+
+  it("stays in edit mode after completing a resize", () => {
+    const { gamepad, shell } = createGamepad();
+    gamepad.enterEditMode();
+    const system = shell.querySelector<HTMLElement>('[data-touch-target="system-0"]')!;
+    const zone = gamepad._system[0];
+    const x = (zone.x + zone.w) * 844;
+    const y = (zone.y + zone.h) * 390;
+
+    dispatchPointer(system, "pointerdown", x - 8, y - 8, 34);
+    dispatchPointer(system, "pointermove", x + 30, y + 20, 34);
+    dispatchPointer(system, "pointerup", x + 30, y + 20, 34);
+
+    expect(gamepad._editMode).toBe(true);
+  });
+
+  it("draws four visible resize handles for face and system buttons", () => {
+    const source = readFileSync("lib/touch-gamepad/index.ts", "utf8");
+    expect(source).toContain("drawResizeHandles(ctx, this._face[i]");
+    expect(source).toContain("drawResizeHandles(ctx, this._system[i]");
+  });
+
   it("clears drag and active input on cancellation, hide, destruction, and orientation", () => {
     vi.useFakeTimers();
     const { gamepad, shell } = createGamepad();
