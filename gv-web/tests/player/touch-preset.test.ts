@@ -7,10 +7,12 @@ describe("touch preset selection", () => {
     ["SNES", "snes"],
     ["snes", "snes"],
     ["Super Nintendo Entertainment System", "snes"],
+    ["Nintendo - Super Nintendo Entertainment System", "snes"],
     ["Genesis", "genesis"],
     ["Sega Genesis", "genesis"],
     ["Mega Drive", "genesis"],
     ["sega mega drive", "genesis"],
+    ["Sega - Mega Drive - Genesis", "genesis"],
   ])("maps %s before player bootstrap", (platform, expected) => {
     expect(touchPresetForPlatform(platform)).toBe(expected);
   });
