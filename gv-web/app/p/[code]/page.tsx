@@ -81,8 +81,8 @@ export default function ShortCodePage() {
         const roomToken = data.room_token as string | undefined;
 
         // Fetch game metadata for the loading screen (best-effort)
-        let gameName = "";
-        let platform = "";
+        let gameName = data.game_name || "";
+        let platform = data.platform || "";
         let coverUrl = "";
         try {
           const metaResp = await fetch(`/api/games/${encodeURIComponent(gameId)}`);
