@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { sessions, shortCodes, serverMembers, servers } from "@/lib/db/schema";
+import { games, sessions, shortCodes, serverMembers, servers } from "@/lib/db/schema";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 
 // ── GET /api/room/resolve/:code — resolve a short code to game params
@@ -38,6 +38,15 @@ export async function GET(
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
+  // Public-safe metadata selects the correct virtual controller on LAN proxy
+  // pages, where gv-web authentication cookies are unavailable.
+  const [game] = await db
+    .select({ name: games.name, platform: games.platform })
+    .from(games)
+    .where(eq(games.id, entry.gameId))
+    .limit(1);
+  const gameMetadata = { game_name: game?.name, platform: game?.platform };
+
   // LAN proxy pass-through: if the caller provides the correct host_token
   // in the query string, treat them as the host (no auth session needed).
   // This lets gv-server's player proxy negotiate host reconnection without
@@ -73,6 +82,7 @@ export async function GET(
       game_id: entry.gameId,
       host_token: entry.hostToken,
       server_id: entry.serverId,
+      ...gameMetadata,
     });
   }
 
@@ -97,6 +107,7 @@ export async function GET(
       game_id: entry.gameId,
       server_id: entry.serverId,
       room_token: activeSession.roomToken,
+      ...gameMetadata,
     });
   }
 
