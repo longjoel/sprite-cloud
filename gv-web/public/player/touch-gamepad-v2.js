@@ -527,6 +527,16 @@ var __touchGamepadBundle = (() => {
       this._canvas.width = w;
       this._canvas.height = h;
     }
+    const minW = Math.min(1, 56 / Math.max(1, w));
+    const minH = Math.min(1, 56 / Math.max(1, h));
+    for (const zone of [...this._face, ...this._system]) {
+      const centerX = zone.x + zone.w / 2;
+      const centerY = zone.y + zone.h / 2;
+      zone.w = Math.max(zone.w, minW);
+      zone.h = Math.max(zone.h, minH);
+      zone.x = Math.max(0, Math.min(1 - zone.w, centerX - zone.w / 2));
+      zone.y = Math.max(0, Math.min(1 - zone.h, centerY - zone.h / 2));
+    }
     if (this._islandLayer) {
       Object.assign(this._islandLayer.style, {
         position: this._canvas.style.position,
@@ -900,10 +910,20 @@ var __touchGamepadBundle = (() => {
             tgt.w = gp._dragStart.tw + dx;
             tgt.h = gp._dragStart.th + dy;
           }
-          if (tgt.w < 0.03) tgt.w = 0.03;
-          if (tgt.h < 0.03) tgt.h = 0.03;
-          tgt.x = Math.max(0, Math.min(1, tgt.x));
-          tgt.y = Math.max(0, Math.min(1, tgt.y));
+          const minW = 56 / (rect.width || 1);
+          const minH = 56 / (rect.height || 1);
+          const anchoredRight = gp._dragStart.tx + gp._dragStart.tw;
+          const anchoredBottom = gp._dragStart.ty + gp._dragStart.th;
+          if (tgt.w < minW) {
+            tgt.w = minW;
+            if (tag.includes(":nw") || tag.includes(":sw")) tgt.x = anchoredRight - minW;
+          }
+          if (tgt.h < minH) {
+            tgt.h = minH;
+            if (tag.includes(":nw") || tag.includes(":ne")) tgt.y = anchoredBottom - minH;
+          }
+          tgt.x = Math.max(0, Math.min(1 - tgt.w, tgt.x));
+          tgt.y = Math.max(0, Math.min(1 - tgt.h, tgt.y));
         } else {
           tgt.x = gp._dragStart.tx + dx;
           tgt.y = gp._dragStart.ty + dy;

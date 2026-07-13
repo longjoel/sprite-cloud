@@ -290,6 +290,36 @@ describe("mobile touch-control islands", () => {
     expect(zone.w).toBeGreaterThan(beforeWidth);
   });
 
+  it.each([
+    ["face", "face-0", "_face", 0],
+    ["system", "system-0", "_system", 0],
+  ] as const)("keeps the %s button at least 56px wide and tall while resizing", (_name, targetName, collection, index) => {
+    const { gamepad, shell } = createGamepad();
+    gamepad.enterEditMode();
+    const target = shell.querySelector<HTMLElement>(`[data-touch-target="${targetName}"]`)!;
+    const zone = gamepad[collection][index];
+    const cornerX = (zone.x + zone.w) * 844;
+    const cornerY = (zone.y + zone.h) * 390;
+
+    dispatchPointer(target, "pointerdown", cornerX - 8, cornerY - 8, 35);
+    dispatchPointer(target, "pointermove", zone.x * 844 + 4, zone.y * 390 + 4, 35);
+    dispatchPointer(target, "pointerup", zone.x * 844 + 4, zone.y * 390 + 4, 35);
+
+    expect(Math.round(zone.w * 844)).toBeGreaterThanOrEqual(56);
+    expect(Math.round(zone.h * 390)).toBeGreaterThanOrEqual(56);
+  });
+
+  it("restores undersized saved buttons to the 56px minimum on layout", () => {
+    const { gamepad } = createGamepad();
+    gamepad._face[0].w = 0.01;
+    gamepad._face[0].h = 0.01;
+
+    gamepad._resizeCanvas();
+
+    expect(Math.round(gamepad._face[0].w * 844)).toBeGreaterThanOrEqual(56);
+    expect(Math.round(gamepad._face[0].h * 390)).toBeGreaterThanOrEqual(56);
+  });
+
   it("chooses the touched button when broad resize handles overlap", () => {
     const { gamepad, shell } = createGamepad();
     gamepad.enterEditMode();
