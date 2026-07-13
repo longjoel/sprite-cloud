@@ -5,7 +5,8 @@ import { computeDefaults } from "../../lib/touch-gamepad/presets";
 import { GAMEPAD_MASK } from "../../public/player/input-mapping.js";
 import { GvPlayer } from "../../public/player/gv-player.js";
 
-const layoutKey = "gv:touch-layouts-v2";
+const legacyLayoutKey = "gv:touch-layouts-v2";
+const layoutKey = "gv:touch-layouts-v3";
 const rect = (label: string, x: number) => ({ x, y: 0.2, w: 0.1, h: 0.1, label });
 
 describe("persisted touch layouts", () => {
@@ -17,7 +18,7 @@ describe("persisted touch layouts", () => {
       face: [rect("B", 0.51), rect("A", 0.62), rect("Y", 0.73), rect("X", 0.84)],
       system: [rect("SELECT", 0.4), rect("START", 0.55)],
     };
-    localStorage.setItem(layoutKey, JSON.stringify({ "snes:horizontal": old }));
+    localStorage.setItem(legacyLayoutKey, JSON.stringify({ "snes:horizontal": old }));
 
     const pad = new (TouchGamepad as any)({} as HTMLVideoElement, { preset: "snes", layout: "horizontal" });
     expect(pad._dpad).toEqual(old.dpad);

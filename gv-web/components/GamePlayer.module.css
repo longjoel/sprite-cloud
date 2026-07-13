@@ -20,6 +20,12 @@
   pointer-events: none;
 }
 
+@media (orientation: portrait) {
+  .video {
+    object-position: top center;
+  }
+}
+
 .topBar {
   position: absolute;
   top: 0;
@@ -28,7 +34,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-4) var(--space-6);
+  padding: max(var(--space-4), env(safe-area-inset-top, 0px)) max(var(--space-6), env(safe-area-inset-right, 0px)) var(--space-4) max(var(--space-6), env(safe-area-inset-left, 0px));
   background: rgba(0,0,0,0.6);
   z-index: 10;
   transition: opacity 0.3s;

@@ -98,7 +98,8 @@ export function computeDefaults(
       });
     }
   } else {
-    // Vertical: controls below video (canvas = dedicated control area)
+    // Vertical geometry is authored in the legacy lower-half control area,
+    // then projected into the full-shell coordinate system below.
     dpad = { x: 0.03, y: 0.08, w: 0.24, h: 0.52 };
 
     // Face buttons: compact action island anchored on the right.
@@ -136,6 +137,20 @@ export function computeDefaults(
         label: cfg.system[vsi].label,
       });
     }
+  }
+
+  if (!isHoriz) {
+    const toFullShell = <T extends NormalisedRect>(rect: T): T => ({
+      ...rect,
+      y: 0.5 + rect.y * 0.5,
+      h: rect.h * 0.5,
+    });
+    dpad = toFullShell(dpad);
+    return {
+      dpad,
+      face: face.map(toFullShell),
+      system: system.map(toFullShell),
+    };
   }
 
   return { dpad, face, system };

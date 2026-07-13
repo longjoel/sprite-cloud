@@ -97,8 +97,8 @@
 
 .toggleBtn {
   position: absolute;
-  bottom: 16px;
-  right: 16px;
+  bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  right: max(16px, env(safe-area-inset-right, 0px));
   z-index: 15;
   width: 44px;
   height: 44px;

@@ -29,7 +29,7 @@ describe("player overlay state", () => {
     expect(closePlayerPanel({ activePanel: "stats" })).toEqual({ activePanel: "none" });
   });
 
-  it.each(["saves", "stats", "keys", "room", "share"] as const)(
+  it.each(["saves", "stats", "keys", "room", "share", "controller"] as const)(
     "returns from the %s child panel to options",
     (activePanel) => {
       expect(backPlayerPanel({ activePanel })).toEqual({ activePanel: "options" });

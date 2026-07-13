@@ -5,7 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TouchGamepad } from "@/lib/touch-gamepad";
 import { computeDefaults } from "@/lib/touch-gamepad/presets";
 
-function createGamepad(layout: "horizontal" | "vertical" = "horizontal") {
+const layoutKeyV2 = "gv:touch-layouts-v2";
+const layoutKeyV3 = "gv:touch-layouts-v3";
+const sizePresetKey = "gv:touch-size-preset";
+
+function createGamepad(
+  layout: "horizontal" | "vertical" = "horizontal",
+  preset: "nes" | "snes" = "nes",
+) {
   const shell = document.createElement("div");
   const video = document.createElement("video");
   shell.appendChild(video);
@@ -18,7 +25,7 @@ function createGamepad(layout: "horizontal" | "vertical" = "horizontal") {
     value: () => ({ left: 0, top: 0, width: 844, height: 390, right: 844, bottom: 390, x: 0, y: 0, toJSON() {} }),
   });
 
-  const gamepad = new (TouchGamepad as any)(video, { preset: "nes", layout });
+  const gamepad = new (TouchGamepad as any)(video, { preset, layout });
   gamepad.show();
   const canvas = shell.querySelector("canvas")!;
   Object.defineProperty(canvas, "getBoundingClientRect", {
@@ -72,24 +79,160 @@ describe("mobile touch-control islands", () => {
     expect(canvas.style.pointerEvents).toBe("none");
     expect(layer).not.toBeNull();
     expect(layer.style.pointerEvents).toBe("none");
-    expect(groups.map((group) => group.dataset.touchIsland)).toEqual(["dpad", "face", "system", "utility"]);
+    expect(groups.map((group) => group.dataset.touchIsland)).toEqual(["dpad", "face", "system"]);
     expect(groups.every((group) => group.style.pointerEvents === "none")).toBe(true);
     expect(Array.from(shell.querySelectorAll<HTMLElement>("[data-touch-target]"))
       .every((target) => target.style.pointerEvents === "auto")).toBe(true);
   });
 
-  it("applies the same four-edge safe-area geometry to canvas and target layer", () => {
+  it("keeps layout utility controls out of the gameplay canvas", () => {
+    const { shell } = createGamepad();
+
+    expect(shell.querySelector('[data-touch-island="utility"]')).toBeNull();
+    expect(shell.querySelector('[data-touch-target^="utility-"]')).toBeNull();
+  });
+
+  it.each([
+    ["low", "0.35"],
+    ["medium", "0.55"],
+    ["high", "0.8"],
+  ] as const)("applies the %s controller opacity choice", (choice, expected) => {
+    const { gamepad, shell } = createGamepad();
+
+    gamepad.setOpacity(choice);
+
+    expect(shell.querySelector<HTMLCanvasElement>("canvas")!.style.opacity).toBe(expected);
+    expect(localStorage.getItem("gv:touch-opacity")).toBe(choice);
+  });
+
+  it("applies size presets to the current console orientation without moving control centers", () => {
+    const { gamepad } = createGamepad("horizontal");
+    const before = gamepad._face.map((zone: { x: number; y: number; w: number; h: number }) => ({
+      x: zone.x + zone.w / 2,
+      y: zone.y + zone.h / 2,
+      w: zone.w,
+      h: zone.h,
+    }));
+
+    gamepad.setSizePreset("large");
+
+    gamepad._face.forEach((zone: { x: number; y: number; w: number; h: number }, index: number) => {
+      expect(zone.x + zone.w / 2).toBeCloseTo(before[index].x);
+      expect(zone.y + zone.h / 2).toBeCloseTo(before[index].y);
+      expect(zone.w).toBeGreaterThan(before[index].w);
+      expect(zone.h).toBeGreaterThan(before[index].h);
+    });
+    expect(JSON.parse(localStorage.getItem(layoutKeyV3)!)["nes:horizontal"]).toBeDefined();
+    expect(JSON.parse(localStorage.getItem(layoutKeyV3)!)["nes:vertical"]).toBeUndefined();
+    expect(gamepad.getSizePreset()).toBe("large");
+    expect(localStorage.getItem(sizePresetKey)).toBe("large");
+  });
+
+  it("defaults size to standard and restores a persisted preset after reload", () => {
+    const first = createGamepad("horizontal").gamepad;
+    expect(first.getSizePreset()).toBe("standard");
+
+    first.setSizePreset("compact");
+    const reloaded = new (TouchGamepad as any)(document.createElement("video"), {
+      preset: "nes",
+      layout: "horizontal",
+    });
+
+    expect(reloaded.getSizePreset()).toBe("compact");
+    expect(localStorage.getItem(sizePresetKey)).toBe("compact");
+  });
+
+  it("marks a freeform resize custom while a position-only move preserves the preset", () => {
+    const { gamepad, shell } = createGamepad("horizontal");
+    gamepad.setSizePreset("large");
+    const target = shell.querySelector<HTMLElement>('[data-touch-target="dpad"]')!;
+    const move = (mode: "move" | "resize", delta = 0.05) => {
+      gamepad._dragTarget = { kind: mode, zone: "dpad", ...(mode === "resize" ? { tag: "dpad:se" } : {}) };
+      gamepad._dragStart = {
+        fingerId: 41, nx: 0.1, ny: 0.1,
+        tx: gamepad._dpad.x, ty: gamepad._dpad.y, tw: gamepad._dpad.w, th: gamepad._dpad.h,
+        mode,
+      };
+      gamepad._activePointers.set(41, { identifier: 41, clientX: 84.4, clientY: 39, target });
+      gamepad._onPointerMove(Object.assign(new MouseEvent("pointermove", {
+        clientX: (0.1 + delta) * 844, clientY: (0.1 + delta) * 390, bubbles: true, cancelable: true,
+      }), { pointerId: 41 }));
+    };
+
+    move("move");
+    expect(gamepad.getSizePreset()).toBe("large");
+    move("resize", 0);
+    expect(gamepad.getSizePreset()).toBe("large");
+    move("resize");
+    expect(gamepad.getSizePreset()).toBe("custom");
+    expect(localStorage.getItem(sizePresetKey)).toBe("custom");
+  });
+
+  it("resets only the active console orientation layout", () => {
+    const horizontal = computeDefaults("nes", "horizontal");
+    const vertical = computeDefaults("nes", "vertical");
+    horizontal.dpad.x = 0.18;
+    vertical.dpad.x = 0.22;
+    localStorage.setItem(layoutKeyV3, JSON.stringify({
+      "nes:horizontal": horizontal,
+      "nes:vertical": vertical,
+    }));
+    const { gamepad } = createGamepad("horizontal");
+
+    gamepad.resetLayout();
+
+    expect(gamepad._dpad).toEqual(computeDefaults("nes", "horizontal").dpad);
+    const stored = JSON.parse(localStorage.getItem(layoutKeyV3)!);
+    expect(stored["nes:horizontal"]).toBeUndefined();
+    expect(stored["nes:vertical"].dpad.x).toBe(0.22);
+  });
+
+  it("restores independently customized portrait and landscape layouts without drift", () => {
+    const { gamepad } = createGamepad("vertical");
+    const portrait = { x: 0.17, y: 0.61 };
+    gamepad._dpad.x = portrait.x;
+    gamepad._dpad.y = portrait.y;
+    gamepad.exitEditMode();
+
+    gamepad.setLayout("horizontal");
+    const landscape = { x: 0.08, y: 0.52 };
+    gamepad._dpad.x = landscape.x;
+    gamepad._dpad.y = landscape.y;
+    gamepad.exitEditMode();
+
+    gamepad.setLayout("vertical");
+    expect(gamepad._dpad).toEqual(expect.objectContaining(portrait));
+    gamepad.setLayout("horizontal");
+    expect(gamepad._dpad).toEqual(expect.objectContaining(landscape));
+    gamepad.setLayout("vertical");
+    expect(gamepad._dpad).toEqual(expect.objectContaining(portrait));
+
+    const stored = JSON.parse(localStorage.getItem(layoutKeyV3)!);
+    expect(stored["nes:vertical"].dpad).toEqual(expect.objectContaining(portrait));
+    expect(stored["nes:horizontal"].dpad).toEqual(expect.objectContaining(landscape));
+  });
+
+  it("applies full-viewport four-edge safe-area geometry to portrait canvas and target layer", () => {
     const { shell } = createGamepad("vertical");
     const canvas = shell.querySelector<HTMLCanvasElement>("canvas")!;
     const layer = shell.querySelector<HTMLElement>("[data-touch-islands]")!;
     const targets = Array.from(shell.querySelectorAll<HTMLElement>("[data-touch-target]"));
 
     for (const edge of ["left", "right", "top", "bottom"] as const) {
-      expect(canvas.style.getPropertyValue(edge) + canvas.style.width + canvas.style.height)
+      expect(canvas.style.getPropertyValue(`--touch-safe-${edge}`))
         .toContain(`safe-area-inset-${edge}`);
+      expect(canvas.style.getPropertyValue(edge)).toContain(`--touch-safe-${edge}`);
       expect(layer.style.getPropertyValue(edge)).toBe(canvas.style.getPropertyValue(edge));
+      expect(layer.style.getPropertyValue(`--touch-safe-${edge}`))
+        .toBe(canvas.style.getPropertyValue(`--touch-safe-${edge}`));
     }
-    expect(targets.length).toBeGreaterThanOrEqual(7);
+    expect(canvas.style.top).toBe("var(--touch-safe-top, 0px)");
+    expect(canvas.style.bottom).toBe("var(--touch-safe-bottom, 0px)");
+    expect(canvas.style.getPropertyValue("--touch-safe-top")).toBe("env(safe-area-inset-top, 0px)");
+    expect(canvas.style.getPropertyValue("--touch-safe-bottom")).toBe("env(safe-area-inset-bottom, 0px)");
+    expect(canvas.style.height).toContain("100vh");
+    expect(canvas.style.height).not.toContain("50vh");
+    expect(targets.length).toBeGreaterThanOrEqual(5);
     expect(targets.every((target) => Number.parseFloat(target.style.minWidth) >= 44)).toBe(true);
     expect(targets.every((target) => Number.parseFloat(target.style.minHeight) >= 44)).toBe(true);
     expect(targets.every((target) => target.style.width.endsWith("%"))).toBe(true);
@@ -97,6 +240,123 @@ describe("mobile touch-control islands", () => {
     expect(targets.every((target) => target.style.borderWidth === "2px")).toBe(true);
     expect(targets.every((target) => !target.style.left.includes("touch-safe"))).toBe(true);
     expect(targets.every((target) => !target.style.top.includes("touch-safe"))).toBe(true);
+  });
+
+  it("leaves the upper portrait half pass-through while controls default to the lower half", () => {
+    const { gamepad, shell } = createGamepad("vertical");
+    const canvas = shell.querySelector<HTMLCanvasElement>("canvas")!;
+    const layer = shell.querySelector<HTMLElement>("[data-touch-islands]")!;
+    const targets = Array.from(layer.querySelectorAll<HTMLElement>("[data-touch-target]"));
+    const onInput = vi.fn();
+    gamepad.onInput = onInput;
+
+    expect(canvas.style.pointerEvents).toBe("none");
+    expect(layer.style.pointerEvents).toBe("none");
+    expect(targets.every((target) => Number(target.dataset.normY) >= 0.5)).toBe(true);
+    dispatchPointer(layer, "pointerdown", 400, 100, 90);
+    expect(onInput).not.toHaveBeenCalled();
+
+    const defaults = computeDefaults("nes", "vertical");
+    expect(defaults.dpad).toEqual({ x: 0.03, y: 0.54, w: 0.24, h: 0.26 });
+    expect(defaults.system[0]).toEqual(expect.objectContaining({ y: 0.9, h: 0.06 }));
+  });
+
+  it("migrates v2 portrait geometry once into full-shell v3 coordinates", () => {
+    const vertical = {
+      dpad: { x: 0.17, y: 0.12, w: 0.29, h: 0.4 },
+      face: [
+        { x: 0.61, y: 0.2, w: 0.13, h: 0.18, label: "B" },
+        { x: 0.79, y: 0.3, w: 0.14, h: 0.2, label: "A" },
+      ],
+      system: [
+        { x: 0.34, y: 0.76, w: 0.12, h: 0.14, label: "SELECT" },
+        { x: 0.54, y: 0.78, w: 0.13, h: 0.16, label: "START" },
+      ],
+    };
+    const horizontal = computeDefaults("nes", "horizontal");
+    horizontal.dpad.x = 0.11;
+    localStorage.setItem(layoutKeyV2, JSON.stringify({
+      "nes:vertical": vertical,
+      "nes:horizontal": horizontal,
+    }));
+
+    const first = createGamepad("vertical").gamepad;
+    expect(first._dpad).toEqual({ x: 0.17, y: 0.56, w: 0.29, h: 0.2 });
+    expect(first._face[0]).toEqual({ x: 0.61, y: 0.6, w: 0.13, h: 0.09, label: "B" });
+    expect(first._system[1]).toEqual({ x: 0.54, y: 0.89, w: 0.13, h: 0.08, label: "START" });
+
+    const migrated = JSON.parse(localStorage.getItem(layoutKeyV3)!);
+    expect(migrated["nes:vertical"].dpad).toEqual(first._dpad);
+    expect(migrated["nes:horizontal"]).toEqual(horizontal);
+    expect(JSON.parse(localStorage.getItem(layoutKeyV2)!)["nes:vertical"]).toEqual(vertical);
+
+    const changedV2 = JSON.parse(localStorage.getItem(layoutKeyV2)!);
+    changedV2["nes:vertical"].dpad.y = 0;
+    localStorage.setItem(layoutKeyV2, JSON.stringify(changedV2));
+    const second = new (TouchGamepad as any)(document.createElement("video"), { preset: "nes", layout: "vertical" });
+    expect(second._dpad).toEqual(first._dpad);
+  });
+
+  it("keeps a successfully migrated v2 layout in memory when the v3 write exceeds quota", () => {
+    const vertical = computeDefaults("nes", "vertical");
+    vertical.dpad.x = 0.17;
+    localStorage.setItem(layoutKeyV2, JSON.stringify({ "nes:vertical": vertical }));
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation((key) => {
+      if (key === layoutKeyV3) throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+    });
+
+    const gamepad = new (TouchGamepad as any)(document.createElement("video"), {
+      preset: "nes",
+      layout: "vertical",
+    });
+
+    expect(gamepad._dpad.x).toBe(0.17);
+    expect(gamepad._face.map((button: { label: string }) => button.label)).toEqual(["B", "A"]);
+    expect(setItem).toHaveBeenCalledWith(layoutKeyV3, expect.any(String));
+  });
+
+  it.each([
+    ["nes", ["B", "A"]],
+    ["snes", ["B", "A", "Y", "X"]],
+  ] as const)("swaps %s face geometry without changing semantic indices and reloads it", (preset, labels) => {
+    const { gamepad, shell } = createGamepad("horizontal", preset);
+    const before = gamepad._face.map((button: { x: number; y: number; w: number; h: number }) => ({
+      x: button.x, y: button.y, w: button.w, h: button.h,
+    }));
+    const onInput = vi.fn();
+    gamepad.onInput = onInput;
+
+    gamepad.swapAB();
+
+    expect(gamepad._face.map((button: { label: string }) => button.label)).toEqual(labels);
+    expect(gamepad._face[0]).toEqual(expect.objectContaining(before[1]));
+    expect(gamepad._face[1]).toEqual(expect.objectContaining(before[0]));
+    if (labels.length === 4) {
+      expect(gamepad._face[2]).toEqual(expect.objectContaining(before[3]));
+      expect(gamepad._face[3]).toEqual(expect.objectContaining(before[2]));
+    }
+
+    const semanticButton = shell.querySelector<HTMLElement>('[data-touch-target="face-0"]')!;
+    const semanticZone = gamepad._face[0];
+    dispatchPointer(
+      semanticButton,
+      "pointerdown",
+      (semanticZone.x + semanticZone.w / 2) * 844,
+      (semanticZone.y + semanticZone.h / 2) * 390,
+      71,
+    );
+    expect(onInput).toHaveBeenLastCalledWith(expect.objectContaining({
+      face: labels.map((_, index) => index === 0),
+    }));
+
+    const stored = JSON.parse(localStorage.getItem(layoutKeyV3)!)[`${preset}:horizontal`];
+    expect(stored.face.map((button: { label: string }) => button.label)).toEqual(labels);
+    const reloaded = new (TouchGamepad as any)(document.createElement("video"), {
+      preset,
+      layout: "horizontal",
+    });
+    expect(reloaded._face).toEqual(gamepad._face);
+    expect(reloaded._face.map((button: { label: string }) => button.label)).toEqual(labels);
   });
 
   it.each([[320, 320, "vertical"], [844, 390, "horizontal"]] as const)(
