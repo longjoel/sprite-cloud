@@ -67,6 +67,9 @@ export function touchStateToStandardButtons(preset, state) {
     buttons[8] = Boolean(system[1]);
     buttons[9] = Boolean(system[2]);
     buttons[5] = Boolean(system[3]);
+  } else if (preset === "genesis" || preset === "gamegear") {
+    // These presets expose START as their only system control.
+    buttons[9] = Boolean(system[0]);
   } else {
     buttons[8] = Boolean(system[0]);
     buttons[9] = Boolean(system[1]);

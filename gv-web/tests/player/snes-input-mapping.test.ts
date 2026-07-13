@@ -76,6 +76,15 @@ describe("touch adapter", () => {
     expect(buttons.slice(0, 6)).toEqual([true, true, true, true, false, false]);
   });
 
+  it("maps Genesis A/B/C to the core's Y/B/A positions and Start to bit 3", () => {
+    const buttons = touchStateToStandardButtons("genesis", {
+      dpad: [false, false, false, false],
+      face: [true, true, true],
+      system: [true],
+    });
+    expect(standardGamepadToLibretro(buttons)).toBe((1 << 1) | (1 << 0) | (1 << 8) | (1 << 3));
+  });
+
   it.each([
     ["L", 0, 4],
     ["SELECT", 1, 8],
