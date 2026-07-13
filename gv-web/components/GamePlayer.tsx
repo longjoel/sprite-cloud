@@ -7,6 +7,7 @@ import { useInterval } from "@/lib/poll";
 import { Button, Toast } from "@/components/ui";
 import RemapPanel from "./GamePlayerRemapPanel";
 import OptionsOverlay from "./OptionsOverlay";
+import ControllerLayoutPanel from "./ControllerLayoutPanel";
 import {
   backPlayerPanel,
   blockPlayerPanels,
@@ -83,7 +84,13 @@ declare global {
       suspendInput: () => void;
       resumeInput: () => void;
       enterEditMode: () => void;
+      exitEditMode: () => void;
       swapAB: () => void;
+      resetLayout: () => void;
+      setOpacity: (opacity: "low" | "medium" | "high") => void;
+      getOpacity: () => "low" | "medium" | "high";
+      getSizePreset: () => "compact" | "standard" | "large" | "custom";
+      setSizePreset: (size: "compact" | "standard" | "large") => void;
     };
     __gvPlayer?: any; // GvPlayer instance for XMB quick menu
   }
@@ -613,32 +620,25 @@ export default function GamePlayer({
     }
   }, [showToast]);
 
-  // ── Reposition / Reset controllers ────────────────────────────────
+  // ── Controller layout ─────────────────────────────────────────────
 
   const handleReposition = useCallback(() => {
     const tg = window.__gvTouchGamepad;
     if (!tg) {
-      // Auto-show gamepad first, then enter edit mode
       showToast("Show gamepad first — tap 🎮 in Keys", false);
       return;
     }
     if (!tg.isVisible()) tg.show();
     setTouchGamepadVisible(true);
+    closePanel();
     setTimeout(() => tg.enterEditMode?.(), 150);
-  }, [showToast]);
+  }, [closePanel, showToast]);
 
-  const handleResetPosition = useCallback(() => {
-    try {
-      localStorage.removeItem("gv:touch-layouts-v2");
-      showToast("Controller layout reset", true);
-    } catch { /* noop */ }
-    // Reload layout in gamepad
-    const tg = window.__gvTouchGamepad;
-    if (tg?.isVisible()) {
-      tg.hide();
-      setTimeout(() => tg.show(), 100);
-    }
-  }, [showToast]);
+  const handleHideControls = useCallback(() => {
+    window.__gvTouchGamepad?.hide();
+    setTouchGamepadVisible(false);
+    closePanel();
+  }, [closePanel]);
 
   // ── Cast mode ─────────────────────────────────────────────────────
 
@@ -769,8 +769,7 @@ export default function GamePlayer({
           onSnapshot={handleSnapshot}
           onFullscreen={toggleFullscreen}
           isFullscreen={isFullscreen}
-          onReposition={handleReposition}
-          onResetPosition={handleResetPosition}
+          onOpenController={() => openPanel("controller")}
           onRestart={handleRestart}
           onOpenSaves={() => { openPanel("saves"); handleListSaves(); }}
           onOpenKeys={() => openPanel("keys")}
@@ -779,6 +778,16 @@ export default function GamePlayer({
           onQrCode={handleQrCode}
           onStats={() => openPanel("stats")}
           isMobile={isMobile}
+        />
+      )}
+
+      {!higherPriorityBlocking && overlayState.activePanel === "controller" && (
+        <ControllerLayoutPanel
+          controller={typeof window === "undefined" ? undefined : window.__gvTouchGamepad}
+          onBack={() => openPanel("options")}
+          onClose={closePanel}
+          onCustomize={handleReposition}
+          onHide={handleHideControls}
         />
       )}
 

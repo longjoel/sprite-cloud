@@ -21,8 +21,7 @@ interface OptionsOverlayProps {
   onSnapshot: () => void;
   onFullscreen: () => void;
   isFullscreen: boolean;
-  onReposition: () => void;
-  onResetPosition: () => void;
+  onOpenController: () => void;
   onRestart: () => void;
   onOpenSaves: () => void;
   onOpenKeys: () => void;
@@ -45,8 +44,7 @@ export default function OptionsOverlay({
   onSnapshot,
   onFullscreen,
   isFullscreen,
-  onReposition,
-  onResetPosition,
+  onOpenController,
   onRestart,
   onOpenSaves,
   onOpenKeys,
@@ -109,8 +107,7 @@ export default function OptionsOverlay({
     { id: "saves", icon: "📋", label: "Saves", action: onOpenSaves },
     { id: "keys", icon: "🎮", label: "Keys", action: onOpenKeys },
     ...(onOpenRoom ? [{ id: "room", icon: "👥", label: "Room", action: onOpenRoom }] : []),
-    { id: "gamepad", icon: "📱", label: "Gamepad", action: onReposition },
-    { id: "resetpos", icon: "⟲", label: "Reset Pos", action: onResetPosition },
+    { id: "controller", icon: "📱", label: "Controller Layout", action: onOpenController },
     ...(isMobile && onCast ? [{ id: "cast", icon: "📺", label: "Cast", action: onCast }] : []),
     ...(onQrCode ? [{ id: "qrcode", icon: "📱", label: "QR Code", action: onQrCode }] : []),
     ...(onStats ? [{ id: "stats", icon: "📊", label: "Stats", action: onStats }] : []),

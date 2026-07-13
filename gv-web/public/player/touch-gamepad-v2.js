@@ -116,18 +116,78 @@ var __touchGamepadBundle = (() => {
         });
       }
     }
+    if (!isHoriz) {
+      const toFullShell = (rect) => ({
+        ...rect,
+        y: 0.5 + rect.y * 0.5,
+        h: rect.h * 0.5
+      });
+      dpad = toFullShell(dpad);
+      return {
+        dpad,
+        face: face.map(toFullShell),
+        system: system.map(toFullShell)
+      };
+    }
     return { dpad, face, system };
   }
 
   // lib/touch-gamepad/utils.ts
-  var PERSIST_KEY = "gv:touch-layouts-v2";
+  var PERSIST_KEY = "gv:touch-layouts-v3";
+  var LEGACY_PERSIST_KEY = "gv:touch-layouts-v2";
   var TOGGLE_KEY = "gv:touch-visible";
-  function loadLayouts() {
+  var OPACITY_KEY = "gv:touch-opacity";
+  var SIZE_PRESET_KEY = "gv:touch-size-preset";
+  function parseLayouts(value) {
+    if (value === null) return null;
     try {
-      return JSON.parse(localStorage.getItem(PERSIST_KEY) || "{}");
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return null;
+    }
+  }
+  function migrateVerticalRect(rect) {
+    if (!rect || typeof rect !== "object") return rect;
+    const value = rect;
+    return {
+      ...value,
+      ...typeof value.y === "number" ? { y: 0.5 + value.y * 0.5 } : {},
+      ...typeof value.h === "number" ? { h: value.h * 0.5 } : {}
+    };
+  }
+  function migrateV2Layouts(layouts) {
+    return Object.fromEntries(Object.entries(layouts).map(([key, layout]) => {
+      if (!key.endsWith(":vertical") || !layout || typeof layout !== "object") {
+        return [key, layout];
+      }
+      return [key, {
+        ...layout,
+        dpad: migrateVerticalRect(layout.dpad),
+        face: Array.isArray(layout.face) ? layout.face.map(migrateVerticalRect) : layout.face,
+        system: Array.isArray(layout.system) ? layout.system.map(migrateVerticalRect) : layout.system
+      }];
+    }));
+  }
+  function loadLayouts() {
+    let currentValue;
+    let legacyValue;
+    try {
+      currentValue = localStorage.getItem(PERSIST_KEY);
+      legacyValue = localStorage.getItem(LEGACY_PERSIST_KEY);
     } catch {
       return {};
     }
+    const current = parseLayouts(currentValue);
+    if (currentValue !== null && current !== null) return current;
+    const migrated = migrateV2Layouts(parseLayouts(legacyValue) || {});
+    if (currentValue !== null || legacyValue !== null) {
+      try {
+        localStorage.setItem(PERSIST_KEY, JSON.stringify(migrated));
+      } catch {
+      }
+    }
+    return migrated;
   }
   function saveLayouts(data) {
     try {
@@ -138,6 +198,34 @@ var __touchGamepadBundle = (() => {
   function saveToggleState(visible) {
     try {
       localStorage.setItem(TOGGLE_KEY, visible ? "1" : "0");
+    } catch {
+    }
+  }
+  function loadOpacity() {
+    try {
+      const value = localStorage.getItem(OPACITY_KEY);
+      return value === "low" || value === "high" ? value : "medium";
+    } catch {
+      return "medium";
+    }
+  }
+  function saveOpacity(opacity) {
+    try {
+      localStorage.setItem(OPACITY_KEY, opacity);
+    } catch {
+    }
+  }
+  function loadSizePreset() {
+    try {
+      const value = localStorage.getItem(SIZE_PRESET_KEY);
+      return value === "compact" || value === "large" || value === "custom" ? value : "standard";
+    } catch {
+      return "standard";
+    }
+  }
+  function saveSizePreset(size) {
+    try {
+      localStorage.setItem(SIZE_PRESET_KEY, size);
     } catch {
     }
   }
@@ -165,11 +253,10 @@ var __touchGamepadBundle = (() => {
     this._dragStart = null;
     this._editMode = false;
     this._showHandles = false;
+    this._opacity = loadOpacity();
+    this._sizePreset = loadSizePreset();
     this._activePointers = /* @__PURE__ */ new Map();
     this._blockedPointerIds = /* @__PURE__ */ new Set();
-    this._lockBtn = { x: 0.895, y: 0.04, w: 0.07, h: 0.07 };
-    this._closeBtn = { x: 0.755, y: 0.04, w: 0.07, h: 0.07 };
-    this._swapBtn = { x: 0.615, y: 0.04, w: 0.07, h: 0.07 };
     this.onInput = null;
     this._castMode = false;
     this._layouts = loadLayouts();
@@ -267,6 +354,50 @@ var __touchGamepadBundle = (() => {
     this._syncTouchIslands();
     this._scheduleRender();
   };
+  TouchGamepad.prototype.setOpacity = function(opacity) {
+    if (opacity !== "low" && opacity !== "medium" && opacity !== "high") return;
+    this._opacity = opacity;
+    saveOpacity(opacity);
+    if (this._canvas) this._canvas.style.opacity = String({ low: 0.35, medium: 0.55, high: 0.8 }[opacity]);
+  };
+  TouchGamepad.prototype.getOpacity = function() {
+    return this._opacity;
+  };
+  TouchGamepad.prototype.setSizePreset = function(size) {
+    const scale = { compact: 0.85, standard: 1, large: 1.2 }[size];
+    if (!scale) return;
+    this._sizePreset = size;
+    saveSizePreset(size);
+    const defaults = computeDefaults(this._preset, resolveOrientation(this._layoutName));
+    const resizeAroundCenter = (zone, defaultZone) => {
+      const centerX = zone.x + zone.w / 2;
+      const centerY = zone.y + zone.h / 2;
+      zone.w = Math.min(1, defaultZone.w * scale);
+      zone.h = Math.min(1, defaultZone.h * scale);
+      zone.x = Math.max(0, Math.min(1 - zone.w, centerX - zone.w / 2));
+      zone.y = Math.max(0, Math.min(1 - zone.h, centerY - zone.h / 2));
+    };
+    resizeAroundCenter(this._dpad, defaults.dpad);
+    this._face.forEach((zone, index) => resizeAroundCenter(zone, defaults.face[index]));
+    this._system.forEach((zone, index) => resizeAroundCenter(zone, defaults.system[index]));
+    if (this._visible) this._resizeCanvas();
+    this._saveLayout();
+    this._syncTouchIslands();
+    this._scheduleRender();
+  };
+  TouchGamepad.prototype.getSizePreset = function() {
+    return this._sizePreset;
+  };
+  TouchGamepad.prototype.resetLayout = function() {
+    delete this._layouts[layoutKey.call(this)];
+    saveLayouts(this._layouts);
+    this._loadLayout();
+    this._sizePreset = "standard";
+    saveSizePreset("standard");
+    if (this._visible) this._resizeCanvas();
+    this._syncTouchIslands();
+    this._scheduleRender();
+  };
   TouchGamepad.prototype.swapAB = function() {
     if (this._face.length < 2) return;
     const swap = (f, i, j) => {
@@ -279,9 +410,6 @@ var __touchGamepadBundle = (() => {
       f[j].y = tmp.y;
       f[j].w = tmp.w;
       f[j].h = tmp.h;
-      const tmpL = f[i].label;
-      f[i].label = f[j].label;
-      f[j].label = tmpL;
     };
     swap(this._face, 0, 1);
     if (this._face.length >= 4) swap(this._face, 2, 3);
@@ -378,6 +506,7 @@ var __touchGamepadBundle = (() => {
     c.style.touchAction = "none";
     c.style.pointerEvents = "none";
     c.style.zIndex = "10";
+    c.style.opacity = String({ low: 0.35, medium: 0.55, high: 0.8 }[this._opacity]);
     c.dataset.reducedMotion = String(this._reducedMotion);
     const parent = this._video.parentNode;
     if (parent && getComputedStyle(parent).position === "static") {
@@ -395,7 +524,7 @@ var __touchGamepadBundle = (() => {
       zIndex: "11",
       boxSizing: "border-box"
     });
-    for (const kind of ["dpad", "face", "system", "utility"]) {
+    for (const kind of ["dpad", "face", "system"]) {
       const island = document.createElement("div");
       island.dataset.touchIsland = kind;
       island.setAttribute("role", "group");
@@ -428,8 +557,7 @@ var __touchGamepadBundle = (() => {
     const bounds = {
       dpad: setIslandBounds(groups.dpad, [this._dpad]),
       face: setIslandBounds(groups.face, this._face),
-      system: setIslandBounds(groups.system, this._system),
-      utility: setIslandBounds(groups.utility, [this._closeBtn, this._lockBtn, ...this._face.length >= 4 ? [this._swapBtn] : []])
+      system: setIslandBounds(groups.system, this._system)
     };
     const desiredTargets = /* @__PURE__ */ new Set();
     const target = (group, rect, label, _bound) => {
@@ -464,7 +592,6 @@ var __touchGamepadBundle = (() => {
     attachIfNeeded(groups.dpad, target(groups.dpad, this._dpad, "dpad", bounds.dpad));
     this._face.forEach((zone, i) => attachIfNeeded(groups.face, target(groups.face, zone, `face-${i}`, bounds.face)));
     this._system.forEach((zone, i) => attachIfNeeded(groups.system, target(groups.system, zone, `system-${i}`, bounds.system)));
-    [this._closeBtn, this._lockBtn, ...this._face.length >= 4 ? [this._swapBtn] : []].forEach((zone, i) => attachIfNeeded(groups.utility, target(groups.utility, zone, `utility-${i}`, bounds.utility)));
     this._islandLayer.querySelectorAll("[data-touch-target]").forEach((el) => {
       if (!desiredTargets.has(el.dataset.touchTarget)) el.remove();
     });
@@ -477,6 +604,10 @@ var __touchGamepadBundle = (() => {
     const safeRight = "env(safe-area-inset-right, 0px)";
     const safeTop = "env(safe-area-inset-top, 0px)";
     const safeBottom = "env(safe-area-inset-bottom, 0px)";
+    this._canvas.style.setProperty("--touch-safe-left", safeLeft);
+    this._canvas.style.setProperty("--touch-safe-right", safeRight);
+    this._canvas.style.setProperty("--touch-safe-top", safeTop);
+    this._canvas.style.setProperty("--touch-safe-bottom", safeBottom);
     if (this._castMode) {
       Object.assign(this._canvas.style, {
         position: "fixed",
@@ -493,18 +624,18 @@ var __touchGamepadBundle = (() => {
     } else if (orientation === "vertical") {
       Object.assign(this._canvas.style, {
         position: "fixed",
-        left: safeLeft,
-        right: safeRight,
-        top: "auto",
-        bottom: safeBottom,
-        width: `calc(100vw - ${safeLeft} - ${safeRight})`,
-        height: `calc(50vh - ${safeTop} - ${safeBottom})`,
+        left: "var(--touch-safe-left, 0px)",
+        right: "var(--touch-safe-right, 0px)",
+        top: "var(--touch-safe-top, 0px)",
+        bottom: "var(--touch-safe-bottom, 0px)",
+        width: "calc(100vw - var(--touch-safe-left, 0px) - var(--touch-safe-right, 0px))",
+        height: "calc(100vh - var(--touch-safe-top, 0px) - var(--touch-safe-bottom, 0px))",
         zIndex: "10"
       });
       this._video.style.maxHeight = "50vh";
       this._video.style.objectFit = "contain";
       w = Math.round(window.innerWidth);
-      h = Math.round(window.innerHeight * 0.5);
+      h = Math.round(window.innerHeight);
     } else {
       const vr = this._video.getBoundingClientRect();
       const pr = this._canvas.parentNode.getBoundingClientRect();
@@ -530,14 +661,23 @@ var __touchGamepadBundle = (() => {
     const minW = Math.min(1, 56 / Math.max(1, w));
     const minH = Math.min(1, 56 / Math.max(1, h));
     for (const zone of [...this._face, ...this._system]) {
+      const nextW = Math.max(zone.w, minW);
+      const nextH = Math.max(zone.h, minH);
+      if (nextW === zone.w && nextH === zone.h) continue;
       const centerX = zone.x + zone.w / 2;
       const centerY = zone.y + zone.h / 2;
-      zone.w = Math.max(zone.w, minW);
-      zone.h = Math.max(zone.h, minH);
+      zone.w = nextW;
+      zone.h = nextH;
       zone.x = Math.max(0, Math.min(1 - zone.w, centerX - zone.w / 2));
       zone.y = Math.max(0, Math.min(1 - zone.h, centerY - zone.h / 2));
     }
     if (this._islandLayer) {
+      for (const edge of ["left", "right", "top", "bottom"]) {
+        this._islandLayer.style.setProperty(
+          `--touch-safe-${edge}`,
+          this._canvas.style.getPropertyValue(`--touch-safe-${edge}`)
+        );
+      }
       Object.assign(this._islandLayer.style, {
         position: this._canvas.style.position,
         left: this._canvas.style.left,
@@ -623,19 +763,6 @@ var __touchGamepadBundle = (() => {
     }
     return null;
   };
-  TouchGamepad.prototype._hitLockBtn = function(nx, ny) {
-    const lb = this._lockBtn;
-    return nx >= lb.x && nx <= lb.x + lb.w && ny >= lb.y && ny <= lb.y + lb.h;
-  };
-  TouchGamepad.prototype._hitCloseBtn = function(nx, ny) {
-    const cb = this._closeBtn;
-    return nx >= cb.x && nx <= cb.x + cb.w && ny >= cb.y && ny <= cb.y + cb.h;
-  };
-  TouchGamepad.prototype._hitSwapBtn = function(nx, ny) {
-    if (this._face.length < 4) return false;
-    const sb = this._swapBtn;
-    return nx >= sb.x && nx <= sb.x + sb.w && ny >= sb.y && ny <= sb.y + sb.h;
-  };
   TouchGamepad.prototype._clearInputs = function() {
     this._dpadActive = [false, false, false, false];
     this._faceStates = this._faceStates.map(() => false);
@@ -673,61 +800,6 @@ var __touchGamepadBundle = (() => {
         drawResizeHandles(ctx, this._system[i], cw, ch);
       }
     }
-    {
-      const lb = this._lockBtn;
-      const lbx = lb.x * cw, lby = lb.y * ch, lbw = lb.w * cw, lbh = lb.h * ch;
-      const lbr = Math.min(lbw, lbh) / 2;
-      const lbcx = lbx + lbw / 2, lbcy = lby + lbh / 2;
-      const isEdit = this._editMode;
-      ctx.fillStyle = isEdit ? "rgba(255,120,60,0.55)" : "rgba(255,255,255,0.18)";
-      ctx.beginPath();
-      ctx.arc(lbcx, lbcy, lbr, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = isEdit ? "rgba(255,140,80,0.5)" : "rgba(255,255,255,0.12)";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      ctx.fillStyle = isEdit ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.35)";
-      ctx.font = Math.floor(lbr * 1.1) + "px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(isEdit ? "\u{1F513}" : "\u{1F512}", lbcx, lbcy);
-    }
-    {
-      const cb = this._closeBtn;
-      const cbx = cb.x * cw, cby = cb.y * ch, cbw = cb.w * cw, cbh = cb.h * ch;
-      const cbr = Math.min(cbw, cbh) / 2;
-      const cbcx = cbx + cbw / 2, cbcy = cby + cbh / 2;
-      ctx.fillStyle = "rgba(255,60,60,0.45)";
-      ctx.beginPath();
-      ctx.arc(cbcx, cbcy, cbr, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "rgba(255,80,80,0.4)";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      ctx.fillStyle = "rgba(255,255,255,0.75)";
-      ctx.font = Math.floor(cbr * 1) + "px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("\u2715", cbcx, cbcy);
-    }
-    if (this._face.length >= 4) {
-      const sb = this._swapBtn;
-      const sbx = sb.x * cw, sby = sb.y * ch, sbw = sb.w * cw, sbh = sb.h * ch;
-      const sbr = Math.min(sbw, sbh) / 2;
-      const sbcx = sbx + sbw / 2, sbcy = sby + sbh / 2;
-      ctx.fillStyle = "rgba(56,189,248,0.4)";
-      ctx.beginPath();
-      ctx.arc(sbcx, sbcy, sbr, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "rgba(56,189,248,0.35)";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      ctx.fillStyle = "rgba(255,255,255,0.75)";
-      ctx.font = Math.floor(sbr * 0.9) + "px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("\u2194", sbcx, sbcy);
-    }
     if (this._showHandles) {
       ctx.fillStyle = "rgba(0,0,0,0.6)";
       ctx.fillRect(0, 0, cw, 24);
@@ -735,7 +807,7 @@ var __touchGamepadBundle = (() => {
       ctx.font = "12px sans-serif";
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText("Unlocked \u2014 drag zones, corner handles to resize. Tap \u{1F513} to lock.", 8, 12);
+      ctx.fillText("Unlocked \u2014 drag zones or corner handles. Return to Controller Layout to lock.", 8, 12);
     }
     this._animId = this._reducedMotion ? null : requestAnimationFrame(this._render);
   };
@@ -808,19 +880,6 @@ var __touchGamepadBundle = (() => {
       x: (t.clientX - rect.left) / (rect.width || 1),
       y: (t.clientY - rect.top) / (rect.height || 1)
     };
-    if (gp._hitLockBtn(n.x, n.y)) {
-      if (gp._editMode) gp.exitEditMode();
-      else gp.enterEditMode();
-      return false;
-    }
-    if (gp._hitCloseBtn(n.x, n.y)) {
-      gp.hide();
-      return false;
-    }
-    if (gp._hitSwapBtn(n.x, n.y)) {
-      gp.swapAB();
-      return false;
-    }
     const preferredTarget = t.target?.dataset?.touchTarget;
     const zone = gp._findTouchZone(n, preferredTarget);
     if (gp._showHandles && zone && zone.kind === "resize") {
@@ -924,6 +983,10 @@ var __touchGamepadBundle = (() => {
           }
           tgt.x = Math.max(0, Math.min(1 - tgt.w, tgt.x));
           tgt.y = Math.max(0, Math.min(1 - tgt.h, tgt.y));
+          if (tgt.w !== gp._dragStart.tw || tgt.h !== gp._dragStart.th) {
+            gp._sizePreset = "custom";
+            saveSizePreset("custom");
+          }
         } else {
           tgt.x = gp._dragStart.tx + dx;
           tgt.y = gp._dragStart.ty + dy;
@@ -944,9 +1007,6 @@ var __touchGamepadBundle = (() => {
           x: (t2.clientX - rect.left) / (cw || 1),
           y: (t2.clientY - rect.top) / (rect.height || 1)
         };
-        if (gp._hitLockBtn(n2.x, n2.y)) continue;
-        if (gp._hitCloseBtn(n2.x, n2.y)) continue;
-        if (gp._hitSwapBtn(n2.x, n2.y)) continue;
         const z2 = gp._findTouchZone(n2);
         if (z2 && z2.kind !== "resize") {
           applyInput(gp, z2, n2);
@@ -959,32 +1019,14 @@ var __touchGamepadBundle = (() => {
     if (!gp._canvas) return;
     const rect = gp._canvas.getBoundingClientRect();
     const cw = rect.width, ch = rect.height;
-    let completedDrag = false;
     if (gp._dragTarget && gp._dragStart) {
       for (let i = 0; i < changedTouches.length; i++) {
         if (changedTouches[i].identifier === gp._dragStart.fingerId) {
-          completedDrag = true;
           gp._dragTarget = null;
           gp._dragStart = null;
           gp._saveLayout();
           gp._syncTouchIslands();
           gp._scheduleRender();
-          break;
-        }
-      }
-    }
-    if (gp._editMode && !gp._dragTarget && !completedDrag) {
-      for (let j = 0; j < changedTouches.length; j++) {
-        const nn = {
-          x: (changedTouches[j].clientX - rect.left) / (cw || 1),
-          y: (changedTouches[j].clientY - rect.top) / (ch || 1)
-        };
-        if (gp._hitLockBtn(nn.x, nn.y)) continue;
-        if (gp._hitCloseBtn(nn.x, nn.y)) continue;
-        if (gp._hitSwapBtn(nn.x, nn.y)) continue;
-        const zz = gp._findTouchZone(nn);
-        if (!zz || zz.kind === "resize") {
-          gp.exitEditMode();
           break;
         }
       }
@@ -997,9 +1039,6 @@ var __touchGamepadBundle = (() => {
           x: (tm.clientX - rect.left) / (cw || 1),
           y: (tm.clientY - rect.top) / (ch || 1)
         };
-        if (gp._hitLockBtn(nm.x, nm.y)) continue;
-        if (gp._hitCloseBtn(nm.x, nm.y)) continue;
-        if (gp._hitSwapBtn(nm.x, nm.y)) continue;
         const zm = gp._findTouchZone(nm);
         if (zm && zm.kind !== "resize") {
           applyInput(gp, zm, nm);
