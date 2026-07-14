@@ -28,9 +28,14 @@ export default function ShortCodePage() {
 
   // When loaded from a LAN URL (proxied through gv-server), the Back button
   // should go to the real gv-web origin — not / which would proxy without auth.
+  // When shell=xmb is set, Back returns to the XMB launcher.
   const homeUrl = useMemo(() => {
     if (typeof window === "undefined") return "/";
-    try { if (new URLSearchParams(window.location.search).get("route") === "lan") return "https://lngnckr.tech/"; } catch {}
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("route") === "lan") return "https://lngnckr.tech/";
+      if (params.get("shell") === "xmb") return "/xmb";
+    } catch {}
     return "/";
   }, []);
 

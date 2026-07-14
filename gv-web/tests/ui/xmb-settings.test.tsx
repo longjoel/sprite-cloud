@@ -136,3 +136,60 @@ describe("XMB shell structure", () => {
     expect(source).toMatch(/bottom:\s*"calc\(72px \+ env\(safe-area-inset-bottom\)\)"/);
   });
 });
+
+describe("XMB player launch lifecycle (Task 13)", () => {
+  it("imports the shared launch utility instead of mounting an inline GamePlayer", () => {
+    const source = readFileSync(resolve(process.cwd(), "app/xmb/page.tsx"), "utf8");
+    // Must use shared utility
+    expect(source).toContain("@/lib/ui/launch-game");
+    // Must NOT have inline <GamePlayer /> in JSX
+    expect(source).not.toMatch(/<GamePlayer/);
+  });
+
+  it("removes the XMB-specific back-hint bar", () => {
+    const source = readFileSync(resolve(process.cwd(), "app/xmb/page.tsx"), "utf8");
+    expect(source).not.toContain("backHint");
+    expect(source).not.toMatch(/Press Esc or ○ to close/);
+  });
+
+  it("navigates to /p/[code]?shell=xmb on game launch", () => {
+    const source = readFileSync(resolve(process.cwd(), "app/xmb/page.tsx"), "utf8");
+    // Must use buildPlayerPath with "xmb" shell param and router.push to navigate
+    expect(source).toContain('buildPlayerPath(code, "xmb")');
+    expect(source).toMatch(/router\.(push|replace)\(/);
+    expect(source).toContain("createLaunchShortCode");
+  });
+
+  it("preserves XMB navigation, gamepad, and responsive layout code", () => {
+    const source = readFileSync(resolve(process.cwd(), "app/xmb/page.tsx"), "utf8");
+    // Navigation
+    expect(source).toContain("activateXmbNavigation");
+    expect(source).toContain("moveXmbNavigation");
+    // Gamepad
+    expect(source).toContain("getGamepads");
+    // Keyboard handlers (not play-mode Escape/port keys)
+    expect(source).toContain("ArrowLeft");
+    expect(source).toContain("ArrowRight");
+    // Responsive / mobile
+    expect(source).toContain("isMobile");
+    expect(source).toContain("ontouchstart");
+    // Search
+    expect(source).toContain("Search");
+  });
+
+  it("removes inline playing state, closePlayer, and play-mode Escape listener", () => {
+    const source = readFileSync(resolve(process.cwd(), "app/xmb/page.tsx"), "utf8");
+    // Playing-related states that should be gone
+    expect(source).not.toContain("setPlaying");
+    expect(source).not.toContain("setPlayGame");
+    expect(source).not.toContain("fadeIn");
+    expect(source).not.toContain("fadingOut");
+    expect(source).not.toContain("closePlayer");
+    expect(source).not.toContain("handlePlayerTransitionEnd");
+    // Play-mode Escape listener
+    expect(source).not.toMatch(/playing.*Escape/);
+    // Port routing hotkeys (Ctrl+1-4, Ctrl+0)
+    expect(source).not.toContain("kbdPort");
+    expect(source).not.toContain("kbd_port");
+  });
+});

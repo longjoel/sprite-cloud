@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import GamePlayer from "@/components/GamePlayer";
 import XmbSettings, { hasXmbSettingsAccess, type XmbServer } from "@/components/xmb/XmbSettings";
 import { LIBRARY_SECTIONS, filterLibraryGames, getEmptyStateMessage, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
 import { loadXmbAuthenticatedData, type PinnedGameRow } from "@/lib/ui/xmb-authenticated-load";
@@ -18,6 +17,7 @@ import {
   type XmbNavigationId,
   type XmbNavigationState,
 } from "@/lib/ui/xmb-navigation";
+import { createLaunchShortCode, buildPlayerPath } from "@/lib/ui/launch-game";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -89,19 +89,14 @@ export default function XmbPage() {
   const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
   const [recentGames, setRecentGames] = useState<Array<{ id: string; playedAt: string }>>([]);
   const [pinnedGamesFromBootstrap, setPinnedGamesList] = useState<PinnedGameRow[]>([]);
-  const [playing, setPlaying] = useState(false);
-  const [playGame, setPlayGame] = useState<{ gameId: string; serverId: string; hostToken?: string; gameName?: string; platform?: string } | null>(null);
-  const [fadeIn, setFadeIn] = useState(false);
-  const [kbdPort, setKbdPort] = useState(0); // 0 = auto, 1-4 = fixed port
   const [isMobile, setIsMobile] = useState(false);
+  const [launching, setLaunching] = useState(false);
   const settingsAvailable = bootstrap !== null
     && hasXmbSettingsAccess(status === "authenticated", bootstrap.servers);
   const navigationItems = getXmbNavigation(settingsAvailable);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const gameListRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<any>(null);
-  const fadingOut = useRef(false);
 
   // ── Auth guard — redirect to signin if not logged in ──────────────
   useEffect(() => {
@@ -259,69 +254,26 @@ export default function XmbPage() {
     if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [safeGameIdx]);
 
-  // ── DC command helper ─────────────────────────────────────────────────
-  const sendDC = useCallback((cmd: Record<string, unknown>) => {
-    const p = playerRef.current;
-    if (!p?._dc || p._dc.readyState !== "open") return false;
-    try { p._dc.send(JSON.stringify(cmd)); return true; } catch { return false; }
-  }, []);
-
-  const closePlayer = useCallback(() => {
-    fadingOut.current = true;
-    setFadeIn(false);
-  }, []);
-
-  const handlePlayerTransitionEnd = useCallback(() => {
-    if (fadingOut.current) {
-      fadingOut.current = false;
-      setPlaying(false);
-      setPlayGame(null);
+  // ── Launch game — create short code, navigate to canonical player page ──
+  const launchGame = useCallback(async (game: Game) => {
+    const sid = game.serverId;
+    if (!sid) return;
+    if (launching) return;
+    setLaunching(true);
+    try {
+      const code = await createLaunchShortCode({
+        gameId: game.id,
+        serverId: sid,
+      });
+      router.push(buildPlayerPath(code, "xmb"));
+    } catch {
+      setLaunching(false);
     }
-  }, []);
+  }, [router, launching]);
 
-  // ── Escape listener (only active during play — lets gv-player handle all other keys) ──
-  useEffect(() => {
-    if (!playing) return;
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { e.preventDefault(); closePlayer(); }
-    };
-    window.addEventListener("keydown", onEsc);
-    return () => window.removeEventListener("keydown", onEsc);
-  }, [playing, closePlayer]);
-
-  // ── Port routing hotkeys (Ctrl+1-4, Ctrl+0, Ctrl+G) — always active when playing ──
-  useEffect(() => {
-    if (!playing) return;
-    const onCtrlKey = (e: KeyboardEvent) => {
-      if (!e.ctrlKey) return;
-      if (e.key >= "1" && e.key <= "4") {
-        e.preventDefault();
-        const port = parseInt(e.key);
-        setKbdPort(port);
-        // Ctrl+1 → player 1, but emulator core uses 0-based port
-        const p = playerRef.current || window.__gvPlayer;
-        if (p) { p._seat = port - 1; }
-        sendDC({ cmd: "kbd_port", port: port - 1 });
-      } else if (e.key === "0") {
-        e.preventDefault();
-        setKbdPort(0);
-        const p = playerRef.current || window.__gvPlayer;
-        if (p) { p._seat = 0; }
-        sendDC({ cmd: "kbd_port", port: 0 });
-      } else if (e.key === "g") {
-        e.preventDefault();
-        const tg = window.__gvTouchGamepad;
-        if (tg) { try { tg.toggle(); } catch {} }
-      }
-    };
-    window.addEventListener("keydown", onCtrlKey);
-    return () => window.removeEventListener("keydown", onCtrlKey);
-  }, [playing, sendDC]);
-
-  // ── XMB navigation keyboard handler (inactive during play) ──────────
+  // ── XMB navigation keyboard handler ──────────────────────────────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (playing) return;
       const target = e.target as HTMLElement | null;
       if (target?.matches("input, textarea, select, [contenteditable=true]")) return;
       if (e.key === "Enter" && target?.closest("[data-xmb-settings-action]")) return;
@@ -356,11 +308,10 @@ export default function XmbPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activateNavigation, filteredGames.length, focusedSub, moveNavigation, moveSettingsAction, navigation, playing, selectedGame]);
+  }, [activateNavigation, filteredGames.length, focusedSub, moveNavigation, moveSettingsAction, navigation, selectedGame, launchGame]);
 
   // ── Gamepad polling ──────────────────────────────────────────────────
   useEffect(() => {
-    if (playing) return; // gamepad owned by GamePlayer during play
     let prevState = "";
     const interval = setInterval(() => {
       const pads = navigator.getGamepads?.() ?? [];
@@ -390,31 +341,7 @@ export default function XmbPage() {
       }
     }, 120);
     return () => clearInterval(interval);
-  }, [activateNavigation, filteredGames.length, focusedSettingsAction, focusedSub, moveNavigation, moveSettingsAction, navigation, playing, selectedGame]);
-
-  // ── Launch / close ────────────────────────────────────────────────────
-  const launchGame = useCallback((game: Game) => {
-    const sid = game.serverId;
-    if (!sid) return;
-    setPlayGame({
-      gameId: game.id, serverId: sid,
-      gameName: game.name, platform: game.platform,
-    });
-    setPlaying(true);
-    setTimeout(() => setFadeIn(true), 50);
-  }, []);
-
-  // Capture GvPlayer instance when connected
-  useEffect(() => {
-    if (!playing) return;
-    const interval = setInterval(() => {
-      if (window.__gvPlayer?._dc?.readyState === "open") {
-        playerRef.current = window.__gvPlayer;
-        clearInterval(interval);
-      }
-    }, 200);
-    return () => clearInterval(interval);
-  }, [playing]);
+  }, [activateNavigation, filteredGames.length, focusedSettingsAction, focusedSub, moveNavigation, moveSettingsAction, navigation, selectedGame, launchGame]);
 
   // ── Render categories ────────────────────────────────────────────────
   const renderCategories = () => (
@@ -524,59 +451,26 @@ export default function XmbPage() {
   // ── Main render ───────────────────────────────────────────────────────
   return (
     <div ref={containerRef} style={s.shell}>
-      {playing && playGame ? (
-        <>
-          {/* Player overlay */}
-          <div
-            style={{
-              ...s.playerOverlay,
-              opacity: fadeIn ? 1 : 0,
-              pointerEvents: fadeIn ? "auto" : "none",
-            }}
-            onTransitionEnd={handlePlayerTransitionEnd}
-          >
-            <GamePlayer
-              gameId={playGame.gameId}
-              serverId={playGame.serverId}
-              gameName={playGame.gameName}
-              platform={playGame.platform}
-              onClose={closePlayer}
-              onConnected={() => {}}
-              hidePipeline
-              initialPipeline={{ ice: "done", server: "done" }}
-              initialStatus="connecting"
-              onPipelineChange={(_p: Record<string, string>) => {}}
-            />
-          </div>
-          {/* Back hint */}
-          <div style={s.backHint} onClick={closePlayer}>
-            Press Esc or ○ to close  ·  Ctrl+1-4: port  ·  Ctrl+G: gamepad
-          </div>
-        </>
-      ) : (
-        <>
-          {/* Background ambient */}
-          <div style={s.bgGradient} />
+      {/* Background ambient */}
+      <div style={s.bgGradient} />
 
-          {/* Main XMB layout */}
-          <div style={s.xmbBody}>
-            {navigation.activeCategory === "games" && (
-              <>
-                {renderSubCategories()}
-                {renderGameList()}
-              </>
-            )}
-            {navigation.activeCategory === "settings" && (
-              settingsAvailable && bootstrap
-                ? <XmbSettings servers={bootstrap.servers} onActionFocus={setFocusedSettingsAction} />
-                : null
-            )}
-          </div>
+      {/* Main XMB layout */}
+      <div style={s.xmbBody}>
+        {navigation.activeCategory === "games" && (
+          <>
+            {renderSubCategories()}
+            {renderGameList()}
+          </>
+        )}
+        {navigation.activeCategory === "settings" && (
+          settingsAvailable && bootstrap
+            ? <XmbSettings servers={bootstrap.servers} onActionFocus={setFocusedSettingsAction} />
+            : null
+        )}
+      </div>
 
-          {/* Bottom category bar */}
-          {renderCategories()}
-        </>
-      )}
+      {/* Bottom category bar */}
+      {renderCategories()}
     </div>
   );
 }
@@ -689,47 +583,5 @@ const s: Record<string, React.CSSProperties> = {
   placeholder: {
     flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
     color: S.textDim, fontSize: 14, fontStyle: "italic",
-  },
-  playerOverlay: {
-    position: "absolute", inset: 0, zIndex: 20,
-    transition: "opacity 0.35s ease",
-  },
-  backHint: {
-    position: "fixed", top: 12, left: "50%", transform: "translateX(-50%)",
-    zIndex: 30, padding: "4px 16px", borderRadius: 2,
-    background: "rgba(0,0,0,0.6)", color: S.textDim,
-    fontSize: 11, cursor: "pointer", backdropFilter: "blur(4px)",
-  },
-  // ── Quick menu ────────────────────────────────────────────────────
-  qmBackdrop: { position: "fixed", inset: 0, zIndex: 40, background: "rgba(0,0,0,0.4)" },
-  qmPanel: {
-    position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
-    zIndex: 41, width: 260, padding: 20, borderRadius: 4,
-    background: S.bgCard, border: "1px solid rgba(255,255,255,0.08)",
-    boxShadow: "0 8px 32px rgba(0,0,0,0.6)", display: "flex", flexDirection: "column", gap: 8,
-  },
-  qmHeader: { fontSize: 14, fontWeight: 600, color: S.accent, marginBottom: 4 },
-  qmBtn: {
-    width: "100%", padding: "8px 12px", border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(255,255,255,0.04)", color: S.text,
-    borderRadius: 2, cursor: "pointer", fontSize: 13, textAlign: "left" as const,
-  },
-  qmDivider: { height: 1, background: "rgba(255,255,255,0.06)", margin: "4px 0" },
-  qmLabel: { fontSize: 11, color: S.textDim, marginTop: 4 },
-  qmPortBtn: {
-    flex: 1, padding: "6px 8px", border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(255,255,255,0.03)", color: S.textDim,
-    borderRadius: 2, cursor: "pointer", fontSize: 12, textAlign: "center" as const,
-  },
-  // ── Port badges ────────────────────────────────────────────────────
-  portBadges: {
-    position: "fixed", bottom: 12, right: 12, zIndex: 30,
-    display: "flex", gap: 6,
-  },
-  portBadge: {
-    padding: "3px 8px", borderRadius: 2,
-    background: "rgba(0,0,0,0.6)", color: S.textDim,
-    fontSize: 11, fontFamily: "monospace", backdropFilter: "blur(4px)",
-    border: "1px solid rgba(255,255,255,0.06)",
   },
 };
