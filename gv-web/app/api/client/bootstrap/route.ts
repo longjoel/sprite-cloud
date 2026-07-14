@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { serverMembers, servers, games, gameFiles, pinnedGames } from "@/lib/db/schema";
-import { eq, sql, inArray } from "drizzle-orm";
+import { serverMembers, servers, games, gameFiles, pinnedGames, favorites, recentPlays } from "@/lib/db/schema";
+import { eq, sql, inArray, desc, asc, and } from "drizzle-orm";
 
 // ── GET /api/client/bootstrap ───────────────────────────────────────────
 //
@@ -162,12 +162,82 @@ export async function GET() {
     .where(eq(pinnedGames.userId, session.user.id));
   const pinnedCount = Number(pinRow?.pinnedCount ?? 0);
 
+  // ── Canonical favorite IDs ───────────────────────────────────────
+  const favoriteRows = await db
+    .select({ gameId: favorites.gameId })
+    .from(favorites)
+    .where(eq(favorites.userId, session.user.id));
+  const favoriteIds = favoriteRows.map((r) => r.gameId);
+
+  // ── Canonical pinned IDs ─────────────────────────────────────────
+  const pinnedIdRows = await db
+    .select({ gameId: pinnedGames.gameId })
+    .from(pinnedGames)
+    .where(eq(pinnedGames.userId, session.user.id))
+    .orderBy(pinnedGames.position);
+  const pinnedIds = pinnedIdRows.map((r) => r.gameId);
+
+  // ── Pinned game details (for games outside the 200-game window) ──
+  let pinnedGameRows: Array<{
+    id: string;
+    name: string;
+    platform: string;
+    serverId: string;
+    maxPlayers: number | null;
+  }> = [];
+  if (pinnedIds.length > 0 && serverIds.length > 0) {
+    pinnedGameRows = (await db
+      .selectDistinct({
+        id: games.id,
+        name: games.name,
+        platform: games.platform,
+        serverId: gameFiles.serverId,
+        maxPlayers: games.maxPlayers,
+      })
+      .from(pinnedGames)
+      .innerJoin(games, eq(pinnedGames.gameId, games.id))
+      .innerJoin(gameFiles, eq(games.id, gameFiles.gameId))
+      .where(and(
+        eq(pinnedGames.userId, session.user.id),
+        inArray(gameFiles.serverId, serverIds),
+      ))
+      .orderBy(pinnedGames.position)) as unknown as typeof pinnedGameRows;
+  }
+
+  // ── Recent games with timestamps (ordered, most recent first) ────
+  let recentGames: Array<{ id: string; playedAt: string }> = [];
+  if (serverIds.length > 0) {
+    const recentRows = await db
+      .select({
+        id: games.id,
+        playedAt: sql<Date>`max(${recentPlays.playedAt})`,
+      })
+      .from(recentPlays)
+      .innerJoin(games, eq(recentPlays.gameId, games.id))
+      .innerJoin(gameFiles, eq(games.id, gameFiles.gameId))
+      .where(and(
+        eq(recentPlays.userId, session.user.id),
+        inArray(gameFiles.serverId, serverIds),
+      ))
+      .groupBy(games.id)
+      .orderBy(desc(sql`max(${recentPlays.playedAt})`), asc(games.id))
+      .limit(50);
+    recentGames = recentRows.map((r) => ({
+      id: r.id,
+      playedAt: (r.playedAt as Date).toISOString(),
+    }));
+  }
+
   return NextResponse.json({
     ...base,
     servers: serversWithCounts,
     library: {
       totalGames: serversWithCounts.reduce((sum, s) => sum + s.gameCount, 0),
       pinnedCount,
+      favoriteIds,
+      pinnedIds,
+      pinnedGames: pinnedGameRows,
+      recentGames,
     },
   });
 }

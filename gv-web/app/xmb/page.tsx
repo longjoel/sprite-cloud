@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import GamePlayer from "@/components/GamePlayer";
 import XmbSettings, { hasXmbSettingsAccess, type XmbServer } from "@/components/xmb/XmbSettings";
-import { LIBRARY_SECTIONS, filterLibraryGames, normalizeRecentGameIds, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
-import { loadXmbAuthenticatedData } from "@/lib/ui/xmb-authenticated-load";
+import { LIBRARY_SECTIONS, filterLibraryGames, getEmptyStateMessage, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
+import { loadXmbAuthenticatedData, type PinnedGameRow } from "@/lib/ui/xmb-authenticated-load";
 import {
   activateXmbNavigation,
   activateXmbSettingsAction,
@@ -53,9 +53,9 @@ const CATEGORY_PRESENTATION: Record<XmbNavigationId, { label: string; icon: stri
 
 const sectionLabel = (section: LibrarySection) => LIBRARY_SECTIONS.find(({ id }) => id === section)!.label;
 const SUB_CATEGORIES: SubCategory[] = [
-  { id: "favorites", label: "★", section: "favorites" },
-  { id: "recent", label: "🕐", section: "recent" },
-  { id: "pins", label: "📌", section: "pins" },
+  { id: "favorites", label: sectionLabel("favorites"), section: "favorites" },
+  { id: "recent", label: sectionLabel("recent"), section: "recent" },
+  { id: "pins", label: sectionLabel("pins"), section: "pins" },
   { id: "all", label: sectionLabel("all"), section: "all" },
   { id: "nes", label: "NES", section: "all", platforms: ["NES"] },
   { id: "snes", label: "SNES", section: "all", platforms: ["SNES"] },
@@ -85,7 +85,10 @@ export default function XmbPage() {
     library: { totalGames: number; pinnedCount: number } | null;
     ice: { stunConfigured: boolean; turnConfigured: boolean; transportPolicy: string };
   } | null>(null);
-  const [recentIds, setRecentIds] = useState<string[]>([]);
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
+  const [recentGames, setRecentGames] = useState<Array<{ id: string; playedAt: string }>>([]);
+  const [pinnedGamesFromBootstrap, setPinnedGamesList] = useState<PinnedGameRow[]>([]);
   const [playing, setPlaying] = useState(false);
   const [playGame, setPlayGame] = useState<{ gameId: string; serverId: string; hostToken?: string; gameName?: string; platform?: string } | null>(null);
   const [fadeIn, setFadeIn] = useState(false);
@@ -169,14 +172,9 @@ export default function XmbPage() {
     (async () => {
       try {
         const query = search ? `?search=${encodeURIComponent(search)}&limit=200&pins_first=true` : "?limit=200&pins_first=true";
-        const [res, favoritesRes] = await Promise.all([
-          fetch(`/api/games${query}`, { signal: controller.signal }),
-          status === "authenticated" ? fetch("/api/favorites?limit=200", { signal: controller.signal }) : Promise.resolve(null),
-        ]);
+        const res = await fetch(`/api/games${query}`, { signal: controller.signal });
         if (!res.ok) return;
         const data = await res.json();
-        const favoritesData = favoritesRes?.ok ? await favoritesRes.json() : { games: [] };
-        const favoriteIds = new Set<string>((favoritesData.games || []).map((game: { id: string }) => game.id));
         setGames((data.games || []).map((game: RawGame) => ({
           id: game.id,
           name: game.name,
@@ -204,18 +202,46 @@ export default function XmbPage() {
       signal: controller.signal,
       fetcher: fetch,
       setBootstrap,
-      setRecentIds,
+      setFavoriteIds,
+      setPinnedIds,
+      setRecentGames,
+      setPinnedGamesList,
     });
     return () => controller.abort();
   }, [status]);
 
-  // ── Filtered games for current sub-category ──────────────────────────
+  // ── Merged games — apply favorite/pin/recent from bootstrap onto /api/games ──
   const sub = SUB_CATEGORIES[focusedSub];
-  const normalizedGames = games.map((game) => ({
-    ...game,
-    recentRank: recentIds.includes(game.id) ? recentIds.indexOf(game.id) : null,
-  }));
-  const filteredGames = filterLibraryGames(normalizedGames, {
+
+  const mergedGames: Game[] = (() => {
+    const apiGames: Game[] = games.map((g) => ({
+      ...g,
+      favorite: favoriteIds.has(g.id) || g.favorite,
+      pinned: pinnedIds.has(g.id) || g.pinned,
+      recentRank: (() => { const idx = recentGames.findIndex((rg) => rg.id === g.id); return idx >= 0 ? idx : null; })(),
+    }));
+
+    // Append pinned games from bootstrap not already in the API window
+    const existingIds = new Set(apiGames.map((g) => g.id));
+    for (const pg of pinnedGamesFromBootstrap) {
+      if (!existingIds.has(pg.id)) {
+        apiGames.push({
+          id: pg.id,
+          name: pg.name,
+          platform: pg.platform,
+          maxPlayers: pg.maxPlayers ?? undefined,
+          favorite: favoriteIds.has(pg.id),
+          pinned: true,
+          recentRank: (() => { const idx = recentGames.findIndex((rg) => rg.id === pg.id); return idx >= 0 ? idx : null; })(),
+          serverId: pg.serverId,
+          coverUrl: null,
+        });
+      }
+    }
+    return apiGames;
+  })();
+
+  const filteredGames = filterLibraryGames(mergedGames, {
     section: sub?.section ?? "all",
     search,
     platforms: sub?.platforms,
@@ -490,7 +516,7 @@ export default function XmbPage() {
         );
       })}
       {loaded && filteredGames.length === 0 && (
-        <div style={s.empty}>No games found</div>
+        <div style={s.empty}>{getEmptyStateMessage(sub.section ?? "all")}</div>
       )}
     </div>
   );
@@ -576,20 +602,6 @@ const s: Record<string, React.CSSProperties> = {
     position: "absolute", inset: 0, zIndex: 0,
     background: `radial-gradient(ellipse at 50% 30%, rgba(56,189,248,0.06) 0%, transparent 60%),
                  radial-gradient(ellipse at 80% 70%, rgba(99,102,241,0.04) 0%, transparent 50%)`,
-  },
-  statusBar: {
-    position: "absolute", top: 0, left: 0, right: 0, zIndex: 2,
-    height: 32, display: "flex", alignItems: "center", gap: 12,
-    padding: "0 16px", background: "rgba(0,0,0,0.3)", backdropFilter: "blur(6px)",
-    fontSize: "var(--font-size-xs)", borderBottom: "1px solid rgba(56,189,248,0.1)",
-  },
-  statusLabel: { color: S.accent, fontWeight: 600 },
-  statusMeta: { color: "rgba(255,255,255,0.45)" },
-  statusWarn: { color: "rgba(251,191,36,0.8)", marginLeft: "auto" },
-  statusLink: {
-    color: S.accent, textDecoration: "none", fontWeight: 500,
-    marginLeft: 12, padding: "2px 8px", border: "1px solid rgba(56,189,248,0.2)",
-    borderRadius: 4, fontSize: "var(--font-size-xs)",
   },
   xmbBody: {
     position: "absolute", inset: 0, bottom: "calc(72px + env(safe-area-inset-bottom))", zIndex: 1,

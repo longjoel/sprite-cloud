@@ -8,8 +8,8 @@ export interface LibrarySectionMetadata {
 export const LIBRARY_SECTIONS: readonly LibrarySectionMetadata[] = [
   { id: "all", label: "All" },
   { id: "favorites", label: "Favorites" },
-  { id: "recent", label: "Recent" },
-  { id: "pins", label: "Pins" },
+  { id: "recent", label: "Recently Played" },
+  { id: "pins", label: "Pinned" },
 ];
 
 export interface LibraryGame {
@@ -153,6 +153,34 @@ export function normalizeRecentGameIds(response: unknown): string[] {
   return response.games
     .map((game) => game && typeof game === "object" && "id" in game ? game.id : null)
     .filter((id): id is string => typeof id === "string");
+}
+
+export interface RecentGameWithTimestamp {
+  id: string;
+  playedAt: string;
+}
+
+export function normalizeRecentGameIdsWithTimestamps(response: unknown): RecentGameWithTimestamp[] {
+  if (!response || typeof response !== "object" || !("games" in response) || !Array.isArray(response.games)) return [];
+  return response.games
+    .filter((game): game is Record<string, unknown> => game !== null && typeof game === "object")
+    .map((game) => game as Record<string, unknown>)
+    .filter((game) => typeof game.id === "string")
+    .map((game) => ({
+      id: game.id as string,
+      playedAt: typeof game.playedAt === "string" ? game.playedAt as string : "",
+    }));
+}
+
+const EMPTY_STATE_MESSAGES: Record<LibrarySection, string> = {
+  all: "No games found",
+  favorites: "No favorites yet",
+  recent: "No recent plays",
+  pins: "Nothing pinned yet",
+};
+
+export function getEmptyStateMessage(section: LibrarySection): string {
+  return EMPTY_STATE_MESSAGES[section] ?? "No games found";
 }
 
 function includesPlatform(platforms: LibraryFilters["platforms"], platform: string): boolean {

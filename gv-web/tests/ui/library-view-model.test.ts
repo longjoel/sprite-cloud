@@ -8,10 +8,12 @@ import {
   filterLibraryGames,
   formatRecentGroupLabel,
   formatRelativeAge,
+  getEmptyStateMessage,
   groupRecentGamesByLocalDate,
   mergeLibraryPages,
   mergeRecentLibraryPages,
   normalizeRecentGameIds,
+  normalizeRecentGameIdsWithTimestamps,
   type LibraryGame,
 } from "@/lib/ui/library-view-model";
 
@@ -177,5 +179,52 @@ describe("library view model", () => {
     expect(gate.isCurrent(page)).toBe(true);
     gate.beginReset();
     expect(gate.isCurrent(page)).toBe(false);
+  });
+});
+
+describe("canonical library labels", () => {
+  it("uses text labels for Favorites, Recently Played, and Pinned sections", () => {
+    expect(LIBRARY_SECTIONS.map(({ id, label }) => [id, label])).toEqual([
+      ["all", "All"],
+      ["favorites", "Favorites"],
+      ["recent", "Recently Played"],
+      ["pins", "Pinned"],
+    ]);
+  });
+});
+
+describe("empty state messages", () => {
+  it("returns section-specific empty state messages", () => {
+    expect(getEmptyStateMessage("all")).toBe("No games found");
+    expect(getEmptyStateMessage("favorites")).toBe("No favorites yet");
+    expect(getEmptyStateMessage("recent")).toBe("No recent plays");
+    expect(getEmptyStateMessage("pins")).toBe("Nothing pinned yet");
+  });
+});
+
+describe("normalizeRecentGameIdsWithTimestamps", () => {
+  it("preserves playedAt timestamps and maintains server response order", () => {
+    const response = {
+      games: [
+        { id: "gamma", playedAt: "2026-07-13T10:00:00.000Z" },
+        { id: "beta", playedAt: "2026-07-12T08:00:00.000Z" },
+      ],
+      total: 2,
+    };
+    const result = normalizeRecentGameIdsWithTimestamps(response);
+    expect(result).toEqual([
+      { id: "gamma", playedAt: "2026-07-13T10:00:00.000Z" },
+      { id: "beta", playedAt: "2026-07-12T08:00:00.000Z" },
+    ]);
+  });
+
+  it("returns empty array for missing or invalid responses", () => {
+    expect(normalizeRecentGameIdsWithTimestamps(null)).toEqual([]);
+    expect(normalizeRecentGameIdsWithTimestamps({})).toEqual([]);
+    expect(normalizeRecentGameIdsWithTimestamps({ games: "not-an-array" })).toEqual([]);
+  });
+
+  it("returns empty array for games without ids", () => {
+    expect(normalizeRecentGameIdsWithTimestamps({ games: [{ playedAt: "2026-07-13T10:00:00.000Z" }] })).toEqual([]);
   });
 });
