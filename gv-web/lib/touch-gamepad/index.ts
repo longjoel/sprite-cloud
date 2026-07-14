@@ -294,6 +294,7 @@ TouchGamepad.prototype.hide = function (this: TouchGamepad) {
 
 TouchGamepad.prototype.suspendInput = function (this: TouchGamepad) {
   this._inputSuspended = true;
+  if (this._canvas) this._canvas.style.filter = "brightness(0.45)";
   this._activePointers.forEach((pointer, id) => {
     this._blockedPointerIds.add(id);
     pointer.target.releasePointerCapture?.(id);
@@ -311,6 +312,7 @@ TouchGamepad.prototype.suspendInput = function (this: TouchGamepad) {
 
 TouchGamepad.prototype.resumeInput = function (this: TouchGamepad) {
   this._inputSuspended = false;
+  if (this._canvas) this._canvas.style.filter = "";
   this._blockedPointerIds.clear();
   if (this._islandLayer) {
     this._islandLayer.querySelectorAll<HTMLElement>("[data-touch-target]")

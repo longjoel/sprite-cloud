@@ -47,6 +47,7 @@ describe("simplified player chrome", () => {
     expect(playerSource).toMatch(/audioMuted \? "Unmute audio" : "Mute audio"/);
     expect(optionsSource).toContain('aria-label="Open options"');
     expect(optionsCss).toMatch(/\.toggleBtn\s*\{[\s\S]*?z-index:\s*15/);
+    expect(playerCss).toMatch(/\.topBar\s*\{[^}]*z-index:\s*12/);
   });
 });
 
