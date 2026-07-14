@@ -4,8 +4,8 @@ import { useState } from "react";
 import styles from "./ControllerLayoutPanel.module.css";
 
 export interface ControllerLayoutApi {
-  getOpacity?: () => "low" | "medium" | "high";
-  setOpacity: (opacity: "low" | "medium" | "high") => void;
+  getOpacity?: () => "low" | "medium" | "high" | "max";
+  setOpacity: (opacity: "low" | "medium" | "high" | "max") => void;
   getSizePreset?: () => "compact" | "standard" | "large" | "custom";
   setSizePreset: (size: "compact" | "standard" | "large") => void;
   swapAB: () => void;
@@ -45,7 +45,7 @@ export default function ControllerLayoutPanel({
   onCustomize,
   onHide,
 }: ControllerLayoutPanelProps) {
-  const [opacity, setOpacity] = useState<"low" | "medium" | "high" | undefined>(
+  const [opacity, setOpacity] = useState<"low" | "medium" | "high" | "max" | undefined>(
     () => controller?.getOpacity?.(),
   );
   const [size, setSize] = useState<"compact" | "standard" | "large" | "custom" | undefined>(
@@ -73,7 +73,7 @@ export default function ControllerLayoutPanel({
         <div className={styles.section}>
           <h3>Opacity</h3>
           <div className={styles.choices}>
-            {choices(["low", "medium", "high"] as const, (value) => {
+            {choices(["low", "medium", "high", "max"] as const, (value) => {
               controller?.setOpacity(value);
               setOpacity(value);
             }, unavailable, opacity)}

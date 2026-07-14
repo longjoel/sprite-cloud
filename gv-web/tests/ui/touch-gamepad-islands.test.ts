@@ -742,6 +742,6 @@ describe("mobile touch-control islands", () => {
     // During drag, the control's label is drawn centered on the control at 50% opacity
     // This gives the user a visual cue of which control they're manipulating
     expect(source).toContain("Drag label feedback");
-    expect(source).toContain("label = tgt?.label");
+    expect(source).toContain("(this._face[this._dragTarget.index!] as any)?.label");
   });
 });
