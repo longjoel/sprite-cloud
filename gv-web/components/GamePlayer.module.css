@@ -36,7 +36,7 @@
   align-items: center;
   padding: max(var(--space-4), env(safe-area-inset-top, 0px)) max(var(--space-6), env(safe-area-inset-right, 0px)) var(--space-4) max(var(--space-6), env(safe-area-inset-left, 0px));
   background: rgba(0,0,0,0.6);
-  z-index: 10;
+  z-index: 12;
   transition: opacity 0.3s;
 }
 

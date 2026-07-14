@@ -388,6 +388,7 @@ describe("mobile touch-control islands", () => {
 
     gamepad.suspendInput();
 
+    expect(gamepad._canvas?.style.filter).toBe("brightness(0.45)");
     expect(layer.style.pointerEvents).toBe("none");
     expect(onInput).toHaveBeenLastCalledWith({
       dpad: [false, false, false, false],
@@ -396,6 +397,7 @@ describe("mobile touch-control islands", () => {
     });
 
     gamepad.resumeInput();
+    expect(gamepad._canvas?.style.filter).toBe("");
     expect(layer.style.pointerEvents).toBe("none");
     expect(Array.from(layer.querySelectorAll<HTMLElement>("[data-touch-target]")).every(
       (target) => target.style.pointerEvents === "auto",
