@@ -574,8 +574,10 @@ function touchToNorm(this: TouchGamepad, touch: Touch) {
   // A forgiving 28px corner radius works for broad fingertips. Convert each
   // axis independently so short landscape canvases do not shrink vertical
   // resize handles.
-  const RESIZE_RX = 28 / (canvasRect?.width || 1);
-  const RESIZE_RY = 28 / (canvasRect?.height || 1);
+  // 56px finger-friendly radius in edit mode (28px was too small,
+  // especially on narrow portrait phones where controls pack tightly).
+  const RESIZE_RX = 56 / (canvasRect?.width || 1);
+  const RESIZE_RY = 56 / (canvasRect?.height || 1);
 
   if (this._showHandles) {
     const d = this._dpad;
@@ -670,14 +672,37 @@ function touchToNorm(this: TouchGamepad, touch: Touch) {
     drawButton(ctx, this._system[i], cw, ch, this._systemStates[i], this._editMode || this._showHandles);
   }
 
-  // Resize handles (edit mode)
+  // Resize handles (edit mode) — during drag, only the active target's handles are shown
   if (this._showHandles) {
-    drawResizeHandles(ctx, this._dpad, cw, ch);
+    const isDragging = !!this._dragTarget;
+    const dragZone = this._dragTarget?.zone;
+    const dragIndex = this._dragTarget?.index;
+
+    const showDpad = !isDragging || dragZone === "dpad";
+    drawResizeHandles(ctx, this._dpad, cw, ch, showDpad);
     for (let i = 0; i < this._face.length; i++) {
-      drawResizeHandles(ctx, this._face[i], cw, ch);
+      const showFace = !isDragging || (dragZone === "face" && dragIndex === i);
+      drawResizeHandles(ctx, this._face[i], cw, ch, showFace);
     }
     for (let i = 0; i < this._system.length; i++) {
-      drawResizeHandles(ctx, this._system[i], cw, ch);
+      const showSys = !isDragging || (dragZone === "system" && dragIndex === i);
+      drawResizeHandles(ctx, this._system[i], cw, ch, showSys);
+    }
+  }
+
+  // Drag label feedback — show the control name while dragging
+  if (this._dragTarget) {
+    let tgt: NormalisedRect | null = null;
+    let label = "";
+    if (this._dragTarget.zone === "dpad") { tgt = this._dpad; label = "DPAD"; }
+    else if (this._dragTarget.zone === "face") { tgt = this._face[this._dragTarget.index!]; label = (this._face[this._dragTarget.index!] as any)?.label || ""; }
+    else if (this._dragTarget.zone === "system") { tgt = this._system[this._dragTarget.index!]; label = (this._system[this._dragTarget.index!] as any)?.label || ""; }
+    if (tgt && label) {
+      ctx.fillStyle = "rgba(56,189,248,0.5)";
+      ctx.font = "bold 16px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(label, (tgt.x + tgt.w / 2) * cw, (tgt.y + tgt.h / 2) * ch);
     }
   }
 
@@ -751,18 +776,20 @@ function drawButton(ctx: CanvasRenderingContext2D, zone: ButtonZone, cw: number,
   ctx.fillText(zone.label, x + w / 2, y + h / 2);
 }
 
-function drawResizeHandles(ctx: CanvasRenderingContext2D, d: NormalisedRect, cw: number, ch: number) {
+function drawResizeHandles(ctx: CanvasRenderingContext2D, d: NormalisedRect, cw: number, ch: number, visible: boolean = true) {
+  if (!visible) return;
   const corners = [
     { x: d.x * cw, y: d.y * ch },
     { x: (d.x + d.w) * cw, y: d.y * ch },
     { x: d.x * cw, y: (d.y + d.h) * ch },
     { x: (d.x + d.w) * cw, y: (d.y + d.h) * ch },
   ];
-  ctx.fillStyle = "rgba(255,200,50,0.7)";
+  // 14px filled squares with sky-blue accent at 60% opacity —
+  // large enough for fingers and clearly distinguishable from gameplay controls.
+  const size = 14;
+  ctx.fillStyle = "rgba(56,189,248,0.6)";
   for (const c of corners) {
-    ctx.beginPath();
-    ctx.arc(c.x, c.y, 6, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillRect(c.x - size / 2, c.y - size / 2, size, size);
   }
 }
 
