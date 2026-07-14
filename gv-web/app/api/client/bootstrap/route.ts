@@ -26,6 +26,8 @@ import { eq, sql, inArray } from "drizzle-orm";
 //     name: string,
 //     hostname?: string,
 //     gameCount: number,
+//     lastSeenAt: string | null,
+//     role: "admin" | "member",
 //   }>,
 //   library: {                    // only when authenticated
 //     totalGames: number,
@@ -113,6 +115,8 @@ export async function GET() {
     .select({
       id: servers.id,
       name: servers.name,
+      lastSeenAt: servers.lastSeenAt,
+      role: serverMembers.role,
     })
     .from(serverMembers)
     .innerJoin(servers, eq(serverMembers.serverId, servers.id))
@@ -125,6 +129,8 @@ export async function GET() {
     id: string;
     name: string;
     gameCount: number;
+    lastSeenAt: string | null;
+    role: string;
   }> = [];
 
   if (serverIds.length > 0) {
@@ -144,6 +150,8 @@ export async function GET() {
       id: m.id,
       name: m.name,
       gameCount: countMap.get(m.id) ?? 0,
+      lastSeenAt: m.lastSeenAt?.toISOString() ?? null,
+      role: m.role,
     }));
   }
 

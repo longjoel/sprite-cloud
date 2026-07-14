@@ -4,8 +4,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import GamePlayer from "@/components/GamePlayer";
+import XmbSettings, { hasXmbSettingsAccess, type XmbServer } from "@/components/xmb/XmbSettings";
 import { LIBRARY_SECTIONS, filterLibraryGames, normalizeRecentGameIds, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
 import { loadXmbAuthenticatedData } from "@/lib/ui/xmb-authenticated-load";
+import {
+  activateXmbNavigation,
+  activateXmbSettingsAction,
+  focusXmbSettingsAction,
+  getXmbNavigation,
+  moveXmbNavigation,
+  reconcileXmbNavigation,
+  type XmbCategoryId,
+  type XmbNavigationId,
+  type XmbNavigationState,
+} from "@/lib/ui/xmb-navigation";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -27,21 +39,17 @@ interface RawGame {
   pinned?: boolean;
 }
 
-interface Category {
-  id: string; label: string; icon: string;
-}
-
 interface SubCategory {
   id: string; label: string; section?: LibrarySection; platforms?: readonly string[];
 }
 
 // ── Constants ────────────────────────────────────────────────────────
 
-const CATEGORIES: Category[] = [
-  { id: "games", label: "Game", icon: "▶" },
-  { id: "settings", label: "Settings", icon: "⚙" },
-  { id: "classic", label: "Classic", icon: "🏠" },
-];
+const CATEGORY_PRESENTATION: Record<XmbNavigationId, { label: string; icon: string }> = {
+  games: { label: "Game", icon: "▶" },
+  settings: { label: "Settings", icon: "⚙" },
+  classic: { label: "Classic", icon: "🏠" },
+};
 
 const sectionLabel = (section: LibrarySection) => LIBRARY_SECTIONS.find(({ id }) => id === section)!.label;
 const SUB_CATEGORIES: SubCategory[] = [
@@ -62,14 +70,18 @@ export default function XmbPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
 
-  const [focusedCat, setFocusedCat] = useState(0);
+  const [navigation, setNavigation] = useState<XmbNavigationState>({
+    focusedId: "games",
+    activeCategory: "games",
+  });
+  const [focusedSettingsAction, setFocusedSettingsAction] = useState(0);
   const [focusedSub, setFocusedSub] = useState(0);
   const [focusedGame, setFocusedGame] = useState(0);
   const [games, setGames] = useState<Game[]>([]);
   const [search, setSearch] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [bootstrap, setBootstrap] = useState<{
-    servers: Array<{ id: string; name: string; gameCount: number }>;
+    servers: XmbServer[];
     library: { totalGames: number; pinnedCount: number } | null;
     ice: { stunConfigured: boolean; turnConfigured: boolean; transportPolicy: string };
   } | null>(null);
@@ -79,6 +91,9 @@ export default function XmbPage() {
   const [fadeIn, setFadeIn] = useState(false);
   const [kbdPort, setKbdPort] = useState(0); // 0 = auto, 1-4 = fixed port
   const [isMobile, setIsMobile] = useState(false);
+  const settingsAvailable = bootstrap !== null
+    && hasXmbSettingsAccess(status === "authenticated", bootstrap.servers);
+  const navigationItems = getXmbNavigation(settingsAvailable);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const gameListRef = useRef<HTMLDivElement>(null);
@@ -91,6 +106,33 @@ export default function XmbPage() {
       router.replace("/api/auth/signin");
     }
   }, [status, router]);
+
+  // Bootstrap/auth can remove Settings after it was focused. Keep a real body active.
+  useEffect(() => {
+    setNavigation((current) => reconcileXmbNavigation(current, settingsAvailable));
+  }, [settingsAvailable]);
+
+  const selectNavigation = useCallback((id: XmbNavigationId) => {
+    setNavigation((current) => ({
+      focusedId: id,
+      activeCategory: id === "classic" ? current.activeCategory : id as XmbCategoryId,
+    }));
+  }, []);
+
+  const moveNavigation = useCallback((delta: -1 | 1) => {
+    setNavigation((current) => moveXmbNavigation(current, settingsAvailable, delta));
+  }, [settingsAvailable]);
+
+  const moveSettingsAction = useCallback((delta: -1 | 1) => {
+    const root = containerRef.current;
+    if (!root) return;
+    const next = focusXmbSettingsAction(root, focusedSettingsAction + delta);
+    if (next !== null) setFocusedSettingsAction(next);
+  }, [focusedSettingsAction]);
+
+  const activateNavigation = useCallback(() => {
+    setNavigation(activateXmbNavigation(navigation, settingsAvailable, (href) => router.push(href)));
+  }, [navigation, router, settingsAvailable]);
 
   // ── Mobile detection ────────────────────────────────────────────────
   useEffect(() => {
@@ -113,14 +155,13 @@ export default function XmbPage() {
     const onTouchEnd = (e: TouchEvent) => {
       const dx = e.changedTouches[0].clientX - startX;
       if (Math.abs(dx) > 60) {
-        if (dx < 0) setFocusedCat((v) => Math.min(CATEGORIES.length - 1, v + 1));
-        else setFocusedCat((v) => Math.max(0, v - 1));
+        moveNavigation(dx < 0 ? 1 : -1);
       }
     };
     window.addEventListener("touchstart", onTouchStart, { passive: true });
     window.addEventListener("touchend", onTouchEnd, { passive: true });
     return () => { window.removeEventListener("touchstart", onTouchStart); window.removeEventListener("touchend", onTouchEnd); };
-  }, [isMobile]);
+  }, [isMobile, moveNavigation]);
 
   // ── Fetch games ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -255,33 +296,41 @@ export default function XmbPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (playing) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.matches("input, textarea, select, [contenteditable=true]")) return;
+      if (e.key === "Enter" && target?.closest("[data-xmb-settings-action]")) return;
+      if (e.key === "Enter" && target?.closest('a[href="/"]')) return;
       switch (e.key) {
         case "ArrowLeft":
-          if (focusedSub > 0) setFocusedSub((v) => v - 1);
-          else { e.preventDefault(); setFocusedCat((v) => Math.max(0, v - 1)); }
+          e.preventDefault();
+          if (navigation.focusedId === "games" && focusedSub > 0) setFocusedSub((v) => v - 1);
+          else moveNavigation(-1);
           break;
         case "ArrowRight":
-          if (focusedSub < SUB_CATEGORIES.length - 1) setFocusedSub((v) => v + 1);
-          else { e.preventDefault(); setFocusedCat((v) => Math.min(CATEGORIES.length - 1, v + 1)); }
+          e.preventDefault();
+          if (navigation.focusedId === "games" && focusedSub < SUB_CATEGORIES.length - 1) setFocusedSub((v) => v + 1);
+          else moveNavigation(1);
           break;
         case "ArrowUp":
           e.preventDefault();
-          setFocusedGame((v) => Math.max(0, v - 1));
+          if (navigation.activeCategory === "settings") moveSettingsAction(-1);
+          else setFocusedGame((v) => Math.max(0, v - 1));
           break;
         case "ArrowDown":
           e.preventDefault();
-          setFocusedGame((v) => Math.min(filteredGames.length - 1, v + 1));
+          if (navigation.activeCategory === "settings") moveSettingsAction(1);
+          else setFocusedGame((v) => Math.min(filteredGames.length - 1, v + 1));
           break;
         case "Enter":
-          if (focusedCat === 0 && selectedGame) {
-            launchGame(selectedGame);
-          }
+          if (navigation.focusedId === "classic") activateNavigation();
+          else if (navigation.focusedId === "games" && selectedGame) launchGame(selectedGame);
+          else if (navigation.focusedId === "settings") moveSettingsAction(-1);
           break;
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [focusedCat, focusedSub, focusedGame, filteredGames, playing, selectedGame]);
+  }, [activateNavigation, filteredGames.length, focusedSub, moveNavigation, moveSettingsAction, navigation, playing, selectedGame]);
 
   // ── Gamepad polling ──────────────────────────────────────────────────
   useEffect(() => {
@@ -294,23 +343,28 @@ export default function XmbPage() {
       if (state === prevState) return; prevState = state;
 
       const ax = pad.axes[0] ?? 0, ay = pad.axes[1] ?? 0;
-      // XMB navigation
       if (ax < -0.5) {
-        if (focusedSub > 0) setFocusedSub((v) => v - 1);
-        else setFocusedCat((v) => Math.max(0, v - 1));
+        if (navigation.focusedId === "games" && focusedSub > 0) setFocusedSub((v) => v - 1);
+        else moveNavigation(-1);
       } else if (ax > 0.5) {
-        if (focusedSub < SUB_CATEGORIES.length - 1) setFocusedSub((v) => v + 1);
-        else setFocusedCat((v) => Math.min(CATEGORIES.length - 1, v + 1));
-      } else if (ay < -0.5) setFocusedGame((v) => Math.max(0, v - 1));
-      else if (ay > 0.5) setFocusedGame((v) => Math.min(filteredGames.length - 1, v + 1));
-      // A button (0): launch
-      else if (pad.buttons[0]?.pressed && focusedCat === 0 && selectedGame) {
+        if (navigation.focusedId === "games" && focusedSub < SUB_CATEGORIES.length - 1) setFocusedSub((v) => v + 1);
+        else moveNavigation(1);
+      } else if (ay < -0.5) {
+        if (navigation.activeCategory === "settings") moveSettingsAction(-1);
+        else setFocusedGame((v) => Math.max(0, v - 1));
+      } else if (ay > 0.5) {
+        if (navigation.activeCategory === "settings") moveSettingsAction(1);
+        else setFocusedGame((v) => Math.min(filteredGames.length - 1, v + 1));
+      } else if (pad.buttons[0]?.pressed) {
         prevState = "";
-        launchGame(selectedGame);
+        if (navigation.focusedId === "classic") activateNavigation();
+        else if (navigation.activeCategory === "settings" && containerRef.current) {
+          activateXmbSettingsAction(containerRef.current, focusedSettingsAction);
+        } else if (navigation.focusedId === "games" && selectedGame) launchGame(selectedGame);
       }
     }, 120);
     return () => clearInterval(interval);
-  }, [playing, focusedSub, filteredGames.length, focusedCat, selectedGame]);
+  }, [activateNavigation, filteredGames.length, focusedSettingsAction, focusedSub, moveNavigation, moveSettingsAction, navigation, playing, selectedGame]);
 
   // ── Launch / close ────────────────────────────────────────────────────
   const launchGame = useCallback((game: Game) => {
@@ -348,27 +402,44 @@ export default function XmbPage() {
         onClick={(e) => e.stopPropagation()}
       />
       <div style={s.catGroup}>
-        {CATEGORIES.map((cat, i) => (
-          <div
-            key={cat.id}
-            style={{
-              ...s.catItem,
-              ...(isMobile ? s.catItemMobile : {}),
-              ...(i === focusedCat ? s.catFocused : {}),
-            }}
-            onClick={() => {
-              if (cat.id === "classic") {
-                window.location.href = "/";
-              } else {
-                setFocusedCat(i);
-              }
-            }}
-            title={cat.label}
-          >
-            <span style={s.catIcon}>{cat.icon}</span>
-            <span style={s.catLabel}>{cat.label}</span>
-          </div>
-        ))}
+        {navigationItems.map((item) => {
+          const presentation = CATEGORY_PRESENTATION[item.id];
+          const style = {
+            ...s.catItem,
+            ...(isMobile ? s.catItemMobile : {}),
+            ...(item.id === navigation.focusedId ? s.catFocused : {}),
+          };
+          const content = (
+            <>
+              <span style={s.catIcon}>{presentation.icon}</span>
+              <span style={s.catLabel}>{presentation.label}</span>
+            </>
+          );
+          return item.kind === "action" ? (
+            <a
+              key={item.id}
+              href={item.href}
+              style={style}
+              title={presentation.label}
+              onFocus={() => selectNavigation(item.id)}
+              onMouseEnter={() => selectNavigation(item.id)}
+            >
+              {content}
+            </a>
+          ) : (
+            <button
+              type="button"
+              key={item.id}
+              style={style}
+              onClick={() => selectNavigation(item.id)}
+              onFocus={() => selectNavigation(item.id)}
+              aria-pressed={item.id === navigation.activeCategory}
+              title={presentation.label}
+            >
+              {content}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -463,19 +534,16 @@ export default function XmbPage() {
 
           {/* Main XMB layout */}
           <div style={s.xmbBody}>
-            {focusedCat === 0 && (
+            {navigation.activeCategory === "games" && (
               <>
                 {renderSubCategories()}
                 {renderGameList()}
               </>
             )}
-            {focusedCat === 1 && (
-              <iframe
-                src="/dashboard"
-                style={s.settingsFrame}
-                title="Settings"
-                sandbox="allow-scripts allow-same-origin allow-forms"
-              />
+            {navigation.activeCategory === "settings" && (
+              settingsAvailable && bootstrap
+                ? <XmbSettings servers={bootstrap.servers} onActionFocus={setFocusedSettingsAction} />
+                : null
             )}
           </div>
 
@@ -501,7 +569,7 @@ const S = {
 const s: Record<string, React.CSSProperties> = {
   shell: {
     width: "100vw", height: "100vh", position: "relative",
-    background: S.bg, overflow: "hidden", fontFamily: "system-ui, sans-serif",
+    background: S.bg, overflow: "hidden", fontFamily: "var(--font-mono), ui-monospace, monospace",
     color: S.text, userSelect: "none",
   },
   bgGradient: {
@@ -524,24 +592,26 @@ const s: Record<string, React.CSSProperties> = {
     borderRadius: 4, fontSize: "var(--font-size-xs)",
   },
   xmbBody: {
-    position: "absolute", inset: 0, bottom: 72, zIndex: 1,
+    position: "absolute", inset: 0, bottom: "calc(72px + env(safe-area-inset-bottom))", zIndex: 1,
     display: "flex", flexDirection: "column", overflow: "hidden",
   },
   categories: {
     position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 10,
-    height: 68, display: "flex", alignItems: "center", justifyContent: "space-between",
+    boxSizing: "border-box", height: "calc(68px + env(safe-area-inset-bottom))", display: "flex", alignItems: "center", justifyContent: "space-between",
     gap: 4, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(12px)",
     borderTop: "1px solid rgba(255,255,255,0.04)", padding: "0 8px",
+    paddingBottom: "env(safe-area-inset-bottom)",
   },
   catGroup: {
     display: "flex", alignItems: "center", gap: 4,
   },
   categoriesMobile: {
-    height: 56, gap: 0,
+    height: "calc(56px + env(safe-area-inset-bottom))", gap: 0,
   },
   catItem: {
     display: "flex", flexDirection: "column", alignItems: "center",
-    padding: "6px 20px", borderRadius: 2, cursor: "pointer",
+    minHeight: 44, padding: "6px 20px", border: "none", borderRadius: 2, cursor: "pointer",
+    background: "transparent", font: "inherit", textDecoration: "none",
     transition: "all 0.15s ease", color: S.textDim,
   },
   catItemMobile: {
@@ -568,9 +638,7 @@ const s: Record<string, React.CSSProperties> = {
     background: "rgba(255,255,255,0.04)", color: S.text, borderRadius: 2,
     fontSize: 12, width: 140, outline: "none",
   },
-  settingsFrame: {
-    width: "100%", height: "100%", border: "none",
-  },
+
   gameList: {
     flex: 1, overflowY: "auto", padding: "8px 16px",
   },
