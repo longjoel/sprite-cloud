@@ -1,16 +1,20 @@
 "use client";
 
-import { useCallback, useRef, useState, type RefObject } from "react";
+import { useCallback, type RefObject } from "react";
 import styles from "./OptionsOverlay.module.css";
 
-// ── Types ─────────────────────────────────────────────────────────────
-
-interface ActionCard {
+interface ActionItem {
   id: string;
   icon: string;
   label: string;
-  danger?: boolean;
   action: () => void;
+  danger?: boolean;
+}
+
+interface ActionGroup {
+  id: string;
+  label: string;
+  actions: ActionItem[];
 }
 
 interface OptionsOverlayProps {
@@ -18,62 +22,43 @@ interface OptionsOverlayProps {
   onToggle: () => void;
   onSave: () => void;
   onLoad: () => void;
-  onSnapshot: () => void;
   onFullscreen: () => void;
   isFullscreen: boolean;
+  controlsVisible: boolean;
+  onToggleControls: () => void;
   onOpenController: () => void;
   onRestart: () => void;
   onOpenSaves: () => void;
   onOpenKeys: () => void;
-  onOpenRoom: () => void;
-  onCast?: () => void;
-  onQrCode?: () => void;
-  onStats?: () => void;
-  isMobile?: boolean;
+  onOpenRoom?: () => void;
+  onQrCode: () => void;
+  onStats: () => void;
   triggerRef?: RefObject<HTMLButtonElement | null>;
   triggerDisabled?: boolean;
 }
-
-// ── Component ─────────────────────────────────────────────────────────
 
 export default function OptionsOverlay({
   visible,
   onToggle,
   onSave,
   onLoad,
-  onSnapshot,
   onFullscreen,
   isFullscreen,
+  controlsVisible,
+  onToggleControls,
   onOpenController,
   onRestart,
   onOpenSaves,
   onOpenKeys,
   onOpenRoom,
-  onCast,
   onQrCode,
   onStats,
-  isMobile = false,
   triggerRef,
   triggerDisabled = false,
 }: OptionsOverlayProps) {
-  const [flash, setFlash] = useState(false);
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  const handleSnapshot = useCallback(() => {
-    setFlash(true);
-    setTimeout(() => setFlash(false), 350);
-    onSnapshot();
-  }, [onSnapshot]);
-
-  // Prevent video clicks from passing through when overlay is open
-  const handleBackdropClick = useCallback(
-    (e: React.MouseEvent) => {
-      if (e.target === e.currentTarget) {
-        onToggle();
-      }
-    },
-    [onToggle],
-  );
+  const handleBackdropClick = useCallback((event: React.MouseEvent) => {
+    if (event.target === event.currentTarget) onToggle();
+  }, [onToggle]);
 
   if (!visible) {
     return (
@@ -90,71 +75,93 @@ export default function OptionsOverlay({
     );
   }
 
-  const mainCards: ActionCard[] = [
-    { id: "save", icon: "💾", label: "Quick Save", action: onSave },
-    { id: "load", icon: "📂", label: "Quick Load", action: onLoad },
-    { id: "snapshot", icon: "📸", label: "Snapshot", action: handleSnapshot },
+  const groups: ActionGroup[] = [
     {
-      id: "fullscreen",
-      icon: isFullscreen ? "↙" : "⛶",
-      label: isFullscreen ? "Windowed" : "Fullscreen",
-      action: onFullscreen,
+      id: "quick",
+      label: "Quick",
+      actions: [
+        { id: "save", icon: "💾", label: "Save", action: onSave },
+        { id: "load", icon: "📂", label: "Load", action: onLoad },
+        {
+          id: "fullscreen",
+          icon: isFullscreen ? "↙" : "⛶",
+          label: isFullscreen ? "Windowed" : "Fullscreen",
+          action: onFullscreen,
+        },
+      ],
     },
-    { id: "restart", icon: "↺", label: "Restart", action: onRestart, danger: true },
-  ];
-
-  const subCards: ActionCard[] = [
-    { id: "saves", icon: "📋", label: "Saves", action: onOpenSaves },
-    { id: "keys", icon: "🎮", label: "Keys", action: onOpenKeys },
-    ...(onOpenRoom ? [{ id: "room", icon: "👥", label: "Room", action: onOpenRoom }] : []),
-    { id: "controller", icon: "📱", label: "Controller Layout", action: onOpenController },
-    ...(isMobile && onCast ? [{ id: "cast", icon: "📺", label: "Cast", action: onCast }] : []),
-    ...(onQrCode ? [{ id: "qrcode", icon: "📱", label: "QR Code", action: onQrCode }] : []),
-    ...(onStats ? [{ id: "stats", icon: "📊", label: "Stats", action: onStats }] : []),
+    {
+      id: "input",
+      label: "Input",
+      actions: [
+        {
+          id: "controls",
+          icon: "🎮",
+          label: controlsVisible ? "Hide controls" : "Show controls",
+          action: onToggleControls,
+        },
+        { id: "controller", icon: "⌖", label: "Controller Layout", action: onOpenController },
+        { id: "keys", icon: "⌨", label: "Keys", action: onOpenKeys },
+      ],
+    },
+    {
+      id: "session",
+      label: "Session",
+      actions: [
+        { id: "saves", icon: "▤", label: "Saves", action: onOpenSaves },
+        { id: "share", icon: "⌁", label: "Share / QR", action: onQrCode },
+        ...(onOpenRoom
+          ? [{ id: "room", icon: "👥", label: "Room controls", action: onOpenRoom }]
+          : []),
+      ],
+    },
+    {
+      id: "diagnostics",
+      label: "Diagnostics",
+      actions: [
+        { id: "stats", icon: "▥", label: "Stats for Nerds", action: onStats },
+      ],
+    },
+    {
+      id: "danger",
+      label: "Danger",
+      actions: [
+        { id: "restart", icon: "↺", label: "Restart", action: onRestart, danger: true },
+      ],
+    },
   ];
 
   return (
-    <>
-      {flash && <div className={styles.flash} />}
-      <div className={styles.backdrop} onClick={handleBackdropClick}>
-        <div className={styles.panel} ref={panelRef} data-player-panel role="dialog" aria-modal="true" aria-label="Player options" tabIndex={-1}>
-          {/* Row 1: Main actions */}
-          <div className={styles.grid}>
-            {mainCards.map((card) => (
-              <button
-                key={card.id}
-                className={`${styles.card} ${card.danger ? styles.cardDanger : ""}`}
-                onClick={card.action}
-              >
-                <span className={styles.cardIcon}>{card.icon}</span>
-                <span className={styles.cardLabel}>{card.label}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Row 2: Sub actions */}
-          <div className={styles.grid}>
-            {subCards.map((card) => (
-              <button
-                key={card.id}
-                className={styles.card}
-                onClick={card.action}
-              >
-                <span className={styles.cardIcon}>{card.icon}</span>
-                <span className={styles.cardLabel}>{card.label}</span>
-              </button>
-            ))}
-            {/* Dismiss button */}
-            <button
-              className={styles.card}
-              onClick={onToggle}
-            >
-              <span className={styles.cardIcon}>✕</span>
-              <span className={styles.cardLabel}>Close</span>
-            </button>
-          </div>
-        </div>
+    <div className={styles.backdrop} onClick={handleBackdropClick}>
+      <div
+        className={styles.panel}
+        data-player-panel
+        role="dialog"
+        aria-modal="true"
+        aria-label="Player options"
+        tabIndex={-1}
+      >
+        {groups.map((group) => (
+          <section className={`${styles.group} ${group.id === "danger" ? styles.dangerGroup : ""}`} key={group.id}>
+            <h2 className={styles.groupTitle}>{group.label}</h2>
+            <div className={styles.grid}>
+              {group.actions.map((item) => (
+                <button
+                  key={item.id}
+                  className={`${styles.card} ${item.danger ? styles.cardDanger : ""}`}
+                  onClick={item.action}
+                >
+                  <span className={styles.cardIcon} aria-hidden="true">{item.icon}</span>
+                  <span className={styles.cardLabel}>{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        ))}
+        <button className={styles.closeButton} onClick={onToggle}>
+          <span aria-hidden="true">✕</span> Close
+        </button>
       </div>
-    </>
+    </div>
   );
 }

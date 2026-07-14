@@ -41,48 +41,49 @@
 }
 
 .gameTitle {
-  font-size: var(--font-size-md);
+  min-width: 0;
+  overflow: hidden;
   color: var(--color-text-primary);
+  font-size: var(--font-size-md);
   font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* Persistent game info chip — Metro sky-blue */
-.gameInfo {
-  position: absolute;
-  top: var(--space-4);
-  left: var(--space-6);
-  z-index: 10;
+.topBarActions {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: var(--space-2);
-  padding: 5px 10px;
-  background: rgba(10, 14, 26, 0.75);
-  border: 1px solid rgba(56, 189, 248, 0.18);
-  border-radius: 2px;
-  backdrop-filter: blur(8px);
-  transition: opacity 0.3s;
-  pointer-events: none;
+  gap: 8px;
+  white-space: nowrap;
 }
 
-.gameInfoName {
-  font-size: var(--font-size-md);
-  color: var(--color-text-primary);
-  font-family: var(--font-mono);
-  line-height: 1;
+.audioLabelCompact {
+  display: none;
 }
 
-.gameInfoBadge {
-  display: inline-block;
-  padding: 1px 7px;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--color-accent);
-  border: 1px solid rgba(56, 189, 248, 0.3);
-  border-radius: 2px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-family: var(--font-mono);
-  line-height: 1.4;
+@media (max-width: 480px) {
+  .topBar {
+    gap: 8px;
+    padding-right: max(8px, env(safe-area-inset-right, 0px));
+    padding-left: max(8px, env(safe-area-inset-left, 0px));
+  }
+
+  .audioLabelLong {
+    display: none;
+  }
+
+  .audioLabelCompact {
+    display: inline;
+  }
+}
+
+.topBar button,
+.slotPanel button,
+.roomPanel button,
+.overlayPanel button {
+  min-width: 44px;
+  min-height: 44px;
 }
 
 .bottomBar {
@@ -159,6 +160,8 @@
 }
 
 .retryBtn {
+  min-width: 44px;
+  min-height: 44px;
   margin-left: var(--space-2);
   background: none;
   border: 1px solid var(--color-border-default);

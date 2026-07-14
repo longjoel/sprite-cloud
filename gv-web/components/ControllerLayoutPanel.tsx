@@ -67,7 +67,7 @@ export default function ControllerLayoutPanel({
         <header className={styles.header}>
           <button className={styles.headerButton} onClick={onBack}>← Options</button>
           <h2>Controller Layout</h2>
-          <button className={styles.headerButton} onClick={onClose} aria-label="Close Controller Layout">✕</button>
+          <button className={styles.headerButton} onClick={onClose} aria-label="Close Controller Layout">✕ Close</button>
         </header>
 
         <div className={styles.section}>

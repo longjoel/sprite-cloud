@@ -159,7 +159,6 @@ export default function GamePlayer({
   const [roomToken, setRoomToken] = useState<string | null>(null);
   const [remapWaiting, setRemapWaiting] = useState<string | null>(null);
   const [statsData, setStatsData] = useState<Record<string, any>>({ video: {}, audio: {}, pipeline: {} });
-  const [snapshotFlash, setSnapshotFlash] = useState(false);
   const [touchGamepadVisible, setTouchGamepadVisible] = useState(() => {
     // Hide by default on desktop (non-touch), show on mobile
     try {
@@ -175,42 +174,7 @@ export default function GamePlayer({
     () => mergePipeline(defaultPipeline(), initialPipeline),
   );
 
-  // ── Mobile detection & cast mode ──────────────────────────────────
-  const [isMobile, setIsMobile] = useState(false);
-  const [castMode, setCastMode] = useState(false);
   const optionsTriggerRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    const check = () => {
-      const touch = typeof window !== "undefined" && "ontouchstart" in window;
-      const coarse = window.matchMedia("(pointer: coarse)").matches;
-      const small = window.innerWidth < 768 || window.innerHeight < 768;
-      setIsMobile(Boolean(touch && (coarse || small)));
-    };
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
-
-  // When cast mode is on, expand gamepad to full screen + hide video
-  useEffect(() => {
-    const tg = window.__gvTouchGamepad;
-    if (!tg) return;
-    if (castMode) {
-      // Force gamepad visible
-      if (!tg.isVisible?.()) tg.show?.();
-      setTouchGamepadVisible(true);
-      // Make gamepad canvas full-screen (overrides the library's resize)
-      const canvas = (tg as any)._canvas;
-      if (canvas) {
-        canvas.style.position = "fixed";
-        canvas.style.inset = "0";
-        canvas.style.width = "100vw";
-        canvas.style.height = "100vh";
-        canvas.style.zIndex = "20";
-      }
-    }
-  }, [castMode]);
 
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startedRef = useRef(false);
@@ -338,6 +302,7 @@ export default function GamePlayer({
                 setTimeout(() => advanceStep("connected"), 300);
                 setError(null);
                 setConnected(true);
+                wakeControls();
                 onConnected?.();
                 setShowDisconnect(false);
               }
@@ -411,7 +376,7 @@ export default function GamePlayer({
     return () => {
       setRttActive(false);
     };
-  }, [scriptReady, serverId, gameId, showToast, advanceStep, failStep]);
+  }, [scriptReady, serverId, gameId, showToast, advanceStep, failStep, wakeControls]);
 
   // ── Cleanup ───────────────────────────────────────────────────────
 
@@ -592,34 +557,6 @@ export default function GamePlayer({
     gvPlay.listSaves(playerRef.current);
   };
 
-  // ── Snapshot ──────────────────────────────────────────────────────
-
-  const handleSnapshot = useCallback(() => {
-    const video = videoRef.current;
-    if (!video || video.readyState < 2) {
-      showToast("Video not ready", false);
-      return;
-    }
-    try {
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.drawImage(video, 0, 0);
-      const dataUrl = canvas.toDataURL("image/png");
-      // Download
-      const a = document.createElement("a");
-      a.href = dataUrl;
-      const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      a.download = `sprite-cloud-${ts}.png`;
-      a.click();
-      showToast("Snapshot saved", true);
-    } catch (e: any) {
-      showToast("Snapshot failed: " + (e?.message || "unknown"), false);
-    }
-  }, [showToast]);
-
   // ── Controller layout ─────────────────────────────────────────────
 
   const handleReposition = useCallback(() => {
@@ -637,13 +574,6 @@ export default function GamePlayer({
   const handleHideControls = useCallback(() => {
     window.__gvTouchGamepad?.hide();
     setTouchGamepadVisible(false);
-    closePanel();
-  }, [closePanel]);
-
-  // ── Cast mode ─────────────────────────────────────────────────────
-
-  const handleCast = useCallback(() => {
-    setCastMode(true);
     closePanel();
   }, [closePanel]);
 
@@ -700,10 +630,14 @@ export default function GamePlayer({
     })();
   }, [connected, gameId, serverId, hostToken, roomToken]);
 
+  // Guest/LAN room entry points carry explicit room context. Ordinary solo
+  // launches keep disc-room controls out of the primary options hierarchy.
+  const roomControlsRelevant = Boolean(sessionId || joinToken || shortCodeProp);
+
   // ── Render ────────────────────────────────────────────────────────
 
   return (
-    <div className={styles.shell} onMouseMove={wakeControls} onKeyDown={wakeControls}>
+    <div className={styles.shell} onMouseMove={wakeControls} onPointerDown={wakeControls} onKeyDown={wakeControls}>
       <style>{`
         @keyframes gv-pipeline-pulse {
           0%, 100% { opacity: 1; }
@@ -723,7 +657,6 @@ export default function GamePlayer({
         playsInline
         muted={audioMuted}
         className={styles.video}
-        style={castMode ? { display: "none" } : undefined}
       />
 
       {/* Top bar */}
@@ -735,27 +668,24 @@ export default function GamePlayer({
         }}
       >
         <span className={styles.gameTitle}>{gameName || gameId}</span>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {(
-            <Button variant="secondary" size="md" onClick={() => { setAudioMuted((v) => !v); }}>
-              {audioMuted ? "🔇" : "🔊"}
-            </Button>
-          )}
+        <div className={styles.topBarActions}>
           {(onClose || overlayState.activePanel !== "none") && (
             <Button variant="secondary" size="md" onClick={handleBack}>
               ← Back
             </Button>
           )}
+          <Button
+            variant="secondary"
+            size="md"
+            aria-label={audioMuted ? "Unmute audio" : "Mute audio"}
+            onClick={() => { setAudioMuted((v) => !v); }}
+          >
+            <span aria-hidden="true">{audioMuted ? "🔇" : "🔊"}</span>{" "}
+            <span className={styles.audioLabelLong}>{audioMuted ? "Unmute audio" : "Mute audio"}</span>
+            <span className={styles.audioLabelCompact}>Audio</span>
+          </Button>
         </div>
       </div>
-
-      {/* Persistent game info chip — always visible while connected */}
-      {connected && (gameName || platform) && (
-        <div className={styles.gameInfo}>
-          {gameName && <span className={styles.gameInfoName}>{gameName}</span>}
-          {platform && <span className={styles.gameInfoBadge}>{platform}</span>}
-        </div>
-      )}
 
       {/* Options toggle + overlay — replaces old bottom bar */}
       {connected && (
@@ -766,18 +696,17 @@ export default function GamePlayer({
           triggerDisabled={overlayState.activePanel !== "none" || higherPriorityBlocking}
           onSave={() => { sendDC({ cmd: "save_state" }); showToast("Saved", true); }}
           onLoad={() => { sendDC({ cmd: "load_state" }); showToast("Loaded", true); }}
-          onSnapshot={handleSnapshot}
           onFullscreen={toggleFullscreen}
           isFullscreen={isFullscreen}
+          controlsVisible={touchGamepadVisible}
+          onToggleControls={toggleTouchGamepad}
           onOpenController={() => openPanel("controller")}
           onRestart={handleRestart}
           onOpenSaves={() => { openPanel("saves"); handleListSaves(); }}
           onOpenKeys={() => openPanel("keys")}
-          onOpenRoom={() => openPanel("room")}
-          onCast={handleCast}
+          onOpenRoom={roomControlsRelevant ? () => openPanel("room") : undefined}
           onQrCode={handleQrCode}
           onStats={() => openPanel("stats")}
-          isMobile={isMobile}
         />
       )}
 
@@ -863,7 +792,7 @@ export default function GamePlayer({
                       onClick={() => retryStep(step.id)}
                       title="Retry"
                     >
-                      ↻
+                      ↻ Retry
                     </button>
                   )}
                 </div>
@@ -962,7 +891,7 @@ export default function GamePlayer({
             <div className={styles.slotHeader}>
               <span>Save Stack</span>
               <Button variant="ghost" size="sm" onClick={() => openPanel("options")}>← Options</Button>
-              <Button variant="ghost" onClick={closePanel}>✕</Button>
+              <Button variant="ghost" onClick={closePanel}>✕ Close</Button>
             </div>
             <div className={styles.roomGrid}>
               <Button variant="secondary" size="sm" onClick={() => { handleSave(); handleListSaves(); }}>
@@ -1021,14 +950,14 @@ export default function GamePlayer({
       )}
 
       {/* Room controls overlay */}
-      {!higherPriorityBlocking && overlayState.activePanel === "room" && (
+      {!higherPriorityBlocking && roomControlsRelevant && overlayState.activePanel === "room" && (
         <>
           <div className={styles.backdrop} onClick={closePanel} />
           <div className={styles.roomPanel} data-player-panel role="dialog" aria-modal="true" aria-label="Room controls" tabIndex={-1}>
             <div className={styles.slotHeader}>
               <span>Room</span>
               <Button variant="ghost" size="sm" onClick={() => openPanel("options")}>← Options</Button>
-              <Button variant="ghost" onClick={closePanel}>✕</Button>
+              <Button variant="ghost" onClick={closePanel}>✕ Close</Button>
             </div>
             <div className={styles.roomGrid}>
               <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "reset" }); showToast("Reset", true); }}>
@@ -1071,7 +1000,7 @@ export default function GamePlayer({
             <div className={styles.slotHeader}>
               <span>Scan to Join</span>
               <Button variant="ghost" size="sm" onClick={() => openPanel("options")}>← Options</Button>
-              <Button variant="ghost" onClick={closePanel}>✕</Button>
+              <Button variant="ghost" onClick={closePanel}>✕ Close</Button>
             </div>
             {shortCode ? (<>
             <div style={{ display: "flex", justifyContent: "center", padding: "var(--space-5)" }}>
@@ -1104,49 +1033,6 @@ export default function GamePlayer({
             )}
           </div>
         </>
-      )}
-
-      {/* Cast mode chip — shows when casting, tap to exit */}
-      {castMode && (
-        <div style={{
-          position: "fixed",
-          top: 12,
-          right: 12,
-          zIndex: 30,
-          display: "flex",
-          gap: 8,
-        }}>
-          <button
-            onClick={() => openPanel("share")}
-            style={{
-              background: "rgba(17, 24, 39, 0.92)",
-              border: "1px solid rgba(56, 189, 248, 0.3)",
-              borderRadius: 2,
-              color: "#e5e7eb",
-              padding: "8px 14px",
-              fontSize: "var(--font-size-sm)",
-              fontFamily: "var(--font-mono)",
-              cursor: "pointer",
-            }}
-          >
-            📱 Show QR
-          </button>
-          <button
-            onClick={() => setCastMode(false)}
-            style={{
-              background: "rgba(248, 113, 113, 0.18)",
-              border: "1px solid rgba(248, 113, 113, 0.35)",
-              borderRadius: 2,
-              color: "#e5e7eb",
-              padding: "8px 14px",
-              fontSize: "var(--font-size-sm)",
-              fontFamily: "var(--font-mono)",
-              cursor: "pointer",
-            }}
-          >
-            ✕ Exit Cast
-          </button>
-        </div>
       )}
 
       {toast && (
