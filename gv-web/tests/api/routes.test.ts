@@ -1355,7 +1355,12 @@ describe("GET /api/client/bootstrap", () => {
     // Auth returns user
     // DB returns server memberships
     mockDb.select.mockReturnValueOnce(
-      mockQueryBuilder([{ id: "server-1", name: "Bazzite" }]),
+      mockQueryBuilder([{
+        id: "server-1",
+        name: "Bazzite",
+        lastSeenAt: new Date("2026-07-13T12:00:00.000Z"),
+        role: "admin",
+      }]),
     );
     // DB returns game counts
     mockDb.select.mockReturnValueOnce(
@@ -1375,6 +1380,8 @@ describe("GET /api/client/bootstrap", () => {
     expect(body.servers).toHaveLength(1);
     expect(body.servers[0].name).toBe("Bazzite");
     expect(body.servers[0].gameCount).toBe(24);
+    expect(body.servers[0].role).toBe("admin");
+    expect(body.servers[0].lastSeenAt).toBe("2026-07-13T12:00:00.000Z");
     expect(body.library.totalGames).toBe(24);
     expect(body.library.pinnedCount).toBe(2);
     expect(typeof body.ice.stunConfigured).toBe("boolean");
