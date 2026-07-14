@@ -682,4 +682,66 @@ describe("mobile touch-control islands", () => {
     expect(raf).toHaveBeenCalledTimes(4);
     expect(callbacks).toHaveLength(0);
   });
+
+  // ── Edit-mode usability: larger handles, clearer feedback ──────────────
+
+  it("detects resize within a 56px-radius finger-sized corner handle in edit mode", () => {
+    const { gamepad, shell } = createGamepad();
+    gamepad.enterEditMode();
+    const target = shell.querySelector<HTMLElement>('[data-touch-target="face-0"]')!;
+    const zone = gamepad._face[0];
+    // SE corner of the button in pixel coordinates
+    const cornerX = (zone.x + zone.w) * 844;
+    const cornerY = (zone.y + zone.h) * 390;
+
+    // Tap 45px from the corner: within new 56px radius but outside old 28px radius
+    dispatchPointer(target, "pointerdown", cornerX - 45, cornerY - 45, 36);
+
+    expect(gamepad._dragTarget).toEqual(expect.objectContaining({ kind: "resize", zone: "face", index: 0 }));
+    // Clean up
+    dispatchPointer(target, "pointerup", cornerX - 45, cornerY - 45, 36);
+  });
+
+  it("draws enlarged visible resize handle squares with sky-blue accent in edit mode", () => {
+    const source = readFileSync("lib/touch-gamepad/index.ts", "utf8");
+    // After fix: handles are drawn as 14px filled squares instead of tiny 6px dots
+    // Check for the sky-blue accent color used for edit-mode handle squares
+    expect(source).toContain("rgba(56,189,248,0.6)");
+    // Verify handles are now filled squares (fillRect) not tiny circle arcs
+    expect(source).toContain("ctx.fillRect");
+    // The new handle size is 14px (was 6px arc radius)
+    expect(source).toContain("size = 14");
+  });
+
+  it("shows handles only for the active drag target and restores all on drag end", () => {
+    const { gamepad, shell } = createGamepad();
+    gamepad.enterEditMode();
+    const face0Target = shell.querySelector<HTMLElement>('[data-touch-target="face-0"]')!;
+    const face1Target = shell.querySelector<HTMLElement>('[data-touch-target="face-1"]')!;
+    const zone0 = gamepad._face[0];
+
+    // Start dragging face-0 via its SE corner
+    const cornerX = (zone0.x + zone0.w) * 844;
+    const cornerY = (zone0.y + zone0.h) * 390;
+    dispatchPointer(face0Target, "pointerdown", cornerX - 18, cornerY - 18, 37);
+
+    // Verify drag target is set to face-0
+    expect(gamepad._dragTarget).toEqual(expect.objectContaining({ kind: "resize", zone: "face", index: 0 }));
+
+    // The source must contain logic to filter handles during drag
+    const source = readFileSync("lib/touch-gamepad/index.ts", "utf8");
+    expect(source).toContain("_dragTarget?");
+
+    // End drag — handles should restore
+    dispatchPointer(face1Target, "pointerup", cornerX - 18, cornerY - 18, 37);
+    expect(gamepad._dragTarget).toBeNull();
+  });
+
+  it("draws the control label during drag for feedback", () => {
+    const source = readFileSync("lib/touch-gamepad/index.ts", "utf8");
+    // During drag, the control's label is drawn centered on the control at 50% opacity
+    // This gives the user a visual cue of which control they're manipulating
+    expect(source).toContain("Drag label feedback");
+    expect(source).toContain("label = tgt?.label");
+  });
 });

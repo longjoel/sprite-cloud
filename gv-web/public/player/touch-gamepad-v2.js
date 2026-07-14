@@ -714,8 +714,8 @@ var __touchGamepadBundle = (() => {
   TouchGamepad.prototype._findTouchZone = function(n, preferredTarget) {
     const nx = n.x, ny = n.y;
     const canvasRect = this._canvas?.getBoundingClientRect();
-    const RESIZE_RX = 28 / (canvasRect?.width || 1);
-    const RESIZE_RY = 28 / (canvasRect?.height || 1);
+    const RESIZE_RX = 56 / (canvasRect?.width || 1);
+    const RESIZE_RY = 56 / (canvasRect?.height || 1);
     if (this._showHandles) {
       const d = this._dpad;
       const corners = [
@@ -794,12 +794,39 @@ var __touchGamepadBundle = (() => {
       drawButton(ctx, this._system[i], cw, ch, this._systemStates[i], this._editMode || this._showHandles);
     }
     if (this._showHandles) {
-      drawResizeHandles(ctx, this._dpad, cw, ch);
+      const isDragging = !!this._dragTarget;
+      const dragZone = this._dragTarget?.zone;
+      const dragIndex = this._dragTarget?.index;
+      const showDpad = !isDragging || dragZone === "dpad";
+      drawResizeHandles(ctx, this._dpad, cw, ch, showDpad);
       for (let i = 0; i < this._face.length; i++) {
-        drawResizeHandles(ctx, this._face[i], cw, ch);
+        const showFace = !isDragging || dragZone === "face" && dragIndex === i;
+        drawResizeHandles(ctx, this._face[i], cw, ch, showFace);
       }
       for (let i = 0; i < this._system.length; i++) {
-        drawResizeHandles(ctx, this._system[i], cw, ch);
+        const showSys = !isDragging || dragZone === "system" && dragIndex === i;
+        drawResizeHandles(ctx, this._system[i], cw, ch, showSys);
+      }
+    }
+    if (this._dragTarget) {
+      let tgt = null;
+      let label = "";
+      if (this._dragTarget.zone === "dpad") {
+        tgt = this._dpad;
+        label = "DPAD";
+      } else if (this._dragTarget.zone === "face") {
+        tgt = this._face[this._dragTarget.index];
+        label = this._face[this._dragTarget.index]?.label || "";
+      } else if (this._dragTarget.zone === "system") {
+        tgt = this._system[this._dragTarget.index];
+        label = this._system[this._dragTarget.index]?.label || "";
+      }
+      if (tgt && label) {
+        ctx.fillStyle = "rgba(56,189,248,0.5)";
+        ctx.font = "bold 16px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, (tgt.x + tgt.w / 2) * cw, (tgt.y + tgt.h / 2) * ch);
       }
     }
     if (this._showHandles) {
@@ -862,18 +889,18 @@ var __touchGamepadBundle = (() => {
     ctx.textBaseline = "middle";
     ctx.fillText(zone.label, x + w / 2, y + h / 2);
   }
-  function drawResizeHandles(ctx, d, cw, ch) {
+  function drawResizeHandles(ctx, d, cw, ch, visible = true) {
+    if (!visible) return;
     const corners = [
       { x: d.x * cw, y: d.y * ch },
       { x: (d.x + d.w) * cw, y: d.y * ch },
       { x: d.x * cw, y: (d.y + d.h) * ch },
       { x: (d.x + d.w) * cw, y: (d.y + d.h) * ch }
     ];
-    ctx.fillStyle = "rgba(255,200,50,0.7)";
+    const size = 14;
+    ctx.fillStyle = "rgba(56,189,248,0.6)";
     for (const c of corners) {
-      ctx.beginPath();
-      ctx.arc(c.x, c.y, 6, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillRect(c.x - size / 2, c.y - size / 2, size, size);
     }
   }
   function handleStart(gp, t, cw, self) {
