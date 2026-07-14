@@ -33,8 +33,7 @@ describe("GamePlayer panel ownership", () => {
     expect(playerSource).toContain("Preparing share code…");
   });
 
-  it("routes Options Back through closePanel so focus is restored", () => {
-    expect(playerSource).toContain('if (overlayState.activePanel === "options")');
+  it("routes panel dismissal through closePanel so focus is restored to the options trigger", () => {
     expect(playerSource).toContain("closePanel();");
   });
 

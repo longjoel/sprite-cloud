@@ -9,7 +9,6 @@ import RemapPanel from "./GamePlayerRemapPanel";
 import OptionsOverlay from "./OptionsOverlay";
 import ControllerLayoutPanel from "./ControllerLayoutPanel";
 import {
-  backPlayerPanel,
   blockPlayerPanels,
   closePlayerPanel,
   INITIAL_PLAYER_OVERLAY_STATE,
@@ -430,19 +429,6 @@ export default function GamePlayer({
     requestAnimationFrame(() => optionsTriggerRef.current?.focus());
   }, []);
 
-  const handleBack = useCallback(() => {
-    if (overlayState.activePanel === "none") {
-      onClose?.();
-      return;
-    }
-    if (overlayState.activePanel === "options") {
-      closePanel();
-      return;
-    }
-    setOverlayState((state) => backPlayerPanel(state));
-    setRemapWaiting(null);
-  }, [closePanel, onClose, overlayState.activePanel]);
-
   const blockingPanelOpen = overlayState.activePanel !== "none" || showDisconnect || Boolean(error);
   const higherPriorityBlocking = showDisconnect || Boolean(error);
 
@@ -669,11 +655,6 @@ export default function GamePlayer({
       >
         <span className={styles.gameTitle}>{gameName || gameId}</span>
         <div className={styles.topBarActions}>
-          {(onClose || overlayState.activePanel !== "none") && (
-            <Button variant="secondary" size="md" onClick={handleBack}>
-              ← Back
-            </Button>
-          )}
           <Button
             variant="secondary"
             size="md"
@@ -684,6 +665,16 @@ export default function GamePlayer({
             <span className={styles.audioLabelLong}>{audioMuted ? "Unmute audio" : "Mute audio"}</span>
             <span className={styles.audioLabelCompact}>Audio</span>
           </Button>
+          <button
+            ref={optionsTriggerRef}
+            className={`${styles.topBarBtn}`}
+            aria-label="Open options"
+            title="Options"
+            disabled={overlayState.activePanel !== "none" || higherPriorityBlocking}
+            onClick={() => overlayState.activePanel === "options" ? closePanel() : openPanel("options")}
+          >
+            ⋮
+          </button>
         </div>
       </div>
 
@@ -692,6 +683,7 @@ export default function GamePlayer({
         <OptionsOverlay
           visible={!higherPriorityBlocking && overlayState.activePanel === "options"}
           onToggle={() => overlayState.activePanel === "options" ? closePanel() : openPanel("options")}
+          onClose={onClose}
           triggerRef={optionsTriggerRef}
           triggerDisabled={overlayState.activePanel !== "none" || higherPriorityBlocking}
           onSave={() => { sendDC({ cmd: "save_state" }); showToast("Saved", true); }}

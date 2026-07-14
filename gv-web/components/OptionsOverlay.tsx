@@ -20,6 +20,7 @@ interface ActionGroup {
 interface OptionsOverlayProps {
   visible: boolean;
   onToggle: () => void;
+  onClose?: () => void;
   onSave: () => void;
   onLoad: () => void;
   onFullscreen: () => void;
@@ -40,6 +41,7 @@ interface OptionsOverlayProps {
 export default function OptionsOverlay({
   visible,
   onToggle,
+  onClose,
   onSave,
   onLoad,
   onFullscreen,
@@ -61,18 +63,7 @@ export default function OptionsOverlay({
   }, [onToggle]);
 
   if (!visible) {
-    return (
-      <button
-        className={styles.toggleBtn}
-        ref={triggerRef}
-        disabled={triggerDisabled}
-        onClick={onToggle}
-        aria-label="Open options"
-        title="Options"
-      >
-        ⋯
-      </button>
-    );
+    return null;
   }
 
   const groups: ActionGroup[] = [
@@ -141,6 +132,12 @@ export default function OptionsOverlay({
         aria-label="Player options"
         tabIndex={-1}
       >
+        {onClose && (
+          <button className={`${styles.card} ${styles.libraryButton}`} onClick={onClose}>
+            <span className={styles.cardIcon} aria-hidden="true">←</span>
+            <span className={styles.cardLabel}>← Library</span>
+          </button>
+        )}
         {groups.map((group) => (
           <section className={`${styles.group} ${group.id === "danger" ? styles.dangerGroup : ""}`} key={group.id}>
             <h2 className={styles.groupTitle}>{group.label}</h2>
