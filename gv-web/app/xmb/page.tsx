@@ -13,6 +13,8 @@ import {
   getXmbNavigation,
   moveXmbNavigation,
   reconcileXmbNavigation,
+  wrapGameFocus,
+  wrapIndex,
   type XmbCategoryId,
   type XmbNavigationId,
   type XmbNavigationState,
@@ -281,23 +283,23 @@ export default function XmbPage() {
       switch (e.key) {
         case "ArrowLeft":
           e.preventDefault();
-          if (navigation.focusedId === "games" && focusedSub > 0) setFocusedSub((v) => v - 1);
+          if (navigation.focusedId === "games") setFocusedSub((v) => wrapIndex(v, -1, SUB_CATEGORIES.length));
           else moveNavigation(-1);
           break;
         case "ArrowRight":
           e.preventDefault();
-          if (navigation.focusedId === "games" && focusedSub < SUB_CATEGORIES.length - 1) setFocusedSub((v) => v + 1);
+          if (navigation.focusedId === "games") setFocusedSub((v) => wrapIndex(v, 1, SUB_CATEGORIES.length));
           else moveNavigation(1);
           break;
         case "ArrowUp":
           e.preventDefault();
           if (navigation.activeCategory === "settings") moveSettingsAction(-1);
-          else setFocusedGame((v) => Math.max(0, v - 1));
+          else setFocusedGame((v) => wrapGameFocus(v, -1, filteredGames.length));
           break;
         case "ArrowDown":
           e.preventDefault();
           if (navigation.activeCategory === "settings") moveSettingsAction(1);
-          else setFocusedGame((v) => Math.min(filteredGames.length - 1, v + 1));
+          else setFocusedGame((v) => wrapGameFocus(v, 1, filteredGames.length));
           break;
         case "Enter":
           if (navigation.focusedId === "classic") activateNavigation();
@@ -308,7 +310,7 @@ export default function XmbPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activateNavigation, filteredGames.length, focusedSub, moveNavigation, moveSettingsAction, navigation, selectedGame, launchGame]);
+  }, [activateNavigation, filteredGames.length, moveNavigation, moveSettingsAction, navigation, selectedGame, launchGame]);
 
   // ── Gamepad polling ──────────────────────────────────────────────────
   useEffect(() => {
@@ -321,17 +323,17 @@ export default function XmbPage() {
 
       const ax = pad.axes[0] ?? 0, ay = pad.axes[1] ?? 0;
       if (ax < -0.5) {
-        if (navigation.focusedId === "games" && focusedSub > 0) setFocusedSub((v) => v - 1);
+        if (navigation.focusedId === "games") setFocusedSub((v) => wrapIndex(v, -1, SUB_CATEGORIES.length));
         else moveNavigation(-1);
       } else if (ax > 0.5) {
-        if (navigation.focusedId === "games" && focusedSub < SUB_CATEGORIES.length - 1) setFocusedSub((v) => v + 1);
+        if (navigation.focusedId === "games") setFocusedSub((v) => wrapIndex(v, 1, SUB_CATEGORIES.length));
         else moveNavigation(1);
       } else if (ay < -0.5) {
         if (navigation.activeCategory === "settings") moveSettingsAction(-1);
-        else setFocusedGame((v) => Math.max(0, v - 1));
+        else setFocusedGame((v) => wrapGameFocus(v, -1, filteredGames.length));
       } else if (ay > 0.5) {
         if (navigation.activeCategory === "settings") moveSettingsAction(1);
-        else setFocusedGame((v) => Math.min(filteredGames.length - 1, v + 1));
+        else setFocusedGame((v) => wrapGameFocus(v, 1, filteredGames.length));
       } else if (pad.buttons[0]?.pressed) {
         prevState = "";
         if (navigation.focusedId === "classic") activateNavigation();
@@ -341,7 +343,7 @@ export default function XmbPage() {
       }
     }, 120);
     return () => clearInterval(interval);
-  }, [activateNavigation, filteredGames.length, focusedSettingsAction, focusedSub, moveNavigation, moveSettingsAction, navigation, selectedGame, launchGame]);
+  }, [activateNavigation, filteredGames.length, focusedSettingsAction, moveNavigation, moveSettingsAction, navigation, selectedGame, launchGame]);
 
   // ── Render categories ────────────────────────────────────────────────
   const renderCategories = () => (

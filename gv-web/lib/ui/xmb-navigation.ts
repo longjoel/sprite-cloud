@@ -33,6 +33,23 @@ export function reconcileXmbNavigation(
   return state;
 }
 
+/**
+ * Wrap an index by delta within [0, length-1] using modulo arithmetic.
+ * Returns 0 for zero-length arrays.
+ */
+export function wrapIndex(current: number, delta: -1 | 1, length: number): number {
+  if (length <= 0) return 0;
+  return ((current + delta) % length + length) % length;
+}
+
+/**
+ * Wrap game focus by delta within [0, gameCount-1].
+ * Returns 0 for empty game lists.
+ */
+export function wrapGameFocus(current: number, delta: -1 | 1, gameCount: number): number {
+  return wrapIndex(current, delta, gameCount);
+}
+
 export function moveXmbNavigation(
   state: XmbNavigationState,
   settingsAvailable: boolean,
@@ -41,7 +58,7 @@ export function moveXmbNavigation(
   const reconciled = reconcileXmbNavigation(state, settingsAvailable);
   const items = getXmbNavigation(settingsAvailable);
   const currentIndex = Math.max(0, items.findIndex((item) => item.id === reconciled.focusedId));
-  const next = items[Math.max(0, Math.min(items.length - 1, currentIndex + delta))];
+  const next = items[wrapIndex(currentIndex, delta, items.length)];
   return {
     focusedId: next.id,
     activeCategory: next.kind === "category" ? next.id : reconciled.activeCategory,
