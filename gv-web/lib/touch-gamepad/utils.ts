@@ -14,7 +14,7 @@ const TOGGLE_KEY = "gv:touch-visible";
 const OPACITY_KEY = "gv:touch-opacity";
 const SIZE_PRESET_KEY = "gv:touch-size-preset";
 
-export type TouchOpacity = "low" | "medium" | "high";
+export type TouchOpacity = "low" | "medium" | "high" | "max";
 export type NamedTouchSizePreset = "compact" | "standard" | "large";
 export type TouchSizePreset = NamedTouchSizePreset | "custom";
 
@@ -106,7 +106,7 @@ export function saveToggleState(visible: boolean): void {
 export function loadOpacity(): TouchOpacity {
   try {
     const value = localStorage.getItem(OPACITY_KEY);
-    return value === "low" || value === "high" ? value : "medium";
+    return value === "low" || value === "high" || value === "max" ? value : "medium";
   } catch {
     return "medium";
   }

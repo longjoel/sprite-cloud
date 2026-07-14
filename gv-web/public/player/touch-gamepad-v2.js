@@ -204,7 +204,7 @@ var __touchGamepadBundle = (() => {
   function loadOpacity() {
     try {
       const value = localStorage.getItem(OPACITY_KEY);
-      return value === "low" || value === "high" ? value : "medium";
+      return value === "low" || value === "high" || value === "max" ? value : "medium";
     } catch {
       return "medium";
     }
@@ -355,10 +355,10 @@ var __touchGamepadBundle = (() => {
     this._scheduleRender();
   };
   TouchGamepad.prototype.setOpacity = function(opacity) {
-    if (opacity !== "low" && opacity !== "medium" && opacity !== "high") return;
+    if (opacity !== "low" && opacity !== "medium" && opacity !== "high" && opacity !== "max") return;
     this._opacity = opacity;
     saveOpacity(opacity);
-    if (this._canvas) this._canvas.style.opacity = String({ low: 0.35, medium: 0.55, high: 0.8 }[opacity]);
+    if (this._canvas) this._canvas.style.opacity = String({ low: 0.35, medium: 0.55, high: 0.8, max: 0.95 }[opacity]);
   };
   TouchGamepad.prototype.getOpacity = function() {
     return this._opacity;
@@ -508,7 +508,7 @@ var __touchGamepadBundle = (() => {
     c.style.touchAction = "none";
     c.style.pointerEvents = "none";
     c.style.zIndex = "10";
-    c.style.opacity = String({ low: 0.35, medium: 0.55, high: 0.8 }[this._opacity]);
+    c.style.opacity = String({ low: 0.35, medium: 0.55, high: 0.8, max: 0.95 }[this._opacity]);
     c.dataset.reducedMotion = String(this._reducedMotion);
     const parent = this._video.parentNode;
     if (parent && getComputedStyle(parent).position === "static") {

@@ -193,10 +193,10 @@ TouchGamepad.prototype.exitEditMode = function (this: TouchGamepad) {
 };
 
 TouchGamepad.prototype.setOpacity = function (this: TouchGamepad, opacity: TouchOpacity) {
-  if (opacity !== "low" && opacity !== "medium" && opacity !== "high") return;
+  if (opacity !== "low" && opacity !== "medium" && opacity !== "high" && opacity !== "max") return;
   this._opacity = opacity;
   saveOpacity(opacity);
-  if (this._canvas) this._canvas.style.opacity = String({ low: 0.35, medium: 0.55, high: 0.8 }[opacity]);
+  if (this._canvas) this._canvas.style.opacity = String({ low: 0.35, medium: 0.55, high: 0.8, max: 0.95 }[opacity]);
 };
 
 TouchGamepad.prototype.getOpacity = function (this: TouchGamepad): TouchOpacity {
@@ -354,7 +354,7 @@ TouchGamepad.prototype.destroy = function (this: TouchGamepad) {
   c.style.touchAction = "none";
   c.style.pointerEvents = "none";
   c.style.zIndex = "10";
-  c.style.opacity = String({ low: 0.35, medium: 0.55, high: 0.8 }[this._opacity]);
+  c.style.opacity = String({ low: 0.35, medium: 0.55, high: 0.8, max: 0.95 }[this._opacity]);
   c.dataset.reducedMotion = String(this._reducedMotion);
 
   const parent = this._video.parentNode as HTMLElement | null;

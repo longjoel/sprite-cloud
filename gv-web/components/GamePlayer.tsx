@@ -86,8 +86,8 @@ declare global {
       exitEditMode: () => void;
       swapAB: () => void;
       resetLayout: () => void;
-      setOpacity: (opacity: "low" | "medium" | "high") => void;
-      getOpacity: () => "low" | "medium" | "high";
+      setOpacity: (opacity: "low" | "medium" | "high" | "max") => void;
+      getOpacity: () => "low" | "medium" | "high" | "max";
       getSizePreset: () => "compact" | "standard" | "large" | "custom";
       setSizePreset: (size: "compact" | "standard" | "large") => void;
     };
