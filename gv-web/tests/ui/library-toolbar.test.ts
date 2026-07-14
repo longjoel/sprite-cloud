@@ -52,8 +52,8 @@ describe("LibraryToolbar", () => {
     expect(html).toContain('aria-label="Library sections"');
     expect(html).toContain("All (12)");
     expect(html).toContain("Favorites (3)");
-    expect(html).toContain("Recent (4)");
-    expect(html).toContain("Pins (2)");
+    expect(html).toContain("Recently Played (4)");
+    expect(html).toContain("Pinned (2)");
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain('value="mario"');
   });
