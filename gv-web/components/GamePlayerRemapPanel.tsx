@@ -132,7 +132,7 @@ export default function RemapPanel({
             Reset defaults
           </button>
           <button style={remapStyles.closeBtn} onClick={onClose}>
-            ✕
+            ✕ Close
           </button>
         </div>
       </div>
