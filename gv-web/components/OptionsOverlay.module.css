@@ -126,6 +126,26 @@
   font-size: 11px;
 }
 
+.libraryButton {
+  width: 100%;
+  margin-bottom: 4px;
+  border-color: rgba(56, 189, 248, 0.42);
+  background: rgba(14, 116, 144, 0.18);
+  font-weight: 600;
+}
+
+.libraryButton:active {
+  background: rgba(14, 116, 144, 0.35);
+  border-color: rgba(56, 189, 248, 0.65);
+}
+
+@media (hover: hover) {
+  .libraryButton:hover {
+    background: rgba(14, 116, 144, 0.28);
+    border-color: rgba(56, 189, 248, 0.55);
+  }
+}
+
 .toggleBtn {
   position: absolute;
   right: max(16px, env(safe-area-inset-right, 0px));

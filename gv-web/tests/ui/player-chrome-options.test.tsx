@@ -41,13 +41,22 @@ describe("simplified player chrome", () => {
     expect(playerCss).toMatch(/@media\s*\(max-width:\s*480px\)[\s\S]*?\.audioLabelCompact\s*\{[^}]*display:\s*inline/);
   });
 
-  it("keeps only labelled Back, audio, and options edge controls", () => {
-    expect(playerSource).toContain("← Back");
-    expect(playerSource).toMatch(/← Back[\s\S]*?audioMuted \? "Unmute audio" : "Mute audio"/);
-    expect(playerSource).toMatch(/audioMuted \? "Unmute audio" : "Mute audio"/);
-    expect(optionsSource).toContain('aria-label="Open options"');
-    expect(optionsCss).toMatch(/\.toggleBtn\s*\{[\s\S]*?z-index:\s*15/);
+  it("keeps only audio and options edge controls in the top bar during normal play (Back moved to OptionsOverlay)", () => {
+    // Back should NOT be in the top bar chrome for normal connected play.
+    // The ⋮ trigger belongs in the top bar alongside audio.
+    expect(playerSource).toMatch(/styles\.topBar[\s\S]*?styles\.topBarActions[\s\S]*?audioMuted \? "Unmute audio" : "Mute audio"/);
+    expect(playerSource).toContain('aria-label="Open options"');
+    // The top bar action area must not contain ← Back (Back is now in OptionsOverlay).
+    expect(playerSource).not.toMatch(/← Back/);
     expect(playerCss).toMatch(/\.topBar\s*\{[^}]*z-index:\s*12/);
+  });
+
+  it("places ← Library as first action in the Options overlay", () => {
+    expect(optionsSource).toContain("← Library");
+  });
+
+  it("keeps ← Options navigation in sub-panels so players can return to Options", () => {
+    expect(playerSource).toContain("← Options");
   });
 });
 
@@ -147,6 +156,19 @@ describe("player option hierarchy", () => {
     expect(optionsCss).toMatch(/@media\s*\(max-height:\s*520px\)\s*and\s*\(orientation:\s*landscape\)[\s\S]*?\.backdrop\s*\{[^}]*align-items:\s*flex-end/);
     expect(optionsCss).toMatch(/@media\s*\(max-height:\s*520px\)\s*and\s*\(orientation:\s*landscape\)[\s\S]*?\.panel\s*\{[^}]*max-height:[^;}]*safe-area-inset-top[^}]*overflow-y:\s*auto[^}]*padding-left:[^;}]*safe-area-inset-left[^}]*padding-right:[^;}]*safe-area-inset-right[^}]*padding-bottom:[^;}]*safe-area-inset-bottom/);
     expect(optionsCss).toMatch(/\.card,\s*\.closeButton\s*\{[^}]*min-height:\s*44px/);
-    expect(playerCss).toMatch(/\.topBar button,\s*\.slotPanel button,\s*\.roomPanel button,\s*\.overlayPanel button\s*\{[^}]*min-width:\s*44px[^}]*min-height:\s*44px/);
+    expect(playerCss).toMatch(/\.topBar button[\s\S]*?\.slotPanel button[\s\S]*?min-width:\s*44px[\s\S]*?min-height:\s*44px/);
+  });
+
+  it("renders room panel with proper header: Room, ← Options, and ✕ Close", () => {
+    expect(playerSource).toContain("Room");
+    expect(playerSource).toMatch(/Room[\s\S]*?← Options[\s\S]*?✕ Close/);
+  });
+
+  it("uses same bottom-sheet CSS pattern for room panel on mobile as OptionsOverlay", () => {
+    // On mobile (<=640px), roomPanel must match OptionsOverlay's bottom-sheet patterns
+    expect(playerCss).toMatch(/@media\s*\(max-width:\s*640px\)[\s\S]*?\.roomPanel\s*\{[\s\S]*?position:\s*fixed[\s\S]*?bottom:\s*0[\s\S]*?left:\s*0[\s\S]*?right:\s*0/);
+    expect(playerCss).toMatch(/@media\s*\(max-width:\s*640px\)[\s\S]*?\.roomPanel\s*\{[\s\S]*?max-height:[\s\S]*?safe-area-inset-top[\s\S]*?overflow-y:\s*auto[\s\S]*?padding-bottom:[\s\S]*?safe-area-inset-bottom/);
+    // Short landscape too
+    expect(playerCss).toMatch(/@media\s*\(max-height:\s*520px\)\s*and\s*\(orientation:\s*landscape\)[\s\S]*?\.roomPanel\s*\{[\s\S]*?position:\s*fixed[\s\S]*?bottom:\s*0/);
   });
 });
