@@ -1,0 +1,20 @@
+#!/bin/bash
+# Games Vault AppImage wrapper — ensures EGL compatibility on Steam Deck / Intel
+# by using the HOST system's webkit2gtk and Mesa drivers rather than the bundled ones.
+
+set -euo pipefail
+
+HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+
+# Force webkit2gtk into software-compositing mode — avoids
+# "Could not create default EGL display: EGL_BAD_PARAMETER"
+# on Steam Deck AMD GPU + Mesa + Intel integrated graphics.
+export WEBKIT_DISABLE_COMPOSITING_MODE=1
+export WEBKIT_DISABLE_DMABUF_RENDERER=1
+
+# Prefer the host system's webkit2gtk and Mesa EGL libraries over anything
+# bundled in the AppImage. The AppImage's bundled libs may be incompatible
+# with the host GPU/driver combination.
+export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:/usr/lib:${LD_LIBRARY_PATH:-}"
+
+exec "${HERE}/gv-desktop" "$@"

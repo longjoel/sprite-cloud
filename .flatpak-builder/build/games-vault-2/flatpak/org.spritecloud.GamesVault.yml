@@ -1,0 +1,32 @@
+app-id: org.spritecloud.GamesVault
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: games-vault
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=x11
+  - --socket=pulseaudio
+  - --device=dri
+  - --talk-name=org.freedesktop.secrets
+  - --filesystem=xdg-run/app/com.discordapp.Discord:create
+modules:
+  - name: games-vault
+    buildsystem: simple
+    build-commands:
+      - . /usr/lib/sdk/rust-stable/enable.sh
+      - cargo build --release --manifest-path gv-desktop/Cargo.toml --features app_debug
+      - install -Dm755 target/release/gv-desktop /app/bin/games-vault
+      - install -Dm644 gv-desktop/icons/128x128.png /app/share/icons/hicolor/128x128/apps/org.spritecloud.GamesVault.png
+      - install -Dm644 flatpak/org.spritecloud.GamesVault.desktop /app/share/applications/org.spritecloud.GamesVault.desktop
+      - install -Dm644 flatpak/org.spritecloud.GamesVault.metainfo.xml /app/share/metainfo/org.spritecloud.GamesVault.metainfo.xml
+    sources:
+      - type: dir
+        path: ..
+    build-options:
+      env:
+        CARGO_HOME: /run/build/games-vault/cargo
