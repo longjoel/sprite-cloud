@@ -6,9 +6,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-MANIFEST="$SCRIPT_DIR/org.spritecloud.GamesVault.yml"
-BUILD_DIR="$SCRIPT_DIR/.flatpak-build"
-REPO_DIR="$SCRIPT_DIR/repo"
+MANIFEST="$REPO_ROOT/gv-desktop/flatpak/org.spritecloud.GamesVault.yml"
+BUILD_DIR="$REPO_ROOT/gv-desktop/flatpak/.flatpak-build"
+REPO_DIR="$REPO_ROOT/gv-desktop/flatpak/repo"
 
 echo "[flatpak] Installing GNOME 47 runtime + SDK (if missing)..."
 flatpak install -y --user org.gnome.Platform//47 org.gnome.Sdk//47 2>/dev/null || true
@@ -21,7 +21,6 @@ flatpak-builder \
     --force-clean \
     --repo="$REPO_DIR" \
     --install-deps-from=flathub \
-    --user \
     "$BUILD_DIR" \
     "$MANIFEST"
 
