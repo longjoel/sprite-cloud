@@ -12,8 +12,7 @@
     "windows": [
       {
         "title": "Games Vault",
-        "url": "gv-loader://localhost/index.html",
-        "create": false,
+        "url": "src/index.html",
         "fullscreen": true,
         "width": 1280,
         "height": 800,
@@ -34,7 +33,12 @@
       "icons/128x128@2x.png"
     ],
     "linux": {
-      "deb": { "depends": [] }
+      "deb": { "depends": [] },
+      "appimage": {
+        "files": {
+          "AppRun": "AppRun"
+        }
+      }
     }
   }
 }

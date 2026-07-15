@@ -18,9 +18,14 @@ const FALLBACK_HTML: &str = include_str!("index.html");
 // These env vars force a software-rendered compositing path that works
 // reliably on Deck hardware. Set them before Tauri touches the GPU.
 fn apply_steam_deck_gpu_quirks() {
+    // webkit2gtk EGL display creation fails on many systems
+    // (Steam Deck AMD Mesa, Intel integrated, etc.) with:
+    //   "Could not create default EGL display: EGL_BAD_PARAMETER"
+    // Force GTK to use the software (cairo) renderer and X11 backend,
+    // which avoids the EGL/GL initialization path entirely.
     let vars = [
-        ("WEBKIT_DISABLE_COMPOSITING_MODE", "1"),
-        ("WEBKIT_DISABLE_DMABUF_RENDERER", "1"),
+        ("GSK_RENDERER", "cairo"),
+        ("GDK_BACKEND", "x11"),
     ];
     for (key, value) in vars {
         if std::env::var(key).is_err() {
@@ -281,9 +286,9 @@ fn main() {
             #[cfg(target_os = "linux")]
             {
                 builder = builder.additional_browser_args(
-                    "--disable-gpu --disable-software-rasterizer",
+                    "--disable-gpu",
                 );
-                eprintln!("[gpu] Applied --disable-gpu --disable-software-rasterizer flags");
+                eprintln!("[gpu] Applied --disable-gpu flag");
             }
 
             // ── Page load handler per-window ────────────────────────────
