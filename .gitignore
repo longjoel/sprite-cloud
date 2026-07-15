@@ -39,3 +39,4 @@ gv-web/tsconfig.tsbuildinfo
 
 # Generated
 gv-web/public/player/player-bundle.js
+.flatpak-builder/
