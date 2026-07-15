@@ -12,7 +12,7 @@
     "windows": [
       {
         "title": "Games Vault",
-        "url": "src/index.html",
+        "url": "gv-loader://localhost/index.html",
         "fullscreen": true,
         "width": 1280,
         "height": 800,

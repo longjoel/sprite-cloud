@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use tauri::Emitter;
+use tauri::Manager;
 
 // ── Embedded fallback page ────────────────────────────────────────────────
 // Served via the gv-loader:// custom protocol when the main app hasn't loaded yet.
@@ -270,71 +271,24 @@ fn main() {
         })
         .setup(|app| {
             let handle = app.handle().clone();
+            spawn_gamepad_poller(handle);
 
-            // ── Create the main window programmatically (not auto-created) ─
-            // This lets us add GPU browser args that aren't available via config.
-            let window_config = &app.config().app.windows[0];
-
-            #[allow(unused_mut)]
-            let mut builder =
-                tauri::WebviewWindowBuilder::from_config(&handle, window_config)
-                    .expect("failed to create window builder from config");
-
-            // ── GPU flags: disable GPU compositing in webkit2gtk ────────
-            // These args help when webkit2gtk fails with EGL errors on
-            // AMD GPUs (Steam Deck) or Intel integrated graphics.
-            #[cfg(target_os = "linux")]
-            {
-                builder = builder.additional_browser_args(
-                    "--disable-gpu",
-                );
-                eprintln!("[gpu] Applied --disable-gpu flag");
+            // Open devtools (debug builds or app_debug feature)
+            #[cfg(any(debug_assertions, feature = "app_debug"))]
+            if let Some(window) = app.get_webview_window("main") {
+                window.open_devtools();
+                eprintln!("[devtools] Opened devtools for main window");
             }
 
-            // ── Page load handler per-window ────────────────────────────
-            builder = builder.on_page_load(|window, payload| {
-                let url = payload.url();
-                eprintln!(
-                    "[page-load:{}] url='{}'",
-                    window.label(),
-                    url
+            // Disable right-click context menu in the webview
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.eval(
+                    "document.addEventListener('contextmenu', (e) => e.preventDefault());",
                 );
-
-                // If we navigated to the real app (not the fallback),
-                // inject the context-menu prevention script.
-                let url_str = url.to_string();
-                if url_str.starts_with("https://lngnckr.tech") {
-                    let _ = window.eval(
-                        "document.addEventListener('contextmenu', (e) => e.preventDefault());",
-                    );
-                    eprintln!("[page-load:{}] Injected context-menu prevention for app URL", window.label());
-                }
-            });
-
-            let window = builder.build()?;
-
-            // ── Devtools: open in debug builds or when app_debug is set ─
-            open_devtools_if_enabled(&window);
-
-            // ── Gamepad poller ──────────────────────────────────────────
-            spawn_gamepad_poller(handle);
+            }
 
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-/// Open devtools when debug assertions are enabled OR the `app_debug` feature is active.
-/// This enables devtools in both debug and release builds when the feature flag is set.
-fn open_devtools_if_enabled(window: &tauri::WebviewWindow) {
-    #[cfg(any(debug_assertions, feature = "app_debug"))]
-    {
-        window.open_devtools();
-        eprintln!("[devtools] Opened devtools for main window");
-    }
-    #[cfg(not(any(debug_assertions, feature = "app_debug")))]
-    {
-        let _ = window;
-    }
 }
