@@ -207,7 +207,6 @@ export default function ShortCodePage() {
               setPhase("error");
             }}
             initialPipeline={{ ice: "done", server: "done" }}
-            initialStatus="connecting"
             hidePipeline
             onPipelineChange={handlePipelineChange}
           />

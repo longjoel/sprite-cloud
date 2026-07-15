@@ -110,7 +110,6 @@ interface GamePlayerProps {
   onFatalError?: (msg: string) => void; // fired on connection failure — page can show error screen
   sessionId?: string;
   initialPipeline?: Record<string, StepState>;
-  initialStatus?: string;
   hidePipeline?: boolean;   // suppress internal pipeline loading (page has its own overlay)
   onPipelineChange?: (pipeline: Record<string, StepState>) => void;
 }
@@ -130,7 +129,6 @@ export default function GamePlayer({
   onFatalError,
   sessionId,
   initialPipeline,
-  initialStatus,
   hidePipeline,
   onPipelineChange,
 }: GamePlayerProps) {
@@ -144,13 +142,8 @@ export default function GamePlayer({
   const [connected, setConnected] = useState(false);
   const [rttMs, setRttMs] = useState<number | null>(null);
   const [overlayState, setOverlayState] = useState(INITIAL_PLAYER_OVERLAY_STATE);
-  const [showDisconnect, setShowDisconnect] = useState(false);
   const [audioMuted, setAudioMuted] = useState(true);
-  const [reconnectAttempt, setReconnectAttempt] = useState(0);
-  const [reconnectMsg, setReconnectMsg] = useState("");
   const [toast, setToast] = useState<ToastData | null>(null);
-  const [route, setRoute] = useState<string | null>(null);
-  const [routeDetail, setRouteDetail] = useState<string | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [scriptReady, setScriptReady] = useState(false);
@@ -303,7 +296,6 @@ export default function GamePlayer({
                 setConnected(true);
                 wakeControls();
                 onConnected?.();
-                setShowDisconnect(false);
               }
               if (state === "error") {
                 const activeStep = PIPELINE_STEPS.find(
@@ -312,7 +304,6 @@ export default function GamePlayer({
                 if (activeStep) failStep(activeStep.id);
                 setError(detail ?? "connection error");
                 setConnected(false);
-                setShowDisconnect(false);
               }
               if (state === "idle") {
                 setConnected(false);
@@ -333,7 +324,6 @@ export default function GamePlayer({
             onListSaves(_entries: any[], _nextIndex: number) {},
             onError(msg: string) {
               setError(msg);
-              setShowDisconnect(false);
               onFatalError?.(msg);
               const activeStep = PIPELINE_STEPS.find(
                 (s) => pipeline[s.id] === "active",
@@ -343,19 +333,14 @@ export default function GamePlayer({
             onProgress(_msg: string) {},
             onReconnecting(_attempt: number) {},
             onReconnected() {
-              setShowDisconnect(false);
               setError(null);
             },
             onReconnectFailed() {
               if (hidePipeline) {
-                setShowDisconnect(false);
                 onFatalError?.("Reconnection failed — the host may have stopped streaming");
               }
             },
-            onRoute(routeLabel: string, detail: string) {
-              setRoute(routeLabel);
-              setRouteDetail(detail);
-            },
+            onRoute(_routeLabel: string, _detail: string) {},
           },
           joinToken,
           hostToken,
@@ -429,8 +414,8 @@ export default function GamePlayer({
     requestAnimationFrame(() => optionsTriggerRef.current?.focus());
   }, []);
 
-  const blockingPanelOpen = overlayState.activePanel !== "none" || showDisconnect || Boolean(error);
-  const higherPriorityBlocking = showDisconnect || Boolean(error);
+  const blockingPanelOpen = overlayState.activePanel !== "none" || Boolean(error);
+  const higherPriorityBlocking = Boolean(error);
 
   useEffect(() => {
     const touchGamepad = window.__gvTouchGamepad;
@@ -624,12 +609,6 @@ export default function GamePlayer({
 
   return (
     <div className={styles.shell} onMouseMove={wakeControls} onPointerDown={wakeControls} onKeyDown={wakeControls}>
-      <style>{`
-        @keyframes gv-pipeline-pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.35; }
-        }
-      `}</style>
 
       <Script src="/player/touch-gamepad-v2.js" />
       {/* Canonical browser player bootstrap path. Standalone legacy harness removed. */}
@@ -753,7 +732,7 @@ export default function GamePlayer({
       )}
 
       {/* Pipeline loading — suppressed when page has its own overlay */}
-      {!hidePipeline && !connected && !showDisconnect && (
+      {!hidePipeline && !connected && (
         <div className={styles.centerMessage}>
           <p className={styles.loadingText}>
             {hostToken ? "Reconnecting\u2026" : gameName ? `Starting ${gameName}` : "Starting game"}
@@ -764,14 +743,8 @@ export default function GamePlayer({
               return (
                 <div key={step.id} className={styles.stepRow}>
                   <span
-                    className={styles.stepDot}
-                    style={{
-                      background: dotColor(state),
-                      animation:
-                        state === "active"
-                          ? "gv-pipeline-pulse 1.2s ease-in-out infinite"
-                          : undefined,
-                    }}
+                    className={`${styles.stepDot}${state === "active" ? ` ${styles.stepDotActive}` : ""}`}
+                    style={{ background: dotColor(state) }}
                   >
                     {dotChar(state)}
                   </span>
@@ -816,61 +789,6 @@ export default function GamePlayer({
               <Button variant="secondary" onClick={() => onClose?.()}>← Home</Button>
               <Button variant="primary" onClick={() => window.location.reload()}>↻ Retry</Button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Disconnect overlay — only when reconnecting, not when there's a hard error */}
-      {showDisconnect && !error && (
-        <div className={styles.overlay}>
-          <div className={styles.overlayPanel}>
-            {reconnectAttempt < 3 ? (
-              <>
-                <p className={styles.overlayTitle}>Connection lost</p>
-                <p className={styles.overlaySub}>{reconnectMsg || "Reconnecting…"}</p>
-              </>
-            ) : (
-              <>
-                <p className={styles.overlayTitle}>Reconnection failed</p>
-                <p className={styles.overlaySub}>What would you like to do?</p>
-                <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "center", marginTop: "var(--space-5)" }}>
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      onClose?.();
-                    }}
-                  >
-                    ← Abort
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => window.location.reload()}
-                  >
-                    ↻ Retry
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={async () => {
-                      // Kill the current session, then reload to start fresh
-                      try {
-                        await fetch("/api/server/command", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            server_id: serverId,
-                            type: "stop_game",
-                            payload: { game_id: gameId },
-                          }),
-                        });
-                      } catch { /* best-effort */ }
-                      window.location.reload();
-                    }}
-                  >
-                    ✕ Fail
-                  </Button>
-                </div>
-              </>
-            )}
           </div>
         </div>
       )}
