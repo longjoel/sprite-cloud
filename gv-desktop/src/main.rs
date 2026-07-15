@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use tauri::Emitter;
+use tauri::Manager;
 
 const NUM_PORTS: usize = 4;
 const POLL_INTERVAL_MS: u64 = 16; // ~60 Hz
@@ -208,11 +209,30 @@ fn slot_index(
     ports.iter().position(|s| *s == target).unwrap_or(usize::MAX)
 }
 
+/// Tauri command: toggle fullscreen on/off.
+/// Bound to F11 via JavaScript in the webview.
+#[tauri::command]
+fn toggle_fullscreen(window: tauri::Window) {
+    let current = window.is_fullscreen().unwrap_or(false);
+    if let Err(e) = window.set_fullscreen(!current) {
+        eprintln!("[fullscreen] Failed to toggle fullscreen: {}", e);
+    }
+}
+
 fn main() {
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![toggle_fullscreen])
         .setup(|app| {
             let handle = app.handle().clone();
             spawn_gamepad_poller(handle);
+
+            // Disable right-click context menu in the webview (desktop-first UX).
+            if let Some(main_window) = app.get_webview_window("main") {
+                let _ = main_window.eval(
+                    "document.addEventListener('contextmenu', (e) => e.preventDefault());",
+                );
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())

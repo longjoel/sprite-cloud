@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "identifier": "com.spritecloud.gamesvault",
   "build": {
-    "frontendDist": "../gv-web/out",
+    "frontendDist": "../gv-web/.next",
     "devUrl": "http://localhost:3000/xmb",
     "beforeDevCommand": "cd .. && pnpm --filter gv-web dev",
     "beforeBuildCommand": "cd .. && pnpm --filter gv-web build"
