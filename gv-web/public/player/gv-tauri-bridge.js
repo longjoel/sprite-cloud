@@ -129,4 +129,72 @@
   };
 
   console.log("[TAURI] Gamepad bridge active");
+
+  // ── Auth session persistence ──────────────────────────────────────
+  // Persist the next-auth session token in Tauri's secure store so the
+  // user stays signed in across app restarts (replaces browser cookie jar).
+
+  var STORE_PATH = "session.json";
+  var AUTH_KEY = "authToken";
+  var COOKIE_NAME = "next-auth.session-token";
+  var POLL_MS = 5000; // periodic cookie watch interval
+
+  /** Read the stored token and restore the session cookie. */
+  function restoreSession() {
+    try {
+      window.__TAURI__.core
+        .invoke("plugin:store|get", { path: STORE_PATH, key: AUTH_KEY })
+        .then(function (token) {
+          if (token && typeof token === "string" && token.length > 0) {
+            document.cookie =
+              COOKIE_NAME +
+              "=" +
+              token +
+              "; Secure; SameSite=Lax; path=/";
+            console.log("[TAURI] Session restored from secure store");
+          }
+        })
+        .catch(function () {
+          // Store not initialised or key not found — expected on first run
+        });
+    } catch (_) {
+      // Plugin not available or invoke failed — silently skip
+    }
+  }
+
+  /** Extract the next-auth session token from cookies and persist it. */
+  function persistSession() {
+    try {
+      var cookies = document.cookie;
+      var match = cookies.match(
+        new RegExp(COOKIE_NAME.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "=([^;]+)")
+      );
+      if (match && match[1]) {
+        var token = match[1];
+        window.__TAURI__.core
+          .invoke("plugin:store|set", {
+            path: STORE_PATH,
+            key: AUTH_KEY,
+            value: token,
+          })
+          .then(function () {
+            return window.__TAURI__.core.invoke("plugin:store|save", {
+              path: STORE_PATH,
+            });
+          })
+          .catch(function () {
+            // Store write failed — non-critical
+          });
+      }
+    } catch (_) {
+      // Plugin not available — silently skip
+    }
+  }
+
+  // Restore saved session on startup (runs after a short delay to let
+  // Tauri finish initialising the plugin commands).
+  setTimeout(restoreSession, 200);
+
+  // Periodically watch for new sign-ins and persist the token.
+  setInterval(persistSession, POLL_MS);
 })();
