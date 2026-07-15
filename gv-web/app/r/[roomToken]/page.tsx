@@ -105,7 +105,6 @@ export default function PublicRoomPage() {
             setPhase("error");
           }}
           initialPipeline={{ ice: "done", server: "done" }}
-          initialStatus="connecting"
           hidePipeline
           onPipelineChange={handlePipelineChange}
         />
