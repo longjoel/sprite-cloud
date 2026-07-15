@@ -29,7 +29,7 @@ flatpak build-bundle \
     "$REPO_DIR" \
     "$REPO_ROOT/games-vault.flatpak" \
     org.spritecloud.GamesVault \
-    stable
+    master
 
 echo "[flatpak] Done: $REPO_ROOT/games-vault.flatpak"
 ls -lh "$REPO_ROOT/games-vault.flatpak"
