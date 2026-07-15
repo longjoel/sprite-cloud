@@ -12,7 +12,8 @@
     "windows": [
       {
         "title": "Games Vault",
-        "url": "https://lngnckr.tech/xmb",
+        "url": "gv-loader://localhost/index.html",
+        "create": false,
         "fullscreen": true,
         "width": 1280,
         "height": 800,

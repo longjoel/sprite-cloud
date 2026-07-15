@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 description = "Games Vault desktop client — Steam Deck AppImage"
 
+[features]
+app_debug = ["tauri/devtools"]
+
 [dependencies]
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
