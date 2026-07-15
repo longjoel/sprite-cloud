@@ -1,8 +1,0 @@
-[Desktop Entry]
-Name=Games Vault
-Comment=Stream your retro game library
-Exec=games-vault
-Icon=org.spritecloud.GamesVault
-Type=Application
-Categories=Game;Emulator;
-StartupNotify=true
