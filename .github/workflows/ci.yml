@@ -40,6 +40,13 @@ jobs:
       - name: Test Rust crates
         run: cargo test -p gv-server -p gv-core -p libretro-runner
 
+      - name: Check gv-desktop (Tauri/AppImage)
+        run: |
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf libudev-dev
+          cargo check -p gv-desktop
+          cargo test -p gv-desktop
+
       - name: Smoke test libretro-runner
         run: cargo test -p libretro-runner --test smoke -- --test-threads=1
 
