@@ -8,6 +8,23 @@ use std::time::Duration;
 use tauri::Emitter;
 use tauri::Manager;
 
+// ── Steam Deck / Mesa GPU compatibility ────────────────────────────────────
+// webkit2gtk on Steam Deck (AMD GPU + Mesa) often fails with:
+//   "Could not create default EGL display: EGL_BAD_PARAMETER"
+// These env vars force a software-rendered compositing path that works
+// reliably on Deck hardware. Set them before Tauri touches the GPU.
+fn apply_steam_deck_gpu_quirks() {
+    let vars = [
+        ("WEBKIT_DISABLE_COMPOSITING_MODE", "1"),
+        ("WEBKIT_DISABLE_DMABUF_RENDERER", "1"),
+    ];
+    for (key, value) in vars {
+        if std::env::var(key).is_err() {
+            std::env::set_var(key, value);
+        }
+    }
+}
+
 const NUM_PORTS: usize = 4;
 const POLL_INTERVAL_MS: u64 = 16; // ~60 Hz
 
@@ -220,6 +237,7 @@ fn toggle_fullscreen(window: tauri::Window) {
 }
 
 fn main() {
+    apply_steam_deck_gpu_quirks();
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::default().build())
         .invoke_handler(tauri::generate_handler![toggle_fullscreen])
