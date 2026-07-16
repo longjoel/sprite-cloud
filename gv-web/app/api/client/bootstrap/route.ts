@@ -80,7 +80,7 @@ export async function GET() {
   };
 
   // ── Auth check ────────────────────────────────────────────────────
-  const session = await auth();
+  const session = await auth().catch(() => null);
 
   const base = {
     version: process.env.NEXT_PUBLIC_APP_VERSION || "0.2.0",
