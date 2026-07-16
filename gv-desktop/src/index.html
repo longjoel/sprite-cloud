@@ -4,6 +4,64 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Games Vault — Connecting</title>
+  <script>
+  // Minimal client-log bridge for the fallback/startup page.
+  // Sends startup-phase logs to the same Loki endpoint the full
+  // browser-log.js uses, so bootstrap/auth failures are visible
+  // in Grafana alongside regular sessions.
+  (function() {
+    var LOG_URL = 'https://lngnckr.tech/api/client-logs';
+    var sessionId = crypto.randomUUID ? crypto.randomUUID() : 'gv-' + Date.now();
+    var queue = [];
+    var sending = false;
+    var timer = null;
+
+    function sendLog(level, message, detail) {
+      queue.push({
+        ts: new Date().toISOString(),
+        level: level,
+        type: 'desktop-startup',
+        message: String(message).slice(0, 4000),
+        detail: detail || undefined,
+        context: { page: 'startup', href: location.href, userAgent: navigator.userAgent.slice(0, 300) }
+      });
+      scheduleFlush();
+    }
+
+    function scheduleFlush() {
+      if (timer) return;
+      timer = setTimeout(flush, 2000);
+    }
+
+    function flush() {
+      timer = null;
+      if (sending || queue.length === 0) return;
+      sending = true;
+      var batch = queue.splice(0, 10);
+      var payload = JSON.stringify({ sessionId: sessionId, sentAt: new Date().toISOString(), events: batch, droppedEvents: 0 });
+      try {
+        fetch(LOG_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload })
+          .catch(function(){})
+          .finally(function() { sending = false; if (queue.length) scheduleFlush(); });
+      } catch(e) { sending = false; }
+    }
+
+    // Hook console
+    var origConsole = { log: console.log.bind(console), warn: console.warn.bind(console), error: console.error.bind(console) };
+    ['log','warn','error'].forEach(function(level) {
+      console[level] = function() {
+        origConsole[level].apply(console, arguments);
+        sendLog(level, Array.from(arguments).map(function(a) {
+          try { return typeof a === 'string' ? a : JSON.stringify(a).slice(0, 2000); }
+          catch(e) { return String(a).slice(0, 2000); }
+        }).join(' '));
+      };
+    });
+
+    // Send startup event
+    sendLog('info', '[desktop] Fallback loader initialized, target: https://lngnckr.tech/xmb');
+  })();
+  </script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
