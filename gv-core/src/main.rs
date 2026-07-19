@@ -55,7 +55,7 @@ fn downsample_audio(input: &[i16], ratio: f64, channels: usize) -> Vec<i16> {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 5 {
-        eprintln!("Usage: {} <core.so> <rom> <out_shm> <in_shm>", args[0]);
+        eprintln!("Usage: {} <core.so> <rom> <out_shm> <in_shm> [system_dir]", args[0]);
         std::process::exit(1);
     }
     
@@ -63,6 +63,7 @@ fn main() {
     let rom_path = &args[2];
     let out_name = &args[3];
     let in_name = &args[4];
+    let system_dir = args.get(5).cloned().unwrap_or_else(|| "/tmp".into());
     
     // Map shared memory
     let out_mmap = map_shm::<OutputShm>(out_name, OutputShm::size())
@@ -83,7 +84,7 @@ fn main() {
     let core_config = libretro_runner::CoreConfig {
         core_path: core_path.into(),
         content_path: Some(rom_path.into()),
-        system_dir: "/tmp".into(),
+        system_dir: system_dir.into(),
         save_dir: "/tmp".into(),
         audio_channels: 2,
     };

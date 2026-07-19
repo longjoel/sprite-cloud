@@ -32,7 +32,7 @@ export interface LayoutData {
 
 export type Orientation = "horizontal" | "vertical" | "auto";
 
-export type PresetName = "nes" | "snes" | "genesis" | "gamegear" | "arcade" | "atari";
+export type PresetName = "nes" | "snes" | "genesis" | "gamegear" | "arcade" | "atari" | "psx";
 
 export interface TouchGamepadOptions {
   preset?: PresetName;

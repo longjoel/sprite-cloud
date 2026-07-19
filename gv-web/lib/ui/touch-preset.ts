@@ -24,6 +24,11 @@ const PRESETS: Record<string, PresetName> = {
   "atari lynx": "atari",
   arcade: "arcade",
   "neo geo cd": "arcade",
+  playstation: "psx",
+  psx: "psx",
+  ps1: "psx",
+  "sony - playstation": "psx",
+  "sony playstation": "psx",
 };
 
 export function touchPresetForPlatform(platform?: string | null): PresetName {

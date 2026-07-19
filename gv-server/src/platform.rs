@@ -159,7 +159,7 @@ pub const PLATFORMS: &[PlatformManifest] = &[
     PlatformManifest {
         short_name: "PlayStation",
         aliases: &["Sony - PlayStation"],
-        extensions: &["iso", "cue"],
+        extensions: &["iso", "cue", "chd", "bin"],
         core: "pcsx_rearmed_libretro.so",
     },
     // ── Sony — PlayStation Portable ────────────────────────────────
@@ -388,6 +388,14 @@ mod tests {
         assert_eq!(
             detect_platform_name(std::path::Path::new("/roms/game.gba")),
             Some("Game Boy Advance".into())
+        );
+        assert_eq!(
+            detect_platform_name(std::path::Path::new("/roms/game.chd")),
+            Some("PlayStation".into())
+        );
+        assert_eq!(
+            detect_platform_name(std::path::Path::new("/roms/game.cue")),
+            Some("PlayStation".into())
         );
     }
 

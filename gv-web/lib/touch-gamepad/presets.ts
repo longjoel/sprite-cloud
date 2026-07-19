@@ -31,6 +31,10 @@ export const PRESETS: Record<string, ConsolePreset> = {
     face: [{ label: "B" }, { label: "A" }, { label: "Y" }, { label: "X" }],
     system: [{ label: "L" }, { label: "SELECT" }, { label: "START" }, { label: "R" }],
   },
+  psx: {
+    face: [{ label: "✕" }, { label: "○" }, { label: "□" }, { label: "△" }],
+    system: [{ label: "L1" }, { label: "R1" }, { label: "SELECT" }, { label: "START" }],
+  },
 };
 
 /**
