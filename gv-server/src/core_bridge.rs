@@ -143,6 +143,10 @@ fn ensure_extracted_rom(rom_path: &str, game_id: &str) -> String {
 
 // ── Core download (unchanged) ──────────────────────────────────────
 
+fn resolve_system_dir() -> String {
+    std::env::var("GV_SYSTEM_DIR").unwrap_or_else(|_| "/tmp".into())
+}
+
 fn resolve_core_path(core_filename: &str) -> PathBuf {
     let cores_dir = std::env::var("GV_CORES_DIR").unwrap_or_else(|_| {
         let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -370,16 +374,19 @@ pub async fn load_core_into_session(
 
     // Find gv-core binary
     let core_bin = find_gv_core_binary();
+    let system_dir = resolve_system_dir();
     tracing::info!(
-        "[CORE] spawning {} {} {} {}",
+        "[CORE] spawning {} {} {} {} {}",
         core_bin.display(),
         core_path_str,
         actual_rom_path,
-        game_id
+        out_name,
+        in_name
     );
+    tracing::info!("[CORE] system_dir={}", system_dir);
 
     let mut child = match std::process::Command::new(&core_bin)
-        .args([&core_path_str, &actual_rom_path, &out_name, &in_name])
+        .args([&core_path_str, &actual_rom_path, &out_name, &in_name, &system_dir])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .spawn()

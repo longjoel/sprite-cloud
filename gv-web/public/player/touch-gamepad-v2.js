@@ -28,6 +28,10 @@ var __touchGamepadBundle = (() => {
     snes: {
       face: [{ label: "B" }, { label: "A" }, { label: "Y" }, { label: "X" }],
       system: [{ label: "L" }, { label: "SELECT" }, { label: "START" }, { label: "R" }]
+    },
+    psx: {
+      face: [{ label: "\u2715" }, { label: "\u25CB" }, { label: "\u25A1" }, { label: "\u25B3" }],
+      system: [{ label: "L1" }, { label: "R1" }, { label: "SELECT" }, { label: "START" }]
     }
   };
   function computeDefaults(preset, orientation) {

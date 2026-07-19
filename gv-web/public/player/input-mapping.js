@@ -58,6 +58,12 @@ export function touchStateToStandardButtons(preset, state) {
     buttons[2] = Boolean(face[0]);
     buttons[0] = Boolean(face[1]);
     buttons[1] = Boolean(face[2]);
+  } else if (preset === "psx") {
+    // PSX ✕/○/□/△ → libretro B/A/Y/X positions
+    buttons[0] = Boolean(face[0]);
+    buttons[1] = Boolean(face[1]);
+    buttons[2] = Boolean(face[2]);
+    buttons[3] = Boolean(face[3]);
   } else {
     for (let index = 0; index < 4; index++) buttons[index] = Boolean(face[index]);
   }
@@ -67,6 +73,12 @@ export function touchStateToStandardButtons(preset, state) {
     buttons[8] = Boolean(system[1]);
     buttons[9] = Boolean(system[2]);
     buttons[5] = Boolean(system[3]);
+  } else if (preset === "psx") {
+    // PSX system: L1, R1, SELECT, START
+    buttons[10] = Boolean(system[0]);
+    buttons[11] = Boolean(system[1]);
+    buttons[8] = Boolean(system[2]);
+    buttons[9] = Boolean(system[3]);
   } else if (preset === "genesis" || preset === "gamegear") {
     // These presets expose START as their only system control.
     buttons[9] = Boolean(system[0]);
