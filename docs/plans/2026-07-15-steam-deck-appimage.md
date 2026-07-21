@@ -1,17 +1,17 @@
-# Games Vault Desktop Client — Steam Deck AppImage Plan
+# Sprite Cloud Desktop Client — Steam Deck AppImage Plan
 
 > **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.
 
 **Goal:** A native Linux desktop app (Tauri v2) that loads the XMB shell, properly handles Steam Deck gamepad input regardless of Steam Input/Big Picture, and ships as a single-click AppImage.
 
-**Architecture:** Reuse the existing `gv-web` Next.js app as the webview frontend. Build a thin Tauri v2 Rust shell that hosts a webview pointed at `https://lngnckr.tech/xmb`, intercepts raw gamepad events via `gilrs`, and forwards them into the webview's JavaScript context. The webview gets the real gamepad state regardless of Steam Input interception. Ships as an AppImage via `tauri-bundler`.
+**Architecture:** Reuse the existing `sc-web` Next.js app as the webview frontend. Build a thin Tauri v2 Rust shell that hosts a webview pointed at `https://sprite-cloud.com/xmb`, intercepts raw gamepad events via `gilrs`, and forwards them into the webview's JavaScript context. The webview gets the real gamepad state regardless of Steam Input interception. Ships as an AppImage via `tauri-bundler`.
 
 **Tech Stack:** Tauri v2, Rust, `gilrs` (gamepad), Next.js 15 (existing), `tauri-bundler` AppImage target.
 
 **Current State:**
-- gv-web is a pnpm workspace package under monorepo root `/root/projects/sprite-cloud`
+- sc-web is a pnpm workspace package under monorepo root `/root/projects/sprite-cloud`
 - No Tauri or native client code exists yet
-- Gamepad handling is purely browser-based via `navigator.getGamepads()` in `gv-web/public/player/gv-player.js` and `gv-web/app/xmb/page.tsx`
+- Gamepad handling is purely browser-based via `navigator.getGamepads()` in `sc-web/public/player/sc-player.js` and `sc-web/app/xmb/page.tsx`
 - The XMB shell at `/xmb` has full keyboard+gamepad navigation with wrapping (deployed in `v0.3.4`)
 - Steam Deck's browser is problematic: built-in controller steals P1 in browser, Big Picture Mode intercepts gamepad entirely
 - The existing `/xmb` page is 7.97 kB and already gamepad-navigable
@@ -21,7 +21,7 @@
 | Threat | Mitigation | Where |
 |---|---|---|
 | AppImage tampering | SHA256 checksum in release notes, GPG signing | Task 9 |
-| Webview loading untrusted URL | CSP in gv-web, HTTPS-only, no `file://` access | Task 4 |
+| Webview loading untrusted URL | CSP in sc-web, HTTPS-only, no `file://` access | Task 4 |
 | Gamepad data leaking between sessions | Clear gamepad state on disconnect/reconnect | Task 6 |
 | Local credential theft | Use platform keyring (freedesktop Secret Service) | Task 8 |
 
@@ -29,21 +29,21 @@
 
 ### Task 1: Scaffold Tauri v2 crate inside monorepo
 
-**Objective:** Create a new Cargo workspace member `gv-desktop` with Tauri v2 scaffolding, a single webview window loading `https://lngnckr.tech/xmb`, and fullscreen by default.
+**Objective:** Create a new Cargo workspace member `sc-desktop` with Tauri v2 scaffolding, a single webview window loading `https://sprite-cloud.com/xmb`, and fullscreen by default.
 
 **Files:**
-- Create: `gv-desktop/Cargo.toml`
-- Create: `gv-desktop/src/main.rs`
-- Create: `gv-desktop/tauri.conf.json`
-- Create: `gv-desktop/capabilities/default.json`
+- Create: `sc-desktop/Cargo.toml`
+- Create: `sc-desktop/src/main.rs`
+- Create: `sc-desktop/tauri.conf.json`
+- Create: `sc-desktop/capabilities/default.json`
 - Modify: `Cargo.toml` (root — add workspace member)
 
 **Step 1: Create Cargo workspace member**
 
 ```toml
-# gv-desktop/Cargo.toml
+# sc-desktop/Cargo.toml
 [package]
-name = "gv-desktop"
+name = "sc-desktop"
 version = "0.1.0"
 edition = "2021"
 
@@ -74,20 +74,20 @@ fn main() {
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/nickcolley/rust.json-schema/refs/heads/master/tauri.conf.json",
-  "productName": "Games Vault",
+  "productName": "Sprite Cloud",
   "version": "0.1.0",
-  "identifier": "com.spritecloud.gamesvault",
+  "identifier": "com.spritecloud.SpriteCloud",
   "build": {
-    "frontendDist": "../gv-web/out",
+    "frontendDist": "../sc-web/out",
     "devUrl": "http://localhost:3000/xmb",
-    "beforeDevCommand": "cd .. && pnpm --filter gv-web dev",
-    "beforeBuildCommand": "cd .. && pnpm --filter gv-web build"
+    "beforeDevCommand": "cd .. && pnpm --filter sc-web dev",
+    "beforeBuildCommand": "cd .. && pnpm --filter sc-web build"
   },
   "app": {
     "windows": [
       {
-        "title": "Games Vault",
-        "url": "https://lngnckr.tech/xmb",
+        "title": "Sprite Cloud",
+        "url": "https://sprite-cloud.com/xmb",
         "fullscreen": true,
         "width": 1280,
         "height": 800,
@@ -96,7 +96,7 @@ fn main() {
       }
     ],
     "security": {
-      "csp": "default-src 'self' https://lngnckr.tech; connect-src 'self' https://lngnckr.tech wss://lngnckr.tech; img-src 'self' https://lngnckr.tech https:; style-src 'self' 'unsafe-inline'; font-src 'self'"
+      "csp": "default-src 'self' https://sprite-cloud.com; connect-src 'self' https://sprite-cloud.com wss://sprite-cloud.com; img-src 'self' https://sprite-cloud.com https:; style-src 'self' 'unsafe-inline'; font-src 'self'"
     }
   },
   "bundle": {
@@ -119,7 +119,7 @@ fn main() {
 **Step 4: Create Tauri v2 capability file**
 
 ```json
-// gv-desktop/capabilities/default.json
+// sc-desktop/capabilities/default.json
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
@@ -133,12 +133,12 @@ fn main() {
 
 **Step 5: Add to root workspace**
 
-In root `Cargo.toml`, add `gv-desktop` to the `members` array.
+In root `Cargo.toml`, add `sc-desktop` to the `members` array.
 
 **Step 6: Verify compiles**
 
 ```bash
-cd gv-desktop && cargo check
+cd sc-desktop && cargo check
 ```
 
 Expected: exit 0, no errors. (May need `sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf` on build host.)
@@ -150,8 +150,8 @@ Expected: exit 0, no errors. (May need `sudo apt install libwebkit2gtk-4.1-dev l
 **Objective:** Use the `gilrs` crate to poll raw gamepad state independently of browser/Steam Input, bypassing both the Deck's built-in browser gamepad assignment and Big Picture interception.
 
 **Files:**
-- Modify: `gv-desktop/Cargo.toml` — add `gilrs` dependency
-- Modify: `gv-desktop/src/main.rs` — init gilrs, poll loop
+- Modify: `sc-desktop/Cargo.toml` — add `gilrs` dependency
+- Modify: `sc-desktop/src/main.rs` — init gilrs, poll loop
 
 **Step 1: Add gilrs dependency**
 
@@ -274,7 +274,7 @@ fn main() {
 
 ```bash
 sudo apt install -y libudev-dev  # required by gilrs on Linux
-cd gv-desktop && cargo check
+cd sc-desktop && cargo check
 ```
 
 Expected: exit 0.
@@ -283,17 +283,17 @@ Expected: exit 0.
 
 ### Task 3: Bridge gamepad state into webview JS
 
-**Objective:** The Tauri app emits `gamepad-state` events. The webview JS listens, overrides the XMB/gv-player gamepad polling to use native state instead of `navigator.getGamepads()`.
+**Objective:** The Tauri app emits `gamepad-state` events. The webview JS listens, overrides the XMB/sc-player gamepad polling to use native state instead of `navigator.getGamepads()`.
 
 **Files:**
-- Create: `gv-web/public/player/gv-tauri-bridge.js`
-- Modify: `gv-web/app/xmb/page.tsx` — detect Tauri and wire bridge
-- Modify: `gv-web/public/player/gv-player.js` — accept external gamepad state
+- Create: `sc-web/public/player/sc-tauri-bridge.js`
+- Modify: `sc-web/app/xmb/page.tsx` — detect Tauri and wire bridge
+- Modify: `sc-web/public/player/sc-player.js` — accept external gamepad state
 
 **Step 1: Create Tauri bridge script**
 
 ```javascript
-// gv-web/public/player/gv-tauri-bridge.js
+// sc-web/public/player/sc-tauri-bridge.js
 // Injected into the webview when running under Tauri.
 // Replaces navigator.getGamepads() with native gilrs data.
 
@@ -340,14 +340,14 @@ Expected: exit 0.
 
 **Step 2: Load bridge script in XMB page**
 
-In `gv-web/app/xmb/page.tsx`, inject the bridge before gv-player initializes:
+In `sc-web/app/xmb/page.tsx`, inject the bridge before sc-player initializes:
 
 ```tsx
-// In the <head> or before gv-player init:
+// In the <head> or before sc-player init:
 useEffect(() => {
   if (typeof window !== "undefined" && window.__TAURI__) {
     const script = document.createElement("script");
-    script.src = "/player/gv-tauri-bridge.js";
+    script.src = "/player/sc-tauri-bridge.js";
     document.head.appendChild(script);
   }
 }, []);
@@ -355,7 +355,7 @@ useEffect(() => {
 
 **Step 3: Verify existing gamepad code still works**
 
-The `gv-player.js` and XMB `page.tsx` both use `navigator.getGamepads()` which is now shimmed. No changes needed to existing gamepad consumers.
+The `sc-player.js` and XMB `page.tsx` both use `navigator.getGamepads()` which is now shimmed. No changes needed to existing gamepad consumers.
 
 ---
 
@@ -364,8 +364,8 @@ The `gv-player.js` and XMB `page.tsx` both use `navigator.getGamepads()` which i
 **Objective:** Start fullscreen, hide decorations, add keyboard shortcut to toggle fullscreen (F11). Disable right-click context menu. Handle window close gracefully.
 
 **Files:**
-- Modify: `gv-desktop/src/main.rs` — add F11 toggle, context menu disable
-- Modify: `gv-desktop/tauri.conf.json` — confirm window config
+- Modify: `sc-desktop/src/main.rs` — add F11 toggle, context menu disable
+- Modify: `sc-desktop/tauri.conf.json` — confirm window config
 
 **Step 1: Add F11 fullscreen toggle command**
 
@@ -404,7 +404,7 @@ Already set `fullscreen: true, decorations: false` in Task 1. Verify.
 
 **Files:**
 - Create: `scripts/build-appimage.sh`
-- Modify: `gv-desktop/tauri.conf.json` — verify bundle config
+- Modify: `sc-desktop/tauri.conf.json` — verify bundle config
 
 **Step 1: Ensure tauri-cli is available**
 
@@ -417,7 +417,7 @@ cargo install tauri-cli --version "^2"
 ```bash
 #!/bin/bash
 # scripts/build-appimage.sh
-# Builds the Games Vault AppImage from the monorepo root.
+# Builds the Sprite Cloud AppImage from the monorepo root.
 
 set -euo pipefail
 
@@ -425,8 +425,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$REPO_ROOT"
 
-echo "[appimage] building gv-desktop crate..."
-cd gv-desktop
+echo "[appimage] building sc-desktop crate..."
+cd sc-desktop
 
 # Build the Tauri app (produces AppImage in target/release/bundle/appimage/)
 cargo tauri build --bundles appimage
@@ -440,11 +440,11 @@ ls -lh target/release/bundle/appimage/*.AppImage
 ```bash
 chmod +x scripts/build-appimage.sh
 ./scripts/build-appimage.sh
-file target/release/bundle/appimage/games-vault_*.AppImage
+file target/release/bundle/appimage/sprite-cloud_*.AppImage
 # Expected: "ELF 64-bit LSB executable" AppImage
 ```
 
-The AppImage should be a single file ~20-40 MB that works on any Linux with `--appimage-extract-and-run` or just `chmod +x && ./games-vault.AppImage`.
+The AppImage should be a single file ~20-40 MB that works on any Linux with `--appimage-extract-and-run` or just `chmod +x && ./sprite-cloud.AppImage`.
 
 ---
 
@@ -456,13 +456,13 @@ The AppImage should be a single file ~20-40 MB that works on any Linux with `--a
 - Big Picture/Steam Input does not interfere
 
 **Files:**
-- Modify: `gv-desktop/src/main.rs` — verify button mapping is correct for Deck layout
-- Create: `gv-desktop/tests/gamepad-mapping.rs`
+- Modify: `sc-desktop/src/main.rs` — verify button mapping is correct for Deck layout
+- Create: `sc-desktop/tests/gamepad-mapping.rs`
 
 **Step 1: Write mapping test**
 
 ```rust
-// gv-desktop/tests/gamepad-mapping.rs
+// sc-desktop/tests/gamepad-mapping.rs
 #[test]
 fn steam_deck_button_mapping_is_correct() {
     // South → RetroPad B (bit 0)
@@ -500,12 +500,12 @@ In `tauri.conf.json`, add to bundle config:
 - Gamepad events are routed to the correct port (seat selection via XMB controls)
 
 **Files:**
-- Verify: `gv-web/public/player/gv-tauri-bridge.js` — shim prevents browser Gamepad API interference
-- Verify: `gv-web/public/player/gv-player.js` — accepts shimmed state
+- Verify: `sc-web/public/player/sc-tauri-bridge.js` — shim prevents browser Gamepad API interference
+- Verify: `sc-web/public/player/sc-player.js` — accepts shimmed state
 
 **Step 1: Confirm bridge intercepts before browser gamepad polling**
 
-The bridge shim replaces `navigator.getGamepads` before gv-player polls. The browser never sees raw gamepad events — gilrs owns them.
+The bridge shim replaces `navigator.getGamepads` before sc-player polls. The browser never sees raw gamepad events — gilrs owns them.
 
 **Step 2: Test multi-seat on Deck**
 
@@ -518,8 +518,8 @@ The XMB's existing Ctrl+1-4 port routing should work: gilrs assigns gamepads to 
 **Objective:** Use Tauri's secure storage or system keyring to persist the NextAuth session cookie so the app stays signed in across restarts. This replaces the browser cookie jar.
 
 **Files:**
-- Modify: `gv-desktop/Cargo.toml` — add tauri-plugin-store
-- Modify: `gv-desktop/src/main.rs` — register plugin
+- Modify: `sc-desktop/Cargo.toml` — add tauri-plugin-store
+- Modify: `sc-desktop/src/main.rs` — register plugin
 
 **Step 1: Add secure storage plugin**
 
@@ -531,7 +531,7 @@ Register in builder: `.plugin(tauri_plugin_store::Builder::default().build())`
 
 **Step 2: Store/restore auth token in JS bridge**
 
-In `gv-tauri-bridge.js`, on page load:
+In `sc-tauri-bridge.js`, on page load:
 ```javascript
 import { Store } from '@tauri-apps/plugin-store';
 const store = new Store('session.json');
@@ -558,13 +558,13 @@ if (token) {
 **Objective:** Generate app icons, produce a signed release with checksums, and write a README for Steam Deck users.
 
 **Files:**
-- Create: `gv-desktop/icons/` — app icons
-- Create: `gv-desktop/README.md` — user docs
+- Create: `sc-desktop/icons/` — app icons
+- Create: `sc-desktop/README.md` — user docs
 - Create: `scripts/release-appimage.sh` — sign + checksum
 
 **Step 1: Generate icons**
 
-Use ImageMagick or similar to create PNG icons from the Games Vault logo. Minimum: 32×32, 128×128, 256×256.
+Use ImageMagick or similar to create PNG icons from the Sprite Cloud logo. Minimum: 32×32, 128×128, 256×256.
 
 **Step 2: Release script**
 
@@ -574,23 +574,23 @@ Use ImageMagick or similar to create PNG icons from the Games Vault logo. Minimu
 set -euo pipefail
 ./scripts/build-appimage.sh
 
-APPIMAGE=$(ls gv-desktop/target/release/bundle/appimage/games-vault_*.AppImage | head -1)
-VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="gv-desktop") | .version')
+APPIMAGE=$(ls sc-desktop/target/release/bundle/appimage/sprite-cloud_*.AppImage | head -1)
+VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name=="sc-desktop") | .version')
 
-cp "$APPIMAGE" "games-vault-${VERSION}-x86_64.AppImage"
-sha256sum "games-vault-${VERSION}-x86_64.AppImage" > "games-vault-${VERSION}-x86_64.AppImage.sha256"
+cp "$APPIMAGE" "sprite-cloud-${VERSION}-x86_64.AppImage"
+sha256sum "sprite-cloud-${VERSION}-x86_64.AppImage" > "sprite-cloud-${VERSION}-x86_64.AppImage.sha256"
 
-echo "Release: games-vault-${VERSION}-x86_64.AppImage"
-echo "SHA256: $(cat games-vault-${VERSION}-x86_64.AppImage.sha256)"
+echo "Release: sprite-cloud-${VERSION}-x86_64.AppImage"
+echo "SHA256: $(cat sprite-cloud-${VERSION}-x86_64.AppImage.sha256)"
 ```
 
 **Step 3: Write README for Steam Deck users**
 
 ```markdown
-# Games Vault for Steam Deck
+# Sprite Cloud for Steam Deck
 
-1. Download `games-vault-x.x.x-x86_64.AppImage`
-2. `chmod +x games-vault-*.AppImage`
+1. Download `sprite-cloud-x.x.x-x86_64.AppImage`
+2. `chmod +x sprite-cloud-*.AppImage`
 3. Run it — starts fullscreen, loads your library
 4. Optional: Add to Steam as a non-Steam game for Gaming Mode
 

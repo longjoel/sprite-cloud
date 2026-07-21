@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-server:
-    name: Build gv-server
+    name: Build sc-server
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -34,14 +34,14 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Build gv-server
-        run: cargo build --release -p gv-server --target ${{ matrix.target }}
+      - name: Build sc-server
+        run: cargo build --release -p sc-server --target ${{ matrix.target }}
 
       - name: Upload binary as release asset
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.arch }}
-          path: target/${{ matrix.target }}/release/gv-server
+          path: target/${{ matrix.target }}/release/sc-server
 
   build-appimage:
     name: Build AppImage (${{ matrix.arch }})
@@ -71,7 +71,7 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: gv-desktop
+          workspaces: sc-desktop
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -88,14 +88,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build frontend (required by Tauri embed)
-        run: pnpm --filter gv-web build
+        run: pnpm --filter sc-web build
 
       - name: Install tauri-cli
         run: cargo install tauri-cli --version "^2" --locked
 
       - name: Build AppImage
         run: |
-          cd gv-desktop
+          cd sc-desktop
           cargo tauri build --bundles appimage
           ls -lh target/release/bundle/appimage/
 
@@ -103,7 +103,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: appimage-${{ matrix.arch }}
-          path: gv-desktop/target/release/bundle/appimage/games-vault_*.AppImage
+          path: sc-desktop/target/release/bundle/appimage/sprite-cloud_*.AppImage
 
   create-release:
     name: Create GitHub Release
@@ -124,18 +124,18 @@ jobs:
           set -euo pipefail
           mkdir -p release-assets
 
-          # gv-server binaries
+          # sc-server binaries
           if [ -d artifacts/x86_64 ]; then
-            cp artifacts/x86_64/gv-server release-assets/gv-server-x86_64
-            sha256sum release-assets/gv-server-x86_64 > release-assets/gv-server-x86_64.sha256
+            cp artifacts/x86_64/sc-server release-assets/sc-server-x86_64
+            sha256sum release-assets/sc-server-x86_64 > release-assets/sc-server-x86_64.sha256
           fi
 
           # AppImage
-          APPIMAGE=$(find artifacts/appimage-x86_64 -name 'games-vault_*.AppImage' 2>/dev/null | head -1)
+          APPIMAGE=$(find artifacts/appimage-x86_64 -name 'sprite-cloud_*.AppImage' 2>/dev/null | head -1)
           if [ -n "$APPIMAGE" ]; then
             VERSION="${GITHUB_REF_NAME#v}"
-            cp "$APPIMAGE" "release-assets/games-vault-${VERSION}-x86_64.AppImage"
-            sha256sum "release-assets/games-vault-${VERSION}-x86_64.AppImage" > "release-assets/games-vault-${VERSION}-x86_64.AppImage.sha256"
+            cp "$APPIMAGE" "release-assets/sprite-cloud-${VERSION}-x86_64.AppImage"
+            sha256sum "release-assets/sprite-cloud-${VERSION}-x86_64.AppImage" > "release-assets/sprite-cloud-${VERSION}-x86_64.AppImage.sha256"
           fi
 
           ls -la release-assets/

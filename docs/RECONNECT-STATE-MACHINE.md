@@ -39,7 +39,7 @@ Key flags (mutable during lifecycle):
 | `startGameToken` | `null` | Set by `startGame()` return |
 | `sdpAnswer` | `null` | Set by `startGame()` return |
 
-### Layer 3: WebRTC Client (`index.js` — GvPlayer)
+### Layer 3: WebRTC Client (`index.js` — ScPlayer)
 
 | Name | Meaning |
 |---|---|

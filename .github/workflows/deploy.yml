@@ -4,9 +4,9 @@ on:
   push:
     branches: [main]
     paths:
-      - 'gv-web/**'
-      - 'gv-player/**'
-      - 'docker/gv-web/**'
+      - 'sc-web/**'
+      - 'sc-player/**'
+      - 'docker/sc-web/**'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
   workflow_dispatch:
@@ -25,8 +25,8 @@ jobs:
       - name: Build production image
         run: |
           docker build \
-            -f docker/gv-web/Dockerfile.prod \
-            -t gv-web-prod:latest .
+            -f docker/sc-web/Dockerfile.prod \
+            -t sc-web-prod:latest .
 
       - name: Install SSH key
         uses: shimataro/ssh-key-action@v2
@@ -37,23 +37,23 @@ jobs:
 
       - name: Transfer image to VPS
         run: |
-          docker save gv-web-prod:latest | gzip | \
+          docker save sc-web-prod:latest | gzip | \
             ssh -o StrictHostKeyChecking=accept-new \
-              root@lngnckr.tech 'gunzip | docker load'
+              root@sprite-cloud.com 'gunzip | docker load'
 
-      - name: Restart gv-web on VPS
+      - name: Restart sc-web on VPS
         run: |
-          ssh -o StrictHostKeyChecking=accept-new root@lngnckr.tech '
-            cd /docker/gv-web && \
-            docker compose down gv-web && \
-            docker compose up -d gv-web
+          ssh -o StrictHostKeyChecking=accept-new root@sprite-cloud.com '
+            cd /docker/sc-web && \
+            docker compose down sc-web && \
+            docker compose up -d sc-web
           '
 
       - name: Health check
         run: |
           sleep 10
           for i in $(seq 1 6); do
-            STATUS=$(ssh -o StrictHostKeyChecking=accept-new root@lngnckr.tech \
+            STATUS=$(ssh -o StrictHostKeyChecking=accept-new root@sprite-cloud.com \
               'curl -sf http://localhost:3000/api/health' && echo "ok" || echo "fail")
             if [ "$STATUS" = "ok" ]; then
               echo "✓ Health check passed"

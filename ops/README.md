@@ -6,11 +6,11 @@ Repo-tracked templates for deploying Sprite Cloud. The files here are the **sour
 
 ```
 ops/
-├── dev-host/                   dev/self-host gv-server host
-│   ├── gv-server.service       systemd unit
+├── dev-host/                   dev/self-host sc-server host
+│   ├── sc-server.service       systemd unit
 │   └── sprite-cloud.env.example environment template
 ├── vps/                        Gateway Docker host
-│   ├── docker-compose.yml      gv-web compose file
+│   ├── docker-compose.yml      sc-web compose file
 │   └── .env.example            environment template
 └── README.md                   this file
 ```
@@ -18,18 +18,18 @@ ops/
 ## What does NOT live here
 
 - **Secrets** (`AUTH_SECRET`, `DATABASE_URL`, `GV_ICE_TURN_CREDENTIAL`, `GV_API_KEY`) — these stay on the box or in a secrets manager
-- **Rust source code** — that's under `gv-server/`, `gv-core/`, and `libretro-runner/`
-- **gv-web source** — under `gv-web/`
+- **Rust source code** — that's under `sc-server/`, `sc-core/`, and `libretro-runner/`
+- **sc-web source** — under `sc-web/`
 - **Deployment scripts** — under `scripts/`
 
 ## Recovery from templates
 
 To reconstitute a fresh host from these templates:
 
-### Dev/self-host gv-server host
+### Dev/self-host sc-server host
 ```bash
 # systemd unit
-sudo cp ops/dev-host/gv-server.service /etc/systemd/system/
+sudo cp ops/dev-host/sc-server.service /etc/systemd/system/
 sudo systemctl daemon-reload
 
 # environment (fill in real values from secrets)
@@ -44,15 +44,15 @@ sudo mkdir -p /etc/sprite-cloud
 ### VPS
 ```bash
 # compose
-mkdir -p /docker/gv-web
-cp ops/vps/docker-compose.yml /docker/gv-web/
+mkdir -p /docker/sc-web
+cp ops/vps/docker-compose.yml /docker/sc-web/
 
 # environment (fill in real values from secrets)
-cp ops/vps/.env.example /root/games-vault/.env
-$EDITOR /root/games-vault/.env
+cp ops/vps/.env.example /root/sprite-cloud/.env
+$EDITOR /root/sprite-cloud/.env
 
 # build + deploy from dev machine
-./scripts/deploy-gv-web.sh
+./scripts/deploy-sc-web.sh
 ```
 
 ## Cross-reference
@@ -61,4 +61,4 @@ $EDITOR /root/games-vault/.env
 - `docs/DEPLOY.md` — full deployment guide
 - `docs/RELEASE.md` — release system and CI gate policy
 - `scripts/deploy-dev.sh` — dev/self-host deploy script
-- `scripts/deploy-gv-web.sh` — VPS web deploy script
+- `scripts/deploy-sc-web.sh` — VPS web deploy script

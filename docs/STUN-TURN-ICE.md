@@ -16,9 +16,9 @@ and Docker containers — the stuff that makes you mutter *"this is bananas."*
 │  Your Server (72.62.243.69)                            │
 │    ├─ coturn         :3478  (STUN + TURN)              │
 │    ├─ Docker bridge  :172.17.0.1                       │
-│    │   └─ gv-web container                             │
+│    │   └─ sc-web container                             │
 │    │       ├─ Next.js on :3000                         │
-│    │       └─ gv-server (Rust) inside                  │
+│    │       └─ sc-server (Rust) inside                  │
 │    └─ Firewall: UDP 3478, UDP 49152-65535              │
 └──────────────────────────────────────────────────────┘
 ```
@@ -27,7 +27,7 @@ and Docker containers — the stuff that makes you mutter *"this is bananas."*
 
 ## 1. Understanding WebRTC & ICE
 
-WebRTC connects two peers (browser ↔ gv-server) directly whenever possible.
+WebRTC connects two peers (browser ↔ sc-server) directly whenever possible.
 ICE (Interactive Connectivity Establishment) tries three strategies to make that
 happen:
 
@@ -37,7 +37,7 @@ happen:
 | **srflx** (server reflexive) | STUN tells each peer its public IP:port | STUN server reachable by both peers |
 | **relay** | TURN server relays ALL traffic | TURN server with UDP port range |
 
-The browser and gv-server gather all three types of candidates, exchange them via
+The browser and sc-server gather all three types of candidates, exchange them via
 SDP, and ICE tries every pair until one works.  **If TURN isn't configured, peers
 behind symmetric NATs or CGNAT cannot connect at all.**
 
@@ -123,7 +123,7 @@ ufw allow 49152:65535/udp
 
 ### 3.4 Environment Variables for Sprite Cloud
 
-Set these in your `docker-compose.yml` under the gv-web service:
+Set these in your `docker-compose.yml` under the sc-web service:
 
 ```yaml
 environment:
@@ -140,19 +140,19 @@ environment:
 
 ### 3.5 🔥 CRITICAL: TURN URL Inside Docker
 
-**This is the #1 thing people get wrong.**  If gv-web runs inside Docker,
+**This is the #1 thing people get wrong.**  If sc-web runs inside Docker,
 the TURN URL must use the Docker bridge gateway — **not** the public hostname.
 
 ```
-❌ WRONG:  GV_ICE_TURN_URLS=turn:lngnckr.tech:3478
+❌ WRONG:  GV_ICE_TURN_URLS=turn:sprite-cloud.com:3478
 ✅ RIGHT:  GV_ICE_TURN_URLS=turn:172.17.0.1:3478
 ```
 
 **Why:** From inside a Docker container, resolving your public hostname
-(`lngnckr.tech` → `72.62.243.69`) sends packets out through Docker's NAT to
+(`sprite-cloud.com` → `72.62.243.69`) sends packets out through Docker's NAT to
 the public internet, then back to the same host.  This is **hairpin NAT** —
 firewall rules and NAT tables often drop these packets silently.  Result:
-the gv-server can't allocate TURN relays, and peers see ICE failures.
+the sc-server can't allocate TURN relays, and peers see ICE failures.
 
 Using `172.17.0.1` (the Docker bridge gateway) connects directly to the host
 without leaving the bridge.  The TURN server is reachable, allocations succeed,
@@ -169,7 +169,7 @@ breaks Docker's port isolation — we recommend the bridge approach.
 
 ## 4. ICE Transport Policy
 
-Controls which ICE candidates the gv-server collects and offers.
+Controls which ICE candidates the sc-server collects and offers.
 
 | Policy | Candidates | When to Use |
 |---|---|---|
@@ -186,7 +186,7 @@ GV_ICE_TRANSPORT_POLICY: all   # default — OK to omit
 
 ## 5. LAN Direct Connection (Optional)
 
-If peers are on the same local network as the gv-server (e.g., streaming from
+If peers are on the same local network as the sc-server (e.g., streaming from
 a gaming PC on your home LAN to a laptop in the next room), you can skip TURN
 entirely for lower latency.
 
@@ -196,7 +196,7 @@ Set your LAN subnet IPs:
 GV_SERVER_LAN_IPS: 192.168.1.0/24,10.0.0.0/8
 ```
 
-When a peer's IP matches one of these ranges, gv-server builds a fresh PC with
+When a peer's IP matches one of these ranges, sc-server builds a fresh PC with
 `All` transport policy and STUN only — no TURN needed.  LAN peers connect
 directly.
 
@@ -235,10 +235,10 @@ Click **Gather candidates**.  You should see:
 - `srflx` candidates (public IP via STUN)
 - `relay` candidates (TURN allocation) — this one proves TURN works
 
-### 6.4 Check gv-web logs
+### 6.4 Check sc-web logs
 
 ```bash
-docker logs gv-web-gv-web-1 2>&1 | grep -E '\[SDP\]|\[ICE\]|\[POOL\]|\[PREWARM\]'
+docker logs sc-web-sc-web-1 2>&1 | grep -E '\[SDP\]|\[ICE\]|\[POOL\]|\[PREWARM\]'
 ```
 
 Healthy output:
@@ -264,8 +264,8 @@ check that:
 |---|---|---|
 | ICE fails, relay candidate missing | TURN server unreachable from inside Docker | Use `turn:172.17.0.1:3478` |
 | ICE fails, all pairs stuck "in-progress" | TURN credentials wrong | Check `GV_ICE_TURN_USERNAME` and `GV_ICE_TURN_CREDENTIAL` match coturn's `user=` line |
-| First connection slow (25-30s) | No ICE pre-warming | gv-server handles this automatically — check `[PREWARM]` in logs |
-| Reconnect after refresh fails | Session cancelled before ICE re-establishes | Fixed in gv-web ≥ 2026-06-28. Update to latest. |
+| First connection slow (25-30s) | No ICE pre-warming | sc-server handles this automatically — check `[PREWARM]` in logs |
+| Reconnect after refresh fails | Session cancelled before ICE re-establishes | Fixed in sc-web ≥ 2026-06-28. Update to latest. |
 | Guest can't connect | coturn's `relay-ip` wrong or port range blocked | Verify firewall rules for UDP 49152-65535 |
 | "allocation mismatch" in coturn logs | Multiple peers behind same NAT conflict | Add `no-loopback-peers` to coturn config |
 | Hairpin NAT drops packets | Container uses public hostname for TURN | Use Docker bridge gateway (Section 3.5) |
@@ -282,7 +282,7 @@ check that:
 - [ ] `GV_ICE_TRANSPORT_POLICY: all` (or omitted)
 - [ ] `GV_SERVER_LAN_IPS` set if you have LAN peers
 - [ ] Verified with trickle-ice page (`about:webrtc` in Firefox)
-- [ ] gv-web logs show `[PREWARM]` and `[POOL]` lines
+- [ ] sc-web logs show `[PREWARM]` and `[POOL]` lines
 
 ---
 
@@ -290,8 +290,8 @@ check that:
 
 ```yaml
 services:
-  gv-web:
-    image: gv-web-prod:latest
+  sc-web:
+    image: sc-web-prod:latest
     ports:
       - "3000:3000"
     environment:
@@ -318,7 +318,7 @@ WebRTC is a peer-to-peer protocol designed for browsers — it wasn't built for
 server-side media streaming.  Here's what makes it painful:
 
 1. **ICE candidate gathering is asynchronous and slow.**  STUN lookups and TURN
-   allocations take 2-5 seconds each.  gv-server pre-warms and pools PCs to hide
+   allocations take 2-5 seconds each.  sc-server pre-warms and pools PCs to hide
    this latency, but it adds complexity.
 
 2. **Docker + TURN = hairpin NAT hell.**  Containers can't reach the host's

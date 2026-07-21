@@ -28,7 +28,7 @@ cargo test --workspace
 ### Web app
 
 ```bash
-cd gv-web
+cd sc-web
 pnpm install
 pnpm test
 pnpm build

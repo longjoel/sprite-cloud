@@ -21,7 +21,7 @@ done
 
 BIN_DIR="${GV_DEV_BIN_DIR:-/usr/local/bin}"
 RELEASE_STATE_DIR="${GV_DEV_STATE_DIR:-/var/lib/sprite-cloud}"
-SERVICE_NAME="${GV_DEV_SERVICE:-gv-server.service}"
+SERVICE_NAME="${GV_DEV_SERVICE:-sc-server.service}"
 WEB_HEALTH_URL="${GV_LOCAL_HEALTH_URL:-http://localhost:3000/api/health}"
 
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
@@ -30,7 +30,7 @@ fi
 
 cd "$PROJECT_DIR"
 log "installing release binary into $BIN_DIR"
-sudo install -m 755 target/release/gv-server "$BIN_DIR/gv-server"
+sudo install -m 755 target/release/sc-server "$BIN_DIR/sc-server"
 sudo mkdir -p "$RELEASE_STATE_DIR"
 printf '%s\n' "$GV_SHA" | sudo tee "$RELEASE_STATE_DIR/RELEASE_COMMIT" >/dev/null
 sudo cp "$(manifest_path)" "$RELEASE_STATE_DIR/RELEASE_MANIFEST.json"
@@ -41,8 +41,8 @@ if [[ "$NO_RESTART" -eq 0 ]]; then
   sudo systemctl is-active --quiet "$SERVICE_NAME" || fail "$SERVICE_NAME failed to restart"
 fi
 
-log "checking gv-server binary"
-"$BIN_DIR/gv-server" --version >/dev/null 2>&1 || warn "gv-server --version check failed"
+log "checking sc-server binary"
+"$BIN_DIR/sc-server" --version >/dev/null 2>&1 || warn "sc-server --version check failed"
 
 if curl -fsS "$WEB_HEALTH_URL" >/dev/null 2>&1; then
   log "local web health OK: $WEB_HEALTH_URL"

@@ -27,7 +27,7 @@ That's it. WebRTC runs in the browser — no install, no plugins.
 
 You need a Linux machine with your ROM files. The host streams games to players through a gateway.
 
-### 1. Install gv-server
+### 1. Install sc-server
 
 ```bash
 # From GitHub Releases (once CI is set up):
@@ -36,8 +36,8 @@ curl -fsSL https://get.gamesvault.app | sh
 # For now: build from source
 git clone https://github.com/longjoel/sprite-cloud
 cd sprite-cloud
-cargo build --release -p gv-core -p gv-server
-sudo cp target/release/gv-server /usr/local/bin/
+cargo build --release -p sc-core -p sc-server
+sudo cp target/release/sc-server /usr/local/bin/
 ```
 
 This also needs GStreamer (VP8 + Opus encoding):
@@ -58,7 +58,7 @@ sudo pacman -S gst-plugins-bad gst-plugins-good gst-plugins-ugly
 ```
 1. Go to the gateway → Dashboard → "Generate pairing code"
 2. Copy the command shown:
-   gv-server pair ABCD-EFGH --gv-web-url https://your-gateway.com
+   sc-server pair ABCD-EFGH --sc-web-url https://your-gateway.com
 3. Run it on your host machine
 ```
 
@@ -73,7 +73,7 @@ export GV_ROM_ROOTS=/path/to/roms,/path/to/more
 ### 4. Start
 
 ```bash
-gv-server start
+sc-server start
 ```
 
 Your games appear in the library. Anyone with a gateway account can play them.
@@ -81,7 +81,7 @@ Your games appear in the library. Anyone with a gateway account can play them.
 ### Optional: Run at boot
 
 ```bash
-systemctl enable --now gv-server
+systemctl enable --now sc-server
 ```
 
 ---
@@ -110,19 +110,19 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: games_vault
+      POSTGRES_USER: sprite_cloud
       POSTGRES_PASSWORD: your-db-password
-      POSTGRES_DB: games_vault
+      POSTGRES_DB: sprite_cloud
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U games_vault"]
+      test: ["CMD-SHELL", "pg_isready -U sprite_cloud"]
       interval: 5s
 
-  gv-web:
+  sc-web:
     build:
       context: .
-      dockerfile: docker/gv-web/Dockerfile.prod
+      dockerfile: docker/sc-web/Dockerfile.prod
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -132,7 +132,7 @@ services:
     environment:
       AUTH_SECRET: $(openssl rand -hex 32)
       AUTH_URL: https://your-domain.com
-      DATABASE_URL: postgresql://games_vault:your-db-password@postgres:5432/games_vault
+      DATABASE_URL: postgresql://sprite_cloud:your-db-password@postgres:5432/sprite_cloud
       GV_WEB_SCHEMA_PUSH_ON_START: "1"
       GV_ICE_STUN_URLS: stun:stun.l.google.com:19302
       # Optional TURN (recommended for players outside LAN):
@@ -151,7 +151,7 @@ docker compose up -d
 ### 2. First-run setup
 
 ```bash
-docker logs gv-web-gv-web-1   # shows the setup code
+docker logs sc-web-sc-web-1   # shows the setup code
 ```
 
 Visit `https://your-domain.com/setup` → enter the code → create admin account.
@@ -207,7 +207,7 @@ Your gateway is live. Send the URL to players and hosts.
 Browser (player)
     │  WebRTC (video + input)
     ▼
-gv-server (host) ── polls ──▶ gv-web (gateway)
+sc-server (host) ── polls ──▶ sc-web (gateway)
     │                            │
     └── streams game ◀───────────┘  (routes commands)
 ```
@@ -225,7 +225,7 @@ No port forwarding on the host. WebRTC + TURN handles NAT traversal.
 | Component | Machine | Purpose |
 |-----------|---------|---------|
 | Browser | Player's device | WebRTC client, gamepad input |
-| gv-server | Host machine | Polls gateway, runs emulator cores, encodes video/audio |
-| gv-web | Gateway server | Web UI, auth, library, pairing |
+| sc-server | Host machine | Polls gateway, runs emulator cores, encodes video/audio |
+| sc-web | Gateway server | Web UI, auth, library, pairing |
 | Postgres | Gateway server | Users, servers, games, sessions |
 | TURN server | Any public VPS | NAT traversal relay |

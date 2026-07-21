@@ -24,9 +24,9 @@ body:
     attributes:
       label: Target component
       options:
-        - gv-web (gateway)
-        - gv-server (host runtime)
-        - gv-player (browser client)
+        - sc-web (gateway)
+        - sc-server (host runtime)
+        - sc-player (browser client)
         - Installer/deployment
         - Documentation
         - Other

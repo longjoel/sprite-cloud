@@ -13,23 +13,23 @@
 ## Current-state audit
 
 ### Library
-- `gv-web/components/LibraryClient.tsx:454-463` renders grid items through `GameTile`.
-- `gv-web/components/LibraryClient.tsx:466-530` renders table rows through a separate hand-built `<tr>` path.
-- `gv-web/components/LibraryClient.tsx:554-590` exposes a grid/table toggle, but the two render paths do not share a common action model.
-- `gv-web/components/fluent/GameTile.tsx:15-27` supports play, favorite, and rename, but **not pin**.
-- `gv-web/components/LibraryClient.tsx:507-523` shows pin control only in table view.
+- `sc-web/components/LibraryClient.tsx:454-463` renders grid items through `GameTile`.
+- `sc-web/components/LibraryClient.tsx:466-530` renders table rows through a separate hand-built `<tr>` path.
+- `sc-web/components/LibraryClient.tsx:554-590` exposes a grid/table toggle, but the two render paths do not share a common action model.
+- `sc-web/components/fluent/GameTile.tsx:15-27` supports play, favorite, and rename, but **not pin**.
+- `sc-web/components/LibraryClient.tsx:507-523` shows pin control only in table view.
 - Result: grid/table feature parity is structurally impossible without refactoring.
 
 ### Dashboard
-- `gv-web/app/dashboard/page.tsx:203-235` renders a top “Health” strip with hardcoded-looking status summaries.
-- `gv-web/app/dashboard/page.tsx:249-438` renders sessions, commands, and library summary sections below the server list.
-- `gv-web/app/dashboard/DashboardClient.tsx:118-215` already contains the most valuable surface: the actual server inventory and server-management controls.
+- `sc-web/app/dashboard/page.tsx:203-235` renders a top “Health” strip with hardcoded-looking status summaries.
+- `sc-web/app/dashboard/page.tsx:249-438` renders sessions, commands, and library summary sections below the server list.
+- `sc-web/app/dashboard/DashboardClient.tsx:118-215` already contains the most valuable surface: the actual server inventory and server-management controls.
 - Result: the dashboard buries the useful server list beneath broad, partly misleading summary panels and non-server-centric noise.
 
 ### New-user entry
-- `gv-web/app/page.tsx:14-23` sends unauthenticated users to `LandingPage`.
-- `gv-web/components/LandingPage.tsx:19-41` is a text-heavy 4-step setup guide.
-- `gv-web/components/LandingPage.tsx:83-89` hardcodes demo credentials instead of giving a one-click “watch/try” experience.
+- `sc-web/app/page.tsx:14-23` sends unauthenticated users to `LandingPage`.
+- `sc-web/components/LandingPage.tsx:19-41` is a text-heavy 4-step setup guide.
+- `sc-web/components/LandingPage.tsx:83-89` hardcodes demo credentials instead of giving a one-click “watch/try” experience.
 - Result: we explain the system, but we do not immediately let a new visitor touch it.
 
 ---
@@ -38,10 +38,10 @@
 
 ### Slice A — Library: unify grid/table interaction parity
 **Files:**
-- Modify: `gv-web/components/LibraryClient.tsx`
-- Modify: `gv-web/components/fluent/GameTile.tsx`
-- Create or extract: `gv-web/components/library/*` as needed
-- Test: `gv-web/tests/api/routes.test.ts` if any supporting API shape changes
+- Modify: `sc-web/components/LibraryClient.tsx`
+- Modify: `sc-web/components/fluent/GameTile.tsx`
+- Create or extract: `sc-web/components/library/*` as needed
+- Test: `sc-web/tests/api/routes.test.ts` if any supporting API shape changes
 
 **What to do:**
 1. Introduce a shared game-item action/view model used by both grid and table render paths.
@@ -55,8 +55,8 @@
 
 ### Slice B — Library: visual cleanup for grid and table
 **Files:**
-- Modify: `gv-web/components/LibraryClient.tsx`
-- Modify: `gv-web/components/fluent/GameTile.tsx`
+- Modify: `sc-web/components/LibraryClient.tsx`
+- Modify: `sc-web/components/fluent/GameTile.tsx`
 - Modify: relevant shared CSS/token usage if needed
 
 **What to do:**
@@ -71,8 +71,8 @@
 
 ### Slice C — Dashboard: remove misleading top-level summary panels
 **Files:**
-- Modify: `gv-web/app/dashboard/page.tsx`
-- Possibly modify: `gv-web/app/dashboard/HealthCard.tsx`
+- Modify: `sc-web/app/dashboard/page.tsx`
+- Possibly modify: `sc-web/app/dashboard/HealthCard.tsx`
 
 **What to do:**
 1. Remove or demote the current top “Health” strip.
@@ -86,9 +86,9 @@
 
 ### Slice D — Dashboard: refine server details into the primary admin surface
 **Files:**
-- Modify: `gv-web/app/dashboard/DashboardClient.tsx`
-- Modify: `gv-web/app/dashboard/ServerPanel.tsx`
-- Modify: `gv-web/app/dashboard/dashboard-utils.ts` if display helpers need changes
+- Modify: `sc-web/app/dashboard/DashboardClient.tsx`
+- Modify: `sc-web/app/dashboard/ServerPanel.tsx`
+- Modify: `sc-web/app/dashboard/dashboard-utils.ts` if display helpers need changes
 
 **What to do:**
 1. Make each server row carry the important operational details directly.
@@ -102,8 +102,8 @@
 
 ### Slice E — New-user experience: show, don’t tell
 **Files:**
-- Modify: `gv-web/components/LandingPage.tsx`
-- Modify: `gv-web/app/page.tsx`
+- Modify: `sc-web/components/LandingPage.tsx`
+- Modify: `sc-web/app/page.tsx`
 - Potentially modify/create: room/share/featured-game supporting API or config surfaces, depending on implementation choice
 
 **What to do:**

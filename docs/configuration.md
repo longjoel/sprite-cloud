@@ -1,10 +1,10 @@
 # Configuration Reference
 
-Configuration for the current Sprite Cloud architecture: `gv-web` gateway + `gv-server` host runtime.
+Configuration for the current Sprite Cloud architecture: `sc-web` gateway + `sc-server` host runtime.
 
-## gv-web gateway
+## sc-web gateway
 
-File: `gv-web/.env.local` for local dev, or container environment in production.
+File: `sc-web/.env.local` for local dev, or container environment in production.
 
 | Variable | Required | Description |
 |---|---:|---|
@@ -23,9 +23,9 @@ Auth is DB-backed email/password. First-run setup uses `/setup` and the setup co
 
 First admin account creation is handled by the `/setup` flow. When the `users` table is empty, the production entrypoint prints a one-time setup code to logs. Sign in to `/setup` with that code to create the first account.
 
-## gv-server host runtime
+## sc-server host runtime
 
-`gv-server pair <CODE> --gv-web-url <URL>` writes the persistent config file.
+`sc-server pair <CODE> --sc-web-url <URL>` writes the persistent config file.
 
 Default config locations:
 
@@ -37,11 +37,11 @@ Default config locations:
 Example:
 
 ```toml
-[gv_web]
+[sc_web]
 url = "https://games.example.com"
 
 [auth]
-api_key = "gvsk_..."
+api_key = "scsk_..."
 server_id = "..."
 
 [rom]

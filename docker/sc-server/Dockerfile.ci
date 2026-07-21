@@ -1,0 +1,21 @@
+# ── Production sc-server image ────────────────────────────────────────
+# Expects the pre-built binary at ./sc-server in the build context.
+# CI places it there; docker-compose mounts it via volume instead.
+
+FROM ubuntu:24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates procps \
+    libopus0 libvpx9 libgcc-s1 \
+    libgstreamer1.0-0 \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    libgl1 libglu1-mesa libegl1 libegl-mesa0 \
+    xvfb \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY sc-server /usr/local/bin/sc-server
+COPY docker/sc-server/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+CMD ["/entrypoint.sh"]

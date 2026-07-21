@@ -4,8 +4,8 @@
 ## Test plan
 
 - [ ] `cargo test --workspace`
-- [ ] `cd gv-web && pnpm test`
-- [ ] `cd gv-web && pnpm build`
+- [ ] `cd sc-web && pnpm test`
+- [ ] `cd sc-web && pnpm build`
 
 ## Checklist
 

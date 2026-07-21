@@ -116,7 +116,7 @@ If you want people outside your house/LAN to join reliably, aim for:
 - `turn_ready = true`
 - a real TURN hostname/port
 - a real TURN username + credential
-- successful scenario checks from `gv-web/tests/multiplayer/README.md`
+- successful scenario checks from `sc-web/tests/multiplayer/README.md`
 
 ## Fast fix map
 
@@ -132,8 +132,8 @@ If you want people outside your house/LAN to join reliably, aim for:
 If `/api/health` says `turn-capable` and guests still fail, capture:
 
 1. browser logs
-2. gv-web logs
-3. gv-server logs
+2. sc-web logs
+3. sc-server logs
 4. coturn logs
 
-Use the matrix in `gv-web/tests/multiplayer/README.md` to decide which scenario failed and what evidence to attach.
+Use the matrix in `sc-web/tests/multiplayer/README.md` to decide which scenario failed and what evidence to attach.

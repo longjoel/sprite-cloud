@@ -92,7 +92,7 @@ pub struct AvInfo {
 /// compose masks with `JoypadButton::Up as u16`, etc.
 ///
 /// **Keep in sync with:**
-///   - gv-web/public/player/index.js: GAMEPAD_MASK, BIT_MAP, _setupGamepadInput
+///   - sc-web/public/player/index.js: GAMEPAD_MASK, BIT_MAP, _setupGamepadInput
 /// If you add/remove/reorder variants here, update the browser player mapping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]

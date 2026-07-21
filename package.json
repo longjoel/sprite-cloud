@@ -2,8 +2,8 @@
   "name": "sprite-cloud",
   "private": true,
   "scripts": {
-    "dev": "pnpm --filter gv-web dev",
-    "build": "pnpm --filter gv-web build",
+    "dev": "pnpm --filter sc-web dev",
+    "build": "pnpm --filter sc-web build",
     "lint": "pnpm -r lint"
   }
 }

@@ -1,4 +1,4 @@
-// gv-player tests — unit and integration.
+// sc-player tests — unit and integration.
 //
 // Unit tests use linkedom for DOM simulation; no browser required.
 // Integration tests require a running host runtime (set GV_WORKER_URL for compatibility).
@@ -10,14 +10,14 @@ import assert from "node:assert/strict";
 import { parseHTML } from "linkedom";
 
 // ---------------------------------------------------------------------------
-// DOM polyfill — must run before importing GvPlayer
+// DOM polyfill — must run before importing ScPlayer
 // ---------------------------------------------------------------------------
 
 function setupDOM() {
   const { window } = parseHTML("<!doctype html><html><body></body></html>");
   const { document } = window;
 
-  // Expose DOM globals for GvPlayer and tests
+  // Expose DOM globals for ScPlayer and tests
   globalThis.document = document;
   globalThis.HTMLVideoElement = window.HTMLVideoElement;
 
@@ -50,25 +50,25 @@ function setupDOM() {
   return document;
 }
 
-// Must be called before importing GvPlayer
+// Must be called before importing ScPlayer
 setupDOM();
 
-const { GvPlayer, State, classifyRoute } = await import("../index.js");
+const { ScPlayer, State, classifyRoute } = await import("../index.js");
 
 // ---------------------------------------------------------------------------
 // Unit: construction
 // ---------------------------------------------------------------------------
 
-describe("GvPlayer construction", () => {
+describe("ScPlayer construction", () => {
   it("requires a <video> element", () => {
-    assert.throws(() => new GvPlayer(null), TypeError);
-    assert.throws(() => new GvPlayer({}), TypeError);
-    assert.throws(() => new GvPlayer("not-an-element"), TypeError);
+    assert.throws(() => new ScPlayer(null), TypeError);
+    assert.throws(() => new ScPlayer({}), TypeError);
+    assert.throws(() => new ScPlayer("not-an-element"), TypeError);
   });
 
   it("sets video element attributes", () => {
     const video = document.createElement("video");
-    const player = new GvPlayer(video);
+    const player = new ScPlayer(video);
     assert.equal(video.autoplay, true);
     assert.equal(video.playsinline, true);
     assert.equal(player.state, State.IDLE);
@@ -79,12 +79,12 @@ describe("GvPlayer construction", () => {
 // Unit: state machine
 // ---------------------------------------------------------------------------
 
-describe("GvPlayer state machine", () => {
+describe("ScPlayer state machine", () => {
   let player, states;
 
   before(() => {
     const video = document.createElement("video");
-    player = new GvPlayer(video);
+    player = new ScPlayer(video);
     states = [];
     player.onStateChange = (state, detail) => {
       states.push({ state, detail });
@@ -117,10 +117,10 @@ describe("GvPlayer state machine", () => {
 // Unit: callback safety
 // ---------------------------------------------------------------------------
 
-describe("GvPlayer callback safety", () => {
+describe("ScPlayer callback safety", () => {
   it("throwing onStateChange does not throw out of disconnect", () => {
     const video = document.createElement("video");
-    const player = new GvPlayer(video);
+    const player = new ScPlayer(video);
     player.onStateChange = () => {
       throw new Error("boom");
     };
@@ -130,7 +130,7 @@ describe("GvPlayer callback safety", () => {
 
   it("duplicate state transitions are suppressed", () => {
     const video = document.createElement("video");
-    const player = new GvPlayer(video);
+    const player = new ScPlayer(video);
     let callCount = 0;
     player.onStateChange = () => {
       callCount++;
@@ -204,12 +204,12 @@ describe("classifyRoute", () => {
 // Integration: requires GV_WORKER_URL env var
 // ---------------------------------------------------------------------------
 
-describe("GvPlayer integration", { skip: !process.env.GV_WORKER_URL }, () => {
+describe("ScPlayer integration", { skip: !process.env.GV_WORKER_URL }, () => {
   let player;
 
   before(() => {
     const video = document.createElement("video");
-    player = new GvPlayer(video);
+    player = new ScPlayer(video);
   });
 
   after(() => {

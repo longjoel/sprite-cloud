@@ -20,18 +20,18 @@ ORDER BY le.created_at DESC
 LIMIT 50;
 ```
 
-### Grafana / Loki queries (gv-server logs)
+### Grafana / Loki queries (sc-server logs)
 ```
 # Did we use LAN or relay?
-{service="gv-server"} |= "ICE connection state changed: connected"
+{service="sc-server"} |= "ICE connection state changed: connected"
   | json | line_format "{{.fields.message}}"
 
 # Any core download failures?
-{service="gv-server"} |= "core download failed"
+{service="sc-server"} |= "core download failed"
   | json | line_format "{{.fields.message}}"
 
 # SDP exchange timing
-{service="gv-server"} |= "SDP exchange OK"
+{service="sc-server"} |= "SDP exchange OK"
   | json | line_format "attempt={{.fields.attempt}} ms={{.fields.duration_ms}}"
 ```
 
@@ -39,7 +39,7 @@ LIMIT 50;
 
 | Scenario | Expected route | Evidence |
 |---|---|---|
-| Desktop Chrome on LAN → gv-server HTTP health probe | LAN direct | Library shows "reachable" badge, `route=lan` in URL |
+| Desktop Chrome on LAN → sc-server HTTP health probe | LAN direct | Library shows "reachable" badge, `route=lan` in URL |
 | HTTPS page → HTTP LAN probe blocked | Relay fallback | Library shows "blocked" badge, opens player via relay |
 | Both Vault + Bazzite online, user selects Bazzite | LAN direct to Bazzite | Host picker shows both, player URL matches selected server |
 | Mobile on cellular → LAN server unreachable | Relay via TURN | No LAN badge, player opens via relay |

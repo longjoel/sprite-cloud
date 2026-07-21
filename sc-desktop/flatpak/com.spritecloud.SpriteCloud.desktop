@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Sprite Cloud
+Comment=Stream your retro game library
+Exec=sprite-cloud
+Icon=org.spritecloud.SpriteCloud
+Type=Application
+Categories=Game;Emulator;
+StartupNotify=true

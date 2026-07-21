@@ -19,7 +19,7 @@ done
 
 LOCAL_HEALTH_URL="${GV_LOCAL_HEALTH_URL:-http://localhost:3000/api/health}"
 LOCAL_RELEASE_FILE="${GV_LOCAL_RELEASE_FILE:-/var/lib/sprite-cloud/RELEASE_COMMIT}"
-REMOTE_RELEASE_FILE="${GV_REMOTE_RELEASE_FILE:-/docker/gv-web/RELEASE_COMMIT}"
+REMOTE_RELEASE_FILE="${GV_REMOTE_RELEASE_FILE:-/docker/sc-web/RELEASE_COMMIT}"
 PUBLIC_HEALTH_URL="${GV_PUBLIC_HEALTH_URL:-${GV_WEB_URL:+${GV_WEB_URL%/}/api/health}}"
 VPS_HOST="${VPS_HOST:-${GV_VPS_HOST:-}}"
 VPS_USER="${VPS_USER:-root}"
@@ -32,15 +32,15 @@ if [[ "$CHECK_LOCAL" -eq 1 ]]; then
   else
     warn "missing local release file: $LOCAL_RELEASE_FILE"
   fi
-  if systemctl is-active --quiet gv-server.service; then
-    log "gv-server.service active"
+  if systemctl is-active --quiet sc-server.service; then
+    log "sc-server.service active"
   else
-    fail "gv-server.service is not active"
+    fail "sc-server.service is not active"
   fi
   if curl -fsS "$LOCAL_HEALTH_URL" >/dev/null 2>&1; then
     log "local web health OK: $LOCAL_HEALTH_URL"
   else
-    warn "local web health unreachable: $LOCAL_HEALTH_URL (expected when gv-web only runs on the VPS)"
+    warn "local web health unreachable: $LOCAL_HEALTH_URL (expected when sc-web only runs on the VPS)"
   fi
 fi
 

@@ -6,8 +6,8 @@ Sprite Cloud has three roles:
 
 | Role | Runs where | What it does |
 |---|---|---|
-| `gv-web` | Gateway server | Web UI, email/password auth, setup wizard, library, pairing, command relay |
-| `gv-server` | Host machine with ROMs | Polls the gateway, runs emulator cores in-process, streams video/audio over WebRTC |
+| `sc-web` | Gateway server | Web UI, email/password auth, setup wizard, library, pairing, command relay |
+| `sc-server` | Host machine with ROMs | Polls the gateway, runs emulator cores in-process, streams video/audio over WebRTC |
 | Browser player | Player device | Plays in the browser — no plugin or native app |
 
 Architecture overview: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
@@ -17,10 +17,10 @@ Protocol and wire formats: **[docs/PROTOCOL.md](docs/PROTOCOL.md)**
 
 For the user-facing guide, see **[QUICKSTART.md](QUICKSTART.md)**.
 
-### Run gv-web locally
+### Run sc-web locally
 
 ```bash
-cd gv-web
+cd sc-web
 pnpm install
 cp .env.example .env.local
 # Edit .env.local — fill in DATABASE_URL and AUTH_SECRET at minimum.
@@ -35,14 +35,14 @@ Open `http://localhost:3000/setup`. On first run, the server prints a setup code
 From the gateway dashboard, generate a pairing code. The UI shows the exact command, including the gateway URL:
 
 ```bash
-gv-server pair ABCD-EFGH --gv-web-url https://your-gateway.example
+sc-server pair ABCD-EFGH --sc-web-url https://your-gateway.example
 ```
 
 Then point the host at your ROMs and start it:
 
 ```bash
 export GV_ROM_ROOTS=/path/to/roms
-cargo run -p gv-server -- start
+cargo run -p sc-server -- start
 ```
 
 ## One-liner host install
@@ -51,11 +51,11 @@ cargo run -p gv-server -- start
 curl -sSL https://raw.githubusercontent.com/longjoel/sprite-cloud/main/scripts/install.sh | sh -s -- --web-url https://your-gateway.example --rom-dir /path/to/roms
 ```
 
-The installer detects Linux distro/arch, installs system dependencies, downloads `gv-server` from GitHub Releases, writes config, and installs a systemd service.
+The installer detects Linux distro/arch, installs system dependencies, downloads `sc-server` from GitHub Releases, writes config, and installs a systemd service.
 
 ## Docker host
 
-Run a gv-server host in a container, auto-pairing on first start:
+Run a sc-server host in a container, auto-pairing on first start:
 
 ```bash
 docker run -d \
@@ -66,23 +66,23 @@ docker run -d \
   -e GV_PAIR_CODE=ABCD-EFGH \
   -e GV_WEB_URL=https://your-gateway.example \
   -e GV_ROM_ROOTS=/roms \
-  ghcr.io/longjoel/sprite-cloud/gv-server:latest
+  ghcr.io/longjoel/sprite-cloud/sc-server:latest
 ```
 
 The container pairs automatically on first run (reads `GV_PAIR_CODE` + `GV_WEB_URL`). On subsequent starts it reuses the saved credentials. Generate a pairing code from your gateway dashboard (Settings → Hosts).
 
 ## Manual host config
 
-`gv-server pair` writes credentials to `~/.config/sprite-cloud/config.toml` or `/etc/sprite-cloud/config.toml` depending on install mode.
+`sc-server pair` writes credentials to `~/.config/sprite-cloud/config.toml` or `/etc/sprite-cloud/config.toml` depending on install mode.
 
 A minimal config looks like:
 
 ```toml
-[gv_web]
+[sc_web]
 url = "https://your-gateway.example"
 
 [auth]
-api_key = "gvsk_..."
+api_key = "scsk_..."
 server_id = "a0000000-..."
 
 [rom]

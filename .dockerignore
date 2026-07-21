@@ -3,12 +3,12 @@ target/
 .release/
 
 # Next.js — always rebuild inside Docker (never ship a stale .next/)
-gv-web/.next/
+sc-web/.next/
 
 # Dependencies (copied from builder stage)
 node_modules/
-gv-web/node_modules/
-gv-player/node_modules/
+sc-web/node_modules/
+sc-player/node_modules/
 
 # Git
 .git/
