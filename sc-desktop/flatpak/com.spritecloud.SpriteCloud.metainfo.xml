@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>org.spritecloud.SpriteCloud</id>
+  <id>com.spritecloud.SpriteCloud</id>
   <name>Sprite Cloud</name>
   <summary>Stream your retro game library to any device</summary>
   <metadata_license>CC0-1.0</metadata_license>
@@ -30,7 +30,7 @@
   <developer id="io.github.longjoel">
     <name>Joel Long</name>
   </developer>
-  <launchable type="desktop-id">org.spritecloud.SpriteCloud.desktop</launchable>
+  <launchable type="desktop-id">com.spritecloud.SpriteCloud.desktop</launchable>
   <content_rating type="oars-1.1">
     <content_attribute id="violence-cartoon">none</content_attribute>
     <content_attribute id="violence-fantasy">none</content_attribute>
@@ -60,12 +60,6 @@
     <content_attribute id="money-purchasing">none</content_attribute>
     <content_attribute id="money-gambling">none</content_attribute>
   </content_rating>
-  <screenshots>
-    <screenshot type="default">
-      <image>https://sprite-cloud.com/screenshot.png</image>
-      <caption>Sprite Cloud XMB interface browsing a retro game library</caption>
-    </screenshot>
-  </screenshots>
   <releases>
     <release version="0.3.5" date="2026-07-15">
       <description>

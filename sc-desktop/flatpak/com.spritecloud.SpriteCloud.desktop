@@ -2,7 +2,7 @@
 Name=Sprite Cloud
 Comment=Stream your retro game library
 Exec=sprite-cloud
-Icon=org.spritecloud.SpriteCloud
+Icon=com.spritecloud.SpriteCloud
 Type=Application
 Categories=Game;Emulator;
 StartupNotify=true
