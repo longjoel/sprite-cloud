@@ -42,3 +42,4 @@ sc-web/public/player/player-bundle.js
 .flatpak-builder/
 sc-desktop/flatpak/repo/
 sc-desktop/flatpak/.flatpak-build/
+sprite-cloud.flatpak
