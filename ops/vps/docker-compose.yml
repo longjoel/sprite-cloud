@@ -1,6 +1,6 @@
 services:
-  gv-web:
-    image: gv-web:latest
+  sc-web:
+    image: sc-web:latest
     restart: unless-stopped
     network_mode: host
     env_file:

@@ -1,6 +1,6 @@
 # API Reference
 
-`gv-web` exposes the HTTP API used by the browser UI and paired `gv-server` hosts. All routes are under `/api`.
+`sc-web` exposes the HTTP API used by the browser UI and paired `sc-server` hosts. All routes are under `/api`.
 
 ## Auth models
 
@@ -39,7 +39,7 @@ Claim response:
 ```json
 {
   "server_id": "00000000-0000-0000-0000-000000000000",
-  "api_key": "gvsk_example"
+  "api_key": "scsk_example"
 }
 ```
 
@@ -176,7 +176,7 @@ a user account.
 | Room token | Guest join secret | In-memory only; embedded in share link | Until session ends |
 | Peer token | Per-guest identifier | In-memory only | Until guest disconnects |
 | ICE credentials | TURN auth | Never stored client-side (fetched from `/api/ice-config`) | Per TURN allocation |
-| CSRF token | Mutation guard | `gv_csrf_token` cookie + `x-csrf-token` header | Session |
+| CSRF token | Mutation guard | `sc_csrf_token` cookie + `x-csrf-token` header | Session |
 
 **Critical rule:** Host tokens and room tokens must never be persisted to
 `localStorage` or `sessionStorage` in the PWA context. Reconnection uses
@@ -196,4 +196,4 @@ Example ICE response:
 
 ## Compatibility terminology
 
-Some response fields still use `worker_*` names, especially `worker_token`, for compatibility with older client/server code. In current deployments those values identify a host-runtime play session inside `gv-server`; they do not imply a separate runtime binary.
+Some response fields still use `worker_*` names, especially `worker_token`, for compatibility with older client/server code. In current deployments those values identify a host-runtime play session inside `sc-server`; they do not imply a separate runtime binary.

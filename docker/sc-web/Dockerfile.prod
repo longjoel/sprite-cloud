@@ -1,0 +1,65 @@
+FROM node:22-slim AS deps
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY sc-web/package.json sc-web/
+COPY sc-player/package.json sc-player/
+RUN corepack enable && corepack prepare pnpm@latest --activate && \
+    pnpm install --frozen-lockfile --ignore-scripts || pnpm install --no-frozen-lockfile
+RUN pnpm rebuild esbuild sharp 2>/dev/null || true
+
+FROM node:22-slim AS builder
+ARG GV_WEB_GIT_SHA=unknown
+ARG GV_WEB_VERSION=unknown
+ARG GV_WEB_RELEASED_AT_UTC=unknown
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/sc-web/node_modules ./sc-web/node_modules
+COPY --from=deps /app/sc-player/node_modules ./sc-player/node_modules
+# Copy source
+COPY . .
+WORKDIR /app/sc-web
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npx next build
+
+FROM node:22-slim AS runner
+ARG GV_WEB_GIT_SHA=unknown
+ARG GV_WEB_VERSION=unknown
+ARG GV_WEB_RELEASED_AT_UTC=unknown
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy standalone Next.js output
+COPY --from=builder /app/sc-web/.next/standalone ./
+COPY --from=builder /app/sc-web/.next/static ./sc-web/.next/static
+COPY --from=builder /app/sc-web/public ./sc-web/public
+
+# Copy sc-player (served as static assets by Next.js)
+COPY --from=builder /app/sc-player ./sc-player
+
+# Copy drizzle config + migrations + schema for runtime DB push
+COPY --from=builder /app/sc-web/drizzle.config.ts ./sc-web/
+COPY --from=builder /app/sc-web/drizzle ./sc-web/drizzle
+COPY --from=builder /app/sc-web/lib/db/schema.ts ./sc-web/lib/db/
+
+# Install drizzle-kit locally for runtime DB schema push
+WORKDIR /app/sc-web
+RUN npm init -y 2>/dev/null; npm install drizzle-kit@0.31.10 bcryptjs
+WORKDIR /app
+
+# Copy production entrypoint
+COPY docker/sc-web/entrypoint.prod.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+ENV GV_WEB_GIT_SHA=$GV_WEB_GIT_SHA
+ENV GV_WEB_VERSION=$GV_WEB_VERSION
+ENV GV_WEB_RELEASED_AT_UTC=$GV_WEB_RELEASED_AT_UTC
+EXPOSE 3000
+
+CMD ["/entrypoint.sh"]

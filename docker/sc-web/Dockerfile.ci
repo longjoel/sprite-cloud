@@ -1,0 +1,28 @@
+# ── Production sc-web image ──────────────────────────────────────────
+# Expects standalone Next.js output at ./sc-web-standalone/ in context.
+# CI places it there; public/ dir comes from the repo directly.
+
+FROM node:22-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Standalone Next.js output — placed under sc-web/ so the entrypoint
+# can cd /app/sc-web && node server.js
+COPY sc-web-standalone/ ./sc-web/
+
+# Static assets served by Next.js (must be next to server.js in standalone)
+COPY sc-web/public/ ./sc-web/sc-web/public/
+
+# Next.js build static assets (JS chunks, CSS) — not in standalone output
+COPY sc-web/.next/static/ ./sc-web/sc-web/.next/static/
+
+# Production entrypoint (applies DB schema, starts node server.js)
+COPY docker/sc-web/entrypoint.prod.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 3000
+CMD ["/entrypoint.sh"]

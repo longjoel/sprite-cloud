@@ -35,22 +35,22 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build Rust release binaries
-        run: cargo build --release -p gv-server
+        run: cargo build --release -p sc-server
 
       - name: Test Rust crates
-        run: cargo test -p gv-server -p gv-core -p libretro-runner
+        run: cargo test -p sc-server -p sc-core -p libretro-runner
 
-      - name: Check gv-desktop (Tauri/AppImage)
+      - name: Check sc-desktop (Tauri/AppImage)
         run: |
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
             libayatana-appindicator3-dev librsvg2-dev patchelf libudev-dev
-          cargo check -p gv-desktop
-          cargo test -p gv-desktop
+          cargo check -p sc-desktop
+          cargo test -p sc-desktop
 
       - name: Smoke test libretro-runner
         run: cargo test -p libretro-runner --test smoke -- --test-threads=1
 
-      # ── Docker: gv-server ────────────────────────────────────────
+      # ── Docker: sc-server ────────────────────────────────────────
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -62,23 +62,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Docker metadata (gv-server)
+      - name: Docker metadata (sc-server)
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_PREFIX }}/gv-server
+          images: ${{ env.IMAGE_PREFIX }}/sc-server
           tags: |
             type=sha,prefix=,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Place binary for Docker context
-        run: cp target/release/gv-server ./gv-server
+        run: cp target/release/sc-server ./sc-server
 
-      - name: Build and push gv-server
+      - name: Build and push sc-server
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/gv-server/Dockerfile.ci
+          file: docker/sc-server/Dockerfile.ci
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -106,10 +106,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build gv-web
+      - name: Build sc-web
         run: pnpm build
 
-      # ── Docker: gv-web ──────────────────────────────────────────
+      # ── Docker: sc-web ──────────────────────────────────────────
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -121,23 +121,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Docker metadata (gv-web)
+      - name: Docker metadata (sc-web)
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_PREFIX }}/gv-web
+          images: ${{ env.IMAGE_PREFIX }}/sc-web
           tags: |
             type=sha,prefix=,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Place standalone output for Docker context
-        run: cp -r gv-web/.next/standalone/gv-web ./gv-web-standalone
+        run: cp -r sc-web/.next/standalone/sc-web ./sc-web-standalone
 
-      - name: Build and push gv-web
+      - name: Build and push sc-web
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: docker/gv-web/Dockerfile.ci
+          file: docker/sc-web/Dockerfile.ci
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

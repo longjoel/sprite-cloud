@@ -2066,67 +2066,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gv-core"
-version = "0.1.0"
-dependencies = [
- "libretro-runner",
- "memmap2",
-]
-
-[[package]]
-name = "gv-desktop"
-version = "0.1.0"
-dependencies = [
- "gilrs",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-store",
-]
-
-[[package]]
-name = "gv-server"
-version = "0.3.3"
-dependencies = [
- "anyhow",
- "axum",
- "base64 0.22.1",
- "clap",
- "crc32fast",
- "dirs",
- "gstreamer",
- "gstreamer-app",
- "gv-core",
- "hex",
- "if-addrs",
- "libc",
- "libretro-runner",
- "quick-xml 0.37.5",
- "rand 0.8.6",
- "regex-lite",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "serial_test",
- "sha2",
- "tempfile",
- "tokio",
- "tokio-util",
- "toml 0.8.23",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "url",
- "walkdir",
- "webrtc",
- "webrtc-ice",
- "webrtc-sctp 0.11.0",
- "zip",
-]
-
-[[package]]
 name = "h2"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4358,6 +4297,67 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "sc-core"
+version = "0.1.0"
+dependencies = [
+ "libretro-runner",
+ "memmap2",
+]
+
+[[package]]
+name = "sc-desktop"
+version = "0.1.0"
+dependencies = [
+ "gilrs",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-store",
+]
+
+[[package]]
+name = "sc-server"
+version = "0.3.3"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64 0.22.1",
+ "clap",
+ "crc32fast",
+ "dirs",
+ "gstreamer",
+ "gstreamer-app",
+ "hex",
+ "if-addrs",
+ "libc",
+ "libretro-runner",
+ "quick-xml 0.37.5",
+ "rand 0.8.6",
+ "regex-lite",
+ "reqwest 0.12.28",
+ "sc-core",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+ "toml 0.8.23",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "walkdir",
+ "webrtc",
+ "webrtc-ice",
+ "webrtc-sctp 0.11.0",
+ "zip",
 ]
 
 [[package]]

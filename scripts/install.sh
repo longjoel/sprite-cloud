@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
     --help|-h)
       printf "Usage: install.sh [--rootless] [--web-url URL] [--rom-dir PATH]\n"
       printf "  --rootless   Install as current user (no sudo)\n"
-      printf "  --web-url    gv-web URL (skip prompt)\n"
+      printf "  --web-url    sc-web URL (skip prompt)\n"
       printf "  --rom-dir    ROM directory (skip prompt)\n"
       exit 0
       ;;
@@ -112,7 +112,7 @@ fi
 
 CORES_DIR="${DATA_DIR}/cores"
 CONFIG_FILE="${CONFIG_DIR}/config.toml"
-BIN_PATH="${BIN_DIR}/gv-server"
+BIN_PATH="${BIN_DIR}/sc-server"
 
 printf "${BOLD}Sprite Cloud — Self-Hosted Install${NC}\n"
 printf "  Mode:   ${CYAN}%s${NC}\n" "$MODE"
@@ -166,12 +166,12 @@ fi
 ok "directories created"
 
 # ── Download binary ────────────────────────────────────────────────────
-BIN_URL="${GV_BIN_URL:-https://github.com/longjoel/sprite-cloud/releases/latest/download/gv-server-${ARCH}}"
+BIN_URL="${GV_BIN_URL:-https://github.com/longjoel/sprite-cloud/releases/latest/download/sc-server-${ARCH}}"
 
-log "Downloading gv-server ($ARCH)…"
+log "Downloading sc-server ($ARCH)…"
 $SUDO curl -sSL "$BIN_URL" -o "$BIN_PATH"
 $SUDO chmod +x "$BIN_PATH"
-ok "gv-server installed to $BIN_PATH"
+ok "sc-server installed to $BIN_PATH"
 
 # ── Config ─────────────────────────────────────────────────────────────
 log "Configuration"
@@ -193,7 +193,7 @@ if [[ -z "$ROM_DIR" ]]; then
 fi
 
 $SUDO tee "$CONFIG_FILE" > /dev/null << EOF
-[gv_web]
+[sc_web]
 url = "${WEB_URL}"
 
 [rom]
@@ -210,7 +210,7 @@ fi
 ok "config written to $CONFIG_FILE"
 
 # ── Systemd service ────────────────────────────────────────────────────
-SERVICE_FILE="${SYSTEMD_DIR}/gv-server.service"
+SERVICE_FILE="${SYSTEMD_DIR}/sc-server.service"
 
 if $ROOTLESS; then
   mkdir -p "$SYSTEMD_DIR"
@@ -262,7 +262,7 @@ LimitNOFILE=65536
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=${DATA_DIR} /tmp/gv-sessions
+ReadWritePaths=${DATA_DIR} /tmp/sc-sessions
 PrivateTmp=yes
 PrivateDevices=no
 DeviceAllow=/dev/dri rw
@@ -285,13 +285,13 @@ printf "  Next steps:\n"
 echo ""
 printf "  ${BOLD}1. Pair your server:${NC}\n"
 printf "     Go to ${CYAN}${WEB_URL}${NC} → Pair Server → copy the code\n"
-printf "     Run: ${BOLD}gv-server pair <CODE> --gv-web-url ${WEB_URL}${NC}\n"
+printf "     Run: ${BOLD}sc-server pair <CODE> --sc-web-url ${WEB_URL}${NC}\n"
 echo ""
 printf "  ${BOLD}2. Start the service:${NC}\n"
-printf "     ${BOLD}${SYSTEMCTL} enable --now gv-server${NC}\n"
+printf "     ${BOLD}${SYSTEMCTL} enable --now sc-server${NC}\n"
 echo ""
-printf "  Status:  ${BOLD}${SYSTEMCTL} status gv-server${NC}\n"
-printf "  Logs:    ${BOLD}journalctl ${SYSTEMCTL/#systemctl/} -u gv-server -f${NC}\n"
+printf "  Status:  ${BOLD}${SYSTEMCTL} status sc-server${NC}\n"
+printf "  Logs:    ${BOLD}journalctl ${SYSTEMCTL/#systemctl/} -u sc-server -f${NC}\n"
 printf "  Config:  ${BOLD}${CONFIG_FILE}${NC}\n"
 printf "  Cores:   ${BOLD}${CORES_DIR}${NC}\n"
 echo ""

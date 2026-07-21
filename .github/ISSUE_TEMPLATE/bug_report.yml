@@ -18,7 +18,7 @@ body:
       label: Reproduction steps
       description: How can we reproduce this? Include config, browser, OS, ROM details if applicable.
       placeholder: |
-        1. Start gv-server with ...
+        1. Start sc-server with ...
         2. Open gateway at ...
         3. Click Play on ...
         4. See error
@@ -30,9 +30,9 @@ body:
       label: Component
       description: Which part of the project is affected?
       options:
-        - gv-web (gateway)
-        - gv-server (host runtime)
-        - gv-player (browser client)
+        - sc-web (gateway)
+        - sc-server (host runtime)
+        - sc-player (browser client)
         - Installer/deployment
         - Documentation
         - Other
@@ -42,7 +42,7 @@ body:
     id: version
     attributes:
       label: Version / commit
-      description: What commit or version are you running? Run `gv-server --version` or paste `git rev-parse --short HEAD`.
+      description: What commit or version are you running? Run `sc-server --version` or paste `git rev-parse --short HEAD`.
     validations:
       required: false
   - type: dropdown
@@ -61,7 +61,7 @@ body:
     id: logs
     attributes:
       label: Relevant logs
-      description: Paste any relevant logs from gv-server or gateway. No credentials, tokens, or personal URLs.
+      description: Paste any relevant logs from sc-server or gateway. No credentials, tokens, or personal URLs.
       render: shell
     validations:
       required: false

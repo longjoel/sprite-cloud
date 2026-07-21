@@ -12,7 +12,7 @@ Until a dedicated security contact is published, report privately to the project
 
 Include:
 
-- Affected component (`gv-web`, `gv-server`, `gv-core`, installer, deployment config)
+- Affected component (`sc-web`, `sc-server`, `sc-core`, installer, deployment config)
 - Impact
 - Reproduction steps
 - Logs or screenshots if useful

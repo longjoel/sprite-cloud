@@ -17,28 +17,28 @@ This matters because Sprite Cloud is a self-hosted product aimed at non-expert u
 
 ## Evidence from the current codebase
 
-### gv-server transport facts
+### sc-server transport facts
 
-- `gv-server/src/webrtc.rs`
+- `sc-server/src/webrtc.rs`
   - `ice_config()` loads shared runtime STUN/TURN config.
   - `build_pc_for_guest()` includes both STUN and TURN and uses the configured ICE transport policy.
   - `build_session_pc_lan()` exists as a special-case direct/LAN host path.
   - `exchange_sdp()` must wait for ICE gathering and explicitly sleeps to allow relay candidates to make it into the SDP answer.
 
-### gv-web transport facts
+### sc-web transport facts
 
-- `gv-web/app/api/ice-config/route.ts`
+- `sc-web/app/api/ice-config/route.ts`
   - browser ICE policy is now config-driven only.
-  - gv-web intentionally does **not** guess LAN topology from request IPs.
-- `gv-web/app/api/server/command/route.ts`
-- `gv-web/app/api/server/notify/route.ts`
-- `gv-web/app/api/room/join/route.ts`
+  - sc-web intentionally does **not** guess LAN topology from request IPs.
+- `sc-web/app/api/server/command/route.ts`
+- `sc-web/app/api/server/notify/route.ts`
+- `sc-web/app/api/room/join/route.ts`
   - signaling phases are now explicit and consistently logged.
 
 ### Verification facts
 
-- `gv-web/tests/multiplayer/README.md`
-- `gv-web/lib/multiplayer-verification-matrix.ts`
+- `sc-web/tests/multiplayer/README.md`
+- `sc-web/lib/multiplayer-verification-matrix.ts`
   - scenario 1 is readily automatable.
   - scenarios 2–4 still depend on real network topology and log capture.
 - Same-machine host+guest smoke testing now passes.
@@ -71,7 +71,7 @@ Pros:
 Cons:
 - self-hosting success still depends on topology-sensitive behavior
 - support/debugging burden remains high for scenarios 2–4
-- operators still need correct TURN rollout on both gv-web and gv-server
+- operators still need correct TURN rollout on both sc-web and sc-server
 - the product remains vulnerable to hostile-NAT/cellular edge cases
 
 Conclusion:
@@ -155,11 +155,11 @@ For every guest multiplayer failure, operators must be able to collect:
   - signaling flow/stage
   - selected candidate pair / route classification
   - data-channel state
-- gv-web logs
+- sc-web logs
   - command/session IDs
   - room join resolution
   - notify / SDP answer resolution
-- gv-server logs
+- sc-server logs
   - `host_start`, `guest_offer`, `host_reconnect` stages
   - session missing / fresh-PC / SDP failures
 - relay logs
@@ -202,7 +202,7 @@ without reading both browser and server source side-by-side.
    - avoid leaking host/LAN special cases into the default guest path
 
 3. **Improve route reporting**
-   - surface selected guest route clearly in browser + gv-web + gv-server logs
+   - surface selected guest route clearly in browser + sc-web + sc-server logs
    - make relay selection/failure obvious in operational evidence
 
 4. **Codify the self-hosting story**

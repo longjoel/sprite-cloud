@@ -7,12 +7,12 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # ── Defaults (all overridable via env) ─────────────────────────────────
 PG_PORT="${GV_PG_PORT:-5433}"
-PG_DB="${GV_PG_DB:-gv_web_dev}"
+PG_DB="${GV_PG_DB:-sc_web_dev}"
 PG_USER="${GV_PG_USER:-sprite-cloud}"
 WEB_PORT="${GV_WEB_PORT:-3000}"
-LOG_DIR="${GV_LOG_DIR:-/dev/shm/gv-logs}"
+LOG_DIR="${GV_LOG_DIR:-/dev/shm/sc-logs}"
 ROM_ROOTS="${GV_ROM_ROOTS:-/srv/storage/games/roms}"
-SERVER_BIN="${GV_SERVER_BIN:-/usr/local/bin/gv-server}"
+SERVER_BIN="${GV_SERVER_BIN:-/usr/local/bin/sc-server}"
 CORES_DIR="${GV_CORES_DIR:-/srv/storage/games/cores}"
 SAVE_DIR="${GV_SAVE_DIR:-/srv/storage/games/saves}"
 SYSTEM_DIR="${GV_SYSTEM_DIR:-/srv/storage/games/system}"
@@ -41,12 +41,12 @@ health_check() {
 }
 
 # ── Kill all game processes (by user) ───────────────────────────────────
-# gv-server owns the in-process runtime. Kill by service user to clean up
+# sc-server owns the in-process runtime. Kill by service user to clean up
 # stale dev processes from previous runs.
 cmd_killall() {
     log "Killing all game processes (user: $GV_USER)..."
     pkill -9 -u "$GV_USER" 2>/dev/null && log "  Killed all $GV_USER processes" || true
-    rm -f /tmp/gv-sessions/*.pid 2>/dev/null || true
+    rm -f /tmp/sc-sessions/*.pid 2>/dev/null || true
     log "Done"
 }
 
@@ -60,15 +60,15 @@ cmd_status() {
         echo -e "  Postgres  ${RED}DOWN${NC}"
     fi
 
-    # Use deep health check for gv-web + stack status
+    # Use deep health check for sc-web + stack status
     local health
     health=$(curl -sf "http://localhost:$WEB_PORT/api/health" 2>/dev/null || echo "")
     if [ -n "$health" ]; then
         local overall=$(echo "$health" | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
         case "$overall" in
-            ok)       echo -e "  gv-web    ${GREEN}ok${NC}  http://localhost:$WEB_PORT  (health: $overall)" ;;
-            degraded) echo -e "  gv-web    ${YELLOW}ok${NC}  http://localhost:$WEB_PORT  (health: $overall)" ;;
-            *)        echo -e "  gv-web    ${RED}DOWN${NC}  http://localhost:$WEB_PORT  (health: $overall)" ;;
+            ok)       echo -e "  sc-web    ${GREEN}ok${NC}  http://localhost:$WEB_PORT  (health: $overall)" ;;
+            degraded) echo -e "  sc-web    ${YELLOW}ok${NC}  http://localhost:$WEB_PORT  (health: $overall)" ;;
+            *)        echo -e "  sc-web    ${RED}DOWN${NC}  http://localhost:$WEB_PORT  (health: $overall)" ;;
         esac
         # Show component breakdown
         echo "$health" | python3 -c "
@@ -85,13 +85,13 @@ for name, c in sorted(h['components'].items()):
         print(f'    {name}: \033[1;31m{s}\033[0m')
 " 2>/dev/null || true
     else
-        echo -e "  gv-web    ${RED}DOWN${NC}"
+        echo -e "  sc-web    ${RED}DOWN${NC}"
     fi
-    if pgrep -u "$GV_USER" -f 'gv-server start' >/dev/null 2>&1; then
+    if pgrep -u "$GV_USER" -f 'sc-server start' >/dev/null 2>&1; then
         local sid=$(grep server_id "$CFG_DIR/config.toml" 2>/dev/null | cut -d'"' -f2)
-        echo -e "  gv-server ${GREEN}ok${NC}  server_id=${sid:-?}  (user: $GV_USER)"
+        echo -e "  sc-server ${GREEN}ok${NC}  server_id=${sid:-?}  (user: $GV_USER)"
     else
-        echo -e "  gv-server ${RED}DOWN${NC}"
+        echo -e "  sc-server ${RED}DOWN${NC}"
     fi
     echo ""
     echo "Library: http://localhost:$WEB_PORT"
@@ -105,7 +105,7 @@ for name, c in sorted(h['components'].items()):
 cmd_stop() {
     log "Stopping..."
     cmd_killall
-    pkill -f 'next-server' 2>/dev/null && log "  gv-web stopped" || true
+    pkill -f 'next-server' 2>/dev/null && log "  sc-web stopped" || true
     log "Done"
 }
 
@@ -122,8 +122,8 @@ cmd_start() {
     log "Postgres ready"
 
     if [ ! -f "$SERVER_BIN" ]; then
-        err "gv-server binary not found: $SERVER_BIN"
-        err "Build: cargo build --release -p gv-server && cp target/release/gv-server $SERVER_BIN && chown $GV_USER:$GV_USER $SERVER_BIN"
+        err "sc-server binary not found: $SERVER_BIN"
+        err "Build: cargo build --release -p sc-server && cp target/release/sc-server $SERVER_BIN && chown $GV_USER:$GV_USER $SERVER_BIN"
         exit 1
     fi
 
@@ -131,11 +131,11 @@ cmd_start() {
         log "Resetting dev environment..."
         cmd_killall
         pkill -f 'next-server' 2>/dev/null || true
-        rm -rf "$PROJECT_DIR/gv-web/.next"
+        rm -rf "$PROJECT_DIR/sc-web/.next"
         log "Cleaned .next build cache"
     fi
 
-    # ── gv-web ──────────────────────────────────────────────────────
+    # ── sc-web ──────────────────────────────────────────────────────
     # Always kill stale next processes — next dev can accumulate stale
     # route registries over long uptime (days), causing 404s on valid API routes.
     local restart_web=false
@@ -143,27 +143,27 @@ cmd_start() {
         local uptime_secs
         uptime_secs=$(ps -o etimes= -p "$(pgrep -f 'next-server' | head -1)" 2>/dev/null | tr -d ' ' || echo 0)
         if [ "$uptime_secs" -gt 7200 ] 2>/dev/null; then
-            log "gv-web uptime ${uptime_secs}s > 2h — forcing restart to clear stale routes"
+            log "sc-web uptime ${uptime_secs}s > 2h — forcing restart to clear stale routes"
             restart_web=true
         fi
     fi
 
     if $restart_web || ! curl -sf "http://localhost:$WEB_PORT/api/health" >/dev/null 2>&1; then
-        log "Starting gv-web..."
+        log "Starting sc-web..."
         pkill -f 'next-server' 2>/dev/null || true
         pkill -f 'next dev' 2>/dev/null || true
         sleep 1
-        cd "$PROJECT_DIR/gv-web"
+        cd "$PROJECT_DIR/sc-web"
         rm -rf .next
         if [ "${GV_PROD:-0}" = "1" ]; then
-            log "Building production gv-web..."
-            npx next build > "$LOG_DIR/gv-web-build.log" 2>&1
-            npx next start -p "$WEB_PORT" > "$LOG_DIR/gv-web.log" 2>&1 &
+            log "Building production sc-web..."
+            npx next build > "$LOG_DIR/sc-web-build.log" 2>&1
+            npx next start -p "$WEB_PORT" > "$LOG_DIR/sc-web.log" 2>&1 &
         else
-            pnpm dev > "$LOG_DIR/gv-web.log" 2>&1 &
+            pnpm dev > "$LOG_DIR/sc-web.log" 2>&1 &
         fi
         cd "$PROJECT_DIR"
-        health_check "http://localhost:$WEB_PORT/api/health" "gv-web"
+        health_check "http://localhost:$WEB_PORT/api/health" "sc-web"
         # Verify critical API routes are registered (not just health)
         local route_test
         route_test=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
@@ -176,10 +176,10 @@ cmd_start() {
         fi
         log "API routes verified (POST /api/server/command → $route_test)"
     else
-        log "gv-web already running"
+        log "sc-web already running"
     fi
 
-    # ── gv-server config ────────────────────────────────────────────
+    # ── sc-server config ────────────────────────────────────────────
     if [ ! -f "$CFG_DIR/config.toml" ]; then
         # Try to copy from root's config (one-time migration)
         if [ -f "$HOME/.config/sprite-cloud/config.toml" ]; then
@@ -189,7 +189,7 @@ cmd_start() {
             chown -R "$GV_USER:$GV_USER" "$CFG_DIR"
             chmod 750 "$CFG_DIR"
         else
-            err "gv-server config not found: $CFG_DIR/config.toml"
+            err "sc-server config not found: $CFG_DIR/config.toml"
             err ""
             err "One-time setup:"
             err "  1. Sign in at http://localhost:$WEB_PORT"
@@ -199,9 +199,9 @@ cmd_start() {
     fi
     log "Config: $CFG_DIR/config.toml"
 
-    # ── gv-server (runs as GV_USER so children inherit the UID) ─────
-    if ! pgrep -u "$GV_USER" -f 'gv-server start' >/dev/null 2>&1; then
-        log "Starting gv-server (user: $GV_USER)..."
+    # ── sc-server (runs as GV_USER so children inherit the UID) ─────
+    if ! pgrep -u "$GV_USER" -f 'sc-server start' >/dev/null 2>&1; then
+        log "Starting sc-server (user: $GV_USER)..."
         runuser -u "$GV_USER" -- env \
             XDG_CONFIG_HOME="$CFG_DIR/.." \
             GV_CORES_DIR="$CORES_DIR" \
@@ -209,17 +209,17 @@ cmd_start() {
             GV_SAVE_DIR="$SAVE_DIR" \
             GV_SYSTEM_DIR="$SYSTEM_DIR" \
             ALLOWED_ORIGIN="http://localhost:$WEB_PORT" \
-            "$SERVER_BIN" start --gv-web-url "http://localhost:$WEB_PORT" \
-            > "$LOG_DIR/gv-server.log" 2>&1 &
+            "$SERVER_BIN" start --sc-web-url "http://localhost:$WEB_PORT" \
+            > "$LOG_DIR/sc-server.log" 2>&1 &
         sleep 2
-        if pgrep -u "$GV_USER" -f 'gv-server start' >/dev/null 2>&1; then
-            log "gv-server started"
+        if pgrep -u "$GV_USER" -f 'sc-server start' >/dev/null 2>&1; then
+            log "sc-server started"
         else
-            err "gv-server failed to start — check $LOG_DIR/gv-server.log"
+            err "sc-server failed to start — check $LOG_DIR/sc-server.log"
             exit 1
         fi
     else
-        log "gv-server already running"
+        log "sc-server already running"
     fi
 
     cmd_status
@@ -229,8 +229,8 @@ cmd_start() {
 cmd_build() {
     log "Building release binaries..."
     cd "$PROJECT_DIR"
-    cargo build --release -p gv-server
-    cp target/release/gv-server "$SERVER_BIN"
+    cargo build --release -p sc-server
+    cp target/release/sc-server "$SERVER_BIN"
     chown "$GV_USER:$GV_USER" "$SERVER_BIN"
     chmod 755 "$SERVER_BIN"
     log "Installed to $SERVER_BIN"
@@ -241,14 +241,14 @@ cmd_pair() {
     mkdir -p "$CFG_DIR"
 
     if ! curl -sf "http://localhost:$WEB_PORT/api/health" >/dev/null 2>&1; then
-        err "gv-web not running — start it first: $0 start"
+        err "sc-web not running — start it first: $0 start"
         exit 1
     fi
 
     log "Generating pairing code..."
     local PAIR_RESP
     PAIR_RESP=$(curl -sf -X POST "http://localhost:$WEB_PORT/api/auth/pair/generate" \
-        -H "Content-Type: application/json" -d '{"name":"gv-server"}')
+        -H "Content-Type: application/json" -d '{"name":"sc-server"}')
 
     if echo "$PAIR_RESP" | grep -q "sign in"; then
         err "Pairing requires authentication."
@@ -272,7 +272,7 @@ cmd_pair() {
     local KEY=$(echo "$CLAIM" | python3 -c "import sys,json; print(json.load(sys.stdin)['api_key'])")
 
     cat > "$CFG_DIR/config.toml" << EOF
-[gv_web]
+[sc_web]
 url = "http://localhost:$WEB_PORT"
 
 [auth]
@@ -301,7 +301,7 @@ case "${1:-start}" in
         echo ""
         echo "  start        Start all services (default)"
         echo "  --reset      Kill all, clean .next, restart"
-        echo "  --pair       One-time pairing with gv-web (needs auth)"
+        echo "  --pair       One-time pairing with sc-web (needs auth)"
         echo "  status       Show what's running"
         echo "  stop         Kill all services"
         echo "  killall      Kill all game processes (user: $GV_USER)"

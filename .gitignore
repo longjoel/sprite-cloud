@@ -35,10 +35,10 @@ test-data/
 .hermes/
 .next/
 .release/
-gv-web/tsconfig.tsbuildinfo
+sc-web/tsconfig.tsbuildinfo
 
 # Generated
-gv-web/public/player/player-bundle.js
+sc-web/public/player/player-bundle.js
 .flatpak-builder/
-gv-desktop/flatpak/repo/
-gv-desktop/flatpak/.flatpak-build/
+sc-desktop/flatpak/repo/
+sc-desktop/flatpak/.flatpak-build/

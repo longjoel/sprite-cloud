@@ -1,0 +1,53 @@
+[package]
+name = "sc-server"
+version = "0.3.3"
+edition = "2024"
+description = "Sprite Cloud server — in-process game streaming with GStreamer + WebRTC"
+license = "AGPL-3.0-or-later"
+
+[lib]
+name = "sc_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sc-server"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+zip = "2.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand = "0.8"
+clap = { version = "4", features = ["derive"] }
+toml = "0.8"
+dirs = "6"
+sha2 = "0.10"
+hex = "0.4"
+anyhow = "1"
+url = "2"
+if-addrs = "0.8"
+libc = "0.2"
+libretro-runner = { path = "../libretro-runner" }
+sc-core = { path = "../sc-core" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "time"] }
+quick-xml = "0.37"
+regex-lite = "0.1"
+crc32fast = "1"
+walkdir = "2"
+base64 = "0.22"
+axum = "0.7"
+tower-http = { version = "0.6", features = ["cors"] }
+webrtc = { version = "0.17", features = ["pem"] }
+webrtc-ice = "0.17"
+webrtc-sctp = "0.11"
+tokio-util = "0.7"
+gstreamer = "0.23"
+gstreamer-app = "0.23"
+
+[dev-dependencies]
+tempfile = "3"
+serial_test = "3"
+tower = { version = "0.5", features = ["util"] }

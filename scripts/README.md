@@ -8,10 +8,10 @@ Keep this directory boring. Scripts here should be reusable release/dev entrypoi
 |---|---|
 | `install.sh` | Public/self-host host installer entrypoint |
 | `dev-start.sh` | Local dev stack helper |
-| `build-release.sh` | Builds `gv-server` and `gv-web` release artifacts |
-| `deploy-dev.sh` | Deploys the dev/self-host `gv-server` binary |
-| `deploy-gv-web.sh` | Rebuilds the gv-web Docker image on the VPS and restarts the host-network runtime safely |
-| `apply-gv-web-migration.sh` | Applies an explicit Drizzle SQL migration |
+| `build-release.sh` | Builds `sc-server` and `sc-web` release artifacts |
+| `deploy-dev.sh` | Deploys the dev/self-host `sc-server` binary |
+| `deploy-sc-web.sh` | Rebuilds the sc-web Docker image on the VPS and restarts the host-network runtime safely |
+| `apply-sc-web-migration.sh` | Applies an explicit Drizzle SQL migration |
 | `smoke-test.sh` | Checks release markers and health endpoints |
 | `release-common.sh` | Shared helpers for the release scripts above |
 
@@ -36,15 +36,15 @@ curl -sSL https://raw.githubusercontent.com/longjoel/sprite-cloud/main/scripts/i
 ```bash
 ./scripts/build-release.sh
 ./scripts/deploy-dev.sh
-./scripts/deploy-gv-web.sh
+./scripts/deploy-sc-web.sh
 ./scripts/smoke-test.sh
 ```
 
 If schema changes exist:
 
 ```bash
-./scripts/apply-gv-web-migration.sh gv-web/drizzle/<migration>.sql
-./scripts/deploy-gv-web.sh
+./scripts/apply-sc-web-migration.sh sc-web/drizzle/<migration>.sql
+./scripts/deploy-sc-web.sh
 ```
 
 ## Rule

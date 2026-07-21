@@ -4,13 +4,13 @@
 
 ```text
 sprite-cloud/
-├── gv-web/             Next.js gateway app and browser player assets
+├── sc-web/             Next.js gateway app and browser player assets
 │   ├── app/            App router pages and API routes
 │   ├── lib/            Auth, DB, command/session helpers
 │   ├── tests/          Vitest tests
 │   └── public/player/  Browser WebRTC player client
-├── gv-server/          Rust host runtime CLI/service
-├── gv-core/            Shared game/core metadata helpers
+├── sc-server/          Rust host runtime CLI/service
+├── sc-core/            Shared game/core metadata helpers
 ├── libretro-runner/    Libretro execution support
 ├── docker/             Container entrypoints
 ├── ops/                Deployment templates
@@ -18,14 +18,14 @@ sprite-cloud/
 └── docs/               Current public documentation
 ```
 
-There is no separate production worker crate or binary. The emulator/runtime path is part of `gv-server`.
+There is no separate production worker crate or binary. The emulator/runtime path is part of `sc-server`.
 
 ## Local development
 
 Gateway:
 
 ```bash
-cd gv-web
+cd sc-web
 pnpm install
 cp .env.example .env.local
 pnpm exec drizzle-kit push
@@ -35,8 +35,8 @@ pnpm dev
 Host runtime:
 
 ```bash
-cargo run -p gv-server -- --help
-cargo run -p gv-server -- start
+cargo run -p sc-server -- --help
+cargo run -p sc-server -- start
 ```
 
 Combined helper:
@@ -55,34 +55,34 @@ Combined helper:
 - Rust edition 2024
 - Use `cargo fmt`
 - Use `tracing` for logging
-- Keep runtime config in `gv-server/src/config.rs` or documented env/config files
+- Keep runtime config in `sc-server/src/config.rs` or documented env/config files
 - Avoid committing generated binaries, ROMs, downloaded cores, or build output
 
 ### TypeScript/Next.js
 
-- API routes live under `gv-web/app/api/**/route.ts`
-- Shared DB/auth/session helpers live under `gv-web/lib/`
+- API routes live under `sc-web/app/api/**/route.ts`
+- Shared DB/auth/session helpers live under `sc-web/lib/`
 - Database schema uses Drizzle
 - Tests use Vitest
 - Run `pnpm run lint`, `pnpm test`, and `pnpm build` before public-facing changes
 
 ### Browser player JavaScript
 
-- Served directly from `gv-web/public/player/`
+- Served directly from `sc-web/public/player/`
 - Vanilla ES modules; no separate bundling step
 - Keep protocol changes reflected in `docs/PROTOCOL.md` and `docs/datachannel-protocol.md`
 
 ## Adding a host command
 
-1. Add/adjust the command payload shape in `gv-web` route/schema code.
-2. Add or update the `gv-server` command handler.
+1. Add/adjust the command payload shape in `sc-web` route/schema code.
+2. Add or update the `sc-server` command handler.
 3. Add tests on both sides when the behavior is externally visible.
 4. Update `docs/PROTOCOL.md` if the component contract changed.
 5. Update `docs/API.md` if an HTTP route or response changed.
 
 ## Adding an API route
 
-1. Create `gv-web/app/api/<path>/route.ts`.
+1. Create `sc-web/app/api/<path>/route.ts`.
 2. Add appropriate auth: browser session, host bearer token, setup code, or public-safe read-only access.
 3. Validate input explicitly.
 4. Add Vitest coverage.
@@ -94,7 +94,7 @@ Before committing meaningful changes:
 
 ```bash
 cargo test --workspace
-cd gv-web && pnpm run lint && pnpm test && pnpm build
+cd sc-web && pnpm run lint && pnpm test && pnpm build
 git diff --check
 ```
 

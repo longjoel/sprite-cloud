@@ -1,0 +1,26 @@
+[Unit]
+Description=Sprite Cloud Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sprite-cloud
+Group=sprite-cloud
+EnvironmentFile=/etc/sprite-cloud.env
+Environment="XDG_CONFIG_HOME=/etc"
+ExecStartPre=/usr/bin/mkdir -p /tmp/sc-sessions
+ExecStart=/usr/local/bin/sc-server start
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/sprite-cloud /tmp/sc-sessions
+PrivateDevices=no
+DeviceAllow=/dev/dri rw
+
+[Install]
+WantedBy=multi-user.target

@@ -6,8 +6,8 @@ Run tests from the repository root unless a command says otherwise.
 
 ```bash
 cargo test --workspace
-cd gv-web && pnpm run lint && pnpm test && pnpm build
-bash -n scripts/*.sh tests/*.sh docker/gv-web/entrypoint.prod.sh docker/gv-server/entrypoint.sh
+cd sc-web && pnpm run lint && pnpm test && pnpm build
+bash -n scripts/*.sh tests/*.sh docker/sc-web/entrypoint.prod.sh docker/sc-server/entrypoint.sh
 git diff --check
 ```
 
@@ -15,8 +15,8 @@ git diff --check
 
 The Cargo workspace contains:
 
-- `gv-server` — host runtime CLI and WebRTC/session orchestration
-- `gv-core` — shared game/core metadata logic
+- `sc-server` — host runtime CLI and WebRTC/session orchestration
+- `sc-core` — shared game/core metadata logic
 - `libretro-runner` — libretro execution support
 
 Run all Rust tests:
@@ -28,17 +28,17 @@ cargo test --workspace
 Run one package:
 
 ```bash
-cargo test -p gv-server
-cargo test -p gv-core
+cargo test -p sc-server
+cargo test -p sc-core
 cargo test -p libretro-runner
 ```
 
-## gv-web
+## sc-web
 
-`gv-web` uses Next.js, TypeScript, Drizzle, and Vitest.
+`sc-web` uses Next.js, TypeScript, Drizzle, and Vitest.
 
 ```bash
-cd gv-web
+cd sc-web
 pnpm install
 pnpm run lint
 pnpm test
@@ -49,7 +49,7 @@ The integration tests start/use disposable Postgres state where needed. They sho
 
 ## Browser/player checks
 
-The browser player is served from `gv-web/public/player`. It has no separate build step. Current automated coverage lives in the `gv-web` Vitest suite and the lightweight gateway smoke script.
+The browser player is served from `sc-web/public/player`. It has no separate build step. Current automated coverage lives in the `sc-web` Vitest suite and the lightweight gateway smoke script.
 
 ## Smoke check
 
@@ -66,7 +66,7 @@ That script verifies gateway health and ICE config. A full browser/WebRTC/known-
 After editing shell scripts or container entrypoints:
 
 ```bash
-bash -n scripts/*.sh tests/*.sh docker/gv-web/entrypoint.prod.sh docker/gv-server/entrypoint.sh
+bash -n scripts/*.sh tests/*.sh docker/sc-web/entrypoint.prod.sh docker/sc-server/entrypoint.sh
 ```
 
 ## What should not be in tests

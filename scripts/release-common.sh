@@ -55,9 +55,9 @@ payload = {
     'built_at_utc': built_at,
     'web_build': web_status,
     'artifacts': {
-        'gv_server': {
-            'path': os.path.join(project_dir, 'target/release/gv-server'),
-            'sha256': checksum(os.path.join(project_dir, 'target/release/gv-server')),
+        'sc_server': {
+            'path': os.path.join(project_dir, 'target/release/sc-server'),
+            'sha256': checksum(os.path.join(project_dir, 'target/release/sc-server')),
         },
     },
 }

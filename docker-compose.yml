@@ -13,25 +13,25 @@
 #   ./scripts/dev-start.sh logs     # docker compose logs -f
 
 services:
-  gv-web:
+  sc-web:
     build:
       context: .
-      dockerfile: docker/gv-web/Dockerfile
+      dockerfile: docker/sc-web/Dockerfile
     network_mode: host
     restart: unless-stopped
     volumes:
       # Source code (hot-reload in dev) — repo root for workspace
       - .:/app
       # Shadow host node_modules with container's pre-installed deps (per workspace member)
-      - gv-web-node-modules:/app/gv-web/node_modules
-      - gv-web-node-modules-pnpm:/app/node_modules
-      - gv-player-node-modules:/app/gv-player/node_modules
+      - sc-web-node-modules:/app/sc-web/node_modules
+      - sc-web-node-modules-pnpm:/app/node_modules
+      - sc-player-node-modules:/app/sc-player/node_modules
     environment:
       NODE_ENV: development
-      # gv-web env
+      # sc-web env
       AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET}
       AUTH_URL: ${AUTH_URL:-http://localhost:3000}
-      DATABASE_URL: ${DATABASE_URL:-postgresql://games_vault@127.0.0.1:5433/games_vault}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://sprite_cloud@127.0.0.1:5433/sprite_cloud}
       GV_ICE_STUN_URLS: ${GV_ICE_STUN_URLS:-stun:stun.l.google.com:19302}
       GV_ICE_TURN_URLS: ${GV_ICE_TURN_URLS:-}
       GV_ICE_TURN_USERNAME: ${GV_ICE_TURN_USERNAME:-}
@@ -44,26 +44,26 @@ services:
       retries: 10
       start_period: 30s
 
-  gv-server:
+  sc-server:
     build:
       context: .
-      dockerfile: docker/gv-server/Dockerfile
+      dockerfile: docker/sc-server/Dockerfile
     network_mode: host
     restart: on-failure:3
     depends_on:
-      gv-web:
+      sc-web:
         condition: service_healthy
     volumes:
       # Host-built release binary
-      - ./target/release/gv-server:/usr/local/bin/gv-server:ro
+      - ./target/release/sc-server:/usr/local/bin/sc-server:ro
       - ./test-data/cores:/cores:rw
       # Host config
       - /etc/sprite-cloud/config.toml:/etc/sprite-cloud/config.toml:ro
       # ROMs
       - /srv/storage/games/roms:/srv/storage/games/roms:ro
       # Saves + system dirs
-      - gv-server-saves:/saves
-      - gv-server-system:/system
+      - sc-server-saves:/saves
+      - sc-server-system:/system
     environment:
       XDG_CONFIG_HOME: /etc
       GV_WEB_URL: ${GV_WEB_URL:-http://localhost:3000}
@@ -92,15 +92,15 @@ services:
       GV_GST_VIDEO_MAX_SCALE: ${GV_GST_VIDEO_MAX_SCALE:-2}
       GV_GST_AUDIO_BITRATE: ${GV_GST_AUDIO_BITRATE:-64000}
     healthcheck:
-      test: ["CMD", "pgrep", "gv-server"]
+      test: ["CMD", "pgrep", "sc-server"]
       interval: 15s
       timeout: 5s
       retries: 3
       start_period: 10s
 
 volumes:
-  gv-web-node-modules:
-  gv-web-node-modules-pnpm:
-  gv-player-node-modules:
-  gv-server-saves:
-  gv-server-system:
+  sc-web-node-modules:
+  sc-web-node-modules-pnpm:
+  sc-player-node-modules:
+  sc-server-saves:
+  sc-server-system:
