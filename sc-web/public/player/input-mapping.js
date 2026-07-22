@@ -40,6 +40,22 @@ export const PS_MAPPING = Object.freeze({
   dpadAxisX: null, dpadAxisY: null,
 });
 
+// ── 8BitDo Ultimate / Pro 2 (2.4g / D-input mode) ─────────────────
+// Reports as "8BitDo Ultimate 2.4G Wireless Controller" or
+// "8BitDo Pro 2" — follows Nintendo face layout + PlayStation shoulders.
+// D-pad is on buttons 12-15 (hat switch) in 2.4g mode.
+export const EIGHTBITDO_MAPPING = Object.freeze({
+  dpadUp: 12, dpadDown: 13, dpadLeft: 14, dpadRight: 15,
+  start: 11, select: 10,
+  // Nintendo face: A(right)=1, B(bottom)=0, X(top)=3, Y(left)=2
+  b: 0, a: 1, y: 2, x: 3,
+  l: 4, r: 5, l2: 6, r2: 7,
+  l3: 8, r3: 9,
+  leftStickX: 0, leftStickY: 1, rightStickX: 2, rightStickY: 3,
+  axisThreshold: 0.5,
+  dpadAxisX: null, dpadAxisY: null,
+});
+
 // ── Default (used when mapping is "standard") — same as STANDARD ──
 export const DEFAULT_GAMEPAD_MAPPING = STANDARD_MAPPING;
 
@@ -48,9 +64,14 @@ export function mappingForGamepad(gp) {
   const m = (gp && gp.mapping) || "";
   if (m === "standard") return STANDARD_MAPPING;
 
-  // Heuristic: PlayStation controllers often have ID containing "PlayStation",
-  // "PS4", "PS5", "DualSense", "DualShock", "Wireless Controller"
   const id = (gp && gp.id || "").toLowerCase();
+
+  // 8BitDo controllers in 2.4g/D-input mode
+  if (/8bitdo|8bit.?do/i.test(id)) {
+    return EIGHTBITDO_MAPPING;
+  }
+
+  // PlayStation controllers (DualShock, DualSense, etc.)
   if (/playstation|ps[345]|dualsense|dualshock|wireless controller/i.test(id)) {
     return PS_MAPPING;
   }
