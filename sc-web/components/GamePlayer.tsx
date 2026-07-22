@@ -8,6 +8,7 @@ import { Button, Toast } from "@/components/ui";
 import RemapPanel from "./GamePlayerRemapPanel";
 import OptionsOverlay from "./OptionsOverlay";
 import ControllerLayoutPanel from "./ControllerLayoutPanel";
+import { ControllerOverlay } from "./ControllerOverlay";
 import {
   blockPlayerPanels,
   closePlayerPanel,
@@ -161,6 +162,8 @@ export default function GamePlayer({
       return hasTouch && window.matchMedia('(pointer: coarse)').matches;
     } catch { return false; }
   });
+
+  const [showInputs, setShowInputs] = useState(true); // controller input overlay
 
   const [pipeline, setPipeline] = useState<Record<string, StepState>>(
     () => mergePipeline(defaultPipeline(), initialPipeline),
@@ -623,6 +626,14 @@ export default function GamePlayer({
         muted={audioMuted}
         className={styles.video}
       />
+
+      {/* Controller input overlay — shows on-screen controller with pressed buttons */}
+      {connected && (
+        <ControllerOverlay
+          platform={platform}
+          visible={showInputs}
+        />
+      )}
 
       {/* Top bar */}
       <div
