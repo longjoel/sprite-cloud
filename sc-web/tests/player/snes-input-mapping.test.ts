@@ -98,6 +98,18 @@ describe("touch adapter", () => {
     expect(buttons.filter(Boolean)).toHaveLength(1);
   });
 
+  it("maps PSX touch face and system buttons correctly", () => {
+    const buttons = touchStateToStandardButtons("psx", {
+      dpad: [false, false, false, false],
+      face: [true, false, true, false],   // ✕ and □ pressed
+      system: [false, false, true, false], // SELECT pressed
+    });
+    expect(buttons[0]).toBe(true);  // ✕ → B
+    expect(buttons[2]).toBe(true);  // □ → Y
+    expect(buttons[8]).toBe(true);  // SELECT → Select
+    expect(buttons.filter(Boolean)).toHaveLength(3);
+  });
+
   it("keeps non-SNES Select and Start system positions compatible", () => {
     const buttons = touchStateToStandardButtons("nes", {
       dpad: [], face: [], system: [true, true],
@@ -105,5 +117,27 @@ describe("touch adapter", () => {
     expect(buttons[8]).toBe(true);
     expect(buttons[9]).toBe(true);
     expect(buttons.filter(Boolean)).toHaveLength(2);
+  });
+});
+
+describe("controller mapping detection", () => {
+  const { mappingForGamepad } = require("../../public/player/input-mapping.js");
+
+  it("uses STANDARD_MAPPING for standard-mapped gamepads", () => {
+    const m = mappingForGamepad({ mapping: "standard", id: "Xbox Controller" });
+    expect(m.dpadUp).toBe(12);
+    expect(m.start).toBe(9);
+  });
+
+  it("detects PlayStation controllers by ID", () => {
+    const m = mappingForGamepad({ mapping: "", id: "Wireless Controller (DualShock 4)" });
+    expect(m).toBeDefined();
+    expect(m.l1).toBe(4);
+    expect(m.r1).toBe(5);
+  });
+
+  it("detects DualSense by ID", () => {
+    const m = mappingForGamepad({ mapping: "", id: "DualSense Wireless Controller" });
+    expect(m).toBeDefined();
   });
 });

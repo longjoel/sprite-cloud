@@ -9,6 +9,7 @@ import {
   DEFAULT_GAMEPAD_MAPPING,
   GAMEPAD_MASK,
   standardGamepadToLibretro,
+  mappingForGamepad,
 } from "./input-mapping.js";
 
 // ── Constants (no magic values) ───────────────────────────────────────
@@ -1155,7 +1156,7 @@ export class ScPlayer {
         ? Array.from(gps).filter(Boolean).slice(0, Math.max(0, 4 - this._seat))
         : [];
       const nextStates = connected.map((gp) =>
-        standardGamepadToLibretro(gp.buttons, gp.axes, this._gamepadMapping));
+        standardGamepadToLibretro(gp.buttons, gp.axes, mappingForGamepad(gp)));
       const seatCount = Math.max(this._gamepadStates.length, nextStates.length);
 
       for (let localSeat = 0; localSeat < seatCount; localSeat++) {
