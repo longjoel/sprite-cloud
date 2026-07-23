@@ -201,6 +201,14 @@ async fn proxy_to_sc_web(
         response.headers_mut().insert(k.clone(), v.clone());
     }
 
+    // Clear __Secure- auth cookies that browsers reject over HTTP
+    response.headers_mut().insert(
+        axum::http::header::SET_COOKIE,
+        "authjs.callback-url=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"
+            .parse()
+            .unwrap(),
+    );
+
     Ok(response)
 }
 
