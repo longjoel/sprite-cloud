@@ -187,7 +187,7 @@ fn guess_rom_dir() -> String {
         "~/games",
         "~/retro",
         "/home/pi/roms",
-        "/home/zombie/roms",
+        "/home/user/roms",
     ];
     for c in &candidates {
         let expanded = shellexpand::tilde(c).to_string();

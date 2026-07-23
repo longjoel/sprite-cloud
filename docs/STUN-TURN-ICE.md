@@ -13,7 +13,7 @@ and Docker containers — the stuff that makes you mutter *"this is bananas."*
 │  Internet                                             │
 │    │                                                   │
 │    ▼                                                   │
-│  Your Server (72.62.243.69)                            │
+│  Your Server (YOUR_SERVER_IP)                            │
 │    ├─ coturn         :3478  (STUN + TURN)              │
 │    ├─ Docker bridge  :172.17.0.1                       │
 │    │   └─ sc-web container                             │
@@ -84,7 +84,7 @@ apt install coturn
 listening-port=3478
 
 # Your server's public IP (coturn needs to know this)
-external-ip=72.62.243.69
+external-ip=YOUR_SERVER_IP
 
 # Relay ports: coturn allocates from this range for each peer
 min-port=49152
@@ -149,7 +149,7 @@ the TURN URL must use the Docker bridge gateway — **not** the public hostname.
 ```
 
 **Why:** From inside a Docker container, resolving your public hostname
-(`sprite-cloud.com` → `72.62.243.69`) sends packets out through Docker's NAT to
+(`sprite-cloud.com` → `YOUR_SERVER_IP`) sends packets out through Docker's NAT to
 the public internet, then back to the same host.  This is **hairpin NAT** —
 firewall rules and NAT tables often drop these packets silently.  Result:
 the sc-server can't allocate TURN relays, and peers see ICE failures.

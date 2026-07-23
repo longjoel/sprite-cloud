@@ -9,7 +9,7 @@ describe("buildLanPlayerLaunchUrl", () => {
   });
   it("builds a LAN player URL with host token as query param for proxy forwarding", () => {
     const url = buildLanPlayerLaunchUrl({
-      playerUrls: ["http://192.168.86.128:8787/"],
+      playerUrls: ["http://192.0.2.1:8787/"],
       gameId: "pokemon-yellow",
       serverId: "server-bazzite",
       code: "ABC123",
@@ -17,7 +17,7 @@ describe("buildLanPlayerLaunchUrl", () => {
     });
 
     expect(url).toBe(
-      "http://192.168.86.128:8787/pokemon-yellow?code=ABC123&server_id=server-bazzite&route=lan&host_token=host-secret",
+      "http://192.0.2.1:8787/pokemon-yellow?code=ABC123&server_id=server-bazzite&route=lan&host_token=host-secret",
     );
     const parsed = new URL(url!);
     expect(parsed.searchParams.get("host_token")).toBe("host-secret");
@@ -26,7 +26,7 @@ describe("buildLanPlayerLaunchUrl", () => {
 
   it("encodes game ids in the path", () => {
     const url = buildLanPlayerLaunchUrl({
-      playerUrls: ["http://192.168.86.128:8787/"],
+      playerUrls: ["http://192.0.2.1:8787/"],
       gameId: "Game Boy/Pokémon Yellow.gb",
       serverId: "server-vault",
       code: "XYZ789",
@@ -34,7 +34,7 @@ describe("buildLanPlayerLaunchUrl", () => {
     });
 
     expect(url).toBe(
-      "http://192.168.86.128:8787/Game%20Boy%2FPok%C3%A9mon%20Yellow.gb?code=XYZ789&server_id=server-vault&route=lan&host_token=host-secret",
+      "http://192.0.2.1:8787/Game%20Boy%2FPok%C3%A9mon%20Yellow.gb?code=XYZ789&server_id=server-vault&route=lan&host_token=host-secret",
     );
   });
 

@@ -431,7 +431,7 @@ describe("POST /api/server/command", () => {
 
   it("does not auto-inject lan=true from request IP heuristics", async () => {
     const prevLanIps = process.env.GV_SERVER_LAN_IPS;
-    process.env.GV_SERVER_LAN_IPS = "192.168.86.128";
+    process.env.GV_SERVER_LAN_IPS = "192.0.2.1";
 
     mockDb.select
       .mockReturnValueOnce(
@@ -499,8 +499,8 @@ describe("POST /api/server/command", () => {
         "Content-Type": "application/json",
         "x-csrf-token": "csrf-test-token",
         cookie: "sc_csrf_token=csrf-test-token",
-        "x-forwarded-for": "192.168.86.55",
-        "x-real-ip": "192.168.86.55",
+        "x-forwarded-for": "192.0.2.55",
+        "x-real-ip": "192.0.2.55",
       },
     });
     const resp = await POST(req as any);
@@ -939,13 +939,13 @@ describe("GET /api/ice-config", () => {
     const prevPolicy = process.env.GV_ICE_TRANSPORT_POLICY;
     const prevLanIps = process.env.GV_SERVER_LAN_IPS;
     process.env.GV_ICE_TRANSPORT_POLICY = "relay";
-    process.env.GV_SERVER_LAN_IPS = "192.168.86.128";
+    process.env.GV_SERVER_LAN_IPS = "192.0.2.1";
     try {
       const { GET } = await import("@/app/api/ice-config/route");
       const resp = await GET(new Request("http://localhost/api/ice-config", {
         headers: {
-          "x-forwarded-for": "192.168.86.55",
-          "x-real-ip": "192.168.86.55",
+          "x-forwarded-for": "192.0.2.55",
+          "x-real-ip": "192.0.2.55",
         },
       }));
       expect(resp.status).toBe(200);
@@ -1305,7 +1305,7 @@ describe("GET /api/playable-hosts", () => {
           metadata: {
             interfaces: [],
             ice: { turn_configured: true },
-            lan: { health_urls: ["http://192.168.86.50:8787/health"] },
+            lan: { health_urls: ["http://192.0.2.50:8787/health"] },
           },
           gameFileId: "gf1",
         },
@@ -1317,7 +1317,7 @@ describe("GET /api/playable-hosts", () => {
     const resp = await GET(req);
     const body = await resp.json();
     expect(body.hosts[0].route_hint).toBe("local");
-    expect(body.hosts[0].lan.health_urls).toEqual(["http://192.168.86.50:8787/health"]);
+    expect(body.hosts[0].lan.health_urls).toEqual(["http://192.0.2.50:8787/health"]);
   });
 
   it("returns route_hint unknown when metadata is missing", async () => {

@@ -23,7 +23,7 @@ describe("probeLanHealth", () => {
       }),
     ) as unknown as typeof fetch;
 
-    const result = await probeLanHealth(["http://192.168.86.128:8787/health"], {
+    const result = await probeLanHealth(["http://192.0.2.1:8787/health"], {
       fetchImpl,
       pageProtocol: "http:",
       now: (() => {
@@ -34,13 +34,13 @@ describe("probeLanHealth", () => {
 
     expect(result.reachable).toBe(true);
     if (result.reachable) {
-      expect(result.url).toBe("http://192.168.86.128:8787/health");
+      expect(result.url).toBe("http://192.0.2.1:8787/health");
       expect(result.serverId).toBe("server-bazzite");
       expect(result.serverName).toBe("Bazzite");
       expect(result.latencyMs).toBeGreaterThan(0);
     }
     expect(fetchImpl).toHaveBeenCalledWith(
-      "http://192.168.86.128:8787/health",
+      "http://192.0.2.1:8787/health",
       expect.objectContaining({ method: "GET", mode: "cors", cache: "no-store" }),
     );
   });
@@ -48,7 +48,7 @@ describe("probeLanHealth", () => {
   it("classifies HTTPS page to HTTP LAN probe as mixed-content blocked without fetch", async () => {
     const fetchImpl = vi.fn() as unknown as typeof fetch;
 
-    const result = await probeLanHealth(["http://192.168.86.128:8787/health"], {
+    const result = await probeLanHealth(["http://192.0.2.1:8787/health"], {
       fetchImpl,
       pageProtocol: "https:",
     });
@@ -56,7 +56,7 @@ describe("probeLanHealth", () => {
     expect(result).toMatchObject({
       reachable: false,
       reason: "mixed_content_blocked",
-      url: "http://192.168.86.128:8787/health",
+      url: "http://192.0.2.1:8787/health",
     });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
@@ -66,7 +66,7 @@ describe("probeLanHealth", () => {
       jsonResponse({ status: "ok", lan_player: false }),
     ) as unknown as typeof fetch;
 
-    const result = await probeLanHealth(["http://192.168.86.128:8787/health"], {
+    const result = await probeLanHealth(["http://192.0.2.1:8787/health"], {
       fetchImpl,
       pageProtocol: "http:",
     });
@@ -86,7 +86,7 @@ describe("probeLanHealth", () => {
       });
     }) as unknown as typeof fetch;
 
-    const result = await probeLanHealth(["http://192.168.86.128:8787/health"], {
+    const result = await probeLanHealth(["http://192.0.2.1:8787/health"], {
       fetchImpl,
       pageProtocol: "http:",
       timeoutMs: 1,
@@ -95,7 +95,7 @@ describe("probeLanHealth", () => {
     expect(result).toMatchObject({
       reachable: false,
       reason: "timeout",
-      url: "http://192.168.86.128:8787/health",
+      url: "http://192.0.2.1:8787/health",
     });
   });
 

@@ -136,7 +136,7 @@ mod tests {
         let interfaces = vec![
             sc_web::InterfaceInfo {
                 name: "eth0".to_string(),
-                address: "192.168.86.128".to_string(),
+                address: "192.0.2.1".to_string(),
             },
             sc_web::InterfaceInfo {
                 name: "tailscale0".to_string(),
@@ -150,14 +150,14 @@ mod tests {
         assert_eq!(
             lan.player_urls,
             vec![
-                "http://192.168.86.128:8787/".to_string(),
+                "http://192.0.2.1:8787/".to_string(),
                 "http://100.64.0.10:8787/".to_string(),
             ]
         );
         assert_eq!(
             lan.health_urls,
             vec![
-                "http://192.168.86.128:8787/health".to_string(),
+                "http://192.0.2.1:8787/health".to_string(),
                 "http://100.64.0.10:8787/health".to_string(),
             ]
         );
