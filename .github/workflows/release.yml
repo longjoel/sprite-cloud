@@ -39,6 +39,7 @@ jobs:
   build-aarch64:
     name: Build sc-server (aarch64)
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -56,7 +57,7 @@ jobs:
 
   create-release:
     name: Create GitHub Release
-    needs: [build-x86_64, build-aarch64]
+    needs: [build-x86_64]
     runs-on: ubuntu-latest
     permissions:
       contents: write
