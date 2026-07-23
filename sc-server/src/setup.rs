@@ -161,11 +161,13 @@ pub async fn run() -> Result<()> {
 }
 
 fn guess_rom_dir() -> String {
+    // Common ROM root paths — check these first
     let candidates = [
         "~/roms",
         "~/ROMs",
         "~/games",
         "~/retro",
+        "/home/pi/roms",
         "/home/zombie/roms",
     ];
     for c in &candidates {
@@ -174,5 +176,24 @@ fn guess_rom_dir() -> String {
             return expanded;
         }
     }
+
+    // Check home directory for any dir with ROM-like subdirs
+    if let Some(home) = dirs::home_dir() {
+        if let Ok(entries) = std::fs::read_dir(&home) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                // Look for platform subdirs
+                for platform in &["nes", "snes", "genesis", "gb", "gba", "n64", "psx"] {
+                    if path.join(platform).is_dir() {
+                        return path.to_string_lossy().to_string();
+                    }
+                }
+            }
+        }
+    }
+
     "none".to_string()
 }
