@@ -26,36 +26,26 @@ export default function PairingPrompt() {
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   const releaseUrl = "https://github.com/longjoel/sprite-cloud/releases/latest";
+  const installOneLiner = "curl -fsSL https://sprite-cloud.com/install.sh | bash";
 
   return (
     <div style={S.wrapper}>
-      {/* Step 1: Download */}
-      <h3 style={S.step}>1. Download sc-server</h3>
+      {/* Step 1: Install */}
+      <h3 style={S.step}>1. Install sc-server</h3>
       <p style={S.desc}>
-        Grab the latest binary from{" "}
+        Run this on your gaming machine:
+      </p>
+      <pre style={S.preCmd}>{installOneLiner}</pre>
+      <p style={S.desc}>
+        Or grab the binary from{" "}
         <a href={releaseUrl} target="_blank" rel="noopener" style={S.link}>
           GitHub Releases
         </a>{" "}
-        or build from source:
-      </p>
-      <pre style={S.pre}>{`cargo build --release -p sc-server`}</pre>
-      <p style={S.desc}>
-        Copy the binary to your gaming machine (Bazzite, Steam Deck, Linux desktop).
+        and place it in your PATH.
       </p>
 
-      {/* Step 2: Install */}
-      <h3 style={S.step}>2. Install (optional)</h3>
-      <p style={S.desc}>
-        Run with <code style={S.inline}>--install</code> to register as a systemd user service
-        that starts on boot:
-      </p>
-      <pre style={S.pre}>{`sc-server --install`}</pre>
-      <p style={S.desc}>
-        Or just run it directly — it persists config in <code style={S.inline}>~/.config/sc-server/</code>.
-      </p>
-
-      {/* Step 3: Pair */}
-      <h3 style={S.step}>3. Pair with your account</h3>
+      {/* Step 2: Pair */}
+      <h3 style={S.step}>2. Pair with your account</h3>
       <button type="button" style={S.button} onClick={generate} disabled={loading}>
         {loading ? "Generating…" : "Generate Pairing Code"}
       </button>
@@ -69,8 +59,8 @@ export default function PairingPrompt() {
 
       {error && <p style={S.error}>{error}</p>}
 
-      {/* Step 4: Verify */}
-      <h3 style={S.step}>4. You&apos;re done</h3>
+      {/* Step 3: You're done */}
+      <h3 style={S.step}>3. You&apos;re done</h3>
       <p style={S.desc}>
         Refresh this page. Your server appears in the list below.
         Place ROMs in the directory you configured and they&apos;ll be scanned automatically.
