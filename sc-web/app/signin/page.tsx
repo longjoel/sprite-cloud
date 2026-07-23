@@ -5,7 +5,7 @@ import SignInForm from "./SignInForm";
 export default async function SignInPage() {
   const session = await auth();
   if (session?.user?.id) {
-    redirect("/");
+    redirect("/xmb");
   }
 
   return <SignInForm />;

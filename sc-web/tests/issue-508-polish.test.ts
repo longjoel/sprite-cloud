@@ -13,7 +13,7 @@ describe("#508 polish regressions", () => {
     const source = read("app/signin/page.tsx");
     expect(source).not.toContain('"use client"');
     expect(source).toMatch(/auth\(/);
-    expect(source).toMatch(/redirect\("\/"\)/);
+    expect(source).toMatch(/redirect\("\/xmb"\)/);
   });
 
   it("adds loading boundaries for app, dashboard, settings, and server settings", () => {
@@ -39,7 +39,7 @@ describe("#508 polish regressions", () => {
     expect(source).not.toContain("AUTH_GITHUB_ID");
     expect(source).not.toContain("AUTH_GITHUB_SECRET");
     expect(source).not.toContain('from "next-auth/providers/github"');
-    expect(source).not.toContain("provider === \"github\"");
+    expect(source).not.toContain('provider === "github"');
     expect(compose).not.toContain("AUTH_GITHUB_ID");
     expect(compose).not.toContain("AUTH_GITHUB_SECRET");
   });

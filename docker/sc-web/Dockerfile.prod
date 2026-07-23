@@ -4,7 +4,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     && rm -rf /var/lib/apt/lists/*
 COPY pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY sc-web/package.json sc-web/
-COPY sc-player/package.json sc-player/
 RUN corepack enable && corepack prepare pnpm@latest --activate && \
     pnpm install --frozen-lockfile --ignore-scripts || pnpm install --no-frozen-lockfile
 RUN pnpm rebuild esbuild sharp 2>/dev/null || true
@@ -16,7 +15,6 @@ ARG GV_WEB_RELEASED_AT_UTC=unknown
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/sc-web/node_modules ./sc-web/node_modules
-COPY --from=deps /app/sc-player/node_modules ./sc-player/node_modules
 # Copy source
 COPY . .
 WORKDIR /app/sc-web
@@ -35,9 +33,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
 COPY --from=builder /app/sc-web/.next/standalone ./
 COPY --from=builder /app/sc-web/.next/static ./sc-web/.next/static
 COPY --from=builder /app/sc-web/public ./sc-web/public
-
-# Copy sc-player (served as static assets by Next.js)
-COPY --from=builder /app/sc-player ./sc-player
 
 # Copy drizzle config + migrations + schema for runtime DB push
 COPY --from=builder /app/sc-web/drizzle.config.ts ./sc-web/
