@@ -14,6 +14,8 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             arch: x86_64
+          - target: aarch64-unknown-linux-gnu
+            arch: aarch64
     steps:
       - uses: actions/checkout@v4
 
@@ -25,6 +27,11 @@ jobs:
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             gstreamer1.0-plugins-ugly \
             libglib2.0-dev pkg-config
+          # Cross-compilation for aarch64
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+            libgstreamer1.0-dev:arm64 libgstreamer-plugins-base1.0-dev:arm64 \
+            libglib2.0-dev:arm64 2>/dev/null || true
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -128,6 +135,10 @@ jobs:
           if [ -d artifacts/x86_64 ]; then
             cp artifacts/x86_64/sc-server release-assets/sc-server-x86_64
             sha256sum release-assets/sc-server-x86_64 > release-assets/sc-server-x86_64.sha256
+          fi
+          if [ -d artifacts/aarch64 ]; then
+            cp artifacts/aarch64/sc-server release-assets/sc-server-aarch64
+            sha256sum release-assets/sc-server-aarch64 > release-assets/sc-server-aarch64.sha256
           fi
 
           # AppImage
