@@ -178,7 +178,7 @@ async fn proxy_to_sc_web(
         if key == "transfer-encoding" {
             continue;
         }
-        // Strip Secure flag from Set-Cookie — the LAN proxy serves over HTTP
+        // Strip Secure flag and __Secure- prefix from Set-Cookie — the LAN proxy serves over HTTP
         if key == "set-cookie" {
             if let Ok(val) = v.to_str() {
                 let sanitized = val
@@ -187,6 +187,10 @@ async fn proxy_to_sc_web(
                     .filter(|p| !p.eq_ignore_ascii_case("secure"))
                     .collect::<Vec<_>>()
                     .join("; ");
+                // Strip __Secure- and __Host- prefixes (browsers reject over HTTP)
+                let sanitized = sanitized
+                    .replacen("__Secure-", "", 1)
+                    .replacen("__Host-", "", 1);
                 response.headers_mut().insert(
                     k.clone(),
                     sanitized.parse().unwrap_or_else(|_| v.clone()),
