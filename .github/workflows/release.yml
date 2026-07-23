@@ -7,15 +7,14 @@ on:
 
 jobs:
   build-server:
-    name: Build sc-server
+    name: Build sc-server (${{ matrix.arch }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
             arch: x86_64
-          - target: aarch64-unknown-linux-gnu
-            arch: aarch64
     steps:
       - uses: actions/checkout@v4
 
@@ -27,11 +26,6 @@ jobs:
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             gstreamer1.0-plugins-ugly \
             libglib2.0-dev pkg-config
-          # Cross-compilation for aarch64
-          sudo apt-get install -y \
-            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
-            libgstreamer1.0-dev:arm64 libgstreamer-plugins-base1.0-dev:arm64 \
-            libglib2.0-dev:arm64 2>/dev/null || true
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -50,74 +44,9 @@ jobs:
           name: ${{ matrix.arch }}
           path: target/${{ matrix.target }}/release/sc-server
 
-  build-appimage:
-    name: Build AppImage (${{ matrix.arch }})
-    runs-on: ubuntu-latest
-    continue-on-error: true  # AppImage is optional — server binary is the critical artifact
-    strategy:
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            arch: x86_64
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install system dependencies (Tauri + AppImage)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev libgtk-3-dev \
-            libayatana-appindicator3-dev librsvg2-dev \
-            patchelf libudev-dev \
-            libfuse2  # AppImage runtime
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: sc-desktop
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: latest
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'pnpm'
-
-      - name: Install frontend dependencies
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm approve-builds 2>/dev/null || true
-
-      - name: Build frontend (required by Tauri embed)
-        run: pnpm --filter sc-web build
-
-      - name: Install tauri-cli
-        run: cargo install tauri-cli --version "^2" --locked
-
-      - name: Build AppImage
-        run: |
-          cd sc-desktop
-          cargo tauri build --bundles appimage
-          ls -lh target/release/bundle/appimage/
-
-      - name: Upload AppImage artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: appimage-${{ matrix.arch }}
-          path: sc-desktop/target/release/bundle/appimage/sprite-cloud_*.AppImage
-
   create-release:
     name: Create GitHub Release
-    needs: [build-server, build-appimage]
+    needs: [build-server]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -134,22 +63,9 @@ jobs:
           set -euo pipefail
           mkdir -p release-assets
 
-          # sc-server binaries
           if [ -d artifacts/x86_64 ]; then
             cp artifacts/x86_64/sc-server release-assets/sc-server-x86_64
             sha256sum release-assets/sc-server-x86_64 > release-assets/sc-server-x86_64.sha256
-          fi
-          if [ -d artifacts/aarch64 ]; then
-            cp artifacts/aarch64/sc-server release-assets/sc-server-aarch64
-            sha256sum release-assets/sc-server-aarch64 > release-assets/sc-server-aarch64.sha256
-          fi
-
-          # AppImage
-          APPIMAGE=$(find artifacts/appimage-x86_64 -name 'sprite-cloud_*.AppImage' 2>/dev/null | head -1)
-          if [ -n "$APPIMAGE" ]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-            cp "$APPIMAGE" "release-assets/sprite-cloud-${VERSION}-x86_64.AppImage"
-            sha256sum "release-assets/sprite-cloud-${VERSION}-x86_64.AppImage" > "release-assets/sprite-cloud-${VERSION}-x86_64.AppImage.sha256"
           fi
 
           ls -la release-assets/
@@ -158,8 +74,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}
-          body_path: CHANGELOG.md
-          draft: ${{ github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/v') }}
+          generate_release_notes: true
+          draft: false
           prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
           files: |
             release-assets/*
