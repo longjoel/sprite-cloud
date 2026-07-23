@@ -90,7 +90,16 @@ export default function XmbSettings({
       {pairingError && <p className={styles.error} role="alert">Pairing failed: {pairingError}</p>}
 
       {servers.length === 0 ? (
-        <p className={styles.empty}>No paired servers. Generate a code to pair your first sc-server.</p>
+        <div className={styles.empty}>
+          <p className={styles.emptyText}>No paired servers.</p>
+          <p className={styles.emptyHelp}>
+            Download <a href="https://github.com/longjoel/sprite-cloud/releases/latest" target="_blank" rel="noopener" className={styles.emptyLink}>sc-server</a>,
+            then generate a code above and run:
+          </p>
+          <code className={styles.emptyCmd}>
+            sc-server pair &lt;code&gt; --sc-web-url {typeof window !== "undefined" ? window.location.origin : ""}
+          </code>
+        </div>
       ) : (
         <ul className={styles.serverList} aria-label="Paired servers">
           {servers.map((server) => {

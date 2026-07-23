@@ -109,6 +109,31 @@
   font-size: 12px;
 }
 
+.emptyText {
+  margin: 0 0 8px;
+}
+
+.emptyHelp {
+  margin: 0 0 6px;
+  color: #718da8;
+  font-size: 11px;
+}
+
+.emptyLink {
+  color: #38bdf8;
+}
+
+.emptyCmd {
+  display: block;
+  padding: 8px 10px;
+  border: 1px solid #16314b;
+  border-radius: 2px;
+  background: #0a1929;
+  color: #b8d0e5;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
 .error {
   color: #fda4af;
 }
