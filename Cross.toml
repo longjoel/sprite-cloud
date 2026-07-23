@@ -1,6 +1,0 @@
-[target.aarch64-unknown-linux-gnu]
-pre-build = [
-    "dpkg --add-architecture arm64",
-    "apt-get update",
-    "apt-get install -y --no-install-recommends libglib2.0-dev:arm64 libgstreamer1.0-dev:arm64 libgstreamer-plugins-base1.0-dev:arm64",
-]
