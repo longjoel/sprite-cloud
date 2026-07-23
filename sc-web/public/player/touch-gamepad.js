@@ -230,7 +230,7 @@
     if (this._layoutName === 'horizontal') return 'horizontal';
     if (this._layoutName === 'vertical') return 'vertical';
     if (!global.screen) return 'vertical';
-    return global.screen.availWidth > global.screen.availHeight
+    return global.innerWidth > global.innerHeight
       ? 'horizontal' : 'vertical';
   };
 
