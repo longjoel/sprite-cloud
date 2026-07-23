@@ -25,30 +25,110 @@ export default function PairingPrompt() {
   }
 
   const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const releaseUrl = "https://github.com/longjoel/sprite-cloud/releases/latest";
 
   return (
     <div style={S.wrapper}>
+      {/* Step 1: Download */}
+      <h3 style={S.step}>1. Download sc-server</h3>
+      <p style={S.desc}>
+        Grab the latest binary from{" "}
+        <a href={releaseUrl} target="_blank" rel="noopener" style={S.link}>
+          GitHub Releases
+        </a>{" "}
+        or build from source:
+      </p>
+      <pre style={S.pre}>{`cargo build --release -p sc-server`}</pre>
+      <p style={S.desc}>
+        Copy the binary to your gaming machine (Bazzite, Steam Deck, Linux desktop).
+      </p>
+
+      {/* Step 2: Install */}
+      <h3 style={S.step}>2. Install (optional)</h3>
+      <p style={S.desc}>
+        Run with <code style={S.inline}>--install</code> to register as a systemd user service
+        that starts on boot:
+      </p>
+      <pre style={S.pre}>{`sc-server --install`}</pre>
+      <p style={S.desc}>
+        Or just run it directly — it persists config in <code style={S.inline}>~/.config/sc-server/</code>.
+      </p>
+
+      {/* Step 3: Pair */}
+      <h3 style={S.step}>3. Pair with your account</h3>
       <button type="button" style={S.button} onClick={generate} disabled={loading}>
         {loading ? "Generating…" : "Generate Pairing Code"}
       </button>
 
       {code && (
         <div style={S.codeBlock}>
-          <span style={S.label}>Pairing code</span>
-          <code style={S.code}>{code}</code>
-          <code style={S.command}>
-            sc-server pair {code} --sc-web-url {origin}
-          </code>
+          <p style={S.desc}>Run this on your gaming machine:</p>
+          <pre style={S.preCmd}>{`sc-server pair ${code} --sc-web-url ${origin}`}</pre>
         </div>
       )}
 
       {error && <p style={S.error}>{error}</p>}
+
+      {/* Step 4: Verify */}
+      <h3 style={S.step}>4. You&apos;re done</h3>
+      <p style={S.desc}>
+        Refresh this page. Your server appears in the list below.
+        Place ROMs in the directory you configured and they&apos;ll be scanned automatically.
+      </p>
     </div>
   );
 }
 
 const S: Record<string, React.CSSProperties> = {
   wrapper: { marginTop: "var(--space-5)" },
+  step: {
+    color: "var(--color-accent)",
+    fontSize: "var(--font-size-base)",
+    fontWeight: 600,
+    margin: "var(--space-5) 0 var(--space-2)",
+    fontFamily: "var(--font-mono)",
+  },
+  desc: {
+    color: "var(--color-cloud-dim)",
+    fontSize: "var(--font-size-sm)",
+    lineHeight: 1.6,
+    margin: 0,
+  },
+  link: {
+    color: "var(--color-accent)",
+    textDecoration: "underline",
+  },
+  inline: {
+    background: "var(--color-sky-mid)",
+    padding: "1px 4px",
+    borderRadius: "2px",
+    fontSize: "var(--font-size-xs)",
+    fontFamily: "var(--font-mono)",
+  },
+  pre: {
+    margin: "var(--space-2) 0",
+    padding: "var(--space-2) var(--space-3)",
+    background: "var(--color-sky-deep)",
+    border: "1px solid var(--color-sky-high)",
+    fontSize: "var(--font-size-xs)",
+    fontFamily: "var(--font-mono)",
+    color: "var(--color-cloud)",
+    overflowX: "auto",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-all",
+  },
+  preCmd: {
+    margin: "var(--space-2) 0 0",
+    padding: "var(--space-3)",
+    background: "var(--color-sky-deep)",
+    border: "1px solid var(--color-accent)",
+    fontSize: "var(--font-size-sm)",
+    fontFamily: "var(--font-mono)",
+    color: "var(--color-accent)",
+    overflowX: "auto",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-all",
+  },
   button: {
     padding: "10px 20px",
     background: "var(--color-accent)",
@@ -62,37 +142,6 @@ const S: Record<string, React.CSSProperties> = {
   },
   codeBlock: {
     marginTop: "var(--space-4)",
-    padding: "var(--space-4)",
-    border: "1px solid var(--color-accent)",
-    background: "rgba(56,189,248,0.06)",
-  },
-  label: {
-    display: "block",
-    color: "var(--color-cloud-dim)",
-    fontSize: "var(--font-size-xs)",
-    textTransform: "uppercase",
-    marginBottom: "var(--space-2)",
-    fontFamily: "var(--font-mono)",
-  },
-  code: {
-    display: "block",
-    fontSize: "var(--font-size-lg)",
-    fontWeight: 700,
-    color: "var(--color-accent)",
-    padding: "var(--space-2) 0",
-    fontFamily: "var(--font-mono)",
-  },
-  command: {
-    display: "block",
-    marginTop: "var(--space-3)",
-    padding: "var(--space-3)",
-    fontSize: "var(--font-size-sm)",
-    color: "var(--color-cloud)",
-    background: "var(--color-sky-mid)",
-    fontFamily: "var(--font-mono)",
-    overflowX: "auto",
-    whiteSpace: "pre-wrap",
-    wordBreak: "break-all",
   },
   error: {
     marginTop: "var(--space-3)",
