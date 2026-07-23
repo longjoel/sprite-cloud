@@ -174,8 +174,35 @@ export async function POST(request: NextRequest) {
     const sdpPayload = body.payload as Record<string, unknown> | undefined;
     const roomToken = sdpPayload?.room_token as string | undefined;
     const peerToken = sdpPayload?.peer_token as string | undefined;
-    console.log("[COMMAND] sdp_offer received — room_token:", !!roomToken, "peer_token:", !!peerToken);
-    if (roomToken) {
+    const hostToken = sdpPayload?.host_token as string | undefined;
+    console.log("[COMMAND] sdp_offer received — room_token:", !!roomToken, "peer_token:", !!peerToken, "host_token:", !!hostToken);
+    if (hostToken && typeof sdpPayload?.game_id === "string") {
+      // LAN guest: verify host_token matches a valid short-code row
+      const [shortCode] = await db
+        .select({ code: shortCodes.code })
+        .from(shortCodes)
+        .where(
+          and(
+            eq(shortCodes.serverId, body.server_id),
+            eq(shortCodes.gameId, sdpPayload.game_id),
+            eq(shortCodes.hostToken, hostToken),
+          ),
+        )
+        .limit(1);
+      if (shortCode) {
+        // Guest auth successful — resolve server_id
+        const [owner] = await db
+          .select({ userId: serverMembers.userId })
+          .from(serverMembers)
+          .where(and(eq(serverMembers.serverId, body.server_id), eq(serverMembers.role, "admin")))
+          .limit(1);
+        if (owner) {
+          lanStartUserId = owner.userId;
+          serverId = body.server_id;
+        }
+      }
+    }
+    if (!serverId && roomToken) {
       // Resolve room_token → active session → server_id
       const [roomSession] = await db
         .select({ serverId: sessions.serverId, status: sessions.status })
@@ -191,7 +218,7 @@ export async function POST(request: NextRequest) {
       }
       serverId = roomSession.serverId!;
       // Guest auth successful — skip session + CSRF + membership checks
-    } else {
+    } else if (!serverId) {
       // No room_token — fall through to normal auth
       if (!session?.user?.id) {
         return NextResponse.json({ error: "sign in first" }, { status: 401 });
