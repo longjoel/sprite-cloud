@@ -174,9 +174,27 @@ async fn proxy_to_sc_web(
     let mut response = axum::response::Response::new(Body::from(resp_body));
     *response.status_mut() = status;
     for (k, v) in resp_headers.iter() {
-        if k.as_str().to_lowercase() != "transfer-encoding" {
-            response.headers_mut().insert(k.clone(), v.clone());
+        let key = k.as_str().to_lowercase();
+        if key == "transfer-encoding" {
+            continue;
         }
+        // Strip Secure flag from Set-Cookie — the LAN proxy serves over HTTP
+        if key == "set-cookie" {
+            if let Ok(val) = v.to_str() {
+                let sanitized = val
+                    .split(';')
+                    .map(|p| p.trim())
+                    .filter(|p| !p.eq_ignore_ascii_case("secure"))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                response.headers_mut().insert(
+                    k.clone(),
+                    sanitized.parse().unwrap_or_else(|_| v.clone()),
+                );
+                continue;
+            }
+        }
+        response.headers_mut().insert(k.clone(), v.clone());
     }
 
     Ok(response)
