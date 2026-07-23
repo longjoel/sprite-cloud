@@ -1,5 +1,29 @@
 "use strict";
-var __touchGamepadBundle = (() => {
+var TouchGamepad = (() => {
+  var __defProp = Object.defineProperty;
+  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+  var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+  var __copyProps = (to, from, except, desc) => {
+    if (from && typeof from === "object" || typeof from === "function") {
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    }
+    return to;
+  };
+  var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+  // lib/touch-gamepad/index.ts
+  var index_exports = {};
+  __export(index_exports, {
+    TouchGamepad: () => TouchGamepad
+  });
+
   // lib/touch-gamepad/presets.ts
   function clamp(v, min, max) {
     return v < min ? min : v > max ? max : v;
@@ -275,7 +299,7 @@ var __touchGamepadBundle = (() => {
     if (layoutName === "horizontal") return "horizontal";
     if (layoutName === "vertical") return "vertical";
     if (!window.screen) return "vertical";
-    return window.screen.availWidth > window.screen.availHeight ? "horizontal" : "vertical";
+    return window.innerWidth > window.innerHeight ? "horizontal" : "vertical";
   }
   function layoutKey() {
     return this._preset + ":" + resolveOrientation(this._layoutName);
@@ -1137,26 +1161,5 @@ var __touchGamepadBundle = (() => {
       this._scheduleRender();
     }
   };
-
-  // lib/touch-gamepad/main.ts
-  window.TouchGamepad = TouchGamepad;
-  function bootstrap() {
-    const video = document.querySelector(
-      "video[data-sc-preset]"
-    );
-    if (!video) {
-      requestAnimationFrame(bootstrap);
-      return;
-    }
-    if (window.__scTouchGamepad) return;
-    const preset = video.dataset.scPreset || "nes";
-    const layout = video.dataset.scLayout || "auto";
-    const gp = new TouchGamepad(video, { preset, layout });
-    window.__scTouchGamepad = gp;
-  }
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => requestAnimationFrame(bootstrap));
-  } else {
-    requestAnimationFrame(bootstrap);
-  }
+  return __toCommonJS(index_exports);
 })();

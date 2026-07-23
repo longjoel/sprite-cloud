@@ -101,9 +101,7 @@ function resolveOrientation(layoutName: Orientation): string {
   if (layoutName === "horizontal") return "horizontal";
   if (layoutName === "vertical") return "vertical";
   if (!window.screen) return "vertical";
-  return window.screen.availWidth > window.screen.availHeight
-    ? "horizontal"
-    : "vertical";
+  return window.innerWidth > window.innerHeight ? "horizontal" : "vertical";
 }
 
 function layoutKey(this: TouchGamepad): string {
