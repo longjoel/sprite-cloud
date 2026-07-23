@@ -3,6 +3,7 @@ use std::io::{BufRead, Write};
 
 use crate::config;
 use crate::nat;
+use crate::scan;
 
 pub async fn run() -> Result<()> {
     let stdin = std::io::stdin();
