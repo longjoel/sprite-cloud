@@ -35,18 +35,13 @@ const STEPS: Step[] = [
   {
     num: 2,
     title: "Install the server",
-    desc: "Download the sc-server binary for your platform (Linux, Bazzite, Steam Deck). Run the pairing command shown on the setup page to link it to your account.",
-    code: "GV_ROM_ROOTS=/path/to/roms  GV_CORES_DIR=/path/to/cores  ./sc-server start",
+    desc: "Run this one-liner on your gaming machine (Linux, Bazzite, Steam Deck, Raspberry Pi):",
+    code: "curl -fsSL https://sprite-cloud.com/install.sh | bash",
   },
   {
     num: 3,
-    title: "Gather your games",
-    desc: "Point sc-server at your ROM directories. Supported platforms include NES, SNES, Genesis, Game Boy, PlayStation, arcade, and many more — anything with a libretro core.",
-  },
-  {
-    num: 4,
-    title: "Play!",
-    desc: "Open your library in any browser. Click a game to start streaming — touch controls work on phones and tablets. Share a link and friends can watch or join.",
+    title: "Pair and play",
+    desc: "Sign in, go to your dashboard, generate a pairing code. Run sc-server pair <code> on your machine to link it to your account. Point it at your ROM directory, open your library, and start streaming.",
   },
 ];
 
