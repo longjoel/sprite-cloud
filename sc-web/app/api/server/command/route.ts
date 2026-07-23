@@ -107,7 +107,6 @@ export async function POST(request: NextRequest) {
   if (rateLimited) return rateLimited;
 
   const session = await auth();
-  let serverId = body.server_id;
 
   let body: CommandBody;
   try {
@@ -115,6 +114,8 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
+
+  let serverId = body.server_id;
 
   // Validate type
   if (!body.type || !VALID_TYPES.has(body.type)) {
@@ -219,7 +220,8 @@ export async function POST(request: NextRequest) {
       serverId = roomSession.serverId!;
       // Guest auth successful — skip session + CSRF + membership checks
     } else if (!serverId) {
-      // No room_token — fall through to normal auth
+      // No host_token or room_token — fall through to normal auth
+      serverId = body.server_id;
       if (!session?.user?.id) {
         return NextResponse.json({ error: "sign in first" }, { status: 401 });
       }
