@@ -53,6 +53,7 @@ jobs:
   build-appimage:
     name: Build AppImage (${{ matrix.arch }})
     runs-on: ubuntu-latest
+    continue-on-error: true  # AppImage is optional — server binary is the critical artifact
     strategy:
       matrix:
         include:
@@ -92,7 +93,9 @@ jobs:
           cache: 'pnpm'
 
       - name: Install frontend dependencies
-        run: pnpm install --frozen-lockfile
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm approve-builds 2>/dev/null || true
 
       - name: Build frontend (required by Tauri embed)
         run: pnpm --filter sc-web build
