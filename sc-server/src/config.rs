@@ -11,6 +11,10 @@ pub struct Config {
     pub auth: Auth,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rom: Option<Rom>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cores: Option<Cores>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ice: Option<Ice>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -33,6 +37,35 @@ pub struct Rom {
     /// sc-web discovers games by walking these paths.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roots: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Cores {
+    /// Directory containing libretro cores (.so files).
+    pub dir: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Ice {
+    /// STUN server URL (e.g. "stun:stun.l.google.com:19302")
+    pub stun_url: String,
+    /// ICE transport policy: "all" or "relay"
+    #[serde(default = "default_ice_policy")]
+    pub policy: String,
+    /// Optional TURN server config
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<Turn>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Turn {
+    pub url: String,
+    pub username: String,
+    pub credential: String,
+}
+
+fn default_ice_policy() -> String {
+    "all".to_string()
 }
 
 // ── Paths ─────────────────────────────────────────────────────────────
