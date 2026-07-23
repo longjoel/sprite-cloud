@@ -38,6 +38,24 @@ pub async fn run() -> Result<()> {
         println!("  → Skipped. Set later with GV_ROM_ROOTS.");
     } else {
         println!("  ✓ ROMs: {}", rom_roots[0]);
+        // Quick scan to show what's there
+        let mut total = 0usize;
+        let mut platforms = std::collections::BTreeSet::new();
+        for root in &rom_roots {
+            if let Ok(files) = scan::discover_roms(std::path::Path::new(root)) {
+                total += files.len();
+                for f in &files {
+                if let Some(platform) = &f.platform {
+                    platforms.insert(platform.clone());
+                }
+                }
+            }
+        }
+        if total > 0 {
+            println!("  → Found {} games across {} platforms", total, platforms.len());
+        } else {
+            println!("  → No ROMs found yet. Add files and run: sc-server start");
+        }
     }
 
     // ── 2. Cores directory ────────────────────────────────────────
