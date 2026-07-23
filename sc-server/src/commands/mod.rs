@@ -143,12 +143,23 @@ pub(crate) async fn cmd_start(sc_web_url: Option<String>) -> Result<()> {
     gstreamer::init().expect("GStreamer init failed");
     tracing::info!("GStreamer initialized");
 
-    // ROM roots
+    // ROM roots — config first, then env var fallback
     let rom_roots: Vec<String> = cfg
         .rom
         .as_ref()
         .map(|r| r.roots.clone())
-        .unwrap_or_default();
+        .filter(|roots| !roots.is_empty())
+        .unwrap_or_else(|| {
+            std::env::var("GV_ROM_ROOTS")
+                .ok()
+                .map(|s| {
+                    s.split(',')
+                        .map(|p| p.trim().to_string())
+                        .filter(|p| !p.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
 
     // Pre-warm ICE
     webrtc::prewarm_ice_agent().await;
