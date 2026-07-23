@@ -13,6 +13,7 @@ mod retry;
 mod saves;
 mod sc_web;
 mod scan;
+mod scan_cmd;
 mod session;
 mod setup;
 mod streaming;
@@ -35,6 +36,13 @@ enum Command {
 
     /// Install as a systemd user service (auto-start on boot)
     Install,
+
+    /// Discover ROMs and print platform breakdown
+    Scan {
+        /// Upload results to sc-web after scanning
+        #[arg(long)]
+        upload: bool,
+    },
 
     /// Pair with a Sprite Cloud account
     Pair {
@@ -68,6 +76,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Setup => setup::run().await,
         Command::Install => install::run(),
+        Command::Scan { upload } => scan_cmd::run(upload).await,
         Command::Pair { code, sc_web_url } => commands::cmd_pair(&code, &sc_web_url).await,
         Command::Start { sc_web_url } => commands::cmd_start(sc_web_url).await,
     }
