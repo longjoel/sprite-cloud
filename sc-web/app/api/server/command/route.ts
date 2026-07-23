@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
   if (rateLimited) return rateLimited;
 
   const session = await auth();
-  let serverId: string;
+  let serverId = body.server_id;
 
   let body: CommandBody;
   try {
