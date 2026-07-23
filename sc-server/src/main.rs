@@ -5,13 +5,16 @@ mod dat;
 mod encoder_probe;
 mod gst_audio;
 mod gst_video;
-mod sc_web;
+mod install;
+mod nat;
 mod platform;
 mod player_server;
 mod retry;
 mod saves;
+mod sc_web;
 mod scan;
 mod session;
+mod setup;
 mod streaming;
 mod webrtc;
 
@@ -19,7 +22,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "sc-server", about = "Sprite Cloud server")]
+#[command(name = "sc-server", about = "Sprite Cloud server", version)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -27,12 +30,24 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Interactive first-run setup wizard (NAT check, ROM paths, STUN config)
+    Setup,
+
+    /// Install as a systemd user service (auto-start on boot)
+    Install,
+
+    /// Pair with a Sprite Cloud account
     Pair {
+        /// Pairing code from the web dashboard
         code: String,
-        #[arg(long, default_value = "http://localhost:3001")]
+        /// Sprite Cloud web URL
+        #[arg(long, default_value = "https://sprite-cloud.com")]
         sc_web_url: String,
     },
+
+    /// Start serving (poll sc-web for game requests)
     Start {
+        /// Override the sc-web URL from config
         #[arg(long)]
         sc_web_url: Option<String>,
     },
@@ -51,6 +66,8 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Command::Setup => setup::run().await,
+        Command::Install => install::run(),
         Command::Pair { code, sc_web_url } => commands::cmd_pair(&code, &sc_web_url).await,
         Command::Start { sc_web_url } => commands::cmd_start(sc_web_url).await,
     }

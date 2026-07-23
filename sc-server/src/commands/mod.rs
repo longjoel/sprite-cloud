@@ -66,6 +66,8 @@ pub(crate) async fn cmd_pair(code: &str, sc_web_url: &str) -> Result<()> {
         } else {
             Some(config::Rom { roots: rom_roots })
         },
+        cores: None,
+        ice: None,
     };
 
     config::save(&cfg).context("save config")?;

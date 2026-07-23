@@ -4344,6 +4344,8 @@ dependencies = [
  "serde_json",
  "serial_test",
  "sha2",
+ "shellexpand",
+ "stun 0.17.2",
  "tempfile",
  "tokio",
  "tokio-util",
@@ -4741,6 +4743,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "shellexpand"
+version = "3.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32824fab5e16e6c4d86dc1ba84489390419a39f97699852b66480bb87d297ed8"
+dependencies = [
+ "dirs",
+]
+
+[[package]]
 name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4923,6 +4934,25 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 name = "stun"
 version = "0.17.1"
 source = "git+https://github.com/longjoel/webrtc-rs-fork?branch=fix%2Fudp-mux-ufrag#23260290325f3d139287937939904aa6474b62c0"
+dependencies = [
+ "base64 0.22.1",
+ "crc",
+ "lazy_static",
+ "md-5",
+ "rand 0.9.4",
+ "ring",
+ "subtle",
+ "thiserror 1.0.69",
+ "tokio",
+ "url",
+ "webrtc-util 0.17.1",
+]
+
+[[package]]
+name = "stun"
+version = "0.17.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e3b8d5ad1dd4c8cd0595440f26521a71dd593cb5873ee8e06b91510b7d97269"
 dependencies = [
  "base64 0.22.1",
  "crc",
@@ -5847,7 +5877,7 @@ dependencies = [
  "portable-atomic",
  "rand 0.9.4",
  "ring",
- "stun",
+ "stun 0.17.1",
  "thiserror 1.0.69",
  "tokio",
  "tokio-util",
@@ -6262,7 +6292,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "smol_str",
- "stun",
+ "stun 0.17.1",
  "thiserror 1.0.69",
  "tokio",
  "turn",
@@ -6305,7 +6335,7 @@ dependencies = [
  "rand 0.9.4",
  "serde",
  "serde_json",
- "stun",
+ "stun 0.17.1",
  "thiserror 1.0.69",
  "tokio",
  "turn",
