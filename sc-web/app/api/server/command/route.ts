@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
 
   // ── LAN host start via short-code bearer token ─────────────────────
   // The embedded LAN player runs on http://<server-ip>:8787, so it cannot
-  // send lngnckr auth cookies. The library page creates a short-code row,
+  // send gateway auth cookies. The library page creates a short-code row,
   // then sends host_token only in the LAN URL fragment. Accept start_game
   // without cookies only when that host_token matches the short-code row for
   // the selected server/game and the caller explicitly marks lan=true.
