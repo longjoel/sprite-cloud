@@ -63,7 +63,7 @@ fi
 log "Detecting latest release..."
 API="https://api.github.com/repos/$REPO/releases/latest"
 TAG="$(curl -fsSL "$API" 2>/dev/null | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//')"
-[ -n "$TAG" ] || err "Could not detect latest release tag — is the repo public?"
+[ -n "$TAG" ] || err "Could not detect latest release — check internet connection"
 log "Latest release: $TAG"
 
 # ── Download binary ────────────────────────────────────────────
@@ -71,7 +71,20 @@ URL="https://github.com/$REPO/releases/download/$TAG/${BIN}-${ARCH}"
 SHA_URL="${URL}.sha256"
 
 log "Downloading $BIN ($ARCH)..."
-curl -fsSL "$URL" -o "$TMP/$BIN"
+HTTP_CODE="$(curl -fsSL -o "$TMP/$BIN" -w '%{http_code}' "$URL" 2>/dev/null || echo "000")"
+
+if [ "$HTTP_CODE" = "404" ]; then
+  log "No prebuilt binary for $ARCH — build from source:"
+  echo ""
+  echo "  git clone https://github.com/$REPO.git"
+  echo "  cd sprite-cloud"
+  echo "  cargo build --release -p sc-server"
+  echo "  cp target/release/sc-server $INSTALL_DIR/"
+  echo ""
+  exit 1
+fi
+
+[ "$HTTP_CODE" = "200" ] || err "Download failed (HTTP $HTTP_CODE)"
 chmod +x "$TMP/$BIN"
 
 # Verify checksum if available
