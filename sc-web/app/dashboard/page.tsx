@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import AppHeader from "@/components/fluent/AppHeader";
 import DashboardClient from "./DashboardClient";
+import PairingPrompt from "./PairingPrompt";
 
 // ── Dashboard — server-first admin surface ────────────────────────────
 
@@ -62,6 +63,7 @@ export default async function DashboardPage() {
               No servers with admin access yet. Pair a sc-server and become its
               admin to manage it here.
             </p>
+            <PairingPrompt />
           </div>
         </section>
       ) : (
