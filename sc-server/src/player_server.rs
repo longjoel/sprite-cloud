@@ -282,6 +282,7 @@ pub async fn serve_standalone(
     let app = app_router()
         .route("/api/games", get(list_games))
         .route("/api/scan", axum::routing::post(trigger_scan))
+        .route("/", get(library_page))
         .with_state(state);
 
     tracing::info!("[player] Standalone server listening on http://{bind}");
@@ -368,6 +369,107 @@ async fn trigger_scan(
     }
 
     Ok(Json(serde_json::json!({ "status": "ok", "count": count })))
+}
+
+// ── Standalone library page ──────────────────────────────────────────
+
+async fn library_page(
+    State(state): State<Arc<AppState>>,
+) -> Result<axum::response::Html<String>, axum::http::StatusCode> {
+    let standalone = state.standalone.as_ref().ok_or(axum::http::StatusCode::NOT_FOUND)?;
+    let games = standalone.game_list.read().await;
+    let hostname = state.server_name.clone();
+    let count = games.len();
+
+    // Group by platform
+    let mut platforms: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+    for g in games.iter() {
+        let plat = g.platform.clone().unwrap_or_else(|| "other".to_string());
+        let name = g.file_name.clone();
+        platforms.entry(plat).or_default().push(name);
+    }
+
+    let mut platform_sections = String::new();
+    for (plat, names) in &platforms {
+        platform_sections.push_str(&format!(
+            "<details open><summary><strong>{}</strong> <span class=\"count\">({})</span></summary><ul>",
+            plat, names.len()
+        ));
+        for name in names {
+            platform_sections.push_str(&format!("<li>{}</li>", html_escape(name)));
+        }
+        platform_sections.push_str("</ul></details>");
+    }
+
+    let html = format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sprite Cloud — {hostname}</title>
+<style>
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f0f14; color: #e0e0e0; max-width: 900px; margin: 0 auto; padding: 24px 16px; }}
+  h1 {{ font-size: 1.5rem; margin-bottom: 8px; }}
+  .subtitle {{ color: #888; font-size: 0.85rem; margin-bottom: 24px; }}
+  .toolbar {{ display: flex; gap: 12px; margin-bottom: 20px; align-items: center; }}
+  button {{ background: #2a2a3e; color: #e0e0e0; border: 1px solid #444; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; }}
+  button:hover {{ background: #3a3a4e; }}
+  .count {{ color: #888; font-size: 0.8rem; }}
+  details {{ margin-bottom: 12px; background: #1a1a24; border-radius: 8px; padding: 12px 16px; }}
+  summary {{ cursor: pointer; font-size: 1rem; padding: 4px 0; }}
+  ul {{ list-style: none; margin-top: 8px; }}
+  li {{ padding: 6px 0; border-bottom: 1px solid #2a2a3e; font-size: 0.9rem; font-family: 'SF Mono', 'Fira Code', monospace; }}
+  li:last-child {{ border-bottom: none; }}
+  .empty {{ color: #666; text-align: center; padding: 60px 0; font-size: 1.1rem; }}
+  #status {{ color: #4caf50; font-size: 0.85rem; }}
+</style>
+</head>
+<body>
+<h1>🎮 {hostname}</h1>
+<p class="subtitle">Standalone mode — {count} games across {platform_count} platforms</p>
+<div class="toolbar">
+  <button onclick="rescan()">🔄 Rescan</button>
+  <span id="status"></span>
+</div>
+<div id="content">
+  {platform_sections}
+</div>
+<script>
+  async function rescan() {{
+    const btn = document.querySelector('button');
+    const status = document.getElementById('status');
+    btn.disabled = true;
+    status.textContent = 'Scanning...';
+    try {{
+      const resp = await fetch('/api/scan', {{ method: 'POST' }});
+      const data = await resp.json();
+      status.textContent = `Found ${{data.count}} games.`;
+      location.reload();
+    }} catch(e) {{
+      status.textContent = 'Scan failed: ' + e.message;
+      btn.disabled = false;
+    }}
+  }}
+</script>
+</body>
+</html>"#,
+        hostname = hostname,
+        count = count,
+        platform_count = platforms.len(),
+        platform_sections = platform_sections,
+    );
+
+    Ok(axum::response::Html(html))
+}
+
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 #[cfg(test)]
