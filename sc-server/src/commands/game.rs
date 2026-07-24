@@ -10,6 +10,25 @@ fn signal_log(flow: &str, stage: &str, details: &str) {
     }
 }
 
+async fn record_server_local_play(
+    preferences: &crate::player_server::SharedLibraryState,
+    game_id: &str,
+    launch_ready: bool,
+    server_local: bool,
+) {
+    if !launch_ready || !server_local {
+        return;
+    }
+    match time::OffsetDateTime::now_utc().format(&time::format_description::well_known::Rfc3339) {
+        Ok(played_at) => {
+            if let Err(error) = preferences.lock().await.record_played(game_id, &played_at) {
+                tracing::warn!("[library] failed to record paired recent play: {error}");
+            }
+        }
+        Err(error) => tracing::warn!("[library] failed to format recent timestamp: {error}"),
+    }
+}
+
 // ── Command handlers ────────────────────────────────────────────────
 
 pub(super) async fn handle_start_game(
@@ -19,6 +38,7 @@ pub(super) async fn handle_start_game(
     rom_roots: &[String],
     local_games: &Arc<tokio::sync::RwLock<Vec<crate::player_server::LocalGame>>>,
     pool: &webrtc::PcPool,
+    library_preferences: &crate::player_server::SharedLibraryState,
 ) {
     let game_id = cmd
         .payload
@@ -91,6 +111,7 @@ pub(super) async fn handle_start_game(
         None
     };
 
+    let server_local = local_resolution.is_some();
     let (content_path, platform) = if let Some((path, platform)) = local_resolution {
         (Some(path.to_string_lossy().to_string()), Some(platform))
     } else {
@@ -235,6 +256,7 @@ pub(super) async fn handle_start_game(
     let t3 = std::time::Instant::now();
 
     // Notify sc-web — include SDP answer if offer was provided
+    let mut launch_ready = false;
     if let Some(offer) = sdp_offer {
         // SDP exchange with retry: first attempt on session PC,
         // then acquire fresh PC from pool and retry if needed
@@ -327,6 +349,7 @@ pub(super) async fn handle_start_game(
                 {
                     tracing::error!("[NOTIFY] notify_sdp failed: {e:#}");
                 } else {
+                    launch_ready = true;
                     signal_log(
                         "host_start",
                         "notify_sdp_sent",
@@ -360,6 +383,7 @@ pub(super) async fn handle_start_game(
         {
             tracing::error!("[NOTIFY] failed: {e:#}");
         } else {
+            launch_ready = true;
             signal_log(
                 "host_start",
                 "notify_ready_sent",
@@ -368,6 +392,8 @@ pub(super) async fn handle_start_game(
             tracing::info!("[SESSION] game ready: {game_id}");
         }
     }
+
+    record_server_local_play(library_preferences, game_id, launch_ready, server_local).await;
 
     let total = t_total.elapsed();
     tracing::info!(
@@ -1076,5 +1102,42 @@ pub(super) async fn handle_scan_paths(
                 )
                 .await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn recent_history_requires_a_ready_server_local_launch() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = crate::library_state::LibraryStateStore::load(
+            directory.path().join("library-state.json"),
+        )
+        .unwrap();
+        let preferences = Arc::new(tokio::sync::Mutex::new(store));
+        let game_id = "local_0123456789abcdef0123456789abcdef";
+
+        record_server_local_play(&preferences, game_id, false, true).await;
+        record_server_local_play(&preferences, game_id, true, false).await;
+        assert!(
+            !preferences
+                .lock()
+                .await
+                .snapshot()
+                .recent
+                .contains_key(game_id)
+        );
+
+        record_server_local_play(&preferences, game_id, true, true).await;
+        assert!(
+            preferences
+                .lock()
+                .await
+                .snapshot()
+                .recent
+                .contains_key(game_id)
+        );
     }
 }

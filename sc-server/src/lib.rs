@@ -5,6 +5,7 @@ pub mod dat;
 pub mod encoder_probe;
 pub mod gst_audio;
 pub mod gst_video;
+pub mod library_state;
 pub mod sc_web;
 pub mod platform;
 pub mod player_server;

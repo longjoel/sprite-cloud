@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import XmbSettings, { hasXmbSettingsAccess, type XmbServer } from "@/components/xmb/XmbSettings";
-import { LIBRARY_SECTIONS, filterLibraryGames, getEmptyStateMessage, libraryGameKey, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
+import { LIBRARY_SECTIONS, filterLibraryGames, getEmptyStateMessage, isServerLocalGame, libraryGameKey, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
 import { loadXmbAuthenticatedData, type PinnedGameRow } from "@/lib/ui/xmb-authenticated-load";
 import {
   activateXmbNavigation,
@@ -25,6 +25,7 @@ import { createLaunchShortCode, buildPlayerPath } from "@/lib/ui/launch-game";
 
 interface Game extends LibraryGame {
   maxPlayers?: number;
+  playedAt?: string;
 }
 
 interface RawGame {
@@ -39,6 +40,7 @@ interface RawGame {
   favorite?: boolean;
   favorited?: boolean;
   pinned?: boolean;
+  playedAt?: string;
 }
 
 interface SubCategory {
@@ -177,9 +179,10 @@ export default function XmbPage() {
           name: game.name,
           platform: game.platform,
           maxPlayers: game.maxPlayers,
-          favorite: favoriteIds.has(game.id) || Boolean(game.favorite ?? game.favorited),
+          favorite: Boolean(game.favorite ?? game.favorited),
           pinned: Boolean(game.pinned),
           recentRank: null,
+          playedAt: game.playedAt,
           serverId: game.serverId ?? game.server_id ?? null,
           coverUrl: game.coverUrl ?? game.cover_url ?? null,
         })));
@@ -211,12 +214,25 @@ export default function XmbPage() {
   const sub = SUB_CATEGORIES[focusedSub];
 
   const mergedGames: Game[] = (() => {
-    const apiGames: Game[] = games.map((g) => ({
-      ...g,
-      favorite: favoriteIds.has(g.id) || g.favorite,
-      pinned: pinnedIds.has(g.id) || g.pinned,
-      recentRank: (() => { const idx = recentGames.findIndex((rg) => rg.id === g.id); return idx >= 0 ? idx : null; })(),
-    }));
+    const localRecentRanks = new Map(
+      [...games]
+        .filter((game) => game.playedAt)
+        .sort((left, right) => right.playedAt!.localeCompare(left.playedAt!))
+        .map((game, index) => [libraryGameKey(game), index]),
+    );
+    const apiGames: Game[] = games.map((g) => {
+      const serverLocal = isServerLocalGame(g);
+      return {
+        ...g,
+        favorite: serverLocal ? g.favorite : favoriteIds.has(g.id) || g.favorite,
+        pinned: serverLocal ? g.pinned : pinnedIds.has(g.id) || g.pinned,
+        recentRank: (() => {
+          if (serverLocal) return localRecentRanks.get(libraryGameKey(g)) ?? null;
+          const idx = recentGames.findIndex((rg) => rg.id === g.id);
+          return idx >= 0 ? idx : (localRecentRanks.get(libraryGameKey(g)) ?? null);
+        })(),
+      };
+    });
 
     // Append pinned games from bootstrap not already in the API window
     const existingIds = new Set(apiGames.map((g) => g.id));

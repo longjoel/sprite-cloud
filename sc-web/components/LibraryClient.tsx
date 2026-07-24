@@ -9,7 +9,7 @@ import LibraryToolbar from "@/components/LibraryToolbar";
 import { Star20Filled, Star20Regular, Pin20Filled, Pin20Regular, Edit20Regular, Desktop20Regular } from "@fluentui/react-icons";
 import { buildLanPlayerLaunchUrl, canUseLanPlayer, chooseLaunchHost, createLaunchRequestGate, formatLaunchError } from "@/lib/lan/launch";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
-import { createAllLibraryPageParams, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, createPlayableHostsParams, filterLibraryGames, formatRecentGroupLabel, formatRelativeAge, groupRecentGamesByLocalDate, libraryGameKey, mergeLibraryPages, mergeRecentLibraryPages, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
+import { createAllLibraryPageParams, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, createPlayableHostsParams, filterLibraryGames, formatRecentGroupLabel, formatRelativeAge, groupRecentGamesByLocalDate, libraryGameKey, mergeLibraryPages, mergeRecentLibraryPages, shouldRecordRecentPlayFromClient, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -445,7 +445,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   };
 
   const handlePlay = (game: Game) => {
-    recordRecentPlay(game.id);
+    if (shouldRecordRecentPlayFromClient(game)) recordRecentPlay(game.id);
     void loadHosts(game, true);
   };
 
