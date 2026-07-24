@@ -790,7 +790,7 @@ describe("POST /api/server/command", () => {
     else delete process.env.GV_SERVER_LAN_IPS;
   });
 
-  it("does not reuse stale connected sessions on host reconnect", async () => {
+  it("keeps stale reconnect candidates active for transactional replacement", async () => {
     const { sessions: sessionsTable } = await import("@/lib/db/schema");
 
     mockDb.select
@@ -832,7 +832,7 @@ describe("POST /api/server/command", () => {
     expect(resp.status).toBe(201);
     const body = await resp.json();
     expect(body.host_peer_token).toBeTruthy();
-    expect(sessionUpdates).toContainEqual(expect.objectContaining({ status: "timed_out" }));
+    expect(sessionUpdates).not.toContainEqual(expect.objectContaining({ status: "timed_out" }));
     expect(mockDb.insert).toHaveBeenCalledWith(sessionsTable);
   });
 });
