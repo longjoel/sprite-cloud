@@ -2,6 +2,13 @@ use anyhow::{Context, Result};
 
 /// Install sc-server as a systemd user service (Linux only).
 pub fn run() -> Result<()> {
+    if unsafe { libc::geteuid() } == 0 {
+        anyhow::bail!(
+            "sc-server install creates a user service and must run as your login user, not root. \
+             Re-run without sudo, then use: systemctl --user enable --now sc-server"
+        );
+    }
+
     let data_dir = dirs::data_local_dir()
         .context("no local data dir")?
         .join("sprite-cloud");
@@ -39,9 +46,9 @@ WantedBy=default.target
 
     println!("  ✓ Service installed: {}", path.display());
     println!();
-    println!("  Enable and start:");
-    println!("    systemctl --user enable sc-server");
-    println!("    systemctl --user start sc-server");
+    println!("  Enable and start (as your login user; do not use sudo):");
+    println!("    systemctl --user daemon-reload");
+    println!("    systemctl --user enable --now sc-server");
     println!();
     println!("  Check status:");
     println!("    systemctl --user status sc-server");

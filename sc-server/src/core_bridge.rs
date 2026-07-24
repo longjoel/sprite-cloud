@@ -147,20 +147,32 @@ fn resolve_system_dir() -> String {
     std::env::var("GV_SYSTEM_DIR").unwrap_or_else(|_| "/tmp".into())
 }
 
+static CONFIGURED_CORES_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+pub fn configure_cores_dir(path: &str) {
+    if !path.trim().is_empty() {
+        let _ = CONFIGURED_CORES_DIR.set(PathBuf::from(path));
+    }
+}
+
 fn resolve_core_path(core_filename: &str) -> PathBuf {
-    let cores_dir = std::env::var("GV_CORES_DIR").unwrap_or_else(|_| {
-        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.pop();
-        p.push("test-data/cores");
-        if p.exists() {
-            return p.to_string_lossy().to_string();
-        }
-        p.pop();
-        p.pop();
-        p.push("cores");
-        p.to_string_lossy().to_string()
-    });
-    PathBuf::from(&cores_dir).join(core_filename)
+    let cores_dir = std::env::var("GV_CORES_DIR")
+        .ok()
+        .map(PathBuf::from)
+        .or_else(|| CONFIGURED_CORES_DIR.get().cloned())
+        .unwrap_or_else(|| {
+            let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            p.pop();
+            p.push("test-data/cores");
+            if p.exists() {
+                return p;
+            }
+            p.pop();
+            p.pop();
+            p.push("cores");
+            p
+        });
+    cores_dir.join(core_filename)
 }
 
 static BUILDBOT_BASE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {

@@ -11,6 +11,9 @@ const scriptsReadme = readFileSync("../scripts/README.md", "utf8");
 const releaseGuide = readFileSync("../docs/RELEASE.md", "utf8");
 const hostInstaller = readFileSync("../scripts/install.sh", "utf8");
 const publicInstaller = readFileSync("public/install.sh", "utf8");
+const serverSetup = readFileSync("../sc-server/src/setup.rs", "utf8");
+const serverInstall = readFileSync("../sc-server/src/install.rs", "utf8");
+const serverCommands = readFileSync("../sc-server/src/commands/mod.rs", "utf8");
 const playerScript = readFileSync("public/player/play-v2.js", "utf8");
 const scPlayerScript = readFileSync("public/player/sc-player.js", "utf8");
 const browserLogger = readFileSync("public/browser-log.js", "utf8");
@@ -102,6 +105,24 @@ describe("production deploy workflow", () => {
     expect(quickstart).toContain("sudo ./scripts/install.sh --web-url");
     expect(quickstart).not.toContain("https://sprite-cloud.com/install.sh");
     expect(quickstart).not.toContain("https://get.gamesvault.app");
+  });
+
+  it("persists setup choices through pairing and gives a direct connection URL", () => {
+    expect(serverCommands).toContain("config::effective_rom_roots(existing.as_ref())");
+    expect(serverCommands).toContain("core_bridge::configure_cores_dir(&cores.dir)");
+    expect(serverCommands).toContain("let cfg = apply_pairing(");
+    expect(serverSetup).toContain('"    {}/dashboard"');
+    expect(hostInstaller).toContain("${WEB_URL%/}/dashboard");
+    expect(publicInstaller).toContain("https://sprite-cloud.com/dashboard");
+  });
+
+  it("keeps user systemd commands out of sudo/root sessions", () => {
+    expect(serverInstall).toContain("must run as your login user, not root");
+    expect(serverInstall).toContain("systemctl --user enable --now sc-server");
+    expect(publicInstaller).toContain("do not use sudo with systemctl --user");
+    expect(publicInstaller).toContain("sc-server install");
+    expect(publicInstaller).not.toContain("sc-server --install");
+    expect(hostInstaller).not.toContain('SYSTEMCTL="sudo systemctl"');
   });
 
   it("publishes only after both advertised architecture builds succeed", () => {

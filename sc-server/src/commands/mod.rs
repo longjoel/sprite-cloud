@@ -20,6 +20,34 @@ fn worker_url(game_id: &str) -> String {
     let port = std::env::var("GV_WORKER_PORT").unwrap_or_else(|_| "8787".into());
     format!("http://{host}:{port}/{game_id}")
 }
+
+fn apply_pairing(
+    existing: Option<config::Config>,
+    sc_web_url: &str,
+    api_key: String,
+    server_id: String,
+    rom_roots: Vec<String>,
+) -> config::Config {
+    let mut cfg = existing.unwrap_or(config::Config {
+        sc_web: config::ScWeb {
+            url: sc_web_url.to_string(),
+        },
+        auth: config::Auth {
+            api_key: String::new(),
+            server_id: String::new(),
+        },
+        rom: None,
+        cores: None,
+        ice: None,
+    });
+    cfg.sc_web.url = sc_web_url.to_string();
+    cfg.auth.api_key = api_key;
+    cfg.auth.server_id = server_id;
+    if !rom_roots.is_empty() {
+        cfg.rom = Some(config::Rom { roots: rom_roots });
+    }
+    cfg
+}
 use crate::scan;
 use crate::session::GameSession;
 use crate::streaming;
@@ -32,15 +60,8 @@ pub(crate) mod version;
 pub(crate) async fn cmd_pair(code: &str, sc_web_url: &str) -> Result<()> {
     tracing::info!("Pairing with {} ...", sc_web_url);
 
-    let rom_roots: Vec<String> = std::env::var("GV_ROM_ROOTS")
-        .ok()
-        .map(|s| {
-            s.split(',')
-                .map(|p| p.trim().to_string())
-                .filter(|p| !p.is_empty())
-                .collect()
-        })
-        .unwrap_or_default();
+    let existing = config::load().ok();
+    let rom_roots = config::effective_rom_roots(existing.as_ref());
 
     if !rom_roots.is_empty() {
         tracing::info!("  rom_roots: {:?}", rom_roots);
@@ -52,22 +73,13 @@ pub(crate) async fn cmd_pair(code: &str, sc_web_url: &str) -> Result<()> {
 
     let resp = sc_web::ScWebClient::claim(code, sc_web_url, &hostname).await?;
 
-    let cfg = config::Config {
-        sc_web: config::ScWeb {
-            url: sc_web_url.to_string(),
-        },
-        auth: config::Auth {
-            api_key: resp.api_key.clone(),
-            server_id: resp.server_id.clone(),
-        },
-        rom: if rom_roots.is_empty() {
-            None
-        } else {
-            Some(config::Rom { roots: rom_roots })
-        },
-        cores: None,
-        ice: None,
-    };
+    let cfg = apply_pairing(
+        existing,
+        sc_web_url,
+        resp.api_key.clone(),
+        resp.server_id.clone(),
+        rom_roots,
+    );
 
     config::save(&cfg).context("save config")?;
 
@@ -95,6 +107,9 @@ pub(crate) async fn cmd_start(
     }
 
     let mut cfg = config::load().context("load config (run 'sc-server pair' first)")?;
+    if let Some(cores) = cfg.cores.as_ref() {
+        core_bridge::configure_cores_dir(&cores.dir);
+    }
     let library_preferences = crate::player_server::open_library_preferences()
         .context("load local library preferences")?;
 
@@ -153,23 +168,7 @@ pub(crate) async fn cmd_start(
     gstreamer::init().expect("GStreamer init failed");
     tracing::info!("GStreamer initialized");
 
-    // ROM roots — config first, then env var fallback
-    let rom_roots: Vec<String> = cfg
-        .rom
-        .as_ref()
-        .map(|r| r.roots.clone())
-        .filter(|roots| !roots.is_empty())
-        .unwrap_or_else(|| {
-            std::env::var("GV_ROM_ROOTS")
-                .ok()
-                .map(|s| {
-                    s.split(',')
-                        .map(|p| p.trim().to_string())
-                        .filter(|p| !p.is_empty())
-                        .collect()
-                })
-                .unwrap_or_default()
-        });
+    let rom_roots = config::effective_rom_roots(Some(&cfg));
 
     // sc-server remains the source of truth even in relay-only mode: remote
     // start commands resolve opaque IDs locally and never need ROM paths from sc-web.
@@ -214,7 +213,6 @@ pub(crate) async fn cmd_start(
 
     const POLL_ERROR_BACKOFF_MS: u64 = 5_000;
     let mut sessions: HashMap<String, Arc<GameSession>> = HashMap::new();
-
 
     loop {
         tokio::select! {
@@ -330,16 +328,12 @@ async fn cmd_start_standalone(no_lan_player: bool) -> Result<()> {
 
     tracing::info!("Starting sc-server in standalone mode (no sc-web, no pairing)");
 
-    // ROM roots from env var only (no config file in standalone mode)
-    let rom_roots: Vec<String> = std::env::var("GV_ROM_ROOTS")
-        .ok()
-        .map(|s| {
-            s.split(',')
-                .map(|p| p.trim().to_string())
-                .filter(|p| !p.is_empty())
-                .collect()
-        })
-        .unwrap_or_default();
+    // Standalone mode still honors setup's persisted ROM roots.
+    let cfg = config::load().ok();
+    if let Some(cores) = cfg.as_ref().and_then(|config| config.cores.as_ref()) {
+        core_bridge::configure_cores_dir(&cores.dir);
+    }
+    let rom_roots = config::effective_rom_roots(cfg.as_ref());
 
     if rom_roots.is_empty() {
         // Try common default paths
@@ -416,4 +410,46 @@ async fn shutdown_signal() {
     tokio::signal::ctrl_c()
         .await
         .expect("register Ctrl+C handler");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pairing_preserves_setup_rom_core_and_ice_config() {
+        let existing = config::Config {
+            sc_web: config::ScWeb {
+                url: "https://old.example".into(),
+            },
+            auth: config::Auth {
+                api_key: String::new(),
+                server_id: String::new(),
+            },
+            rom: Some(config::Rom {
+                roots: vec!["/games/roms".into()],
+            }),
+            cores: Some(config::Cores {
+                dir: "/games/cores".into(),
+            }),
+            ice: Some(config::Ice {
+                stun_url: "stun:example.test:3478".into(),
+                policy: "all".into(),
+                turn: None,
+            }),
+        };
+
+        let paired = apply_pairing(
+            Some(existing),
+            "https://sprite-cloud.com",
+            "api-key".into(),
+            "server-id".into(),
+            vec!["/games/roms".into()],
+        );
+
+        assert_eq!(paired.rom.unwrap().roots, vec!["/games/roms"]);
+        assert_eq!(paired.cores.unwrap().dir, "/games/cores");
+        assert_eq!(paired.ice.unwrap().stun_url, "stun:example.test:3478");
+        assert_eq!(paired.auth.server_id, "server-id");
+    }
 }

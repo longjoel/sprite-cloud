@@ -6,27 +6,9 @@ use crate::scan;
 
 /// CLI: `sc-server scan` — discover ROMs and print results.
 pub async fn run(upload: bool) -> Result<()> {
-    let cfg = config::load().context(
-        "No config found — run 'sc-server setup' first",
-    )?;
+    let cfg = config::load().context("No config found — run 'sc-server setup' first")?;
 
-    // ROM roots: config first, then env var fallback
-    let rom_roots: Vec<String> = cfg
-        .rom
-        .as_ref()
-        .map(|r| r.roots.clone())
-        .filter(|roots| !roots.is_empty())
-        .unwrap_or_else(|| {
-            std::env::var("GV_ROM_ROOTS")
-                .ok()
-                .map(|s| {
-                    s.split(',')
-                        .map(|p| p.trim().to_string())
-                        .filter(|p| !p.is_empty())
-                        .collect()
-                })
-                .unwrap_or_default()
-        });
+    let rom_roots = config::effective_rom_roots(Some(&cfg));
 
     if rom_roots.is_empty() {
         anyhow::bail!(
@@ -59,14 +41,19 @@ pub async fn run(upload: bool) -> Result<()> {
         for f in &files {
             total += 1;
             let plat = f.platform.as_deref().unwrap_or("unknown");
-            platforms.entry(plat.to_string())
+            platforms
+                .entry(plat.to_string())
                 .and_modify(|c| *c += 1)
                 .or_insert(1usize);
         }
     }
 
     println!();
-    println!("Total: {} games across {} platforms", total, platforms.len());
+    println!(
+        "Total: {} games across {} platforms",
+        total,
+        platforms.len()
+    );
     for (plat, count) in &platforms {
         println!("  {:>4}  {}", count, plat);
     }
@@ -79,10 +66,7 @@ pub async fn run(upload: bool) -> Result<()> {
 
     // Upload to sc-web if paired and --upload flag is set
     if upload {
-        let client = crate::sc_web::ScWebClient::new(
-            cfg.sc_web.url.clone(),
-            cfg.auth.clone(),
-        );
+        let client = crate::sc_web::ScWebClient::new(cfg.sc_web.url.clone(), cfg.auth.clone());
 
         tracing::info!("Uploading scan results...");
         let metadata = crate::commands::collect_metadata(&cfg, true).await;
