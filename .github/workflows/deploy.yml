@@ -10,6 +10,12 @@ on:
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
   workflow_dispatch:
+    inputs:
+      apply_phase4c_migration:
+        description: 'Back up Postgres and remove the legacy cloud library after healthy deploy'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   deploy:
@@ -64,3 +70,31 @@ jobs:
           done
           echo "✗ Health check failed after 6 attempts"
           exit 1
+
+      - name: Back up database and apply Phase 4c destructive migration
+        if: github.event_name == 'workflow_dispatch' && inputs.apply_phase4c_migration
+        run: |
+          set -euo pipefail
+          scp -o StrictHostKeyChecking=accept-new \
+            sc-web/drizzle/0016_remove_cloud_library.sql \
+            <vps-user>@<vps-host>:/tmp/0016_remove_cloud_library.sql
+          ssh -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          PG_CONTAINER=sc-web-postgres-1
+          docker inspect "$PG_CONTAINER" >/dev/null
+          PG_USER=$(docker exec "$PG_CONTAINER" printenv POSTGRES_USER)
+          PG_DB=$(docker exec "$PG_CONTAINER" printenv POSTGRES_DB)
+          BACKUP_DIR=/docker/sc-web/backups
+          BACKUP_FILE="$BACKUP_DIR/pre-0016-$(date -u +%Y%m%dT%H%M%SZ).sql.gz"
+          mkdir -p "$BACKUP_DIR"
+          docker exec "$PG_CONTAINER" pg_dump -U "$PG_USER" "$PG_DB" | gzip -9 > "$BACKUP_FILE"
+          test -s "$BACKUP_FILE"
+          docker exec -i "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -v ON_ERROR_STOP=1 \
+            < /tmp/0016_remove_cloud_library.sql
+          LEGACY_COUNT=$(docker exec "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -Atc \
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('favorites','pinned_games','recent_plays','game_files','games','server_rom_roots');")
+          test "$LEGACY_COUNT" = "0"
+          rm -f /tmp/0016_remove_cloud_library.sql
+          curl -fsS http://localhost:3000/api/health >/dev/null
+          printf 'Migration complete; backup: %s\n' "$BACKUP_FILE"
+          REMOTE
