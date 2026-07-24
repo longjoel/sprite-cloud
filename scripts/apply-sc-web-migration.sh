@@ -61,7 +61,9 @@ done
 # ── compatible deployment preflight ───────────────────────────────────
 
 log "verifying compatible sc-web deployment health before backup and migration..."
-ssh "$VPS_USER@$VPS_HOST" "curl -fsS http://localhost:3000/api/health >/dev/null"
+HEALTH_JSON="$(ssh "$VPS_USER@$VPS_HOST" "curl -fsS http://localhost:3000/api/health")"
+grep -Eq '"phase4c_library_owner"[[:space:]]*:[[:space:]]*"sc-server"' <<<"$HEALTH_JSON" \
+  || fail "deployed sc-web is healthy but not Phase 4c migration-ready"
 
 # ── verified backup ────────────────────────────────────────────────────
 

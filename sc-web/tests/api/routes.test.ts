@@ -951,6 +951,42 @@ describe("POST /api/server/notify", () => {
     expect(mockDb.update).not.toHaveBeenCalled();
   });
 
+  it("does not apply a notify callback to an unrelated same-server session", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "cmd-game-a",
+        serverId: "server-1",
+        workerToken: "worker-a",
+        type: "sdp_offer",
+        payload: { game_id: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "session-game-b",
+        status: "playing",
+        roomToken: "room-b",
+        hostToken: "host-b",
+        generation: 1,
+        serverId: "server-1",
+        gameId: "local_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        commandId: "cmd-game-b",
+      }]));
+    const { POST } = await import("@/app/api/server/notify/route");
+    const req = mkReq("http://localhost/api/server/notify", {
+      ...jsonBody({
+        command_id: "cmd-game-a",
+        worker_url: "http://localhost:9999",
+        game_id: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        session_id: "session-game-b",
+      }),
+      headers: authHeader(),
+    });
+
+    const resp = await POST(req as any);
+
+    expect(resp.status).toBe(200);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
   it("accepts stop action without worker_url", async () => {
     // Mock command lookup
     mockDb.select.mockReturnValue(
@@ -973,7 +1009,12 @@ describe("POST /api/server/notify", () => {
 
   it("creates a session on first start_game notify", async () => {
     mockDb.select
-      .mockReturnValueOnce(mockQueryBuilder([{ id: "cmd-1", serverId: "server-1", workerToken: "abc123" }]))
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "cmd-1",
+        serverId: "server-1",
+        workerToken: "abc123",
+        payload: { game_id: "local_0123456789abcdef0123456789abcdef" },
+      }]))
       .mockReturnValueOnce(mockQueryBuilder([])); // no existing session
 
     const { POST } = await import("@/app/api/server/notify/route");
@@ -1354,6 +1395,7 @@ describe("GET /api/health", () => {
     expect(resp.status).toBe(200);
     const body = await resp.json();
     expect(body.status).toBe("ok");
+    expect(body.phase4c_library_owner).toBe("sc-server");
     expect(body.components.db.status).toBe("ok");
     expect(body.components.sc_server.status).toBe("ok");
     expect(body.connectivity.mode).toBe("turn-capable");
