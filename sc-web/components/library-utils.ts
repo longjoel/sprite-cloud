@@ -24,14 +24,13 @@ export function statusVariant(status: string) {
   return map[status] || "error";
 }
 
-export function hostRouteVariant(route: string) {
-  const map: Record<string, "success" | "info" | "warning" | "muted"> = {
-    local: "success",
-    direct: "info",
-    relay: "warning",
-    unknown: "muted",
+export function capabilityVariant(capability: "lan" | "stun" | "turn") {
+  const map: Record<string, "success" | "info" | "warning"> = {
+    lan: "success",
+    stun: "info",
+    turn: "warning",
   };
-  return map[route] || "muted";
+  return map[capability] || "info";
 }
 
 export function csrfHeaders(): Record<string, string> {

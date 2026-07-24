@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { buildLanPlayerLaunchUrl, canUseLanPlayer, chooseLaunchHost, createLaunchRequestGate, formatLaunchError } from "@/lib/lan/launch";
 
 describe("buildLanPlayerLaunchUrl", () => {
-  it("permits top-level LAN navigation when HTTPS blocked only the local HTTP health probe", () => {
-    expect(canUseLanPlayer({ reachable: false, reason: "mixed_content_blocked" }, "local")).toBe(true);
-    expect(canUseLanPlayer({ reachable: false, reason: "mixed_content_blocked" }, "relay")).toBe(false);
-    expect(canUseLanPlayer({ reachable: false, reason: "timeout" }, "local")).toBe(false);
+  it("permits LAN navigation when HTTPS blocks the health probe but direct nav still works", () => {
+    expect(canUseLanPlayer({ reachable: false, reason: "mixed_content_blocked" })).toBe(true);
+    expect(canUseLanPlayer({ reachable: false, reason: "timeout" })).toBe(false);
+    expect(canUseLanPlayer({ reachable: true })).toBe(true);
   });
   it("builds a LAN player URL with host token as query param for proxy forwarding", () => {
     const url = buildLanPlayerLaunchUrl({

@@ -85,7 +85,7 @@ pub async fn run(upload: bool) -> Result<()> {
         );
 
         tracing::info!("Uploading scan results...");
-        let metadata = crate::commands::collect_metadata(&cfg).await;
+        let metadata = crate::commands::collect_metadata(&cfg, true).await;
         match client.verify_with_metadata(&metadata).await {
             Ok(_) => tracing::info!("Connected to sc-web"),
             Err(e) => anyhow::bail!("Cannot reach sc-web — pair first: {e}"),

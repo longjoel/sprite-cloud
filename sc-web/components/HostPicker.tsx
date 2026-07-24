@@ -2,14 +2,18 @@
 
 import React from "react";
 import { Badge, Button, Modal } from "@/components/ui";
-import { statusVariant, hostRouteVariant } from "./library-utils";
+import { statusVariant, capabilityVariant } from "./library-utils";
 
 interface PlayableHost {
   server_id: string;
   name: string;
   status: string;
   has_game: boolean;
-  route_hint: string;
+  capabilities: {
+    lan: boolean;
+    stun: boolean;
+    turn: boolean;
+  };
   role?: string;
 }
 
@@ -50,10 +54,14 @@ export default function HostPicker({
               <Badge variant={statusVariant(host.status)}>
                 {host.status}
               </Badge>
-              {host.has_game && host.route_hint !== "unknown" && (
-                <Badge variant={hostRouteVariant(host.route_hint)}>
-                  {host.route_hint}
-                </Badge>
+              {host.has_game && host.capabilities.lan && (
+                <Badge variant="success">LAN</Badge>
+              )}
+              {host.has_game && host.capabilities.turn && (
+                <Badge variant="warning">TURN</Badge>
+              )}
+              {host.has_game && host.capabilities.stun && !host.capabilities.turn && (
+                <Badge variant="info">STUN</Badge>
               )}
               {!host.has_game && (
                 <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>
