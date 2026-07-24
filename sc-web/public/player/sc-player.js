@@ -878,7 +878,7 @@ export class ScPlayer {
   }
 
   /**
-   * Poll GET /api/server/notify until sdp_answer is available.
+   * Poll POST /api/server/notify/poll until sdp_answer is available.
    * @private
    * @param {string} serverId
    * @param {string} workerToken
@@ -889,9 +889,11 @@ export class ScPlayer {
     const maxWait = timeoutMs || RELAY_TIMEOUT_MS;
 
     while (Date.now() - start < maxWait) {
-      const resp = await fetch(
-        `/api/server/notify?server_id=${encodeURIComponent(serverId)}&worker_token=${encodeURIComponent(workerToken)}`,
-      );
+      const resp = await fetch("/api/server/notify/poll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ server_id: serverId, worker_token: workerToken }),
+      });
       if (!resp.ok) {
         throw new Error(`Notify poll failed: HTTP ${resp.status}`);
       }

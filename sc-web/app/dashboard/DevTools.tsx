@@ -95,13 +95,22 @@ export default function DevTools({ show, onClose }: DevToolsProps) {
         const err = await qr.json().catch(() => ({}));
         throw new Error(err.error || `HTTP ${qr.status}`);
       }
+      const command = await qr.json();
+      if (typeof command.worker_token !== "string") {
+        throw new Error("start command did not return a worker capability");
+      }
 
       setPlayStatus("Waiting for worker…");
       for (let i = 0; i < 60; i++) {
         await new Promise((r) => setTimeout(r, 500));
-        const nr = await fetch(
-          `/api/server/notify?server_id=${playServerId}`,
-        );
+        const nr = await fetch("/api/server/notify/poll", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            server_id: playServerId,
+            worker_token: command.worker_token,
+          }),
+        });
         if (nr.ok) {
           const data = await nr.json();
           if (data.worker_url) {

@@ -8,6 +8,7 @@ const scriptsReadme = readFileSync("../scripts/README.md", "utf8");
 const releaseGuide = readFileSync("../docs/RELEASE.md", "utf8");
 const hostInstaller = readFileSync("../scripts/install.sh", "utf8");
 const playerScript = readFileSync("public/player/play-v2.js", "utf8");
+const scPlayerScript = readFileSync("public/player/sc-player.js", "utf8");
 const browserLogger = readFileSync("public/browser-log.js", "utf8");
 const productionEntrypoint = readFileSync("../docker/sc-web/entrypoint.prod.sh", "utf8");
 
@@ -81,6 +82,10 @@ describe("production deploy workflow", () => {
   it("never persists or logs raw browser signaling capabilities", () => {
     expect(playerScript).not.toContain('url.searchParams.set("host_token"');
     expect(playerScript).not.toContain('urlParams.get("host_token")');
+    expect(playerScript).not.toContain("/api/server/notify?");
+    expect(scPlayerScript).not.toContain("/api/server/notify?");
+    expect(playerScript).toContain('fetch("/api/server/notify/poll"');
+    expect(scPlayerScript).toContain('fetch("/api/server/notify/poll"');
     expect(playerScript).not.toContain('console.log("[gv] guest join — resolving room_token:", rt)');
     expect(playerScript).not.toContain('console.log("[gv] room/join response:", joinData)');
     expect(browserLogger).not.toContain("href: clampString(location.href");
