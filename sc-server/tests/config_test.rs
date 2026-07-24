@@ -11,6 +11,8 @@ fn save_and_load_roundtrip() {
             server_id: "svr_test".into(),
         },
         rom: None,
+        cores: None,
+        ice: None,
     };
 
     let content = toml::to_string_pretty(&cfg).unwrap();
