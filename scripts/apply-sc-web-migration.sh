@@ -58,6 +58,11 @@ for value in "$PG_CONTAINER" "$PG_USER" "$PG_DB"; do
 done
 [[ "$BACKUP_DIR" =~ ^/[A-Za-z0-9_./-]+$ ]] || fail "unsafe backup directory"
 
+# ── compatible deployment preflight ───────────────────────────────────
+
+log "verifying compatible sc-web deployment health before backup and migration..."
+ssh "$VPS_USER@$VPS_HOST" "curl -fsS http://localhost:3000/api/health >/dev/null"
+
 # ── verified backup ────────────────────────────────────────────────────
 
 BACKUP_FILE="$BACKUP_DIR/pre-${MIGRATION_NAME%.sql}-$(date -u +%Y%m%dT%H%M%SZ).sql.gz"
