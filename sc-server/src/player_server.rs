@@ -116,7 +116,7 @@ fn app_router() -> Router<Arc<AppState>> {
 /// gets the full Next.js GamePlayer UI.
 async fn proxy_player_page(
     State(state): State<Arc<AppState>>,
-    req: Request,
+    mut req: Request,
 ) -> Result<axum::response::Response, axum::http::StatusCode> {
     let qs: Vec<(String, String)> = req
         .uri()
@@ -155,6 +155,9 @@ async fn proxy_player_page(
         format!("/p/{}?{}", code, query_str)
     };
 
+    if code.is_empty() && req.uri().path() == "/" {
+        attach_server_bearer(&state, &mut req)?;
+    }
     proxy_to_sc_web(&state, req, &path_and_query).await
 }
 
@@ -180,6 +183,14 @@ async fn proxy_server_authenticated(
     State(state): State<Arc<AppState>>,
     mut req: Request,
 ) -> Result<axum::response::Response, axum::http::StatusCode> {
+    attach_server_bearer(&state, &mut req)?;
+    proxy_to_sc_web(&state, req, "/api/room/shorten").await
+}
+
+fn attach_server_bearer(
+    state: &AppState,
+    req: &mut Request,
+) -> Result<(), axum::http::StatusCode> {
     let api_key = state
         .server_api_key
         .as_ref()
@@ -190,7 +201,7 @@ async fn proxy_server_authenticated(
             .parse()
             .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?,
     );
-    proxy_to_sc_web(&state, req, "/api/room/shorten").await
+    Ok(())
 }
 
 /// Shared proxy helper — forwards the request to sc-web and returns the response.

@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 describe("LAN-owned library access", () => {
   it("renders Classic without cloud auth when sc-server marks the proxied request", () => {
     const source = readFileSync("app/page.tsx", "utf8");
-    expect(source).toContain('(await headers()).get("x-sc-server-lan")');
+    expect(source).toContain('requestHeaders.get("x-sc-server-lan")');
+    expect(source).toContain("verifyBearerToken");
+    expect(source).toContain('requestHeaders.get("authorization")');
     expect(source).toContain("<LibraryClient");
   });
 
@@ -20,5 +22,6 @@ describe("LAN-owned library access", () => {
     expect(source).toContain("proxy_server_authenticated");
     expect(source).toContain("server_api_key");
     expect(source).toContain("axum::http::header::AUTHORIZATION");
+    expect(source).toContain('req.uri().path() == "/"');
   });
 });

@@ -6,12 +6,18 @@ import LandingPage from "@/components/LandingPage";
 import LibraryClient from "@/components/LibraryClient";
 import { getPublicWatchPreview } from "@/lib/public-watch";
 import { headers } from "next/headers";
+import { verifyBearerToken } from "@/lib/server-auth";
 
 // ── Server component — landing page or library ────────────────────────
 
 export default async function Home() {
   const session = await auth();
-  const isLanProxy = (await headers()).get("x-sc-server-lan") === "1";
+  const requestHeaders = await headers();
+  const hasLanMarker = requestHeaders.get("x-sc-server-lan") === "1";
+  const lanServer = hasLanMarker
+    ? await verifyBearerToken(requestHeaders.get("authorization"))
+    : null;
+  const isLanProxy = lanServer !== null;
 
   // First-run: if no users exist, show setup
   if (!session) {
