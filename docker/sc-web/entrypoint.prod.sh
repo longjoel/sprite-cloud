@@ -17,7 +17,8 @@ if [ "${GV_WEB_SCHEMA_PUSH_ON_START:-0}" = "1" ]; then
     exit 1
   fi
   echo "[sc-web] initializing empty DB schema..."
-  npx drizzle-kit push --force
+  NODE_PATH=/app/schema-tools/node_modules \
+    /app/schema-tools/node_modules/.bin/drizzle-kit push --force
 else
   echo "[sc-web] skipping DB schema push; apply migrations explicitly before deploy"
 fi

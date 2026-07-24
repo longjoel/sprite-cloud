@@ -5,6 +5,7 @@ const workflow = readFileSync("../.github/workflows/deploy.yml", "utf8");
 const ciWorkflow = readFileSync("../.github/workflows/ci.yml", "utf8");
 const releaseWorkflow = readFileSync("../.github/workflows/release.yml", "utf8");
 const ciDockerfile = readFileSync("../docker/sc-web/Dockerfile.ci", "utf8");
+const productionDockerfile = readFileSync("../docker/sc-web/Dockerfile.prod", "utf8");
 const migrationHelper = readFileSync("../scripts/apply-sc-web-migration.sh", "utf8");
 const scriptsReadme = readFileSync("../scripts/README.md", "utf8");
 const releaseGuide = readFileSync("../docs/RELEASE.md", "utf8");
@@ -124,10 +125,17 @@ describe("production deploy workflow", () => {
     expect(ciDockerfile).not.toContain("COPY sc-web/.next/static/");
   });
 
+  it("isolates the production schema CLI from the application package graph", () => {
+    expect(productionDockerfile).toContain("WORKDIR /app/schema-tools");
+    expect(productionDockerfile).toContain("npm install drizzle-kit@0.31.10");
+    expect(productionDockerfile).not.toContain("WORKDIR /app/sc-web\nRUN npm init");
+    expect(productionEntrypoint).toContain("/app/schema-tools/node_modules/.bin/drizzle-kit");
+  });
+
   it("never pushes a destructive schema onto a nonempty database at startup", () => {
     for (const entrypoint of [productionEntrypoint, developmentEntrypoint]) {
       const nonemptyGuard = entrypoint.indexOf('if [ "$table_count" != "0" ]');
-      const schemaPush = entrypoint.indexOf("npx drizzle-kit push --force");
+      const schemaPush = entrypoint.indexOf("drizzle-kit push --force");
       expect(entrypoint).toContain('GV_WEB_SCHEMA_PUSH_ON_START:-0');
       expect(nonemptyGuard).toBeGreaterThan(-1);
       expect(schemaPush).toBeGreaterThan(nonemptyGuard);
