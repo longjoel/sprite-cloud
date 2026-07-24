@@ -61,7 +61,8 @@ export GV_WEB_HEALTH_URL=https://your-gateway.example/api/health
 ## Migration workflow
 
 Generate migrations during development. For a destructive migration, production
-ordering is code first, health verification second, migration last:
+ordering is code first, health verification second, verified backup third, and
+migration last. The migration helper enforces the backup step before applying SQL:
 
 ```bash
 cd sc-web
