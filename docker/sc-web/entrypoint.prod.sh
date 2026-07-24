@@ -2,6 +2,7 @@
 set -eu
 
 cd /app/sc-web
+export NODE_PATH=/app/schema-tools/node_modules
 
 if [ "${GV_WEB_SCHEMA_PUSH_ON_START:-0}" = "1" ]; then
   table_count=$(node -e "

@@ -42,7 +42,7 @@ COPY --from=builder /app/sc-web/lib/db/schema.ts ./sc-web/lib/db/
 # Install the schema CLI in an isolated package so npm does not resolve the
 # copied application's development dependency graph.
 WORKDIR /app/schema-tools
-RUN npm init -y 2>/dev/null && npm install drizzle-kit@0.31.10
+RUN npm init -y 2>/dev/null && npm install drizzle-kit@0.31.10 postgres@3.4.9
 WORKDIR /app
 
 # Copy production entrypoint
