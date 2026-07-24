@@ -100,8 +100,17 @@ fi
 
 done_log "Downloaded $BIN $TAG ($ARCH)"
 
-# ── Install ────────────────────────────────────────────────────
-cp "$TMP/$BIN" "$INSTALL_DIR/$BIN"
+# ── Install atomically in the destination filesystem ───────────
+mkdir -p "$INSTALL_DIR"
+STAGED_BIN="$(mktemp "$INSTALL_DIR/.${BIN}.XXXXXX")" || err "Could not stage install in $INSTALL_DIR"
+if ! cp "$TMP/$BIN" "$STAGED_BIN" || ! chmod 0755 "$STAGED_BIN"; then
+  rm -f "$STAGED_BIN"
+  err "Could not stage verified binary"
+fi
+if ! mv -f "$STAGED_BIN" "$INSTALL_DIR/$BIN"; then
+  rm -f "$STAGED_BIN"
+  err "Could not atomically install verified binary"
+fi
 done_log "Installed to $INSTALL_DIR/$BIN"
 
 # ── Verify ─────────────────────────────────────────────────────

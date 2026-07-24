@@ -561,79 +561,64 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // End any active sessions owned by the same host_token.
-    // This implements "starting a new game kills the old one."
-    // Also grab the last room_token so the share link survives restarts.
-    let recycledRoomToken: string | null = null;
-    if (hostToken) {
-      const victims = await db
-        .select({ id: sessions.id, gameId: sessions.gameId, roomToken: sessions.roomToken })
-        .from(sessions)
-        .where(
-          and(
-            eq(sessions.hostToken, hostToken),
-            eq(sessions.serverId, serverId),
-          ),
-        );
-      for (const v of victims) {
-        // Reuse the room_token from a session for the same game
-        if (v.gameId === (enrichedPayload.game_id as string) && v.roomToken) {
-          recycledRoomToken = v.roomToken;
+    const prepared = await db.transaction(async (tx) => {
+      // End prior host-token sessions, create the new generation and peer
+      // capability, and publish the prepared command as one atomic unit.
+      let recycledRoomToken: string | null = null;
+      if (hostToken) {
+        const victims = await tx
+          .select({ id: sessions.id, gameId: sessions.gameId, roomToken: sessions.roomToken })
+          .from(sessions)
+          .where(and(eq(sessions.hostToken, hostToken), eq(sessions.serverId, serverId)));
+        for (const victim of victims) {
+          if (victim.gameId === (enrichedPayload.game_id as string) && victim.roomToken) {
+            recycledRoomToken = victim.roomToken;
+          }
+          await tx
+            .update(sessions)
+            .set({ status: "ended", endedAt: new Date(), roomToken: null })
+            .where(eq(sessions.id, victim.id));
         }
-        await db
-          .update(sessions)
-          .set({ status: "ended", endedAt: new Date(), roomToken: null })
-          .where(eq(sessions.id, v.id));
       }
-    }
 
-    // Invariant: a fresh host launch always creates a new DB session row in
-    // spawning state. sc-server owns the ready/connected transitions after poll.
-    const [newSession] = await db.insert(sessions).values({
-      userId: uid,
-      serverId,
-      gameId: enrichedPayload.game_id as string,
-      commandId: cmd.id,
-      hostToken: hostToken ?? null,
-      roomToken: recycledRoomToken,
-      status: "spawning",
-      generation: 1, // first generation for this session
-      stateEnteredAt: new Date(),
-    }).returning({ id: sessions.id });
+      const [newSession] = await tx.insert(sessions).values({
+        userId: uid,
+        serverId,
+        gameId: enrichedPayload.game_id as string,
+        commandId: cmd.id,
+        hostToken: hostToken ?? null,
+        roomToken: recycledRoomToken,
+        status: "spawning",
+        generation: 1,
+        stateEnteredAt: new Date(),
+      }).returning({ id: sessions.id });
 
-    // Include session_id in enriched payload so sc-server can echo it
-    // back in notify calls (generation-scoped routing).
-    enrichedPayload = {
-      ...enrichedPayload,
-      session_id: newSession.id,
-    };
-
-    // Issue host peer_token — seat 0, role host
-    hostPeerToken = crypto.randomBytes(16).toString("hex");
-    await db.insert(peerTokens).values({
-      sessionId: newSession.id,
-      token: hostPeerToken,
-      seat: 0,
-      role: "host",
+      const newHostPeerToken = crypto.randomBytes(16).toString("hex");
+      await tx.insert(peerTokens).values({
+        sessionId: newSession.id,
+        token: newHostPeerToken,
+        seat: 0,
+        role: "host",
+      });
+      const finalPayload = {
+        ...enrichedPayload,
+        session_id: newSession.id,
+        peer_tokens: [{ token: newHostPeerToken, seat: 0, role: "host" }],
+      };
+      await tx
+        .update(commands)
+        .set({ payload: finalPayload, status: STATUS_PENDING })
+        .where(eq(commands.id, cmd.id));
+      return { newSession, newHostPeerToken, finalPayload };
     });
-
-    // Attach peer_tokens to enriched payload for sc-server to pass to worker
-    enrichedPayload = {
-      ...enrichedPayload,
-      peer_tokens: [{ token: hostPeerToken, seat: 0, role: "host" }],
-    };
-
-    // Update the already-inserted command with peer_tokens
-    await db
-      .update(commands)
-      .set({ payload: enrichedPayload, status: STATUS_PENDING })
-      .where(eq(commands.id, cmd.id));
+    hostPeerToken = prepared.newHostPeerToken;
+    enrichedPayload = prepared.finalPayload;
 
     logSignalingStage("host_start", "session_created", {
       command_id: cmd.id,
       game_id: enrichedPayload.game_id as string,
       has_host_peer_token: true,
-      session_id: newSession.id,
+      session_id: prepared.newSession.id,
       status: "spawning",
       has_worker_token: true,
     });
