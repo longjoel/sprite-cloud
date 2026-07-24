@@ -35,7 +35,7 @@ describe("production deploy workflow", () => {
 
   it("treats a successful health curl exit code as success without capturing its body", () => {
     expect(workflow).toContain("if ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new");
-    expect(workflow).toContain("curl -fsS http://localhost:3000/api/health >/dev/null");
+    expect(workflow).toContain("docker compose exec -T web curl -fsS http://localhost:3000/api/health >/dev/null");
     expect(workflow).not.toContain("STATUS=$(ssh");
   });
 
