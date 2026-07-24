@@ -80,21 +80,18 @@ ssh "$VPS_USER@$VPS_HOST" "docker exec -i $PG_CONTAINER psql -U $PG_USER -d $PG_
 
 log "migration applied successfully"
 
-# ── verify schema ──────────────────────────────────────────────────────
+# ── verify privacy cutover + application health ───────────────────────
 
-log "verifying schema..."
+log "verifying legacy privacy tables are absent..."
 
-VERIFY_SQL="
-SELECT table_name
-FROM information_schema.tables
-WHERE table_schema = 'public'
-ORDER BY table_name;
-"
+VERIFY_SQL="SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('favorites','pinned_games','recent_plays','game_files','games','server_rom_roots');"
+LEGACY_COUNT="$(ssh "$VPS_USER@$VPS_HOST" "docker exec '$PG_CONTAINER' psql -U '$PG_USER' -d '$PG_DB' -Atc \"$VERIFY_SQL\"")"
+[[ "$LEGACY_COUNT" == "0" ]] || fail "privacy cutover incomplete: $LEGACY_COUNT legacy tables remain"
 
-ssh "$VPS_USER@$VPS_HOST" "docker exec -i $PG_CONTAINER psql -U $PG_USER -d $PG_DB -c '$VERIFY_SQL'"
+log "verifying sc-web health..."
+ssh "$VPS_USER@$VPS_HOST" "curl -fsS http://localhost:3000/api/health >/dev/null"
 
 log "migration $MIGRATION_NAME complete"
-log ""
-log "Next steps:"
-log "  1. Verify the schema changes above look correct"
-log "  2. Verify health: curl -s ${GV_WEB_URL:-https://your-gateway.example}/api/health"
+log "verified backup: $BACKUP_FILE"
+log "legacy privacy tables: 0"
+log "sc-web health: ok"

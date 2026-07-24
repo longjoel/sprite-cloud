@@ -42,6 +42,9 @@ describe("production deploy workflow", () => {
     expect(backup).toBeGreaterThan(-1);
     expect(nonempty).toBeGreaterThan(backup);
     expect(apply).toBeGreaterThan(nonempty);
+    expect(migrationHelper).toContain("LEGACY_COUNT=");
+    expect(migrationHelper).toContain('[[ "$LEGACY_COUNT" == "0" ]]');
+    expect(migrationHelper).toContain("curl -fsS http://localhost:3000/api/health >/dev/null");
     expect(scriptsReadme).toContain("creates and verifies a timestamped compressed database backup");
     expect(releaseGuide).toContain("verified backup third");
   });
