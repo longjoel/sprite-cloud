@@ -395,6 +395,38 @@ describe("POST /api/server/command", () => {
     expect(mockDb.insert).toHaveBeenCalledWith(launchEvents);
   });
 
+  it("queues a server-local opaque game without querying legacy game files", async () => {
+    const gameId = "local_0123456789abcdef0123456789abcdef";
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "admin" }]))
+      .mockReturnValueOnce(mockQueryBuilder([]));
+
+    const { launchEvents, commands: commandsTable, sessions: sessionsTable, peerTokens: peerTokensTable } = await import("@/lib/db/schema");
+    const commandInsertBuilder = {
+      values: vi.fn().mockReturnThis(),
+      returning: vi.fn(() => Promise.resolve([{ id: "cmd-local" }])),
+    };
+    mockDb.insert.mockImplementation((table: unknown) => {
+      if (table === commandsTable) return commandInsertBuilder;
+      if (table === sessionsTable) return { values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([{ id: "sess-local" }])) };
+      if (table === peerTokensTable) return { values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([])) };
+      if (table === launchEvents) return mockQueryBuilder([{ id: "launch-local" }]);
+      return mockQueryBuilder([{ id: "fallback" }]);
+    });
+    mockDb.update.mockReturnValue({ set: vi.fn(() => ({ where: vi.fn(() => Promise.resolve(undefined)) })) });
+
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      ...jsonBodyWithCsrf({ server_id: "server-1", type: "start_game", payload: { game_id: gameId } }),
+    });
+    const resp = await POST(req as any);
+
+    expect(resp.status).toBe(201);
+    expect(commandInsertBuilder.values).toHaveBeenCalledWith(expect.objectContaining({
+      payload: { game_id: gameId },
+    }));
+  });
+
   it("allows LAN start_game with a matching short-code host token and no auth cookie", async () => {
     mockAuth.mockResolvedValueOnce(null);
     mockDb.select
@@ -1178,6 +1210,29 @@ describe("GET /api/playable-hosts", () => {
     expect(resp.status).toBe(200);
     const body = await resp.json();
     expect(body.hosts).toEqual([]);
+  });
+
+  it("treats an explicitly namespaced server-owned game as available", async () => {
+    mockDb.select.mockReturnValue(
+      mockQueryBuilder([
+        {
+          serverId: "server-local",
+          serverName: "Local Vault",
+          lastSeenAt: new Date(),
+          metadata: {},
+          gameFileId: null,
+        },
+      ]),
+    );
+
+    const { GET } = await import("@/app/api/playable-hosts/route");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=local_abc&server_id=server-local");
+    const resp = await GET(req);
+    const body = await resp.json();
+
+    expect(resp.status).toBe(200);
+    expect(body.hosts).toHaveLength(1);
+    expect(body.hosts[0]).toMatchObject({ server_id: "server-local", has_game: true });
   });
 
   it("returns hosts with game availability and server metadata", async () => {

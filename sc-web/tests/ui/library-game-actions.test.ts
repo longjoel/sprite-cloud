@@ -97,7 +97,7 @@ describe("GameTile actions", () => {
     expect(play?.tagName).toBe("BUTTON");
     act(() => (play as HTMLButtonElement).click());
     expect(onPlay).toHaveBeenCalledOnce();
-    expect(onPlay).toHaveBeenCalledWith("game-1");
+    expect(onPlay).toHaveBeenCalledWith(game);
   });
 
   it("runs a secondary action without also launching the game", () => {
@@ -144,10 +144,10 @@ describe("host selection actions", () => {
   it("offers an explicit host override without persisting ordinary selections", () => {
     expect(librarySource).toContain("Choose host for ${game.name}");
     expect(librarySource).toContain("Always use this host");
-    expect(librarySource).toContain("openHostPicker(gameId, !automatic)");
-    expect(librarySource).not.toContain("const generation = openHostPicker(gameId);\n    setLaunchingGame");
-    expect(librarySource).toContain("if (rememberSelectedHost) setPreferredServer(gameId, serverId);");
-    expect(librarySource).not.toContain("setPreferredServer(gameId, serverId);\n        const probe");
+    expect(librarySource).toContain("openHostPicker(game, !automatic)");
+    expect(librarySource).not.toContain("const generation = openHostPicker(game);\n    setLaunchingGame");
+    expect(librarySource).toContain("if (rememberSelectedHost) setPreferredServer(game.id, serverId);");
+    expect(librarySource).not.toContain("setPreferredServer(game.id, serverId);\n        const probe");
   });
 
   it("shows launch errors with retry and resets remembered selection on every close path", () => {
