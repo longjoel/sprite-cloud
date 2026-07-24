@@ -13,8 +13,9 @@ set -euo pipefail
 #   3. Fails on any SQL error (ON_ERROR_STOP=1)
 #   4. Runs a lightweight verification query (checks tables exist)
 #
-# The migration must be applied BEFORE deploying the new sc-web code.
-# Order: generate migration → review → apply → deploy
+# Follow the migration file's declared ordering. Destructive removals must run
+# only after compatible sc-web code is deployed and health-checked; additive,
+# backward-compatible migrations may run before their matching code.
 # ────────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -75,5 +76,4 @@ log "migration $MIGRATION_NAME complete"
 log ""
 log "Next steps:"
 log "  1. Verify the schema changes above look correct"
-log "  2. Deploy sc-web: scripts/deploy-sc-web.sh"
-log "  3. Verify health:  curl -s ${GV_WEB_URL:-https://your-gateway.example}/api/health"
+log "  2. Verify health: curl -s ${GV_WEB_URL:-https://your-gateway.example}/api/health"
