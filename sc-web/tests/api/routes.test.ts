@@ -273,7 +273,7 @@ describe("POST /api/server/command", () => {
     mockAuth.mockResolvedValueOnce(null);
     const { POST } = await import("@/app/api/server/command/route");
     const req = mkReq("http://localhost/api/server/command", {
-      ...jsonBodyWithCsrf({ server_id: "server-1", type: "start_game", payload: { game_id: "smw" } }),
+      ...jsonBodyWithCsrf({ server_id: "server-1", type: "start_game", payload: { game_id: "local_0123456789abcdef0123456789abcdef" } }),
     });
     const resp = await POST(req as any);
     expect(resp.status).toBe(401);
@@ -292,7 +292,7 @@ describe("POST /api/server/command", () => {
   it("rejects signed-in browser commands without csrf token", async () => {
     const { POST } = await import("@/app/api/server/command/route");
     const req = mkReq("http://localhost/api/server/command", {
-      ...jsonBody({ server_id: "server-1", type: "stop_game", payload: { game_id: "smw" } }),
+      ...jsonBody({ server_id: "server-1", type: "stop_game", payload: { game_id: "local_0123456789abcdef0123456789abcdef" } }),
     });
     const resp = await POST(req as any);
     expect(resp.status).toBe(403);
@@ -317,7 +317,7 @@ describe("POST /api/server/command", () => {
       ...jsonBodyWithCsrf({
         server_id: "server-1",
         type: "sdp_offer",
-        payload: { game_id: "smw", sdp: "v=0\r\n", unexpected: true },
+        payload: { game_id: "local_0123456789abcdef0123456789abcdef", sdp: "v=0\r\n", unexpected: true },
       }),
     });
     const resp = await POST(req as any);
@@ -339,11 +339,11 @@ describe("POST /api/server/command", () => {
         }),
       )
       .mockReturnValueOnce(
-        Object.assign(Promise.resolve([{ romPath: "/roms/smw.smc", platform: "snes", gameName: "Super Mario World" }]), {
+        Object.assign(Promise.resolve([{ romPath: "/roms/local_0123456789abcdef0123456789abcdef.smc", platform: "snes", gameName: "Super Mario World" }]), {
           from: vi.fn().mockReturnThis(),
           innerJoin: vi.fn(() => ({
             where: vi.fn(() => ({
-              limit: vi.fn(() => Promise.resolve([{ romPath: "/roms/smw.smc", platform: "snes", gameName: "Super Mario World" }])),
+              limit: vi.fn(() => Promise.resolve([{ romPath: "/roms/local_0123456789abcdef0123456789abcdef.smc", platform: "snes", gameName: "Super Mario World" }])),
             })),
           })),
         }),
@@ -384,7 +384,7 @@ describe("POST /api/server/command", () => {
 
     const { POST } = await import("@/app/api/server/command/route");
     const req = mkReq("http://localhost/api/server/command", {
-      ...jsonBodyWithCsrf({ server_id: "server-1", type: "start_game", payload: { game_id: "smw" } }),
+      ...jsonBodyWithCsrf({ server_id: "server-1", type: "start_game", payload: { game_id: "local_0123456789abcdef0123456789abcdef" } }),
     });
     const resp = await POST(req as any);
     expect(resp.status).toBe(201);
@@ -432,9 +432,6 @@ describe("POST /api/server/command", () => {
     mockDb.select
       .mockReturnValueOnce(mockQueryBuilder([{ code: "ABC123" }]))
       .mockReturnValueOnce(mockQueryBuilder([{ userId: "user-1" }]))
-      .mockReturnValueOnce(mockQueryBuilder([
-        { romPath: "/roms/smw.sfc", platform: "snes", gameName: "Super Mario World" },
-      ]))
       .mockReturnValueOnce(mockQueryBuilder([]));
 
     const { launchEvents, commands: commandsTable, sessions: sessionsTable, peerTokens: peerTokensTable } = await import("@/lib/db/schema");
@@ -452,7 +449,7 @@ describe("POST /api/server/command", () => {
     const req = mkReq("http://localhost/api/server/command", jsonBody({
       server_id: "server-1",
       type: "start_game",
-      payload: { game_id: "smw", host_token: "host-secret", lan: true, sdp: "v=0\r\n" },
+      payload: { game_id: "local_0123456789abcdef0123456789abcdef", host_token: "host-secret", lan: true, sdp: "v=0\r\n" },
     }));
 
     const resp = await POST(req as any);
@@ -477,11 +474,11 @@ describe("POST /api/server/command", () => {
         }),
       )
       .mockReturnValueOnce(
-        Object.assign(Promise.resolve([{ romPath: "/roms/smw.smc", platform: "snes", gameName: "Super Mario World" }]), {
+        Object.assign(Promise.resolve([{ romPath: "/roms/local_0123456789abcdef0123456789abcdef.smc", platform: "snes", gameName: "Super Mario World" }]), {
           from: vi.fn().mockReturnThis(),
           innerJoin: vi.fn(() => ({
             where: vi.fn(() => ({
-              limit: vi.fn(() => Promise.resolve([{ romPath: "/roms/smw.smc", platform: "snes", gameName: "Super Mario World" }])),
+              limit: vi.fn(() => Promise.resolve([{ romPath: "/roms/local_0123456789abcdef0123456789abcdef.smc", platform: "snes", gameName: "Super Mario World" }])),
             })),
           })),
         }),
@@ -526,7 +523,7 @@ describe("POST /api/server/command", () => {
 
     const { POST } = await import("@/app/api/server/command/route");
     const req = mkReq("http://localhost/api/server/command", {
-      ...jsonBodyWithCsrf({ server_id: "server-1", type: "start_game", payload: { game_id: "smw" } }),
+      ...jsonBodyWithCsrf({ server_id: "server-1", type: "start_game", payload: { game_id: "local_0123456789abcdef0123456789abcdef" } }),
       headers: {
         "Content-Type": "application/json",
         "x-csrf-token": "csrf-test-token",
@@ -537,7 +534,7 @@ describe("POST /api/server/command", () => {
     });
     const resp = await POST(req as any);
     expect(resp.status).toBe(201);
-    expect(insertedValues[0]?.payload).toMatchObject({ game_id: "smw" });
+    expect(insertedValues[0]?.payload).toMatchObject({ game_id: "local_0123456789abcdef0123456789abcdef" });
     expect((insertedValues[0]?.payload as Record<string, unknown>).lan).toBeUndefined();
 
     if (prevLanIps !== undefined) process.env.GV_SERVER_LAN_IPS = prevLanIps;
@@ -558,9 +555,6 @@ describe("POST /api/server/command", () => {
           })),
         }),
       )
-      .mockReturnValueOnce(mockQueryBuilder([
-        { romPath: "/roms/smw.sfc", platform: "snes", gameName: "Super Mario World" },
-      ]))
       .mockReturnValueOnce(mockQueryBuilder([]));
 
     const sessionUpdates: Array<Record<string, unknown>> = [];
@@ -582,7 +576,7 @@ describe("POST /api/server/command", () => {
       ...jsonBodyWithCsrf({
         server_id: "server-1",
         type: "start_game",
-        payload: { game_id: "smw", sdp: "v=0\r\n" },
+        payload: { game_id: "local_0123456789abcdef0123456789abcdef", sdp: "v=0\r\n" },
       }),
     });
     const resp = await POST(req as any);
@@ -623,7 +617,7 @@ describe("GET /api/server/poll", () => {
 
   it("leases pending commands and returns lease metadata", async () => {
     const rows = [
-      { id: "cmd-1", type: "start_game", payload: { game_id: "smw" }, attempts: 0 },
+      { id: "cmd-1", type: "start_game", payload: { game_id: "local_0123456789abcdef0123456789abcdef" }, attempts: 0 },
     ];
     let updateSet: Record<string, unknown> | undefined;
     mockDb.transaction.mockImplementation(async (fn: any) => {
@@ -650,7 +644,7 @@ describe("GET /api/server/poll", () => {
     expect(body.commands[0]).toMatchObject({
       id: "cmd-1",
       type: "start_game",
-      payload: { game_id: "smw" },
+      payload: { game_id: "local_0123456789abcdef0123456789abcdef" },
       attempt: 1,
     });
     expect(body.commands[0].lease_token).toBeTruthy();
@@ -666,7 +660,7 @@ describe("GET /api/server/poll", () => {
 
   it("prioritizes signaling commands before slower control work", async () => {
     const rows = [
-      { id: "cmd-1", type: "sdp_offer", payload: { game_id: "smw" }, attempts: 0 },
+      { id: "cmd-1", type: "sdp_offer", payload: { game_id: "local_0123456789abcdef0123456789abcdef" }, attempts: 0 },
     ];
     const builder = mockQueryBuilder(rows);
     mockDb.transaction.mockImplementation(async (fn: any) => {
@@ -705,7 +699,7 @@ describe("POST /api/server/notify", () => {
     mockVerifyBearerToken.mockResolvedValueOnce(null);
     const { POST } = await import("@/app/api/server/notify/route");
     const req = mkReq("http://localhost/api/server/notify", {
-      ...jsonBody({ command_id: "cmd-1", worker_url: "http://localhost:9999", game_id: "smw" }),
+      ...jsonBody({ command_id: "cmd-1", worker_url: "http://localhost:9999", game_id: "local_0123456789abcdef0123456789abcdef" }),
     });
     const resp = await POST(req as any);
     expect(resp.status).toBe(401);
@@ -729,7 +723,7 @@ describe("POST /api/server/notify", () => {
 
     const { POST } = await import("@/app/api/server/notify/route");
     const req = mkReq("http://localhost/api/server/notify", {
-      ...jsonBody({ command_id: "cmd-1", worker_url: "http://localhost:9999", game_id: "smw" }),
+      ...jsonBody({ command_id: "cmd-1", worker_url: "http://localhost:9999", game_id: "local_0123456789abcdef0123456789abcdef" }),
       headers: authHeader(),
     });
     const resp = await POST(req as any);
@@ -748,7 +742,7 @@ describe("POST /api/server/notify", () => {
 
     const { POST } = await import("@/app/api/server/notify/route");
     const req = mkReq("http://localhost/api/server/notify", {
-      ...jsonBody({ command_id: "cmd-1", worker_url: "", game_id: "smw", action: "stop" }),
+      ...jsonBody({ command_id: "cmd-1", worker_url: "", game_id: "local_0123456789abcdef0123456789abcdef", action: "stop" }),
       headers: authHeader(),
     });
     const resp = await POST(req as any);
@@ -763,7 +757,7 @@ describe("POST /api/server/notify", () => {
 
     const { POST } = await import("@/app/api/server/notify/route");
     const req = mkReq("http://localhost/api/server/notify", {
-      ...jsonBody({ command_id: "cmd-1", worker_url: "http://localhost:9999", game_id: "smw" }),
+      ...jsonBody({ command_id: "cmd-1", worker_url: "http://localhost:9999", game_id: "local_0123456789abcdef0123456789abcdef" }),
       headers: authHeader(),
     });
     const resp = await POST(req as any);
@@ -792,7 +786,7 @@ describe("GET /api/server/notify", () => {
 
   it("returns worker_url when session is ready", async () => {
     mockDb.select.mockReturnValue(
-      mockQueryBuilder([{ workerUrl: "http://localhost:9999", gameId: "smw", status: "ready" }]),
+      mockQueryBuilder([{ workerUrl: "http://localhost:9999", gameId: "local_0123456789abcdef0123456789abcdef", status: "ready" }]),
     );
 
     const { GET } = await import("@/app/api/server/notify/route");
@@ -803,7 +797,7 @@ describe("GET /api/server/notify", () => {
     expect(resp.status).toBe(200);
     const body = await resp.json();
     expect(body.worker_url).toBe("http://localhost:9999");
-    expect(body.game_id).toBe("smw");
+    expect(body.game_id).toBe("local_0123456789abcdef0123456789abcdef");
   });
 
   it("returns null worker_url when no session exists", async () => {
@@ -828,7 +822,7 @@ describe("POST /api/room/join", () => {
       mockQueryBuilder([{
         id: "sess-1",
         workerUrl: "http://localhost:9999",
-        gameId: "smw",
+        gameId: "local_0123456789abcdef0123456789abcdef",
         serverId: "server-1",
         status: "ready",
         maxSeats: 4,
@@ -854,7 +848,7 @@ describe("POST /api/room/join", () => {
         mockQueryBuilder([{
           id: "sess-1",
           workerUrl: "http://localhost:9999",
-          gameId: "smw",
+          gameId: "local_0123456789abcdef0123456789abcdef",
           serverId: "server-1",
           status: "ready",
           maxSeats: 4,
@@ -1190,7 +1184,7 @@ describe("GET /api/playable-hosts", () => {
   it("returns 401 when not signed in", async () => {
     mockAuth.mockResolvedValueOnce(null);
     const { GET } = await import("@/app/api/playable-hosts/route");
-    const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=local_0123456789abcdef0123456789abcdef&server_id=server-1");
     const resp = await GET(req);
     expect(resp.status).toBe(401);
   });
@@ -1205,7 +1199,7 @@ describe("GET /api/playable-hosts", () => {
   it("returns empty hosts when user has no servers", async () => {
     mockDb.select.mockReturnValue(mockQueryBuilder([]));
     const { GET } = await import("@/app/api/playable-hosts/route");
-    const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=local_0123456789abcdef0123456789abcdef&server_id=server-1");
     const resp = await GET(req);
     expect(resp.status).toBe(200);
     const body = await resp.json();
@@ -1226,7 +1220,7 @@ describe("GET /api/playable-hosts", () => {
     );
 
     const { GET } = await import("@/app/api/playable-hosts/route");
-    const req = mkReq("http://localhost/api/playable-hosts?game_id=local_abc&server_id=server-local");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=local_0123456789abcdef0123456789abcdef&server_id=server-local");
     const resp = await GET(req);
     const body = await resp.json();
 
@@ -1235,7 +1229,7 @@ describe("GET /api/playable-hosts", () => {
     expect(body.hosts[0]).toMatchObject({ server_id: "server-local", has_game: true });
   });
 
-  it("returns hosts with game availability and server metadata", async () => {
+  it("returns the owning host with server metadata", async () => {
     mockDb.select.mockReturnValue(
       mockQueryBuilder([
         {
@@ -1253,22 +1247,16 @@ describe("GET /api/playable-hosts", () => {
           },
           gameFileId: "gf-1",
         },
-        {
-          serverId: "server-2",
-          serverName: "Arcade Box",
-          lastSeenAt: new Date(Date.now() - 120_000),
-          metadata: { interfaces: [], ice: { turn_configured: true } },
-          gameFileId: null,
-        },
+
       ]),
     );
 
     const { GET } = await import("@/app/api/playable-hosts/route");
-    const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=local_0123456789abcdef0123456789abcdef&server_id=server-1");
     const resp = await GET(req);
     expect(resp.status).toBe(200);
     const body = await resp.json();
-    expect(body.hosts).toHaveLength(2);
+    expect(body.hosts).toHaveLength(1);
     expect(body.hosts[0]).toMatchObject({
       server_id: "server-1",
       name: "Home PC",
@@ -1280,18 +1268,14 @@ describe("GET /api/playable-hosts", () => {
         health_urls: ["http://192.168.1.100:8787/health"],
       },
     });
-    expect(body.hosts[1]).toMatchObject({
-      server_id: "server-2",
-      name: "Arcade Box",
-      has_game: false,
-    });
+
   });
 
   it("only returns servers the user is a member of", async () => {
     // Query filters by serverMembers.userId — mock empty result
     mockDb.select.mockReturnValue(mockQueryBuilder([]));
     const { GET } = await import("@/app/api/playable-hosts/route");
-    const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=local_0123456789abcdef0123456789abcdef&server_id=server-1");
     const resp = await GET(req);
     const body = await resp.json();
     expect(body.hosts.every((h: any) => h.server_id !== "unauthorized-server")).toBe(true);
@@ -1312,7 +1296,7 @@ describe("GET /api/playable-hosts", () => {
     );
 
     const { GET } = await import("@/app/api/playable-hosts/route");
-    const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=local_0123456789abcdef0123456789abcdef&server_id=server-1");
     const resp = await GET(req);
     const body = await resp.json();
     expect(body.hosts[0].status).toBe("online");
@@ -1342,7 +1326,7 @@ describe("GET /api/playable-hosts", () => {
     );
 
     const { GET } = await import("@/app/api/playable-hosts/route");
-    const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=local_0123456789abcdef0123456789abcdef&server_id=server-1");
     const resp = await GET(req);
     const body = await resp.json();
     expect(body.hosts[0].capabilities).toEqual({ lan: true, stun: true, turn: false });
@@ -1368,7 +1352,7 @@ describe("GET /api/playable-hosts", () => {
     );
 
     const { GET } = await import("@/app/api/playable-hosts/route");
-    const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=local_0123456789abcdef0123456789abcdef&server_id=server-1");
     const resp = await GET(req);
     const body = await resp.json();
     expect(body.hosts[0].capabilities).toEqual({ lan: true, stun: true, turn: true });
@@ -1382,7 +1366,7 @@ describe("GET /api/playable-hosts", () => {
       ]),
     );
     const { GET } = await import("@/app/api/playable-hosts/route");
-    const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
+    const req = mkReq("http://localhost/api/playable-hosts?game_id=local_0123456789abcdef0123456789abcdef&server_id=server-1");
     const resp = await GET(req);
     const body = await resp.json();
     expect(body.hosts[0].capabilities).toEqual({ lan: false, stun: false, turn: false });
@@ -1406,9 +1390,7 @@ describe("GET /api/client/bootstrap", () => {
     expect(body.features.xmb).toBe(true);
   });
 
-  it("returns auth + servers when signed in", async () => {
-    // Auth returns user
-    // DB returns server memberships
+  it("returns auth + server memberships without cloud library metadata", async () => {
     mockDb.select.mockReturnValueOnce(
       mockQueryBuilder([{
         id: "server-1",
@@ -1416,14 +1398,6 @@ describe("GET /api/client/bootstrap", () => {
         lastSeenAt: new Date("2026-07-13T12:00:00.000Z"),
         role: "admin",
       }]),
-    );
-    // DB returns game counts
-    mockDb.select.mockReturnValueOnce(
-      mockQueryBuilder([{ serverId: "server-1", count: 24 }]),
-    );
-    // DB returns pinned count
-    mockDb.select.mockReturnValueOnce(
-      mockQueryBuilder([{ pinnedCount: 2 }]),
     );
 
     const { GET } = await import("@/app/api/client/bootstrap/route");
@@ -1434,99 +1408,10 @@ describe("GET /api/client/bootstrap", () => {
     expect(body.auth.userId).toBe("user-1");
     expect(body.servers).toHaveLength(1);
     expect(body.servers[0].name).toBe("Bazzite");
-    expect(body.servers[0].gameCount).toBe(24);
+    expect(body.servers[0].gameCount).toBeUndefined();
     expect(body.servers[0].role).toBe("admin");
     expect(body.servers[0].lastSeenAt).toBe("2026-07-13T12:00:00.000Z");
-    expect(body.library.totalGames).toBe(24);
-    expect(body.library.pinnedCount).toBe(2);
+    expect(body.library).toBeNull();
     expect(typeof body.ice.stunConfigured).toBe("boolean");
-  });
-});
-
-describe.each([
-  ["favorites", () => import("@/app/api/favorites/route")],
-  ["recent-plays", () => import("@/app/api/recent-plays/route")],
-] as const)("GET /api/%s paginated search", (endpoint, loadRoute) => {
-  it("filters by game name before pagination and reports the filtered total", async () => {
-    const membershipsQuery = mockQueryBuilder([{ serverId: "server-1" }]);
-    const countQuery = mockQueryBuilder([{ count: 1 }]);
-    const pageQuery = mockQueryBuilder([{ id: "mario", name: "Super Mario", platform: "SNES", maxPlayers: 2 }]);
-    mockDb.select
-      .mockReturnValueOnce(membershipsQuery)
-      .mockReturnValueOnce(countQuery)
-      .mockReturnValueOnce(pageQuery);
-    mockDb.selectDistinct.mockReturnValueOnce(pageQuery);
-
-    const { GET } = await loadRoute();
-    const resp = await GET(mkReq(`http://localhost/api/${endpoint}?limit=1&offset=1&search=mArIo`));
-    const body = await resp.json();
-
-    expect(body).toEqual({
-      games: [{ id: "mario", name: "Super Mario", platform: "SNES", maxPlayers: 2 }],
-      total: 1,
-    });
-    expect(pageQuery.limit).toHaveBeenCalledWith(1);
-    expect(pageQuery.offset).toHaveBeenCalledWith(1);
-    for (const query of [countQuery, pageQuery]) {
-      expect(collectQueryValues(query.where.mock.calls[0][0])).toContain("%mArIo%");
-    }
-  });
-});
-
-describe("GET /api/recent-plays deterministic pagination", () => {
-  it("groups games and uses a stable secondary order", async () => {
-    const membershipsQuery = mockQueryBuilder([{ serverId: "server-1" }]);
-    const countQuery = mockQueryBuilder([{ count: 2 }]);
-    const pageQuery = mockQueryBuilder([]);
-    mockDb.select
-      .mockReturnValueOnce(membershipsQuery)
-      .mockReturnValueOnce(countQuery)
-      .mockReturnValueOnce(pageQuery);
-
-    const { GET } = await import("@/app/api/recent-plays/route");
-    await GET(mkReq("http://localhost/api/recent-plays?limit=1&offset=1"));
-
-    expect(pageQuery.groupBy).toHaveBeenCalledTimes(1);
-    expect(pageQuery.orderBy).toHaveBeenCalledTimes(1);
-    const [primaryOrder, secondaryOrder] = pageQuery.orderBy.mock.calls[0];
-    const { games, recentPlays } = await import("@/lib/db/schema");
-    const sqlParts = (expression: unknown): unknown[] => {
-      if (!expression || typeof expression !== "object") return [];
-      const chunks = (expression as { queryChunks?: unknown[] }).queryChunks;
-      if (!chunks) return [expression];
-      return chunks.flatMap((chunk) => {
-        const values = (chunk as { value?: string[] }).value;
-        return values ? values : sqlParts(chunk);
-      });
-    };
-    const primaryParts = sqlParts(primaryOrder);
-    const secondaryParts = sqlParts(secondaryOrder);
-    expect(primaryParts).toContain(recentPlays.playedAt);
-    expect(primaryParts.filter((part): part is string => typeof part === "string").join(""))
-      .toMatch(/max\(.*\).*desc/);
-    expect(secondaryParts).toContain(games.id);
-    expect(secondaryParts.filter((part): part is string => typeof part === "string").join(""))
-      .toMatch(/asc/);
-    expect(pageQuery.limit).toHaveBeenCalledWith(1);
-    expect(pageQuery.offset).toHaveBeenCalledWith(1);
-  });
-
-  it("selects and returns the latest playedAt for each grouped game", async () => {
-    const membershipsQuery = mockQueryBuilder([{ serverId: "server-1" }]);
-    const countQuery = mockQueryBuilder([{ count: 1 }]);
-    const pageQuery = mockQueryBuilder([{ id: "mario", playedAt: "2026-07-11T10:00:00.000Z" }]);
-    mockDb.select
-      .mockReturnValueOnce(membershipsQuery)
-      .mockReturnValueOnce(countQuery)
-      .mockReturnValueOnce(pageQuery);
-
-    const { GET } = await import("@/app/api/recent-plays/route");
-    const response = await GET(mkReq("http://localhost/api/recent-plays"));
-
-    expect(await response.json()).toEqual({
-      games: [{ id: "mario", playedAt: "2026-07-11T10:00:00.000Z" }],
-      total: 1,
-    });
-    expect(mockDb.select.mock.calls[2][0]).toHaveProperty("playedAt");
   });
 });

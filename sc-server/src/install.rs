@@ -2,6 +2,10 @@ use anyhow::{Context, Result};
 
 /// Install sc-server as a systemd user service (Linux only).
 pub fn run() -> Result<()> {
+    let data_dir = dirs::data_local_dir()
+        .context("no local data dir")?
+        .join("sprite-cloud");
+    std::fs::create_dir_all(&data_dir).context("create local data dir")?;
     let unit = format!(
         r#"[Unit]
 Description=Sprite Cloud server
@@ -14,6 +18,7 @@ ExecStart={exe} start
 Restart=on-failure
 RestartSec=10
 Environment=RUST_LOG=info
+Environment="GV_DATA_DIR={data_dir}"
 
 [Install]
 WantedBy=default.target
@@ -21,6 +26,7 @@ WantedBy=default.target
         exe = std::env::current_exe()
             .context("detect binary path")?
             .display(),
+        data_dir = data_dir.display(),
     );
 
     let dir = dirs::config_dir()

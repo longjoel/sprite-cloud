@@ -13,7 +13,7 @@ import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
 interface Membership {
   id: string;
   name: string;
-  romRoots: string[];
+
   lastSeenAt: string | null;
   role: string;
 }
@@ -21,7 +21,7 @@ interface Membership {
 interface ServerMetadataSummary {
   version?: string;
   public_ip?: string;
-  rom_roots?: string[];
+
   lan?: {
     player_port?: number;
     player_urls?: string[];
@@ -179,15 +179,11 @@ export default function DashboardClient({ memberships }: Props) {
     }
   }
 
-  function renderSummaryPills(serverId: string, romRoots: string[]) {
+  function renderSummaryPills(serverId: string) {
     const metadata = metadataByServer[serverId];
     const lanProbe = lanProbeByServer[serverId];
     const pills: Array<{ label: string; tone?: "info" | "success" | "warning" | "muted" }> = [];
 
-    pills.push({
-      label: `${metadata?.rom_roots?.length ?? romRoots.length} root${(metadata?.rom_roots?.length ?? romRoots.length) === 1 ? "" : "s"}`,
-      tone: "muted",
-    });
 
     if (metadata?.version) {
       pills.push({ label: `server ${metadata.version}`, tone: "info" });
@@ -351,7 +347,7 @@ export default function DashboardClient({ memberships }: Props) {
                               )}
                               <code style={S.serverId}>{s.id.slice(0, 8)}</code>
                             </div>
-                            {renderSummaryPills(s.id, s.romRoots)}
+                            {renderSummaryPills(s.id)}
                             {metadata?.public_ip && (
                               <p style={S.serverNote}>
                                 Public route: <code style={S.inlineCode}>{metadata.public_ip}</code>
@@ -396,13 +392,10 @@ export default function DashboardClient({ memberships }: Props) {
                               <div style={S.panelIntro}>
                                 <h3 style={S.panelTitle}>Server details</h3>
                                 <p style={S.panelText}>
-                                  Browse ROM roots, inspect ICE/runtime metadata, and adjust core overrides for {s.name || s.id.slice(0, 8)}.
+                                  Inspect connection/runtime metadata and adjust core overrides for {s.name || s.id.slice(0, 8)}.
                                 </p>
                               </div>
-                              <ServerPanel
-                                serverId={s.id}
-                                romRoots={s.romRoots}
-                              />
+                              <ServerPanel serverId={s.id} />
                             </div>
                           </td>
                         </tr>

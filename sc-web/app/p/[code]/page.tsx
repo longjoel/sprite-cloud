@@ -85,20 +85,18 @@ export default function ShortCodePage() {
         const hostToken = data.host_token as string | undefined;
         const roomToken = data.room_token as string | undefined;
 
-        // Fetch game metadata for the loading screen (best-effort)
-        let gameName = data.game_name || "";
-        let platform = data.platform || "";
-        let coverUrl = "";
+        let gameName = "";
+        let platform = "";
         try {
-          const metaResp = await fetch(`/api/games/${encodeURIComponent(gameId)}`);
-          if (metaResp.ok) {
-            const metaData = await metaResp.json();
-            gameName = metaData.name || "";
-            platform = metaData.platform || "";
+          const detailResponse = await fetch(`/api/games/${encodeURIComponent(gameId)}`);
+          if (detailResponse.ok) {
+            const detail = await detailResponse.json();
+            gameName = detail.name || "";
+            platform = detail.platform || "";
           }
-        } catch { /* optional */ }
+        } catch { /* metadata is available only through the LAN server */ }
 
-        setGameMeta({ gameId, serverId, hostToken, roomToken, gameName, platform, coverUrl });
+        setGameMeta({ gameId, serverId, hostToken, roomToken, gameName, platform });
         setPhase("connecting");
       } catch (e: any) {
         clearTimeout(timeout);

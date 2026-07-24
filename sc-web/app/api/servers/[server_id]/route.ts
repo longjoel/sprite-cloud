@@ -4,8 +4,7 @@ import { db } from "@/lib/db";
 import {
   servers,
   serverMembers,
-  serverRomRoots,
-  gameFiles,
+
   commands,
   sessions,
 } from "@/lib/db/schema";
@@ -97,8 +96,7 @@ export async function DELETE(
   // Order matters — FK constraints would block out-of-order deletes
   await db.delete(sessions).where(eq(sessions.serverId, server_id));
   await db.delete(commands).where(eq(commands.serverId, server_id));
-  await db.delete(gameFiles).where(eq(gameFiles.serverId, server_id));
-  await db.delete(serverRomRoots).where(eq(serverRomRoots.serverId, server_id));
+
   await db.delete(serverMembers).where(eq(serverMembers.serverId, server_id));
   await db.delete(servers).where(eq(servers.id, server_id));
 

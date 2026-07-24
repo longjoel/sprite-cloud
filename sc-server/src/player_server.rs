@@ -99,7 +99,7 @@ fn app_router() -> Router<Arc<AppState>> {
         .route("/api/favorites", get(list_favorites).post(toggle_favorite))
         .route("/api/pins", get(list_pins).post(toggle_pin))
         .route("/api/recent-plays", get(list_recent_plays))
-        .route("/api/games/:id", get(proxy).put(rename_game))
+        .route("/api/games/:id", get(get_game).put(rename_game))
         .route("/health", get(health))
         .route("/api/*path", any(proxy))
         .route("/sdp", any(proxy))
@@ -469,6 +469,23 @@ async fn local_game_exists(state: &AppState, game_id: &str) -> bool {
         .await
         .iter()
         .any(|game| game.id == game_id)
+}
+
+async fn get_game(
+    Path(game_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<GameEntry>, axum::http::StatusCode> {
+    let standalone = state
+        .standalone
+        .as_ref()
+        .ok_or(axum::http::StatusCode::NOT_FOUND)?;
+    let preferences = state.preferences.lock().await.snapshot();
+    let games = standalone.game_list.read().await;
+    let game = games
+        .iter()
+        .find(|game| game.id == game_id)
+        .ok_or(axum::http::StatusCode::NOT_FOUND)?;
+    Ok(Json(game_entry(game, &state, &preferences)))
 }
 
 async fn preference_entries(
@@ -1494,33 +1511,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn paired_game_detail_get_still_proxies_to_sc_web() {
-        let state = Arc::new(AppState {
-            client: Client::new(),
-            sc_web: "http://127.0.0.1:1".to_string(),
-            server_id: "server-vault".to_string(),
-            user_id: "user-joel".to_string(),
-            server_name: "Vault".to_string(),
-            bind: "0.0.0.0:8787".parse().unwrap(),
-            lan_player_enabled: true,
-            standalone: None,
-            sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
-            preferences: test_preferences(),
-        });
-        let response = app_router()
-            .with_state(state)
-            .oneshot(
-                Request::builder()
-                    .uri("/api/games/legacy-game-id")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
-    }
-
-    #[tokio::test]
     async fn paired_mode_serves_game_library_locally_instead_of_proxying() {
         let local_game = LocalGame::new(
             "/roms",
@@ -1553,6 +1543,7 @@ mod tests {
         let app = app_router().with_state(state);
 
         let response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri("/api/games")
@@ -1572,5 +1563,22 @@ mod tests {
         assert_eq!(payload["games"][0]["platform"], "snes");
         assert_eq!(payload["games"][0]["serverId"], "server-vault");
         assert_eq!(payload["games"][0]["maxPlayers"], 1);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/games/{expected_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["id"], expected_id);
+        assert_eq!(payload["platform"], "snes");
     }
 }

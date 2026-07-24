@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { commands, gameFiles, games, peerTokens, serverMembers, servers, sessions, shortCodes } from "@/lib/db/schema";
-import { ACTIVE_SESSION_STATES, CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, CMD_BROWSE_FILES, CMD_SCAN_PATHS, SESSION_CONNECTED, SESSION_PLAYING, SESSION_READY, SESSION_SPAWNING, SESSION_STATE_TIMEOUT_MS } from "@/lib/constants";
+import { commands, peerTokens, serverMembers, servers, sessions, shortCodes } from "@/lib/db/schema";
+import { ACTIVE_SESSION_STATES, CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, SESSION_CONNECTED, SESSION_PLAYING, SESSION_READY, SESSION_SPAWNING, SESSION_STATE_TIMEOUT_MS } from "@/lib/constants";
 import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { applyRateLimit } from "@/lib/rate-limit";
 import { recordLaunchEvent } from "@/lib/launch-events";
@@ -14,7 +14,7 @@ const COMMAND_RATE_LIMIT = 30; // requests per minute per IP
 
 // ── Validation ─────────────────────────────────────────────────────────
 
-const VALID_TYPES = new Set<string>([CMD_START_GAME, CMD_STOP_GAME, CMD_SDP_OFFER, CMD_BROWSE_FILES, CMD_SCAN_PATHS]);
+const VALID_TYPES = new Set<string>([CMD_START_GAME, CMD_STOP_GAME, CMD_SDP_OFFER]);
 const RECONNECT_TRANSIENT_STATES = [SESSION_SPAWNING, SESSION_READY, SESSION_CONNECTED] as const;
 
 interface CommandBody {
@@ -47,6 +47,10 @@ function hasOnlyKeys(value: Record<string, unknown>, allowed: string[]): boolean
   return Object.keys(value).every((key) => allowed.includes(key));
 }
 
+function isOpaqueGameId(value: unknown): value is string {
+  return typeof value === "string" && /^local_[0-9a-f]{32}$/.test(value);
+}
+
 function validatePayload(type: string, payload: unknown): { ok: true; payload: Record<string, unknown> } | { ok: false; error: string } {
   if (!isPlainRecord(payload)) {
     return { ok: false, error: "payload must be an object" };
@@ -55,7 +59,7 @@ function validatePayload(type: string, payload: unknown): { ok: true; payload: R
   switch (type) {
     case CMD_START_GAME: {
       if (!hasOnlyKeys(payload, ["game_id", "host_token", "sdp", "lan"])) return { ok: false, error: "payload has unexpected fields" };
-      if (typeof payload.game_id !== "string" || payload.game_id.length === 0) return { ok: false, error: "payload.game_id required" };
+      if (!isOpaqueGameId(payload.game_id)) return { ok: false, error: "opaque payload.game_id required" };
       if (payload.host_token !== undefined && typeof payload.host_token !== "string") return { ok: false, error: "payload.host_token must be string" };
       if (payload.sdp !== undefined && typeof payload.sdp !== "string") return { ok: false, error: "payload.sdp must be string" };
       if (payload.lan !== undefined && typeof payload.lan !== "boolean") return { ok: false, error: "payload.lan must be boolean" };
@@ -63,26 +67,16 @@ function validatePayload(type: string, payload: unknown): { ok: true; payload: R
     }
     case CMD_STOP_GAME: {
       if (!hasOnlyKeys(payload, ["game_id"])) return { ok: false, error: "payload has unexpected fields" };
-      if (typeof payload.game_id !== "string" || payload.game_id.length === 0) return { ok: false, error: "payload.game_id required" };
+      if (!isOpaqueGameId(payload.game_id)) return { ok: false, error: "opaque payload.game_id required" };
       return { ok: true, payload };
     }
     case CMD_SDP_OFFER: {
       if (!hasOnlyKeys(payload, ["game_id", "sdp", "host_token", "room_token", "peer_token", "lan"])) return { ok: false, error: "payload has unexpected fields" };
-      if (typeof payload.game_id !== "string" || payload.game_id.length === 0) return { ok: false, error: "payload.game_id required" };
+      if (!isOpaqueGameId(payload.game_id)) return { ok: false, error: "opaque payload.game_id required" };
       if (typeof payload.sdp !== "string" || payload.sdp.length === 0) return { ok: false, error: "payload.sdp required" };
       if (payload.host_token !== undefined && typeof payload.host_token !== "string") return { ok: false, error: "payload.host_token must be string" };
       if (payload.room_token !== undefined && typeof payload.room_token !== "string") return { ok: false, error: "payload.room_token must be string" };
       if (payload.peer_token !== undefined && typeof payload.peer_token !== "string") return { ok: false, error: "payload.peer_token must be string" };
-      return { ok: true, payload };
-    }
-    case CMD_BROWSE_FILES: {
-      if (!hasOnlyKeys(payload, ["path"])) return { ok: false, error: "payload has unexpected fields" };
-      if (typeof payload.path !== "string") return { ok: false, error: "payload.path required" };
-      return { ok: true, payload };
-    }
-    case CMD_SCAN_PATHS: {
-      if (!hasOnlyKeys(payload, ["paths"])) return { ok: false, error: "payload has unexpected fields" };
-      if (!Array.isArray(payload.paths) || !payload.paths.every((p) => typeof p === "string")) return { ok: false, error: "payload.paths must be string[]" };
       return { ok: true, payload };
     }
     default:
@@ -294,58 +288,14 @@ export async function POST(request: NextRequest) {
   // this command when polling for the worker URL.
   const workerToken = crypto.randomBytes(16).toString("hex");
 
-  // ── Enrich start_game payload with resolved ROM path ────────────────
-
   let enrichedPayload: Record<string, unknown> = payloadResult.payload;
 
   if (body.type === CMD_START_GAME) {
-    const t0 = Date.now();
     const sp = payloadResult.payload;
-    if (typeof sp.game_id === "string") {
-      // Transport selection no longer guesses LAN proximity from public request
-      // headers. sc-web cannot reliably infer RFC1918 locality relative to the
-      // paired server from x-forwarded-for/x-real-ip, so command payloads must
-      // not auto-enable a LAN/direct path based on gateway-side heuristics.
-      if (sp.lan === true) {
-        console.info("[COMMAND] start_game received explicit lan=true hint from caller — preserving explicit transport hint");
-      } else {
-        console.info("[COMMAND] start_game using deterministic transport selection — no gateway-side LAN auto-detection");
-      }
-
-      const serverLocalId = /^local_[0-9a-f]{32}$/.test(sp.game_id);
-      if (!serverLocalId) {
-        // Temporary legacy compatibility: DB-backed IDs still need path/platform
-        // enrichment until every client has migrated to opaque sc-server IDs.
-        const [gameFile] = await db
-          .select({
-            romPath: gameFiles.romPath,
-            platform: games.platform,
-            gameName: games.name,
-          })
-          .from(gameFiles)
-          .innerJoin(games, eq(gameFiles.gameId, games.id))
-          .where(
-            and(
-              eq(gameFiles.gameId, sp.game_id as string),
-              eq(gameFiles.serverId, serverId),
-            ),
-          )
-          .limit(1);
-
-        if (gameFile) {
-          enrichedPayload = {
-            ...enrichedPayload,
-            rom_path: gameFile.romPath,
-            platform: gameFile.platform,
-            game_name: gameFile.gameName,
-          };
-        } else {
-          return NextResponse.json(
-            { error: `game ${sp.game_id} not found on this server` },
-            { status: 404 },
-          );
-        }
-      }
+    if (sp.lan === true) {
+      console.info("[COMMAND] start_game received explicit lan=true hint from caller — preserving explicit transport hint");
+    } else {
+      console.info("[COMMAND] start_game using deterministic transport selection — no gateway-side LAN auto-detection");
     }
   } else if (body.type === CMD_SDP_OFFER) {
     // Invariant: guest/browser SDP offers carry peer_token and optionally room_token.

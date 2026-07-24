@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
-import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { games, sessions } from "@/lib/db/schema";
+import { sessions } from "@/lib/db/schema";
 
 const ACTIVE_STATUSES = ["spawning", "ready", "connected", "playing"] as const;
 
@@ -23,16 +23,15 @@ async function latestActiveSession() {
       hostToken: sessions.hostToken,
       roomToken: sessions.roomToken,
       status: sessions.status,
-      gameName: games.name,
-      platform: games.platform,
+
     })
     .from(sessions)
-    .innerJoin(games, sql`${games.id} = ${sessions.gameId}::uuid`)
+
     .where(
       and(
         isNotNull(sessions.serverId),
         isNotNull(sessions.hostToken),
-        sql`${sessions.gameId} ~* '^[0-9a-f-]{36}$'`,
+
         inArray(sessions.status, [...ACTIVE_STATUSES]),
       ),
     )
@@ -60,8 +59,8 @@ export async function getPublicWatchPreview(): Promise<PublicWatchPreview | null
   const session = await latestActiveSession();
   if (!session) return null;
   return {
-    gameName: session.gameName,
-    platform: session.platform,
+    gameName: "Live session",
+    platform: "Remote play",
     href: "/watch",
     status: session.status as ActiveStatus,
   };

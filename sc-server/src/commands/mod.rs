@@ -11,7 +11,6 @@ use std::time::Duration;
 
 use crate::config;
 use crate::core_bridge;
-use crate::dat;
 use crate::saves;
 use crate::sc_web;
 
@@ -215,9 +214,6 @@ pub(crate) async fn cmd_start(
     const POLL_ERROR_BACKOFF_MS: u64 = 5_000;
     let mut sessions: HashMap<String, Arc<GameSession>> = HashMap::new();
 
-    let scan_lock: Arc<tokio::sync::Mutex<()>> = Arc::new(tokio::sync::Mutex::new(()));
-    let dat_index: Arc<tokio::sync::RwLock<Option<dat::DatIndex>>> =
-        Arc::new(tokio::sync::RwLock::new(None));
 
     loop {
         tokio::select! {
@@ -253,22 +249,6 @@ pub(crate) async fn cmd_start(
                                     game::handle_sdp_offer(
                                         cmd, &client, &sessions, &pc_pool,
                                     ).await;
-                                } else if cmd.command_type == "browse_files" {
-                                    game::handle_browse_files(cmd, &client, &rom_roots).await;
-                                } else if cmd.command_type == "scan_paths" {
-                                    let cmd = cmd.clone();
-                                    let client = client.clone();
-                                    let rom_roots = rom_roots.clone();
-                                    let scan_lock = Arc::clone(&scan_lock);
-                                    let dat_index = Arc::clone(&dat_index);
-                                    let local_game_list = Arc::clone(&local_game_list);
-                                    let server_id = cfg.auth.server_id.clone();
-                                    tokio::spawn(async move {
-                                        game::handle_scan_paths(
-                                            &cmd, &client, &rom_roots,
-                                            &scan_lock, &dat_index, &local_game_list, &server_id,
-                                        ).await;
-                                    });
                                 }
                             }
                         }

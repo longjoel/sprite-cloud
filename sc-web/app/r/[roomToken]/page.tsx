@@ -40,33 +40,24 @@ export default function PublicRoomPage() {
     }
 
     let cancelled = false;
-    (async () => {
+    void (async () => {
+      let gameName = "";
+      let platform = "";
       try {
-        let gameName = "";
-        let platform = "";
-        let coverUrl = "";
-        const metaResp = await fetch(`/api/games/${encodeURIComponent(gameId)}`);
-        if (metaResp.ok) {
-          const meta = await metaResp.json();
-          gameName = meta.name || "";
-          platform = meta.platform || "";
-          coverUrl = meta.cover_url || "";
+        const response = await fetch(`/api/games/${encodeURIComponent(gameId)}`);
+        if (response.ok) {
+          const detail = await response.json();
+          gameName = detail.name || "";
+          platform = detail.platform || "";
         }
-        if (!cancelled) {
-          setGameMeta({ gameName, platform, coverUrl });
-          setPhase("connecting");
-        }
-      } catch (e: any) {
-        if (!cancelled) {
-          setError(e?.message || "network error");
-          setPhase("error");
-        }
+      } catch { /* cloud guests use metadata-free fallback UI */ }
+      if (!cancelled) {
+        setGameMeta({ gameName, platform });
+        setPhase("connecting");
       }
     })();
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [roomToken, gameId, serverId]);
 
   const handlePipelineChange = useCallback((p: Record<string, StepState>) => {

@@ -230,6 +230,7 @@ Wants=network-online.target
 Type=simple
 Environment="XDG_CONFIG_HOME=${HOME}/.config"
 Environment="GV_CORES_DIR=${CORES_DIR}"
+Environment="GV_DATA_DIR=${DATA_DIR}"
 Environment="RUST_LOG=info"
 ExecStart=${BIN_PATH} start
 Restart=on-failure
@@ -252,6 +253,7 @@ User=sprite-cloud
 Group=sprite-cloud
 Environment="XDG_CONFIG_HOME=/etc"
 Environment="GV_CORES_DIR=${CORES_DIR}"
+Environment="GV_DATA_DIR=${DATA_DIR}"
 Environment="RUST_LOG=info"
 ExecStart=${BIN_PATH} start
 Restart=on-failure

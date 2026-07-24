@@ -18,7 +18,6 @@ export interface VersionMetadata {
 export interface ServerMetadata {
   version?: string;
   versions?: VersionMetadata;
-  rom_roots?: string[];
 }
 
 export function asObject(value: unknown): Record<string, unknown> | null {
@@ -48,9 +47,6 @@ export function readServerMetadata(value: unknown): ServerMetadata {
   const versions = asObject(obj.versions);
   return {
     version: typeof obj.version === "string" ? obj.version : undefined,
-    rom_roots: Array.isArray(obj.rom_roots)
-      ? obj.rom_roots.filter((x): x is string => typeof x === "string")
-      : undefined,
     versions: versions
       ? {
           server: readComponentVersion(versions.server) ?? undefined,

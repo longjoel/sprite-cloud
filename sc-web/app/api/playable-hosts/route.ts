@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { gameFiles, servers, serverMembers } from "@/lib/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { servers, serverMembers } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
 
 const STALE_THRESHOLD_MS = 90_000;   // 90s without a poll → stale
 const OFFLINE_THRESHOLD_MS = 300_000; // 5 min without a poll → offline
@@ -59,10 +59,9 @@ export async function GET(request: NextRequest) {
 
   const gameId = request.nextUrl.searchParams.get("game_id");
   const requestedServerId = request.nextUrl.searchParams.get("server_id");
-  if (!gameId) {
-    return NextResponse.json({ error: "game_id required" }, { status: 400 });
+  if (!gameId || !requestedServerId || !/^local_[0-9a-f]{32}$/.test(gameId)) {
+    return NextResponse.json({ error: "opaque game_id and server_id required" }, { status: 400 });
   }
-  const serverLocalId = requestedServerId !== null && /^local_[0-9a-f]{32}$/.test(gameId);
 
   const rows = await db
     .select({
@@ -70,21 +69,12 @@ export async function GET(request: NextRequest) {
       serverName: servers.name,
       lastSeenAt: servers.lastSeenAt,
       metadata: servers.metadata,
-      gameFileId: gameFiles.id,
       role: serverMembers.role,
     })
     .from(serverMembers)
     .innerJoin(servers, eq(serverMembers.serverId, servers.id))
-    .leftJoin(
-      gameFiles,
-      serverLocalId
-        ? sql<boolean>`false`
-        : and(eq(gameFiles.serverId, servers.id), eq(gameFiles.gameId, gameId)),
-    )
     .where(
-      requestedServerId
-        ? and(eq(serverMembers.userId, session.user.id), eq(servers.id, requestedServerId))
-        : eq(serverMembers.userId, session.user.id),
+      and(eq(serverMembers.userId, session.user.id), eq(servers.id, requestedServerId)),
     );
 
   const hosts = rows.map((row) => ({
@@ -93,7 +83,7 @@ export async function GET(request: NextRequest) {
     status: classifyStatus(row.lastSeenAt),
     // A namespaced game came from this sc-server's own /api/games response.
     // Membership still gates access; sc-server performs final ID resolution.
-    has_game: requestedServerId === row.serverId || row.gameFileId !== null,
+    has_game: true,
     capabilities: classifyServerCapabilities(row.metadata),
     lan: lanSummary(row.metadata),
     role: row.role,
