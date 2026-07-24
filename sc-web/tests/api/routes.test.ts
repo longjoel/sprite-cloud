@@ -595,16 +595,7 @@ describe("POST /api/server/command", () => {
           })),
         }),
       )
-      .mockReturnValueOnce(
-        Object.assign(Promise.resolve([{ romPath: "/roms/local_0123456789abcdef0123456789abcdef.smc", platform: "snes", gameName: "Super Mario World" }]), {
-          from: vi.fn().mockReturnThis(),
-          innerJoin: vi.fn(() => ({
-            where: vi.fn(() => ({
-              limit: vi.fn(() => Promise.resolve([{ romPath: "/roms/local_0123456789abcdef0123456789abcdef.smc", platform: "snes", gameName: "Super Mario World" }])),
-            })),
-          })),
-        }),
-      )
+      .mockReturnValueOnce(mockQueryBuilder([]))
       .mockReturnValueOnce(
         Object.assign(Promise.resolve([]), {
           from: vi.fn().mockReturnThis(),
@@ -740,16 +731,7 @@ describe("POST /api/server/command", () => {
           })),
         }),
       )
-      .mockReturnValueOnce(
-        Object.assign(Promise.resolve([{ romPath: "/roms/local_0123456789abcdef0123456789abcdef.smc", platform: "snes", gameName: "Super Mario World" }]), {
-          from: vi.fn().mockReturnThis(),
-          innerJoin: vi.fn(() => ({
-            where: vi.fn(() => ({
-              limit: vi.fn(() => Promise.resolve([{ romPath: "/roms/local_0123456789abcdef0123456789abcdef.smc", platform: "snes", gameName: "Super Mario World" }])),
-            })),
-          })),
-        }),
-      )
+      .mockReturnValueOnce(mockQueryBuilder([]))
       .mockReturnValueOnce(
         Object.assign(Promise.resolve([]), {
           from: vi.fn().mockReturnThis(),

@@ -561,29 +561,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const launchLockKey = `${serverId}:${hostToken ?? uid}`;
+    const launchLockKey = `${serverId}:${uid}`;
     const prepared = await db.transaction(async (tx) => {
       // Serialize all launches from the same host identity before reading or
       // ending prior sessions. The lock is released automatically on commit.
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${launchLockKey}, 0))`);
 
-      // End prior host-token sessions, create the new generation and peer
+      // End prior sessions for this stable server/owner identity, create the new generation and peer
       // capability, and publish the prepared command as one atomic unit.
       let recycledRoomToken: string | null = null;
-      if (hostToken) {
-        const victims = await tx
-          .select({ id: sessions.id, gameId: sessions.gameId, roomToken: sessions.roomToken })
-          .from(sessions)
-          .where(and(eq(sessions.hostToken, hostToken), eq(sessions.serverId, serverId)));
-        for (const victim of victims) {
-          if (victim.gameId === (enrichedPayload.game_id as string) && victim.roomToken) {
-            recycledRoomToken = victim.roomToken;
-          }
-          await tx
-            .update(sessions)
-            .set({ status: "ended", endedAt: new Date(), roomToken: null })
-            .where(eq(sessions.id, victim.id));
+      const victims = await tx
+        .select({ id: sessions.id, gameId: sessions.gameId, roomToken: sessions.roomToken })
+        .from(sessions)
+        .where(and(eq(sessions.userId, uid), eq(sessions.serverId, serverId)));
+      for (const victim of victims) {
+        if (victim.gameId === (enrichedPayload.game_id as string) && victim.roomToken) {
+          recycledRoomToken = victim.roomToken;
         }
+        await tx
+          .update(sessions)
+          .set({ status: "ended", endedAt: new Date(), roomToken: null })
+          .where(eq(sessions.id, victim.id));
       }
 
       const [newSession] = await tx.insert(sessions).values({
