@@ -85,7 +85,12 @@ pub(crate) async fn cmd_pair(code: &str, sc_web_url: &str) -> Result<()> {
 
 // ── start subcommand (HTTP polling, in-process sessions) ────────────
 
-pub(crate) async fn cmd_start(sc_web_url: Option<String>, no_lan_player: bool) -> Result<()> {
+pub(crate) async fn cmd_start(sc_web_url: Option<String>, no_lan_player: bool, standalone: bool) -> Result<()> {
+    // ── Standalone mode — no sc-web, no pairing, local library only ──
+    if standalone {
+        return cmd_start_standalone(no_lan_player).await;
+    }
+
     let mut cfg = config::load().context("load config (run 'sc-server pair' first)")?;
 
     if let Some(url) = sc_web_url {
@@ -279,6 +284,93 @@ pub(crate) async fn cmd_start(sc_web_url: Option<String>, no_lan_player: bool) -
     }
 
     tracing::info!("[SHUTDOWN] done");
+    Ok(())
+}
+
+// ── Standalone mode — no sc-web, local library only ───────────────
+
+async fn cmd_start_standalone(no_lan_player: bool) -> Result<()> {
+    tracing::info!("Starting in standalone mode — no cloud account needed");
+
+    // ROM roots from env var only (no config file in standalone mode)
+    let rom_roots: Vec<String> = std::env::var("GV_ROM_ROOTS")
+        .ok()
+        .map(|s| {
+            s.split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if rom_roots.is_empty() {
+        // Try common default paths
+        let candidates = [
+            "~/roms", "~/ROMs", "~/games", "~/retro",
+            "/home/pi/roms", "/home/user/roms",
+        ];
+        for c in &candidates {
+            let expanded = shellexpand::tilde(c).to_string();
+            if std::path::Path::new(&expanded).is_dir() {
+                tracing::info!("Auto-detected ROM root: {expanded}");
+                // We'll use this as the single root
+                let roots = vec![expanded];
+                return run_standalone_server(roots, no_lan_player).await;
+            }
+        }
+        anyhow::bail!(
+            "No ROM roots found. Set GV_ROM_ROOTS=/path/to/roms or place ROMs in ~/roms"
+        );
+    }
+
+    run_standalone_server(rom_roots, no_lan_player).await
+}
+
+async fn run_standalone_server(rom_roots: Vec<String>, no_lan_player: bool) -> Result<()> {
+    use std::path::Path;
+    use crate::scan;
+
+    tracing::info!("ROM roots: {:?}", rom_roots);
+
+    // Scan ROMs
+    let mut all_files: Vec<scan::DiscoveredFile> = Vec::new();
+    for root in &rom_roots {
+        let path = Path::new(root);
+        if !path.is_dir() {
+            tracing::warn!("ROM root not found, skipping: {root}");
+            continue;
+        }
+        match scan::discover_roms(path) {
+            Ok(files) => {
+                tracing::info!("  {} — {} files", root, files.len());
+                all_files.extend(files);
+            }
+            Err(e) => tracing::warn!("Scan failed for {root}: {e:#}"),
+        }
+    }
+
+    tracing::info!("Total: {} games discovered", all_files.len());
+    let game_list = Arc::new(tokio::sync::RwLock::new(all_files));
+    let rom_roots = Arc::new(rom_roots);
+
+    // Start LAN player with local API routes
+    if !no_lan_player {
+        let player_addr: SocketAddr = std::env::var("GV_PLAYER_BIND")
+            .unwrap_or_else(|_| "0.0.0.0:8787".into())
+            .parse()
+            .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 8787)));
+        tracing::info!(
+            "Standalone server listening on http://{player_addr} — open this in your browser"
+        );
+        crate::player_server::serve_standalone(
+            player_addr,
+            game_list,
+            rom_roots,
+        ).await;
+    } else {
+        tracing::info!("Standalone mode with --no-lan-player has no function — exiting");
+    }
+
     Ok(())
 }
 
