@@ -78,18 +78,23 @@ docker run -d \
   --name sprite-cloud-host \
   --network host \
   -v /path/to/roms:/roms:ro \
+  -v sprite-cloud-config:/root/.config/sprite-cloud \
+  -v sprite-cloud-data:/root/.local/share/sprite-cloud \
+  -v sprite-cloud-cores:/cores \
   -v sprite-cloud-saves:/saves \
   -e GV_PAIR_CODE=ABCD-EFGH \
   -e GV_WEB_URL=https://your-gateway.example \
   -e GV_ROM_ROOTS=/roms \
+  -e GV_CORES_DIR=/cores \
+  -e GV_DATA_DIR=/root/.local/share/sprite-cloud \
   ghcr.io/longjoel/sprite-cloud/sc-server:latest
 ```
 
-The container pairs automatically on first run (reads `GV_PAIR_CODE` + `GV_WEB_URL`). On subsequent starts it reuses the saved credentials. Generate a pairing code from your gateway dashboard (Settings → Hosts).
+The container pairs only when persistent config is absent. The named config volume preserves credentials across container recreation; the data, core, and save volumes preserve mutable host state. Generate a pairing code from your gateway dashboard (Settings → Hosts). Remove `GV_PAIR_CODE` from long-lived Compose configuration after the first successful pairing.
 
 ## Manual host config
 
-`sc-server pair` writes credentials to `~/.config/sprite-cloud/config.toml` or `/etc/sprite-cloud/config.toml` depending on install mode.
+The CLI normally writes through XDG to `~/.config/sprite-cloud/config.toml`. A managed system service uses `/etc/sprite-cloud/config.toml` only because its unit explicitly sets `XDG_CONFIG_HOME=/etc`; pair that service as its `sprite-cloud` account.
 
 A minimal config looks like:
 

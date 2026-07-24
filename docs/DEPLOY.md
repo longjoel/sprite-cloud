@@ -83,7 +83,20 @@ bash ./deploy-sc-web.sh
 
 ## Host deploy
 
-For normal user and Bazzite installations, follow **[SC-SERVER-INSTALL.md](SC-SERVER-INSTALL.md)**. It covers the checksummed public installer, persisted ROM/core configuration, pairing, user systemd, lingering, upgrades, and troubleshooting.
+For normal user and Bazzite installations, follow **[SC-SERVER-INSTALL.md](SC-SERVER-INSTALL.md)**. The default service is user-scoped:
+
+```bash
+curl -fsSL https://sprite-cloud.com/install.sh | bash
+sc-server setup
+sc-server pair <CODE> --sc-web-url https://sprite-cloud.com
+sc-server install
+systemctl --user daemon-reload
+systemctl --user enable --now sc-server
+```
+
+Run `sc-server install` and every `systemctl --user` command as the login user, never through `sudo`. The full guide covers persisted ROM/core configuration, lingering, upgrades, and troubleshooting.
+
+### Advanced managed system service
 
 For a managed dedicated system account, use the repository installer:
 
@@ -93,11 +106,15 @@ sudo ./scripts/install.sh \
   --rom-dir /srv/storage/games/roms
 ```
 
-Pair the host from the gateway dashboard:
+Pair the managed host as the service account so credentials are written to the same config the unit reads:
 
 ```bash
-sc-server pair ABCD-EFGH --sc-web-url https://your-gateway.example
+sudo -u sprite-cloud env XDG_CONFIG_HOME=/etc \
+  /usr/local/bin/sc-server pair ABCD-EFGH \
+  --sc-web-url https://your-gateway.example
 ```
+
+Do not run a plain `sc-server pair` as your login user for this system-service mode; that writes to your user config instead of `/etc/sprite-cloud/config.toml`.
 
 Then start:
 

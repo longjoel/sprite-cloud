@@ -292,6 +292,17 @@ sudo ./scripts/install.sh \
 
 The repository installer supports Debian/Ubuntu, Fedora/Bazzite, and Arch-family package managers. It verifies the release checksum before replacing the binary and preserves an existing config on reinstall.
 
+For a system-wide install, claim the pairing code as the `sprite-cloud` service account so pairing updates `/etc/sprite-cloud/config.toml`:
+
+```bash
+sudo -u sprite-cloud env XDG_CONFIG_HOME=/etc \
+  /usr/local/bin/sc-server pair <CODE> \
+  --sc-web-url https://your-gateway.example
+sudo systemctl enable --now sc-server
+```
+
+A plain `sc-server pair` run as your login user writes to your user config and does not pair the managed system service.
+
 ### Managed system-service paths
 
 | Item | System-wide | Rootless |
@@ -413,6 +424,17 @@ find /path/to/cores -maxdepth 1 -name '*_libretro.so' -print
 ```
 
 `GV_CORES_DIR` overrides the saved `[cores].dir` for that process.
+
+### Authentication is rejected
+
+If logs show HTTP `401`, an invalid API key, or a server that needs pairing, generate a fresh code from the dashboard and pair again. For a user service:
+
+```bash
+sc-server pair <CODE> --sc-web-url https://sprite-cloud.com
+systemctl --user restart sc-server
+```
+
+For a managed system service, run the service-account pairing command from the managed-install section instead.
 
 ### Two-server race
 

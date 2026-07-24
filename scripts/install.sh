@@ -226,6 +226,10 @@ else
 [sc_web]
 url = "${WEB_URL}"
 
+[auth]
+api_key = ""
+server_id = ""
+
 [rom]
 roots = ["${ROM_DIR}"]
 EOF
@@ -233,11 +237,14 @@ EOF
   if $ROOTLESS; then
     $SUDO chmod 600 "$CONFIG_FILE"
   else
-    $SUDO chown "$SU_CMD" "$CONFIG_DIR"
     $SUDO chmod 600 "$CONFIG_FILE"
   fi
 
   ok "config written to $CONFIG_FILE"
+fi
+
+if ! $ROOTLESS; then
+  $SUDO chown "$SU_CMD" "$CONFIG_DIR" "$CONFIG_FILE"
 fi
 
 # ── Systemd service ────────────────────────────────────────────────────
