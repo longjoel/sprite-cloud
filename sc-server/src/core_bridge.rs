@@ -692,6 +692,7 @@ mod tests {
         let stack = crate::webrtc::build_session_pc_lan().await.unwrap();
         let session = Arc::new(GameSession {
             game_id: format!("{:032x}", rand::random::<u128>()),
+            cloud_session_id: None,
             cancel: tokio_util::sync::CancellationToken::new(),
             pc: std::sync::Mutex::new(stack.pc),
             video_track: std::sync::Mutex::new(stack.video_track),

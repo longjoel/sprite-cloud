@@ -75,7 +75,11 @@
       }
       const out = {};
       for (const [key, inner] of Object.entries(value).slice(0, 20)) {
-        out[key] = safeSerialize(inner, depth + 1, seen);
+        if (/token$/i.test(key) && !/^has_/i.test(key)) {
+          out[key] = "[REDACTED]";
+        } else {
+          out[key] = safeSerialize(inner, depth + 1, seen);
+        }
       }
       return out;
     }
@@ -105,13 +109,27 @@
     const nav = navigator;
     const connection = nav.connection || nav.mozConnection || nav.webkitConnection;
     const searchParams = new URLSearchParams(location.search);
+    const safePath = location.pathname.replace(/^\/r\/[^/]+/, "/r/[redacted]");
+    const safeQuery = new URLSearchParams();
+    for (const key of ["server_id", "role", "seat"]) {
+      const value = searchParams.get(key);
+      if (value) safeQuery.set(key, value);
+    }
+    let safeReferrer;
+    try {
+      const referrer = new URL(document.referrer);
+      referrer.pathname = referrer.pathname.replace(/^\/r\/[^/]+/, "/r/[redacted]");
+      referrer.search = "";
+      referrer.hash = "";
+      safeReferrer = referrer.toString();
+    } catch {
+      safeReferrer = undefined;
+    }
     return {
-      href: clampString(location.href, 500),
-      path: clampString(location.pathname, 200),
-      query: clampString(location.search, 500),
+      href: clampString(`${location.origin}${safePath}${safeQuery.size ? `?${safeQuery}` : ""}`, 500),
+      path: clampString(safePath, 200),
+      query: clampString(safeQuery.size ? `?${safeQuery}` : "", 500),
       page: location.pathname.startsWith("/player") ? "player" : "app",
-      roomToken: clampString(searchParams.get("join") || "", 120) || undefined,
-      peerToken: clampString(searchParams.get("peer_token") || "", 120) || undefined,
       serverId: clampString(searchParams.get("server_id") || "", 120) || undefined,
       role: clampString(searchParams.get("role") || "", 32) || undefined,
       seat: clampString(searchParams.get("seat") || "", 8) || undefined,
@@ -119,7 +137,7 @@
       language: clampString(nav.language, 32),
       online: nav.onLine,
       visibilityState: document.visibilityState,
-      referrer: clampString(document.referrer, 300) || undefined,
+      referrer: clampString(safeReferrer || "", 300) || undefined,
       connection: connection
         ? {
             effectiveType: clampString(connection.effectiveType, 32),
@@ -134,10 +152,10 @@
   const dynamicContext = {};
 
   function currentContext() {
-    return {
+    return safeSerialize({
       ...baseContext(),
       ...dynamicContext,
-    };
+    });
   }
 
   function withinRateLimit() {

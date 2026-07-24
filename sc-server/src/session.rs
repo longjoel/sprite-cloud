@@ -26,6 +26,8 @@ pub struct GuestPeer {
 pub struct GameSession {
     /// Human-friendly identifier for logging.
     pub game_id: String,
+    /// Cloud coordination session UUID, when this runtime was started by sc-web.
+    pub cloud_session_id: Option<String>,
     /// Cancel token — signals the streaming loop and fan-out to stop.
     pub cancel: tokio_util::sync::CancellationToken,
 

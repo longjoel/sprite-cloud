@@ -931,9 +931,20 @@ describe("POST /api/server/notify", () => {
   });
 
   it("does not stop a session owned by another authenticated server", async () => {
-    mockDb.select.mockReturnValueOnce(
-      mockQueryBuilder([{ id: "session-on-server-2", status: "playing", serverId: "server-2" }]),
-    );
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "stop-command",
+        serverId: "server-1",
+        type: "stop_game",
+        payload: { game_id: "local_0123456789abcdef0123456789abcdef" },
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "session-on-server-2",
+        status: "playing",
+        serverId: "server-2",
+        gameId: "local_0123456789abcdef0123456789abcdef",
+      }]));
+    mockDb.update.mockReturnValueOnce(mockQueryBuilder([{ id: "stop-command" }]));
     const { POST } = await import("@/app/api/server/notify/route");
     const req = mkReq("http://localhost/api/server/notify", {
       ...jsonBody({
@@ -941,14 +952,15 @@ describe("POST /api/server/notify", () => {
         game_id: "local_0123456789abcdef0123456789abcdef",
         session_id: "session-on-server-2",
         action: "stop",
+        lease_token: "lease-stop",
       }),
       headers: authHeader(),
     });
 
     const resp = await POST(req as any);
 
-    expect(resp.status).toBe(200);
-    expect(mockDb.update).not.toHaveBeenCalled();
+    expect(resp.status).toBe(409);
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
   });
 
   it("does not apply a notify callback to an unrelated same-server session", async () => {
@@ -969,7 +981,9 @@ describe("POST /api/server/notify", () => {
         serverId: "server-1",
         gameId: "local_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         commandId: "cmd-game-b",
-      }]));
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([]));
+    mockDb.update.mockReturnValueOnce(mockQueryBuilder([{ id: "cmd-game-a" }]));
     const { POST } = await import("@/app/api/server/notify/route");
     const req = mkReq("http://localhost/api/server/notify", {
       ...jsonBody({
@@ -977,49 +991,130 @@ describe("POST /api/server/notify", () => {
         worker_url: "http://localhost:9999",
         game_id: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         session_id: "session-game-b",
+        lease_token: "lease-a",
       }),
       headers: authHeader(),
     });
 
     const resp = await POST(req as any);
 
-    expect(resp.status).toBe(200);
+    expect(resp.status).toBe(409);
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires an exact session id for worker-dead cleanup", async () => {
+    const { POST } = await import("@/app/api/server/notify/route");
+    const req = mkReq("http://localhost/api/server/notify", {
+      ...jsonBody({
+        command_id: "__worker_dead__",
+        worker_url: "",
+        game_id: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        action: "stop",
+      }),
+      headers: authHeader(),
+    });
+
+    const resp = await POST(req as any);
+
+    expect(resp.status).toBe(400);
+    expect(mockDb.select).not.toHaveBeenCalled();
     expect(mockDb.update).not.toHaveBeenCalled();
   });
 
-  it("accepts stop action without worker_url", async () => {
-    // Mock command lookup
-    mockDb.select.mockReturnValue(
-      mockQueryBuilder([{ id: "cmd-1", serverId: "server-1", workerToken: "abc123" }]),
-    );
-    // Mock existing session lookup
+  it("does not revive an ended session from a leased callback", async () => {
     mockDb.select
-      .mockReturnValueOnce(mockQueryBuilder([{ id: "cmd-1", serverId: "server-1", workerToken: "abc123" }]))
-      .mockReturnValueOnce(mockQueryBuilder([])); // no existing session
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "cmd-ended",
+        serverId: "server-1",
+        workerToken: "worker-ended",
+        type: "sdp_offer",
+        payload: {
+          game_id: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          host_token: "host-ended",
+        },
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "session-ended",
+        status: "ended",
+        roomToken: "room-ended",
+        hostToken: "host-ended",
+        generation: 1,
+        serverId: "server-1",
+        gameId: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        commandId: "cmd-start",
+      }]));
+    mockDb.update.mockReturnValueOnce(mockQueryBuilder([{ id: "cmd-ended" }]));
+    const { POST } = await import("@/app/api/server/notify/route");
+    const req = mkReq("http://localhost/api/server/notify", {
+      ...jsonBody({
+        command_id: "cmd-ended",
+        worker_url: "http://localhost:9999",
+        game_id: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        session_id: "session-ended",
+        lease_token: "lease-ended",
+        sdp_answer: "answer",
+      }),
+      headers: authHeader(),
+    });
+
+    const resp = await POST(req as any);
+
+    expect(resp.status).toBe(409);
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts an authorized stop action without worker_url", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "cmd-1",
+        serverId: "server-1",
+        type: "stop_game",
+        payload: { game_id: "local_0123456789abcdef0123456789abcdef" },
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "session-1",
+        status: "playing",
+        serverId: "server-1",
+        gameId: "local_0123456789abcdef0123456789abcdef",
+      }]));
+    mockDb.update.mockReturnValueOnce(mockQueryBuilder([{ id: "cmd-1" }]));
 
     const { POST } = await import("@/app/api/server/notify/route");
     const req = mkReq("http://localhost/api/server/notify", {
-      ...jsonBody({ command_id: "cmd-1", worker_url: "", game_id: "local_0123456789abcdef0123456789abcdef", action: "stop" }),
+      ...jsonBody({
+        command_id: "cmd-1",
+        worker_url: "",
+        game_id: "local_0123456789abcdef0123456789abcdef",
+        action: "stop",
+        lease_token: "lease-stop",
+      }),
       headers: authHeader(),
     });
     const resp = await POST(req as any);
-    // Should NOT return 400 — the fix makes worker_url optional for stop
-    expect(resp.status).not.toBe(400);
+    expect(resp.status).toBe(200);
   });
 
-  it("creates a session on first start_game notify", async () => {
+  it("creates a session on the first leased start_game notify", async () => {
     mockDb.select
       .mockReturnValueOnce(mockQueryBuilder([{
         id: "cmd-1",
         serverId: "server-1",
         workerToken: "abc123",
+        type: "start_game",
         payload: { game_id: "local_0123456789abcdef0123456789abcdef" },
       }]))
+      .mockReturnValueOnce(mockQueryBuilder([]))
       .mockReturnValueOnce(mockQueryBuilder([])); // no existing session
+    mockDb.update.mockReturnValueOnce(mockQueryBuilder([{ id: "cmd-1" }]));
 
     const { POST } = await import("@/app/api/server/notify/route");
     const req = mkReq("http://localhost/api/server/notify", {
-      ...jsonBody({ command_id: "cmd-1", worker_url: "http://localhost:9999", game_id: "local_0123456789abcdef0123456789abcdef" }),
+      ...jsonBody({
+        command_id: "cmd-1",
+        worker_url: "http://localhost:9999",
+        game_id: "local_0123456789abcdef0123456789abcdef",
+        lease_token: "lease-start",
+      }),
       headers: authHeader(),
     });
     const resp = await POST(req as any);

@@ -109,7 +109,7 @@ Important public deployment variables:
 | `AUTH_SECRET` | NextAuth secret |
 | `AUTH_URL` | Public gateway origin |
 | `DATABASE_URL` | Postgres connection string |
-| `GV_WEB_SCHEMA_PUSH_ON_START=1` | Apply current schema at container startup |
+| `GV_WEB_SCHEMA_PUSH_ON_START=1` | Initialize schema only when the database is empty; existing databases require explicit migrations |
 | `GV_ICE_STUN_URLS` | Comma-separated STUN URLs |
 | `GV_ICE_TURN_URLS` | Comma-separated TURN URLs |
 | `GV_ICE_TURN_USERNAME` | TURN username |

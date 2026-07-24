@@ -794,6 +794,7 @@ async fn launch_game(
     let session_id = new_runtime_session_id();
     let session = Arc::new(crate::session::GameSession {
         game_id: session_id.clone(),
+        cloud_session_id: None,
         cancel: tokio_util::sync::CancellationToken::new(),
         pc: std::sync::Mutex::new(stack.pc),
         video_track: std::sync::Mutex::new(stack.video_track),
