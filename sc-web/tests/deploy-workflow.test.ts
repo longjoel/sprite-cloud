@@ -11,6 +11,7 @@ const playerScript = readFileSync("public/player/play-v2.js", "utf8");
 const scPlayerScript = readFileSync("public/player/sc-player.js", "utf8");
 const browserLogger = readFileSync("public/browser-log.js", "utf8");
 const productionEntrypoint = readFileSync("../docker/sc-web/entrypoint.prod.sh", "utf8");
+const developmentEntrypoint = readFileSync("../docker/sc-web/entrypoint.sh", "utf8");
 const migration = readFileSync("drizzle/0016_remove_cloud_library.sql", "utf8");
 const publicWatch = readFileSync("lib/public-watch.ts", "utf8");
 const watchPage = readFileSync("app/watch/page.tsx", "utf8");
@@ -78,6 +79,8 @@ describe("production deploy workflow", () => {
     expect(hostInstaller).not.toContain('ARCH="armv7"');
     expect(rootReadme).toContain("scripts/install.sh | bash -s --");
     expect(rootReadme).not.toContain("scripts/install.sh | sh -s --");
+    expect(scriptsReadme).toContain("| bash -s --");
+    expect(scriptsReadme).not.toContain("| sh -s --");
   });
 
   it("publishes only after both advertised architecture builds succeed", () => {
@@ -103,11 +106,14 @@ describe("production deploy workflow", () => {
   });
 
   it("never pushes a destructive schema onto a nonempty database at startup", () => {
-    const nonemptyGuard = productionEntrypoint.indexOf('if [ "$table_count" != "0" ]');
-    const schemaPush = productionEntrypoint.indexOf("npx drizzle-kit push --force");
-    expect(nonemptyGuard).toBeGreaterThan(-1);
-    expect(schemaPush).toBeGreaterThan(nonemptyGuard);
-    expect(productionEntrypoint).toContain("refusing schema push on a nonempty database");
+    for (const entrypoint of [productionEntrypoint, developmentEntrypoint]) {
+      const nonemptyGuard = entrypoint.indexOf('if [ "$table_count" != "0" ]');
+      const schemaPush = entrypoint.indexOf("npx drizzle-kit push --force");
+      expect(entrypoint).toContain('GV_WEB_SCHEMA_PUSH_ON_START:-0');
+      expect(nonemptyGuard).toBeGreaterThan(-1);
+      expect(schemaPush).toBeGreaterThan(nonemptyGuard);
+      expect(entrypoint).toContain("refusing schema push on a nonempty database");
+    }
   });
 
   it("keeps the destructive migration atomic", () => {

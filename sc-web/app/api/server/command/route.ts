@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { commands, peerTokens, serverMembers, servers, sessions, shortCodes } from "@/lib/db/schema";
-import { ACTIVE_SESSION_STATES, CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, SESSION_CONNECTED, SESSION_PLAYING, SESSION_READY, SESSION_SPAWNING, SESSION_STATE_TIMEOUT_MS } from "@/lib/constants";
+import { ACTIVE_SESSION_STATES, CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, SESSION_CONNECTED, SESSION_PLAYING, SESSION_READY, SESSION_SPAWNING, SESSION_STATE_TIMEOUT_MS, STATUS_PENDING } from "@/lib/constants";
 import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { applyRateLimit } from "@/lib/rate-limit";
 import { recordLaunchEvent } from "@/lib/launch-events";
@@ -397,6 +397,9 @@ export async function POST(request: NextRequest) {
       type: body.type,
       payload: enrichedPayload,
       workerToken,
+      // start_game remains invisible to server polling until its exact session,
+      // peer capability, and final payload have been committed below.
+      status: body.type === CMD_START_GAME ? "preparing" : STATUS_PENDING,
     })
     .returning({ id: commands.id });
 
@@ -495,15 +498,6 @@ export async function POST(request: NextRequest) {
         // route the SDP exchange through handle_guest_sdp (building a new
         // PC with host track copies) instead of handle_sdp_offer's host
         // reconnection path (swapping the session PC in place).
-        await db.update(commands).set({
-          type: CMD_SDP_OFFER,
-          payload: {
-            game_id: enrichedPayload.game_id,
-            sdp: enrichedPayload.sdp,
-            host_token: hostToken,
-          },
-        }).where(eq(commands.id, cmd.id));
-
         // Issue a new host peer_token for this reconnect
         hostPeerToken = crypto.randomBytes(16).toString("hex");
         await db.insert(peerTokens).values({
@@ -512,6 +506,18 @@ export async function POST(request: NextRequest) {
           seat: 0,
           role: "host",
         });
+
+        // Publish the fully converted reconnect command only after its peer
+        // capability exists. Server polling ignores the preparing state.
+        await db.update(commands).set({
+          type: CMD_SDP_OFFER,
+          payload: {
+            game_id: enrichedPayload.game_id,
+            sdp: enrichedPayload.sdp,
+            host_token: hostToken,
+          },
+          status: STATUS_PENDING,
+        }).where(eq(commands.id, cmd.id));
 
         await recordLaunchEvent({
           commandId: cmd.id,
@@ -602,7 +608,7 @@ export async function POST(request: NextRequest) {
     // Update the already-inserted command with peer_tokens
     await db
       .update(commands)
-      .set({ payload: enrichedPayload })
+      .set({ payload: enrichedPayload, status: STATUS_PENDING })
       .where(eq(commands.id, cmd.id));
 
     logSignalingStage("host_start", "session_created", {

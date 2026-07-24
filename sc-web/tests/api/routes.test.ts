@@ -666,7 +666,8 @@ describe("POST /api/server/command", () => {
       if (table === launchEvents) return mockQueryBuilder([{ id: "launch-local" }]);
       return mockQueryBuilder([{ id: "fallback" }]);
     });
-    mockDb.update.mockReturnValue({ set: vi.fn(() => ({ where: vi.fn(() => Promise.resolve(undefined)) })) });
+    const updateSet = vi.fn(() => ({ where: vi.fn(() => Promise.resolve(undefined)) }));
+    mockDb.update.mockReturnValue({ set: updateSet });
 
     const { POST } = await import("@/app/api/server/command/route");
     const req = mkReq("http://localhost/api/server/command", {
@@ -677,6 +678,15 @@ describe("POST /api/server/command", () => {
     expect(resp.status).toBe(201);
     expect(commandInsertBuilder.values).toHaveBeenCalledWith(expect.objectContaining({
       payload: { game_id: gameId },
+      status: "preparing",
+    }));
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
+      status: "pending",
+      payload: expect.objectContaining({
+        game_id: gameId,
+        session_id: "sess-local",
+        peer_tokens: [expect.objectContaining({ role: "host", seat: 0 })],
+      }),
     }));
   });
 
@@ -1088,6 +1098,7 @@ describe("POST /api/server/notify", () => {
     const resp = await POST(req as any);
 
     expect(resp.status).toBe(409);
+    expect(mockDb.select).toHaveBeenCalledTimes(2);
     expect(mockDb.update).not.toHaveBeenCalled();
   });
 
