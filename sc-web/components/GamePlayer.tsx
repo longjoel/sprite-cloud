@@ -375,11 +375,11 @@ export default function GamePlayer({
       if (gid && sid) {
         fetch("/api/server/command", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: csrfHeaders(),
           body: JSON.stringify({
             server_id: sid,
             type: "stop_game",
-            payload: { game_id: gid },
+            payload: { game_id: gid, ...(hostToken ? { host_token: hostToken } : {}) },
           }),
         }).catch(() => {});
       }

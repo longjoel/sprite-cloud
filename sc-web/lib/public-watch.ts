@@ -48,11 +48,11 @@ async function ensureRoomToken(sessionId: string, currentRoomToken: string | nul
   return roomToken;
 }
 
-export async function resolvePublicWatchPath(): Promise<string | null> {
+export async function resolvePublicWatchSession() {
   const session = await latestActiveSession();
   if (!session?.serverId || !session.hostToken) return null;
   const roomToken = await ensureRoomToken(session.id, session.roomToken);
-  return `/r/${roomToken}?game_id=${encodeURIComponent(session.gameId)}&server_id=${encodeURIComponent(session.serverId)}`;
+  return { roomToken, gameId: session.gameId, serverId: session.serverId };
 }
 
 export async function getPublicWatchPreview(): Promise<PublicWatchPreview | null> {

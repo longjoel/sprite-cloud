@@ -1,6 +1,8 @@
 -- DESTRUCTIVE: deploy and health-check sc-web code that no longer reads these
 -- tables, then create and verify a database backup before applying this migration.
 -- Never apply this migration first or without a verified backup.
+BEGIN;
+
 -- Remove legacy commands that can upload private filesystem/library metadata.
 DELETE FROM "commands" WHERE "type" IN ('browse_files', 'scan_paths');
 UPDATE "commands"
@@ -19,3 +21,5 @@ DROP TABLE IF EXISTS "games";
 
 -- Configured ROM roots are private sc-server state and must not remain in sc-web.
 DROP TABLE IF EXISTS "server_rom_roots";
+
+COMMIT;

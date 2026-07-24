@@ -226,7 +226,7 @@ async fn proxy_to_sc_web(
         .iter()
         .filter_map(|(k, v)| {
             let name = k.as_str().to_lowercase();
-            if name == "host" || name == "connection" {
+            if name == "host" || name == "connection" || name == "referer" {
                 return None;
             }
             Some((k.to_string(), v.to_str().ok()?.to_string()))
