@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const workflow = readFileSync("../.github/workflows/deploy.yml", "utf8");
+const ciWorkflow = readFileSync("../.github/workflows/ci.yml", "utf8");
 const releaseWorkflow = readFileSync("../.github/workflows/release.yml", "utf8");
+const ciDockerfile = readFileSync("../docker/sc-web/Dockerfile.ci", "utf8");
 const migrationHelper = readFileSync("../scripts/apply-sc-web-migration.sh", "utf8");
 const scriptsReadme = readFileSync("../scripts/README.md", "utf8");
 const releaseGuide = readFileSync("../docs/RELEASE.md", "utf8");
@@ -114,6 +116,12 @@ describe("production deploy workflow", () => {
     expect(browserLogger).not.toContain('roomToken: clampString(searchParams.get("join")');
     expect(browserLogger).toContain('out[key] = "[REDACTED]"');
     expect(browserLogger).toContain('location.pathname.replace(/^\\/r\\/[^/]+/, "/r/[redacted]")');
+  });
+
+  it("stages Next static assets inside the nonignored CI Docker context", () => {
+    expect(ciWorkflow).toContain("cp -r sc-web/.next/static ./sc-web-standalone/.next/static");
+    expect(ciDockerfile).toContain("COPY sc-web-standalone/.next/static/");
+    expect(ciDockerfile).not.toContain("COPY sc-web/.next/static/");
   });
 
   it("never pushes a destructive schema onto a nonempty database at startup", () => {

@@ -131,7 +131,10 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Place standalone output for Docker context
-        run: cp -r sc-web/.next/standalone/sc-web ./sc-web-standalone
+        run: |
+          cp -r sc-web/.next/standalone/sc-web ./sc-web-standalone
+          mkdir -p ./sc-web-standalone/.next
+          cp -r sc-web/.next/static ./sc-web-standalone/.next/static
 
       - name: Build and push sc-web
         uses: docker/build-push-action@v6

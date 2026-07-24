@@ -18,7 +18,7 @@ COPY sc-web-standalone/ ./sc-web/
 COPY sc-web/public/ ./sc-web/sc-web/public/
 
 # Next.js build static assets (JS chunks, CSS) — not in standalone output
-COPY sc-web/.next/static/ ./sc-web/sc-web/.next/static/
+COPY sc-web-standalone/.next/static/ ./sc-web/sc-web/.next/static/
 
 # Production entrypoint (applies DB schema, starts node server.js)
 COPY docker/sc-web/entrypoint.prod.sh /entrypoint.sh
