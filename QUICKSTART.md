@@ -31,7 +31,7 @@ You need a Linux machine with your ROM files. The host streams games to players 
 
 ```bash
 # From GitHub Releases (once CI is set up):
-curl -fsSL https://get.gamesvault.app | sh
+curl -fsSL https://get.gamesvault.app | bash
 
 # For now: build from source
 git clone https://github.com/longjoel/sprite-cloud

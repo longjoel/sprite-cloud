@@ -18,6 +18,7 @@ const watchPage = readFileSync("app/watch/page.tsx", "utf8");
 const gamePlayer = readFileSync("components/GamePlayer.tsx", "utf8");
 const playerServer = readFileSync("../sc-server/src/player_server.rs", "utf8");
 const rootReadme = readFileSync("../README.md", "utf8");
+const quickstart = readFileSync("../QUICKSTART.md", "utf8");
 
 describe("production deploy workflow", () => {
   it("treats a successful health curl exit code as success without capturing its body", () => {
@@ -81,6 +82,9 @@ describe("production deploy workflow", () => {
     expect(rootReadme).not.toContain("scripts/install.sh | sh -s --");
     expect(scriptsReadme).toContain("| bash -s --");
     expect(scriptsReadme).not.toContain("| sh -s --");
+    expect(hostInstaller).not.toMatch(/\| sh(?:\s|$)/);
+    expect(quickstart).toContain("https://get.gamesvault.app | bash");
+    expect(quickstart).not.toContain("https://get.gamesvault.app | sh");
   });
 
   it("publishes only after both advertised architecture builds succeed", () => {
