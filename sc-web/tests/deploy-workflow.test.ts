@@ -7,6 +7,7 @@ const migrationHelper = readFileSync("../scripts/apply-sc-web-migration.sh", "ut
 const scriptsReadme = readFileSync("../scripts/README.md", "utf8");
 const releaseGuide = readFileSync("../docs/RELEASE.md", "utf8");
 const hostInstaller = readFileSync("../scripts/install.sh", "utf8");
+const playerScript = readFileSync("public/player/play-v2.js", "utf8");
 
 describe("production deploy workflow", () => {
   it("treats a successful health curl exit code as success without capturing its body", () => {
@@ -24,7 +25,7 @@ describe("production deploy workflow", () => {
   it("deploys and health-checks before backup and migration", () => {
     const deploy = workflow.indexOf("Restart sc-web on VPS");
     const health = workflow.indexOf("- name: Health check");
-    const backup = workflow.indexOf("Back up database and apply Phase 4c destructive migration");
+    const backup = workflow.indexOf("Back up Postgres and apply Phase 4c migration");
     const pgDump = workflow.indexOf("pg_dump");
     const migration = workflow.indexOf("ON_ERROR_STOP=1");
 
@@ -39,11 +40,13 @@ describe("production deploy workflow", () => {
     const backup = migrationHelper.indexOf("pg_dump");
     const nonempty = migrationHelper.indexOf("test -s");
     const apply = migrationHelper.indexOf("psql -U $PG_USER");
-    const preHealth = migrationHelper.indexOf("curl -fsS http://localhost:3000/api/health >/dev/null");
+    const preHealth = migrationHelper.indexOf("HEALTH_JSON=");
+    const readiness = migrationHelper.indexOf("phase4c_library_owner");
     const postHealth = migrationHelper.lastIndexOf("curl -fsS http://localhost:3000/api/health >/dev/null");
 
     expect(preHealth).toBeGreaterThan(-1);
-    expect(backup).toBeGreaterThan(preHealth);
+    expect(readiness).toBeGreaterThan(preHealth);
+    expect(backup).toBeGreaterThan(readiness);
     expect(backup).toBeGreaterThan(-1);
     expect(nonempty).toBeGreaterThan(backup);
     expect(apply).toBeGreaterThan(nonempty);
@@ -51,6 +54,7 @@ describe("production deploy workflow", () => {
     expect(migrationHelper).toContain("LEGACY_COUNT=");
     expect(migrationHelper).toContain('[[ "$LEGACY_COUNT" == "0" ]]');
     expect(migrationHelper).toContain("curl -fsS http://localhost:3000/api/health >/dev/null");
+    expect(workflow).toContain("phase4c_library_owner");
     expect(scriptsReadme).toContain("creates and verifies a timestamped compressed database backup");
     expect(releaseGuide).toContain("verified backup third");
   });
@@ -70,5 +74,12 @@ describe("production deploy workflow", () => {
     expect(releaseWorkflow).not.toContain("continue-on-error: true");
     expect(releaseWorkflow).toContain("runs-on: ubuntu-24.04-arm");
     expect(releaseWorkflow).toContain('test -f "artifacts/$arch/sc-server"');
+  });
+
+  it("never persists or logs raw browser signaling capabilities", () => {
+    expect(playerScript).not.toContain('url.searchParams.set("host_token"');
+    expect(playerScript).not.toContain('urlParams.get("host_token")');
+    expect(playerScript).not.toContain('console.log("[gv] guest join — resolving room_token:", rt)');
+    expect(playerScript).not.toContain('console.log("[gv] room/join response:", joinData)');
   });
 });

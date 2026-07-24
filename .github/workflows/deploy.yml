@@ -70,10 +70,13 @@ jobs:
           echo "✗ Health check failed after 6 attempts"
           exit 1
 
-      - name: Back up database and apply Phase 4c destructive migration
+      - name: Back up Postgres and apply Phase 4c migration
         if: github.event_name == 'workflow_dispatch' && inputs.apply_phase4c_migration
         run: |
           set -euo pipefail
+          HEALTH_JSON=$(ssh -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> \
+            'curl -fsS http://localhost:3000/api/health')
+          grep -Eq '"phase4c_library_owner"[[:space:]]*:[[:space:]]*"sc-server"' <<<"$HEALTH_JSON"
           scp -o StrictHostKeyChecking=accept-new \
             sc-web/drizzle/0016_remove_cloud_library.sql \
             <vps-user>@<vps-host>:/tmp/0016_remove_cloud_library.sql

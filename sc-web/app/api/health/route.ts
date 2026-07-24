@@ -37,6 +37,7 @@ interface ComponentStatus {
 
 interface HealthResponse {
   status: "ok" | "degraded" | "error";
+  phase4c_library_owner: "sc-server";
   components: {
     db: ComponentStatus;
     api_routes: ComponentStatus;
@@ -258,6 +259,7 @@ export async function GET() {
 
   const body: HealthResponse = {
     status,
+    phase4c_library_owner: "sc-server",
     components,
     connectivity,
     versions,

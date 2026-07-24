@@ -165,6 +165,10 @@ export async function POST(request: NextRequest) {
   if (!cmd || cmd.serverId !== server.id) {
     return NextResponse.json({ error: "command not found" }, { status: 404 });
   }
+  const commandPayload = (cmd.payload || {}) as Record<string, unknown>;
+  if (commandPayload.game_id !== body.game_id) {
+    return NextResponse.json({ error: "command does not match game" }, { status: 409 });
+  }
 
   // ── Complete the command lease ────────────────────────────────────────
   if (body.lease_token) {
@@ -192,7 +196,16 @@ export async function POST(request: NextRequest) {
   //  When updating by game_id fallback, reject if a newer generation exists
   //  (prevents stale worker_dead / SDP answers from updating newer sessions).
 
-  let bySession: { id: string; status: string; roomToken: string | null; generation: number; serverId: string | null } | undefined;
+  let bySession: {
+    id: string;
+    status: string;
+    roomToken: string | null;
+    hostToken: string | null;
+    generation: number;
+    serverId: string | null;
+    gameId: string;
+    commandId: string | null;
+  } | undefined;
 
   if (body.session_id) {
     [bySession] = await db
@@ -200,8 +213,11 @@ export async function POST(request: NextRequest) {
         id: sessions.id,
         status: sessions.status,
         roomToken: sessions.roomToken,
+        hostToken: sessions.hostToken,
         generation: sessions.generation,
         serverId: sessions.serverId,
+        gameId: sessions.gameId,
+        commandId: sessions.commandId,
       })
       .from(sessions)
       .where(and(eq(sessions.id, body.session_id), eq(sessions.serverId, server.id)))
@@ -214,15 +230,27 @@ export async function POST(request: NextRequest) {
         id: sessions.id,
         status: sessions.status,
         roomToken: sessions.roomToken,
+        hostToken: sessions.hostToken,
         generation: sessions.generation,
         serverId: sessions.serverId,
+        gameId: sessions.gameId,
+        commandId: sessions.commandId,
       })
       .from(sessions)
       .where(and(eq(sessions.commandId, body.command_id), eq(sessions.serverId, server.id)))
       .limit(1);
     bySession = byCmd;
   }
-  if (bySession?.serverId !== server.id) {
+  const sessionCapabilityMatches = bySession && (
+    bySession.commandId === cmd.id
+    || (typeof commandPayload.room_token === "string" && commandPayload.room_token === bySession.roomToken)
+    || (typeof commandPayload.host_token === "string" && commandPayload.host_token === bySession.hostToken)
+  );
+  if (
+    bySession?.serverId !== server.id
+    || bySession?.gameId !== body.game_id
+    || !sessionCapabilityMatches
+  ) {
     bySession = undefined;
   }
 

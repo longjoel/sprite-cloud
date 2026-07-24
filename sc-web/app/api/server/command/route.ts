@@ -358,7 +358,7 @@ export async function POST(request: NextRequest) {
       has_host_token: typeof enrichedPayload.host_token === "string",
       has_peer_token: typeof enrichedPayload.peer_token === "string",
       server_id: serverId,
-      worker_token: workerToken,
+      has_worker_token: true,
     });
   }
 
@@ -476,9 +476,9 @@ export async function POST(request: NextRequest) {
         // Return immediately — no need to long-poll for SDP answer on reconnect
         logSignalingStage("host_reconnect", "response_ready", {
           command_id: cmd.id,
-          host_peer_token: hostPeerToken,
+          has_host_peer_token: true,
           session_id: existing.id,
-          worker_token: workerToken,
+          has_worker_token: true,
         });
         return NextResponse.json(
           { id: cmd.id, worker_token: workerToken, host_peer_token: hostPeerToken },
@@ -558,10 +558,10 @@ export async function POST(request: NextRequest) {
     logSignalingStage("host_start", "session_created", {
       command_id: cmd.id,
       game_id: enrichedPayload.game_id as string,
-      host_peer_token: hostPeerToken,
+      has_host_peer_token: true,
       session_id: newSession.id,
       status: "spawning",
-      worker_token: workerToken,
+      has_worker_token: true,
     });
   }
 
@@ -589,7 +589,7 @@ export async function POST(request: NextRequest) {
     logSignalingStage(answerFlow, "waiting_for_sdp_answer", {
       command_id: cmd.id,
       game_id: typeof enrichedPayload.game_id === "string" ? enrichedPayload.game_id : undefined,
-      worker_token: workerToken,
+      has_worker_token: true,
     });
     try {
       const sdpAnswer = await waitForSdpAnswer(cmd.id);

@@ -248,24 +248,18 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
   // Generate a host token once — reused across reconnects so the
   // worker recognizes the same host after a disconnect.
   const hostToken = (() => {
-    // ── Priority: explicit param (from short code) > URL param > new UUID ──
+    // Host capabilities arrive only from authenticated short-code resolution.
     if (hostTokenParam) {
-      console.log("[gv] using hostToken from props:", hostTokenParam.slice(0, 8) + "...");
+      console.log("[gv] using authenticated host capability");
       return hostTokenParam;
-    }
-    const urlParams = new URLSearchParams(window.location.search);
-    const fromUrl = urlParams.get("host_token");
-    if (fromUrl) {
-      console.log("[gv] reusing host_token from URL:", fromUrl.slice(0, 8) + "...");
-      return fromUrl;
     }
     return randomUUID();
   })();
 
-  // If URL has host_token, this is a page-refresh reconnection.
+  // An authenticated short-code resolution marks a page-refresh reconnect.
   // Skip start_game — the server session is still alive.
   // Falls back to start_game if the session is gone (e.g. server restarted).
-  let isReconnect = !!new URLSearchParams(window.location.search).get("host_token") || !!hostTokenParam;
+  let isReconnect = !!hostTokenParam;
   const wasReconnect = isReconnect; // snapshot: true if this page load came from a short code
   let connecting = false; // guard against concurrent doConnect() calls
 
@@ -306,7 +300,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
       if ((joinToken || player._roomToken) && !gameStarted) {
         // Guest join — use rotated room_token from SDP poll if available
         const rt = player._roomToken || joinToken;
-        console.log("[gv] guest join — resolving room_token:", rt);
+        console.log("[gv] guest join — resolving room capability");
         callbacks?.onProgress?.("Joining room…");
         const joinResp = await fetch("/api/room/join", {
           method: "POST",
@@ -318,7 +312,12 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
           throw new Error(`room join failed: HTTP ${joinResp.status} — ${errData.error || "unknown"}`);
         }
         const joinData = await joinResp.json();
-        console.log("[gv] room/join response:", joinData);
+        console.log("[gv] room/join resolved:", {
+          role: joinData.role,
+          seat: joinData.seat,
+          has_peer_token: typeof joinData.peer_token === "string",
+          has_worker_token: typeof joinData.worker_token === "string",
+        });
         player._peerToken = joinData.peer_token;
         player._seat = joinData.seat;
         player._role = joinData.role;
@@ -347,12 +346,7 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
               window.history.replaceState(null, "", shortUrl);
               console.log("[gv] short URL persisted:", shortUrl);
             } else {
-              console.warn("[gv] shorten API failed, falling back to query params");
-              const url = new URL(window.location.href);
-              url.searchParams.set("game", gameId);
-              url.searchParams.set("host_token", hostToken);
-              url.searchParams.set("server_id", serverId);
-              window.history.replaceState(null, "", url.toString());
+              console.warn("[gv] shorten API failed; leaving the capability-free URL unchanged");
             }
           } catch (e) {
             console.warn("[gv] URL persist failed:", e?.message || e);
