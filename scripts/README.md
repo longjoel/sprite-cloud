@@ -18,9 +18,21 @@ Keep this directory boring. Scripts here should be reusable release/dev entrypoi
 ## Public install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/longjoel/sprite-cloud/main/scripts/install.sh \
-  | bash -s -- --web-url https://your-gateway.example --rom-dir /path/to/roms
+curl -fsSL https://sprite-cloud.com/install.sh | bash
+sc-server setup
 ```
+
+This is the recommended user-facing, binary-only installation and upgrade path. See **[docs/SC-SERVER-INSTALL.md](../docs/SC-SERVER-INSTALL.md)**.
+
+For a managed installation that also installs dependencies and a systemd service:
+
+```bash
+sudo ./scripts/install.sh \
+  --web-url https://your-gateway.example \
+  --rom-dir /srv/storage/games/roms
+```
+
+Use `--rootless` for a user service. Reinstalls preserve an existing config and never delete ROMs.
 
 ## Local dev
 

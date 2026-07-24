@@ -12,6 +12,7 @@ Sprite Cloud has three roles:
 
 Architecture overview: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
 Protocol and wire formats: **[docs/PROTOCOL.md](docs/PROTOCOL.md)**
+Host installation and operations: **[docs/SC-SERVER-INSTALL.md](docs/SC-SERVER-INSTALL.md)**
 
 ## Quick start
 
@@ -39,28 +40,34 @@ pnpm dev
 
 Open `http://localhost:3000/setup`. On first run, the server prints a setup code to the console — use that code to create the first admin account.
 
-### Pair and run a host
+### Configure, pair, and run a host
 
-From the gateway dashboard, generate a pairing code. The UI shows the exact command, including the gateway URL:
+Configure the ROM root and core directory first:
+
+```bash
+sc-server setup
+```
+
+Open the gateway dashboard and generate a pairing code. The UI shows the exact command, including the gateway URL:
 
 ```bash
 sc-server pair ABCD-EFGH --sc-web-url https://your-gateway.example
 ```
 
-Then point the host at your ROMs and start it:
+Then start the host:
 
 ```bash
-export GV_ROM_ROOTS=/path/to/roms
-cargo run -p sc-server -- start
+sc-server start
 ```
 
 ## One-liner host install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/longjoel/sprite-cloud/main/scripts/install.sh | bash -s -- --web-url https://your-gateway.example --rom-dir /path/to/roms
+curl -fsSL https://sprite-cloud.com/install.sh | bash
+sc-server setup
 ```
 
-The installer detects Linux distro/arch, installs system dependencies, downloads `sc-server` from GitHub Releases, writes config, and installs a systemd service.
+The public installer detects Linux architecture, downloads the latest checksummed `sc-server` release, verifies SHA-256, and atomically installs the binary. Follow **[the host installation guide](docs/SC-SERVER-INSTALL.md)** for pairing, user-systemd setup, upgrades, persistence, troubleshooting, and managed/system-wide installations.
 
 ## Docker host
 
@@ -96,6 +103,9 @@ server_id = "a0000000-..."
 
 [rom]
 roots = ["/path/to/roms"]
+
+[cores]
+dir = "/usr/lib/libretro"
 ```
 
 ## Environment variables
@@ -129,4 +139,4 @@ See [NOTICE](NOTICE) for third-party notices, including GStreamer LGPL informati
 
 ## Status
 
-Early development. The current architecture supports DB-backed auth, gateway pairing, ROM scanning, in-process libretro runtime, and browser WebRTC play. Public release still needs release CI and broader install-script verification.
+Early development. The current architecture supports DB-backed auth, gateway pairing, server-owned ROM scanning and library preferences, checksummed Linux release installers, libretro runtime, and browser WebRTC play.

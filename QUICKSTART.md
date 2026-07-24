@@ -30,10 +30,8 @@ You need a Linux machine with your ROM files. The host streams games to players 
 ### 1. Install sc-server
 
 ```bash
-# Install the checksum-verifying host package from this repository:
-git clone https://github.com/longjoel/sprite-cloud
-cd sprite-cloud
-sudo ./scripts/install.sh --web-url https://your-gateway.example --rom-dir /path/to/roms
+curl -fsSL https://sprite-cloud.com/install.sh | bash
+sc-server setup
 
 # Or build from source:
 cargo build --release -p sc-core -p sc-server
@@ -53,6 +51,10 @@ sudo dnf install gstreamer1-plugins-bad-free gstreamer1-plugins-good gstreamer1-
 sudo pacman -S gst-plugins-bad gst-plugins-good gst-plugins-ugly
 ```
 
+Setup saves the ROM root and core directory in `~/.config/sprite-cloud/config.toml`. Those values survive pairing, service restarts, and binary upgrades.
+
+Full installation, upgrade, systemd, persistence, and troubleshooting documentation: **[docs/SC-SERVER-INSTALL.md](docs/SC-SERVER-INSTALL.md)**.
+
 ### 2. Pair with a gateway
 
 ```
@@ -64,31 +66,29 @@ sudo pacman -S gst-plugins-bad gst-plugins-good gst-plugins-ugly
 
 This saves your server's credentials to `~/.config/sprite-cloud/config.toml`.
 
-### 3. Point at your ROMs
-
-```bash
-export GV_ROM_ROOTS=/path/to/roms,/path/to/more
-```
-
-### 4. Start
+### 3. Start
 
 ```bash
 sc-server start
 ```
 
-Your games appear in the library. Anyone with a gateway account can play them.
+Your server-owned library appears through the gateway. ROM metadata and filesystem paths remain on the game host.
 
 ### Optional: Run at boot
 
 ```bash
-systemctl enable --now sc-server
+sc-server install
+systemctl --user daemon-reload
+systemctl --user enable --now sc-server
 ```
+
+Run all three commands as your login user. Do not prefix `systemctl --user` with `sudo`.
 
 ---
 
 ## ⚙️ Admin (run your own gateway)
 
-The gateway is the web interface — sign-up, library, pairing, and command routing. One gateway serves many hosts and players.
+The gateway is the web interface for sign-up, pairing, coordination, and signaling. Each `sc-server` owns its local game library and metadata. One gateway serves many hosts and players.
 
 ### Requirements
 
@@ -215,7 +215,7 @@ sc-server (host) ── polls ──▶ sc-web (gateway)
 
 - **Player** visits the gateway, clicks Play → browser gets a WebRTC offer
 - **Host** polls the gateway for commands → runs the game in-process → streams video
-- **Gateway** handles auth, library, pairing, and command queuing
+- **Gateway** handles auth, pairing, coordination, signaling, and command queuing
 
 No port forwarding on the host. WebRTC + TURN handles NAT traversal.
 
@@ -227,6 +227,6 @@ No port forwarding on the host. WebRTC + TURN handles NAT traversal.
 |-----------|---------|---------|
 | Browser | Player's device | WebRTC client, gamepad input |
 | sc-server | Host machine | Polls gateway, runs emulator cores, encodes video/audio |
-| sc-web | Gateway server | Web UI, auth, library, pairing |
-| Postgres | Gateway server | Users, servers, games, sessions |
+| sc-web | Gateway server | Web UI, auth, pairing, coordination, signaling |
+| Postgres | Gateway server | Users, server registrations, sessions, coordination state |
 | TURN server | Any public VPS | NAT traversal relay |

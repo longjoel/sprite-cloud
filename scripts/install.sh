@@ -198,22 +198,31 @@ ok "sc-server installed to $BIN_PATH"
 log "Configuration"
 echo ""
 
-if [[ -z "$WEB_URL" ]]; then
-  printf "  ${CYAN}Web URL${NC} (for example https://your-gateway.example): "
-  read -r WEB_URL
-fi
+if [[ -f "$CONFIG_FILE" ]]; then
+  warn "existing config preserved: $CONFIG_FILE"
+  if [[ -z "$WEB_URL" ]]; then
+    WEB_URL="$($SUDO sed -n 's/^[[:space:]]*url[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$CONFIG_FILE" | head -1)"
+  fi
+  if [[ -z "$ROM_DIR" ]]; then
+    ROM_DIR="$($SUDO sed -n 's/^[[:space:]]*roots[[:space:]]*=[[:space:]]*\["\([^"]*\)".*/\1/p' "$CONFIG_FILE" | head -1)"
+  fi
+else
+  if [[ -z "$WEB_URL" ]]; then
+    printf "  ${CYAN}Web URL${NC} (for example https://your-gateway.example): "
+    read -r WEB_URL
+  fi
 
-if [[ -z "$WEB_URL" ]]; then
-  err "Web URL is required. Re-run with --web-url https://your-gateway.example"
-fi
+  if [[ -z "$WEB_URL" ]]; then
+    err "Web URL is required. Re-run with --web-url https://your-gateway.example"
+  fi
 
-if [[ -z "$ROM_DIR" ]]; then
-  printf "  ${CYAN}ROM directory${NC} [/srv/storage/games/roms]: "
-  read -r ROM_DIR
-  ROM_DIR="${ROM_DIR:-/srv/storage/games/roms}"
-fi
+  if [[ -z "$ROM_DIR" ]]; then
+    printf "  ${CYAN}ROM directory${NC} [/srv/storage/games/roms]: "
+    read -r ROM_DIR
+    ROM_DIR="${ROM_DIR:-/srv/storage/games/roms}"
+  fi
 
-$SUDO tee "$CONFIG_FILE" > /dev/null << EOF
+  $SUDO tee "$CONFIG_FILE" > /dev/null << EOF
 [sc_web]
 url = "${WEB_URL}"
 
@@ -221,14 +230,15 @@ url = "${WEB_URL}"
 roots = ["${ROM_DIR}"]
 EOF
 
-if $ROOTLESS; then
-  $SUDO chmod 600 "$CONFIG_FILE"
-else
-  $SUDO chown "$SU_CMD" "$CONFIG_DIR"
-  $SUDO chmod 600 "$CONFIG_FILE"
-fi
+  if $ROOTLESS; then
+    $SUDO chmod 600 "$CONFIG_FILE"
+  else
+    $SUDO chown "$SU_CMD" "$CONFIG_DIR"
+    $SUDO chmod 600 "$CONFIG_FILE"
+  fi
 
-ok "config written to $CONFIG_FILE"
+  ok "config written to $CONFIG_FILE"
+fi
 
 # ── Systemd service ────────────────────────────────────────────────────
 SERVICE_FILE="${SYSTEMD_DIR}/sc-server.service"

@@ -83,25 +83,20 @@ bash ./deploy-sc-web.sh
 
 ## Host deploy
 
-Install `sc-server` and create a systemd service:
+For normal user and Bazzite installations, follow **[SC-SERVER-INSTALL.md](SC-SERVER-INSTALL.md)**. It covers the checksummed public installer, persisted ROM/core configuration, pairing, user systemd, lingering, upgrades, and troubleshooting.
+
+For a managed dedicated system account, use the repository installer:
 
 ```bash
-sudo install -m 755 target/release/sc-server /usr/local/bin/sc-server
-sudo cp ops/dev-host/sc-server.service /etc/systemd/system/
-sudo systemctl daemon-reload
+sudo ./scripts/install.sh \
+  --web-url https://your-gateway.example \
+  --rom-dir /srv/storage/games/roms
 ```
 
 Pair the host from the gateway dashboard:
 
 ```bash
 sc-server pair ABCD-EFGH --sc-web-url https://your-gateway.example
-```
-
-Set ROM roots either in config or env:
-
-```toml
-[rom]
-roots = ["/srv/storage/games/roms"]
 ```
 
 Then start:
@@ -124,6 +119,9 @@ server_id = "..."
 
 [rom]
 roots = ["/srv/storage/games/roms"]
+
+[cores]
+dir = "/var/lib/sprite-cloud/cores"
 ```
 
 ## Verify
