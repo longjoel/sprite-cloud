@@ -23,6 +23,15 @@ struct AppState {
     server_name: String,
     bind: SocketAddr,
     lan_player_enabled: bool,
+    /// Present only in standalone mode — local game library and ROM roots.
+    standalone: Option<StandaloneState>,
+}
+
+/// Game library and scan state for standalone mode.
+#[derive(Clone)]
+struct StandaloneState {
+    game_list: Arc<tokio::sync::RwLock<Vec<crate::scan::DiscoveredFile>>>,
+    rom_roots: Arc<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -50,7 +59,7 @@ fn health_payload(state: &AppState) -> PlayerHealth {
     }
 }
 
-fn app_router(state: Arc<AppState>) -> Router {
+fn app_router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/health", get(health))
         .route("/api/*path", any(proxy))
@@ -59,7 +68,6 @@ fn app_router(state: Arc<AppState>) -> Router {
         .route("/player/*path", any(proxy))
         .route("/favicon.ico", any(proxy))
         .fallback(any(proxy_player_page))
-        .with_state(state)
 }
 
 /// Proxy the sc-web player page.  Extracts the `code` query param from
@@ -229,9 +237,10 @@ pub async fn serve(
         server_name,
         bind,
         lan_player_enabled,
+        standalone: None,
     });
 
-    let app = app_router(state);
+    let app = app_router().with_state(state);
 
     tracing::info!("[player] HTTP server listening on http://{bind}");
 
@@ -246,6 +255,119 @@ pub async fn serve(
     if let Err(e) = axum::serve(listener, app).await {
         tracing::error!("[player] HTTP server error: {e:#}");
     }
+}
+
+/// Standalone mode — no sc-web, local game library API.
+pub async fn serve_standalone(
+    bind: SocketAddr,
+    game_list: Arc<tokio::sync::RwLock<Vec<crate::scan::DiscoveredFile>>>,
+    rom_roots: Arc<Vec<String>>,
+) {
+    let standalone = StandaloneState {
+        game_list,
+        rom_roots,
+    };
+
+    let state = Arc::new(AppState {
+        client: Client::new(),
+        sc_web: String::new(),
+        server_id: "standalone".to_string(),
+        user_id: "local".to_string(),
+        server_name: hostname(),
+        bind,
+        lan_player_enabled: true,
+        standalone: Some(standalone),
+    });
+
+    let app = app_router()
+        .route("/api/games", get(list_games))
+        .route("/api/scan", axum::routing::post(trigger_scan))
+        .with_state(state);
+
+    tracing::info!("[player] Standalone server listening on http://{bind}");
+
+    let listener = match tokio::net::TcpListener::bind(bind).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!("[player] failed to bind {bind}: {e:#}");
+            return;
+        }
+    };
+
+    if let Err(e) = axum::serve(listener, app).await {
+        tracing::error!("[player] HTTP server error: {e:#}");
+    }
+}
+
+fn hostname() -> String {
+    std::fs::read_to_string("/proc/sys/kernel/hostname")
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|_| "unknown".to_string())
+}
+
+// ── Standalone API handlers ─────────────────────────────────────────
+
+#[derive(Serialize)]
+struct GameEntry {
+    id: String,
+    name: String,
+    platform: String,
+    file_name: String,
+    file_size: u64,
+}
+
+async fn list_games(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<GameEntry>>, axum::http::StatusCode> {
+    let standalone = state.standalone.as_ref().ok_or(axum::http::StatusCode::NOT_FOUND)?;
+    let games = standalone.game_list.read().await;
+    let entries: Vec<GameEntry> = games
+        .iter()
+        .map(|f| {
+            let name = f.file_name.trim_end_matches(&format!(".{}", f.platform.as_deref().unwrap_or("")))
+                .to_string();
+            GameEntry {
+                id: f.relative_path.clone(),
+                name,
+                platform: f.platform.clone().unwrap_or_else(|| "unknown".to_string()),
+                file_name: f.file_name.clone(),
+                file_size: f.file_size,
+            }
+        })
+        .collect();
+    Ok(Json(entries))
+}
+
+async fn trigger_scan(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, axum::http::StatusCode> {
+    let standalone = state.standalone.as_ref().ok_or(axum::http::StatusCode::NOT_FOUND)?;
+    let roots = standalone.rom_roots.clone();
+
+    // Run scan in a blocking task
+    let result = tokio::task::spawn_blocking(move || {
+        let mut all: Vec<crate::scan::DiscoveredFile> = Vec::new();
+        for root in roots.iter() {
+            let path = std::path::Path::new(root);
+            if !path.is_dir() {
+                continue;
+            }
+            if let Ok(files) = crate::scan::discover_roms(path) {
+                all.extend(files);
+            }
+        }
+        all
+    })
+    .await
+    .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let count = result.len();
+    {
+        let mut games = standalone.game_list.write().await;
+        *games = result;
+    }
+
+    Ok(Json(serde_json::json!({ "status": "ok", "count": count })))
 }
 
 #[cfg(test)]
@@ -265,6 +387,7 @@ mod tests {
             server_name: "Bazzite".to_string(),
             bind: "0.0.0.0:8787".parse().unwrap(),
             lan_player_enabled: true,
+            standalone: None,
         };
 
         let payload = health_payload(&state);
@@ -289,8 +412,9 @@ mod tests {
             server_name: "Vault".to_string(),
             bind: "0.0.0.0:8787".parse().unwrap(),
             lan_player_enabled: true,
+            standalone: None,
         });
-        let app = app_router(state);
+        let app = app_router().with_state(state);
 
         let response = app
             .oneshot(
