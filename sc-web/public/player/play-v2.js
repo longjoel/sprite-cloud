@@ -171,9 +171,11 @@ async function startGame(serverId, gameId, corePath, hostToken, callbacks, sdpOf
   // Poll for result (worker_url and optionally sdp_answer)
   const start = Date.now();
   while (Date.now() - start < GAME_START_TIMEOUT_MS) {
-    const resp = await fetch(
-      `/api/server/notify?server_id=${encodeURIComponent(serverId)}&worker_token=${encodeURIComponent(workerToken)}`,
-    );
+    const resp = await fetch("/api/server/notify/poll", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ server_id: serverId, worker_token: workerToken }),
+    });
     if (!resp.ok) {
       throw new Error(`Notify poll failed: HTTP ${resp.status}`);
     }

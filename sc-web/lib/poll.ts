@@ -54,7 +54,7 @@ export function useInterval(
  * @example
  * const workerUrl = await pollUntil(
  *   async () => {
- *     const r = await fetch("/api/server/notify?...");
+ *     const r = await fetch("/api/server/notify/poll", { method: "POST", body: "..." });
  *     const data = await r.json();
  *     return data.worker_url ?? null;
  *   },

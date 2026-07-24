@@ -1124,47 +1124,86 @@ describe("POST /api/server/notify", () => {
   });
 });
 
-describe("GET /api/server/notify", () => {
-  it("returns 400 without server_id", async () => {
+describe("POST /api/server/notify/poll", () => {
+  it("rejects legacy GET query-string capabilities", async () => {
     const { GET } = await import("@/app/api/server/notify/route");
-    const req = mkReq("http://localhost/api/server/notify");
-    const resp = await GET(req as any);
+    const resp = await GET();
+    expect(resp.status).toBe(405);
+  });
+
+  it("returns 400 without server_id", async () => {
+    const { POST } = await import("@/app/api/server/notify/poll/route");
+    const req = mkReq("http://localhost/api/server/notify/poll", {
+      ...jsonBody({ worker_token: "abc123" }),
+    });
+    const resp = await POST(req);
     expect(resp.status).toBe(400);
   });
 
   it("returns 400 without worker_token", async () => {
-    const { GET } = await import("@/app/api/server/notify/route");
-    const req = mkReq(
-      "http://localhost/api/server/notify?server_id=server-1",
-    );
-    const resp = await GET(req as any);
+    const { POST } = await import("@/app/api/server/notify/poll/route");
+    const req = mkReq("http://localhost/api/server/notify/poll", {
+      ...jsonBody({ server_id: "server-1" }),
+    });
+    const resp = await POST(req);
     expect(resp.status).toBe(400);
   });
 
-  it("returns worker_url when session is ready", async () => {
-    mockDb.select.mockReturnValue(
-      mockQueryBuilder([{ workerUrl: "http://localhost:9999", gameId: "local_0123456789abcdef0123456789abcdef", status: "ready" }]),
+  it("returns worker_url when the capability belongs to the requested server", async () => {
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{
+        sessionId: "session-1",
+        workerUrl: "http://localhost:9999",
+        gameId: "local_0123456789abcdef0123456789abcdef",
+        status: "ready",
+        sdpAnswer: null,
+        roomToken: "room-1",
+        cmdResult: null,
+      }]),
     );
 
-    const { GET } = await import("@/app/api/server/notify/route");
-    const req = mkReq(
-      "http://localhost/api/server/notify?server_id=server-1&worker_token=abc123",
-    );
-    const resp = await GET(req as any);
+    const { POST } = await import("@/app/api/server/notify/poll/route");
+    const req = mkReq("http://localhost/api/server/notify/poll", {
+      ...jsonBody({ server_id: "server-1", worker_token: "abc123" }),
+    });
+    const resp = await POST(req);
     expect(resp.status).toBe(200);
+    expect(resp.headers.get("Cache-Control")).toBe("no-store");
     const body = await resp.json();
     expect(body.worker_url).toBe("http://localhost:9999");
     expect(body.game_id).toBe("local_0123456789abcdef0123456789abcdef");
   });
 
+  it("does not use a worker capability issued to another server", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([]))
+      .mockReturnValueOnce(mockQueryBuilder([{
+        serverId: "server-2",
+        gameId: { game_id: "local_0123456789abcdef0123456789abcdef" },
+        sdpAnswerCmd: "secret-answer",
+        cmdResult: null,
+      }]));
+
+    const { POST } = await import("@/app/api/server/notify/poll/route");
+    const req = mkReq("http://localhost/api/server/notify/poll", {
+      ...jsonBody({ server_id: "server-1", worker_token: "server-2-token" }),
+    });
+    const resp = await POST(req);
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.worker_url).toBeNull();
+    expect(body.sdp_answer).toBeUndefined();
+    expect(mockDb.select).toHaveBeenCalledTimes(2);
+  });
+
   it("returns null worker_url when no session exists", async () => {
     mockDb.select.mockReturnValue(mockQueryBuilder([]));
 
-    const { GET } = await import("@/app/api/server/notify/route");
-    const req = mkReq(
-      "http://localhost/api/server/notify?server_id=server-1&worker_token=abc123",
-    );
-    const resp = await GET(req as any);
+    const { POST } = await import("@/app/api/server/notify/poll/route");
+    const req = mkReq("http://localhost/api/server/notify/poll", {
+      ...jsonBody({ server_id: "server-1", worker_token: "abc123" }),
+    });
+    const resp = await POST(req);
     expect(resp.status).toBe(200);
     const body = await resp.json();
     expect(body.worker_url).toBeNull();
