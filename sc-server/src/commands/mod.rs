@@ -51,7 +51,7 @@ pub(crate) async fn cmd_pair(code: &str, sc_web_url: &str) -> Result<()> {
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
 
-    let resp = sc_web::ScWebClient::claim(code, sc_web_url, rom_roots.clone(), &hostname).await?;
+    let resp = sc_web::ScWebClient::claim(code, sc_web_url, &hostname).await?;
 
     let cfg = config::Config {
         sc_web: config::ScWeb {
@@ -170,6 +170,13 @@ pub(crate) async fn cmd_start(
                 .unwrap_or_default()
         });
 
+    // sc-server remains the source of truth even in relay-only mode: remote
+    // start commands resolve opaque IDs locally and never need ROM paths from sc-web.
+    let local_games = scan_library(&rom_roots);
+    tracing::info!("Local library: {} games", local_games.len());
+    let local_game_list = Arc::new(tokio::sync::RwLock::new(local_games));
+    let local_rom_roots = Arc::new(rom_roots.clone());
+
     // Pre-warm ICE
     webrtc::prewarm_ice_agent().await;
 
@@ -184,13 +191,6 @@ pub(crate) async fn cmd_start(
 
     // Start LAN player HTTP server (port 8787) for direct guest connections
     if !no_lan_player {
-        // sc-server owns the paired LAN library. Scan only when the local
-        // HTTP player is enabled so relay-only mode avoids unnecessary I/O.
-        let local_games = scan_library(&rom_roots);
-        tracing::info!("Local library: {} games", local_games.len());
-        let local_game_list = Arc::new(tokio::sync::RwLock::new(local_games));
-        let local_rom_roots = Arc::new(rom_roots.clone());
-
         let player_addr: SocketAddr = std::env::var("GV_PLAYER_BIND")
             .unwrap_or_else(|_| "0.0.0.0:8787".into())
             .parse()
@@ -241,7 +241,7 @@ pub(crate) async fn cmd_start(
                                 if cmd.command_type == "start_game" {
                                     game::handle_start_game(
                                         cmd, &client, &mut sessions,
-                                        &rom_roots, &pc_pool,
+                                        &rom_roots, &local_game_list, &pc_pool,
                                     ).await;
                                 } else if cmd.command_type == "stop_game" {
                                     game::handle_stop_game(cmd, &client, &mut sessions).await;
@@ -257,11 +257,12 @@ pub(crate) async fn cmd_start(
                                     let rom_roots = rom_roots.clone();
                                     let scan_lock = Arc::clone(&scan_lock);
                                     let dat_index = Arc::clone(&dat_index);
+                                    let local_game_list = Arc::clone(&local_game_list);
                                     let server_id = cfg.auth.server_id.clone();
                                     tokio::spawn(async move {
                                         game::handle_scan_paths(
                                             &cmd, &client, &rom_roots,
-                                            &scan_lock, &dat_index, &server_id,
+                                            &scan_lock, &dat_index, &local_game_list, &server_id,
                                         ).await;
                                     });
                                 }

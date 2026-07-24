@@ -10,8 +10,6 @@ use crate::config::Auth;
 struct ClaimRequest {
     code: String,
     server_name: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    rom_roots: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -182,13 +180,8 @@ impl ScWebClient {
     }
 
     /// POST /api/auth/pair/claim — exchange pairing code for API key.
-    /// Optionally reports the server's ROM root paths to sc-web.
-    pub async fn claim(
-        code: &str,
-        sc_web_url: &str,
-        rom_roots: Vec<String>,
-        hostname: &str,
-    ) -> Result<ClaimResponse> {
+    /// Local ROM roots are intentionally never part of this contract.
+    pub async fn claim(code: &str, sc_web_url: &str, hostname: &str) -> Result<ClaimResponse> {
         let client = reqwest::Client::builder()
             .timeout(crate::config::http_timeout())
             .build()
@@ -200,7 +193,6 @@ impl ScWebClient {
             .json(&ClaimRequest {
                 code: code.to_string(),
                 server_name: hostname.to_string(),
-                rom_roots,
             })
             .send()
             .await
@@ -225,8 +217,8 @@ impl ScWebClient {
 
     /// POST /api/auth/verify — verify API key and report server metadata.
     ///
-    /// Metadata includes version, LAN addresses, ROM roots, and ICE config
-    /// summary (no credentials).  Stored by sc-web for connectivity diagnostics.
+    /// Metadata includes version, LAN addresses, and ICE config summary
+    /// (no credentials or local filesystem paths). Stored by sc-web for connectivity diagnostics.
     pub async fn verify_with_metadata(&self, metadata: &ServerMetadata) -> Result<VerifyResponse> {
         self.verify_inner(Some(metadata)).await
     }
@@ -528,5 +520,23 @@ impl ScWebClient {
             anyhow::bail!("import failed: HTTP {status} — {body}");
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ClaimRequest;
+
+    #[test]
+    fn pairing_claim_contract_has_no_rom_root_field() {
+        let request = ClaimRequest {
+            code: "pair-code".to_string(),
+            server_name: "vault".to_string(),
+        };
+        let payload = serde_json::to_value(request).unwrap();
+
+        assert_eq!(payload["code"], "pair-code");
+        assert_eq!(payload["server_name"], "vault");
+        assert!(payload.get("rom_roots").is_none());
     }
 }
