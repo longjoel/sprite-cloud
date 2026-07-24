@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
   }
 
   let lanStartUserId: string | undefined;
-  let authenticatedPeer: { role: string; seat: number | null } | null = null;
+  let authenticatedPeer: { role: string; seat: number | null; sessionId: string } | null = null;
 
   // ── LAN host start via short-code bearer token ─────────────────────
   // The embedded LAN player runs on http://<server-ip>:8787, so it cannot
@@ -258,7 +258,7 @@ export async function POST(request: NextRequest) {
       if (!peer) {
         return NextResponse.json({ error: "peer_token does not match room session" }, { status: 403 });
       }
-      authenticatedPeer = peer;
+      authenticatedPeer = { ...peer, sessionId: roomSession.id };
       serverId = roomSession.serverId!;
       // Guest auth successful — skip session + CSRF + membership checks
     } else if (!serverId) {
@@ -380,12 +380,29 @@ export async function POST(request: NextRequest) {
         ...sp,
         peer_role: authenticatedPeer.role,
         peer_seat: authenticatedPeer.seat,
+        session_id: authenticatedPeer.sessionId,
       };
       logSignalingStage("guest_offer", "payload_enriched", {
         game_id: sp.game_id,
         peer_role: authenticatedPeer.role,
         peer_seat: authenticatedPeer.seat,
       });
+    } else if (typeof sp.host_token === "string") {
+      const [hostSession] = await db
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(and(
+          eq(sessions.serverId, serverId),
+          eq(sessions.gameId, sp.game_id as string),
+          eq(sessions.hostToken, sp.host_token),
+          inArray(sessions.status, [...ACTIVE_SESSION_STATES]),
+        ))
+        .orderBy(desc(sessions.createdAt))
+        .limit(1);
+      if (!hostSession) {
+        return NextResponse.json({ error: "active host session not found" }, { status: 409 });
+      }
+      enrichedPayload = { ...sp, session_id: hostSession.id };
     }
   }
 
@@ -513,6 +530,7 @@ export async function POST(request: NextRequest) {
           type: CMD_SDP_OFFER,
           payload: {
             game_id: enrichedPayload.game_id,
+            session_id: existing.id,
             sdp: enrichedPayload.sdp,
             host_token: hostToken,
           },

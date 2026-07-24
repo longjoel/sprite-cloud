@@ -465,6 +465,18 @@ pub(super) async fn handle_sdp_offer(
         .get("game_id")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
+    let cloud_session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
+    let Some(cloud_session_id) = cloud_session_id else {
+        tracing::warn!("[SDP] command missing exact cloud session id — ignoring");
+        let _ = client
+            .command_result(
+                &cmd.id,
+                &cmd.lease_token,
+                &serde_json::json!({"error": "session_id_required"}),
+            )
+            .await;
+        return;
+    };
     let peer_token = cmd
         .payload
         .get("peer_token")
@@ -508,7 +520,20 @@ pub(super) async fn handle_sdp_offer(
     let max_wait = Duration::from_secs(30);
     loop {
         if let Some(session) = sessions.get(game_id) {
-            // ── Guest path: new PC from pool, never touch host PC ────
+            if session.cloud_session_id.as_deref() != Some(cloud_session_id) {
+                tracing::warn!(
+                    "[SDP] exact cloud session does not match current runtime — ignoring"
+                );
+                let _ = client
+                    .command_result(
+                        &cmd.id,
+                        &cmd.lease_token,
+                        &serde_json::json!({"error": "session_mismatch"}),
+                    )
+                    .await;
+                return;
+            }
+            // ── Guest path: new PC from pool, never touch host PC. ────
             if is_guest {
                 handle_guest_sdp(
                     session,

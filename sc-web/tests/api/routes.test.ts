@@ -442,7 +442,11 @@ describe("POST /api/server/command", () => {
     const insertBuilder = mockDb.insert.mock.results[0].value;
     expect(insertBuilder.values).toHaveBeenCalledWith(expect.objectContaining({
       serverId: "server-1",
-      payload: expect.objectContaining({ peer_role: "player", peer_seat: 2 }),
+      payload: expect.objectContaining({
+        peer_role: "player",
+        peer_seat: 2,
+        session_id: "session-1",
+      }),
     }));
   });
 

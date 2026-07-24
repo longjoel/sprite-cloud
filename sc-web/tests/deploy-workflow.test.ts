@@ -83,8 +83,8 @@ describe("production deploy workflow", () => {
     expect(scriptsReadme).toContain("| bash -s --");
     expect(scriptsReadme).not.toContain("| sh -s --");
     expect(hostInstaller).not.toMatch(/\| sh(?:\s|$)/);
-    expect(quickstart).toContain("https://get.gamesvault.app | bash");
-    expect(quickstart).not.toContain("https://get.gamesvault.app | sh");
+    expect(quickstart).toContain("https://sprite-cloud.com/install.sh | bash");
+    expect(quickstart).not.toContain("https://get.gamesvault.app");
   });
 
   it("publishes only after both advertised architecture builds succeed", () => {
