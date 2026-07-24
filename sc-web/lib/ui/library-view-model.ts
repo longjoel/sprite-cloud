@@ -23,6 +23,16 @@ export interface LibraryGame {
   coverUrl: string | null;
 }
 
+export function libraryGameKey(game: { id: string; serverId?: string | null }): string {
+  return `${game.serverId ?? "legacy"}:${game.id}`;
+}
+
+export function createPlayableHostsParams(game: { id: string; serverId?: string | null }): Record<string, string> {
+  return game.serverId
+    ? { game_id: game.id, server_id: game.serverId }
+    : { game_id: game.id };
+}
+
 export interface LibraryFilters {
   section: LibrarySection;
   search?: string;
@@ -64,12 +74,12 @@ export function createAllLibraryPageParams(pageSize: number, offset: number, sea
   return { ...createLibraryPageParams(pageSize, offset, search), pins_first: "true" };
 }
 
-export function mergeLibraryPages<T extends { id: string }>(current: readonly T[], next: readonly T[]): T[] {
-  const seen = new Set(current.map((game) => game.id));
-  return [...current, ...next.filter((game) => !seen.has(game.id))];
+export function mergeLibraryPages<T extends { id: string; serverId?: string | null }>(current: readonly T[], next: readonly T[]): T[] {
+  const seen = new Set(current.map(libraryGameKey));
+  return [...current, ...next.filter((game) => !seen.has(libraryGameKey(game)))];
 }
 
-export interface RecentGameLike { id: string; playedAt?: string | null; }
+export interface RecentGameLike { id: string; serverId?: string | null; playedAt?: string | null; }
 export type RecentDateKey = string | "unknown";
 export interface RecentDateGroup<T extends RecentGameLike> { date: RecentDateKey; games: T[]; }
 
@@ -119,7 +129,8 @@ function sortRecentGames<T extends RecentGameLike>(games: readonly T[]): T[] {
 export function mergeRecentLibraryPages<T extends RecentGameLike>(current: readonly T[], incoming: readonly T[]): T[] {
   const latestById = new Map<string, T>();
   for (const game of [...current, ...incoming]) {
-    latestById.set(game.id, preferNewest(latestById.get(game.id), game));
+    const key = libraryGameKey(game);
+    latestById.set(key, preferNewest(latestById.get(key), game));
   }
   return sortRecentGames([...latestById.values()]);
 }

@@ -312,35 +312,39 @@ export async function POST(request: NextRequest) {
         console.info("[COMMAND] start_game using deterministic transport selection — no gateway-side LAN auto-detection");
       }
 
-      // Look up the game and its file on this server
-      const [gameFile] = await db
-        .select({
-          romPath: gameFiles.romPath,
-          platform: games.platform,
-          gameName: games.name,
-        })
-        .from(gameFiles)
-        .innerJoin(games, eq(gameFiles.gameId, games.id))
-        .where(
-          and(
-            eq(gameFiles.gameId, sp.game_id as string),
-            eq(gameFiles.serverId, serverId),
-          ),
-        )
-        .limit(1);
+      const serverLocalId = /^local_[0-9a-f]{32}$/.test(sp.game_id);
+      if (!serverLocalId) {
+        // Temporary legacy compatibility: DB-backed IDs still need path/platform
+        // enrichment until every client has migrated to opaque sc-server IDs.
+        const [gameFile] = await db
+          .select({
+            romPath: gameFiles.romPath,
+            platform: games.platform,
+            gameName: games.name,
+          })
+          .from(gameFiles)
+          .innerJoin(games, eq(gameFiles.gameId, games.id))
+          .where(
+            and(
+              eq(gameFiles.gameId, sp.game_id as string),
+              eq(gameFiles.serverId, serverId),
+            ),
+          )
+          .limit(1);
 
-      if (gameFile) {
-        enrichedPayload = {
-          ...enrichedPayload,
-          rom_path: gameFile.romPath,
-          platform: gameFile.platform,
-          game_name: gameFile.gameName,
-        };
-      } else {
-        return NextResponse.json(
-          { error: `game ${sp.game_id} not found on this server` },
-          { status: 404 },
-        );
+        if (gameFile) {
+          enrichedPayload = {
+            ...enrichedPayload,
+            rom_path: gameFile.romPath,
+            platform: gameFile.platform,
+            game_name: gameFile.gameName,
+          };
+        } else {
+          return NextResponse.json(
+            { error: `game ${sp.game_id} not found on this server` },
+            { status: 404 },
+          );
+        }
       }
     }
   } else if (body.type === CMD_SDP_OFFER) {

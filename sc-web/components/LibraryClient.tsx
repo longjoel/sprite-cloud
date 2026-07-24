@@ -9,12 +9,13 @@ import LibraryToolbar from "@/components/LibraryToolbar";
 import { Star20Filled, Star20Regular, Pin20Filled, Pin20Regular, Edit20Regular, Desktop20Regular } from "@fluentui/react-icons";
 import { buildLanPlayerLaunchUrl, canUseLanPlayer, chooseLaunchHost, createLaunchRequestGate, formatLaunchError } from "@/lib/lan/launch";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
-import { createAllLibraryPageParams, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, filterLibraryGames, formatRecentGroupLabel, formatRelativeAge, groupRecentGamesByLocalDate, mergeLibraryPages, mergeRecentLibraryPages, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
+import { createAllLibraryPageParams, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, createPlayableHostsParams, filterLibraryGames, formatRecentGroupLabel, formatRelativeAge, groupRecentGamesByLocalDate, libraryGameKey, mergeLibraryPages, mergeRecentLibraryPages, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
 interface Game {
   id: string;
+  serverId?: string | null;
   name: string;
   platform: string;
   maxPlayers: number;
@@ -27,11 +28,11 @@ interface GameActionModel {
   canRename: boolean;
   isFavorite: (gameId: string) => boolean;
   isPinned: (gameId: string) => boolean;
-  onPlay: (gameId: string) => void;
+  onPlay: (game: Game) => void;
   onToggleFavorite?: (gameId: string, e: React.MouseEvent) => void;
   onTogglePin?: (gameId: string, e: React.MouseEvent) => void;
   onRename?: (game: Game) => void;
-  onChooseHost?: (gameId: string) => void;
+  onChooseHost?: (game: Game) => void;
 }
 
 interface PlayableHost {
@@ -158,7 +159,7 @@ async function recordRecentPlay(gameId: string) {
 export default function LibraryClient({ serverIds, session }: LibraryClientProps) {
   const router = useRouter();
 
-  const [hostPickerGame, setHostPickerGame] = useState<string | null>(null);
+  const [hostPickerGame, setHostPickerGame] = useState<Game | null>(null);
   const [playableHosts, setPlayableHosts] = useState<PlayableHost[]>([]);
   const [lanProbeByServer, setLanProbeByServer] = useState<Record<string, LanProbeResult>>({});
   const [rememberSelectedHost, setRememberSelectedHost] = useState(false);
@@ -344,11 +345,11 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     setRememberSelectedHost(false);
   }, []);
 
-  const openHostPicker = useCallback((gameId: string, visible = true) => {
+  const openHostPicker = useCallback((game: Game, visible = true) => {
     launchAbort.current?.abort();
     launchAbort.current = new AbortController();
     const generation = launchGate.current.beginRequest();
-    setHostPickerGame(visible ? gameId : null);
+    setHostPickerGame(visible ? game : null);
     setPlayableHosts([]);
     setLanProbeByServer({});
     setRememberSelectedHost(false);
@@ -404,12 +405,14 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     return canAttemptLanLaunch(probe, host) ? host.lan?.player_urls ?? null : null;
   }
 
-  const loadHosts = async (gameId: string, automatic: boolean) => {
+  const loadHosts = async (game: Game, automatic: boolean) => {
     if (!hasServers || !launchGate.current.tryBeginLaunch()) return;
-    const generation = openHostPicker(gameId, !automatic);
-    setLaunchingGame(gameId);
+    const generation = openHostPicker(game, !automatic);
+    const gameKey = libraryGameKey(game);
+    setLaunchingGame(gameKey);
     try {
-      const resp = await fetch(`/api/playable-hosts?game_id=${encodeURIComponent(gameId)}`, { signal: launchAbort.current?.signal });
+      const query = new URLSearchParams(createPlayableHostsParams(game));
+      const resp = await fetch(`/api/playable-hosts?${query}`, { signal: launchAbort.current?.signal });
       if (!resp.ok) throw await responseError(resp, "Could not load hosts");
       const data = await resp.json() as { hosts?: PlayableHost[] };
       if (!launchGate.current.isCurrent(generation)) return;
@@ -417,21 +420,21 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       setPlayableHosts(hosts);
       setHostPickerLoading(false);
 
-      const host = automatic ? chooseLaunchHost(hosts, getPreferredServer(gameId)) : null;
+      const host = automatic ? chooseLaunchHost(hosts, getPreferredServer(game.id)) : null;
       if (host) {
         const probe = host.capabilities.lan
           ? await probeLanHealth(host.lan?.health_urls, { timeoutMs: 1_200 })
           : { reachable: false, reason: "no_urls" } as LanProbeResult;
         if (!launchGate.current.isCurrent(generation)) return;
-        await navigateToGame(gameId, host.server_id, generation, canAttemptLanLaunch(probe, host) ? host.lan?.player_urls : null);
+        await navigateToGame(game.id, host.server_id, generation, canAttemptLanLaunch(probe, host) ? host.lan?.player_urls : null);
         if (launchGate.current.isCurrent(generation)) closeHostPicker();
         return;
       }
-      setHostPickerGame(gameId);
+      setHostPickerGame(game);
       await probePlayableHosts(hosts, generation);
     } catch (error) {
       if (launchGate.current.isCurrent(generation)) {
-        setHostPickerGame(gameId);
+        setHostPickerGame(game);
         setHostPickerLoading(false);
         setLaunchError(formatLaunchError(error, "Could not start the game. Please retry."));
       }
@@ -441,23 +444,23 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
     }
   };
 
-  const handlePlay = (gameId: string) => {
-    recordRecentPlay(gameId);
-    void loadHosts(gameId, true);
+  const handlePlay = (game: Game) => {
+    recordRecentPlay(game.id);
+    void loadHosts(game, true);
   };
 
-  const chooseHost = (gameId: string) => void loadHosts(gameId, false);
+  const chooseHost = (game: Game) => void loadHosts(game, false);
 
-  const selectHost = async (gameId: string, serverId: string, _serverName: string) => {
+  const selectHost = async (game: Game, serverId: string, _serverName: string) => {
     if (!launchGate.current.tryBeginLaunch()) return;
     const generation = launchGate.current.beginRequest();
     const host = playableHosts.find((candidate) => candidate.server_id === serverId);
-    setLaunchingGame(gameId);
+    setLaunchingGame(libraryGameKey(game));
     setLaunchError(null);
     try {
-      await navigateToGame(gameId, serverId, generation, host ? lanPlayerUrlsWhenDirectOrPolicyBlocked(host) : null);
+      await navigateToGame(game.id, serverId, generation, host ? lanPlayerUrlsWhenDirectOrPolicyBlocked(host) : null);
       if (!launchGate.current.isCurrent(generation)) return;
-      if (rememberSelectedHost) setPreferredServer(gameId, serverId);
+      if (rememberSelectedHost) setPreferredServer(game.id, serverId);
       closeHostPicker();
     } catch (error) {
       setLaunchError(formatLaunchError(error, "Could not start the game. Please retry."));
@@ -561,12 +564,12 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       favorite: tab === "favorites" || favoriteIds.has(game.id),
       pinned: pinnedIds.has(game.id),
       recentRank: tab === "recent" ? index : null,
-      serverId: null,
+      serverId: game.serverId ?? null,
       coverUrl: null,
     }));
     const filtered = filterLibraryGames(normalized, createLibraryFilters(tab, search, selectedPlatforms));
-    const byId = new Map(currentGames.map((game) => [game.id, game]));
-    return filtered.map((game) => byId.get(game.id)!);
+    const byId = new Map(currentGames.map((game) => [libraryGameKey(game), game]));
+    return filtered.map((game) => byId.get(libraryGameKey(game))!);
   }, [currentGames, favoriteIds, pinnedIds, search, selectedPlatforms, tab]);
   const recentGroups = useMemo(
     () => tab === "recent"
@@ -593,7 +596,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
 
   const renderGameCard = (game: Game) => (
     <GameTile
-      key={game.id}
+      key={libraryGameKey(game)}
       game={game}
       size="square"
       isFavorite={gameActions.isFavorite(game.id)}
@@ -603,13 +606,13 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       onTogglePin={gameActions.onTogglePin}
       onEdit={gameActions.onRename}
       onChooseHost={gameActions.onChooseHost}
-      launching={launchingGame === game.id}
+      launching={launchingGame === libraryGameKey(game)}
     />
   );
 
   const renderGameRow = (game: Game, index: number) => (
     <tr
-      key={game.id}
+      key={libraryGameKey(game)}
       className="library-game-row"
       style={{
         background: index % 2 === 0 ? "rgba(17,24,39,0.3)" : "transparent",
@@ -647,11 +650,11 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
                 {gameActions.canFavorite && gameActions.onToggleFavorite && <button aria-label={gameActions.isFavorite(game.id) ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`} onClick={(e) => gameActions.onToggleFavorite?.(game.id, e)}>{gameActions.isFavorite(game.id) ? <Star20Filled /> : <Star20Regular />}<span>{gameActions.isFavorite(game.id) ? "Remove favorite" : "Add favorite"}</span></button>}
                 {gameActions.canPin && gameActions.onTogglePin && <button aria-label={gameActions.isPinned(game.id) ? `Unpin ${game.name}` : `Pin ${game.name}`} onClick={(e) => gameActions.onTogglePin?.(game.id, e)}>{gameActions.isPinned(game.id) ? <Pin20Filled /> : <Pin20Regular />}<span>{gameActions.isPinned(game.id) ? "Unpin" : "Pin"}</span></button>}
                 {gameActions.canRename && gameActions.onRename && <button aria-label={`Rename ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onRename?.(game); }}><Edit20Regular /><span>Rename</span></button>}
-                {gameActions.onChooseHost && <button disabled={launchingGame === game.id} aria-label={`Choose host for ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onChooseHost?.(game.id); }}><Desktop20Regular /><span>Choose host…</span></button>}
+                {gameActions.onChooseHost && <button disabled={launchingGame === libraryGameKey(game)} aria-label={`Choose host for ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onChooseHost?.(game); }}><Desktop20Regular /><span>Choose host…</span></button>}
               </div>
             </details>}
-          <Button disabled={!hasServers || launchingGame === game.id} variant="primary" size="sm" aria-label={`Play ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onPlay(game.id); }}>
-            {launchingGame === game.id ? "Launching…" : "Play"}
+          <Button disabled={!hasServers || launchingGame === libraryGameKey(game)} variant="primary" size="sm" aria-label={`Play ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onPlay(game); }}>
+            {launchingGame === libraryGameKey(game) ? "Launching…" : "Play"}
           </Button>
         </div>
       </td>
@@ -724,7 +727,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
                 <h3 style={styles.recentDate}>{formatRecentGroupLabel(group.date)}</h3>
                 <div className="game-tile-grid">
                   {group.games.map((game) => (
-                    <div key={game.id}>
+                    <div key={libraryGameKey(game)}>
                       {renderGameCard(game)}
                       <div style={styles.recentAge}>{formatRelativeAge(game.playedAt)}</div>
                     </div>

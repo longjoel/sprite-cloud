@@ -5,16 +5,24 @@ import { Card, Badge } from "@fluentui/react-components";
 import { Star20Regular, Star20Filled, Edit20Regular, Pin20Regular, Pin20Filled, MoreHorizontal20Regular, Desktop20Regular } from "@fluentui/react-icons";
 import { getPlatformColor } from "@/lib/platformColors";
 
+interface TileGame {
+  id: string;
+  serverId?: string | null;
+  name: string;
+  platform: string;
+  maxPlayers: number;
+}
+
 interface GameTileProps {
-  game: { id: string; name: string; platform: string; maxPlayers: number };
+  game: TileGame;
   size?: "square" | "wide" | "large";
   isFavorite?: boolean;
   isPinned?: boolean;
-  onPlay: (gameId: string) => void;
+  onPlay: (game: TileGame) => void;
   onToggleFavorite?: (gameId: string, e: React.MouseEvent) => void;
   onTogglePin?: (gameId: string, e: React.MouseEvent) => void;
-  onEdit?: (game: { id: string; name: string; platform: string; maxPlayers: number }) => void;
-  onChooseHost?: (gameId: string) => void;
+  onEdit?: (game: TileGame) => void;
+  onChooseHost?: (game: TileGame) => void;
   launching?: boolean;
 }
 
@@ -54,7 +62,7 @@ export default function GameTile({ game, size = "square", isFavorite = false, is
         </button>
       )}
       {onChooseHost && (
-        <button disabled={launching} aria-label={`Choose host for ${game.name}`} title={`Choose host for ${game.name}`} onClick={stop(() => onChooseHost(game.id))}>
+        <button disabled={launching} aria-label={`Choose host for ${game.name}`} title={`Choose host for ${game.name}`} onClick={stop(() => onChooseHost(game))}>
           <Desktop20Regular /><span>{mobile ? "Choose host…" : "Host"}</span>
         </button>
       )}
@@ -63,7 +71,7 @@ export default function GameTile({ game, size = "square", isFavorite = false, is
 
   return (
     <Card focusMode="off" className={`game-tile ${sizeClassMap[size]} ${isFavorite ? "is-favorite" : ""} ${isPinned ? "is-pinned" : ""}`.trim()} appearance="filled-alternative" style={{ userSelect: "none", background: getPlatformColor(game.platform) }}>
-      <button disabled={launching} className="game-tile-play-target" aria-label={`Play ${game.name}`} onClick={() => onPlay(game.id)}>
+      <button disabled={launching} className="game-tile-play-target" aria-label={`Play ${game.name}`} onClick={() => onPlay(game)}>
         {launching && <span>Launching…</span>}
       </button>
       <Badge appearance="tint" color="informative" className="game-tile-platform">{game.platform}</Badge>

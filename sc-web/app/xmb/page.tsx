@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import XmbSettings, { hasXmbSettingsAccess, type XmbServer } from "@/components/xmb/XmbSettings";
-import { LIBRARY_SECTIONS, filterLibraryGames, getEmptyStateMessage, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
+import { LIBRARY_SECTIONS, filterLibraryGames, getEmptyStateMessage, libraryGameKey, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
 import { loadXmbAuthenticatedData, type PinnedGameRow } from "@/lib/ui/xmb-authenticated-load";
 import {
   activateXmbNavigation,
@@ -423,7 +423,7 @@ export default function XmbPage() {
         const prevLetter = i > 0 ? filteredGames[i - 1]?.name.charAt(0).toUpperCase() : "";
         const showHeader = firstLetter !== prevLetter;
         return (
-          <div key={game.id}>
+          <div key={libraryGameKey(game)}>
             {showHeader && <div style={s.letterHeader}>{firstLetter}</div>}
             <div
               data-game-row

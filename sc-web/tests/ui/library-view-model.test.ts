@@ -5,11 +5,13 @@ import {
   createLibraryFilters,
   createLibraryPageParams,
   createLatestRequestGate,
+  createPlayableHostsParams,
   filterLibraryGames,
   formatRecentGroupLabel,
   formatRelativeAge,
   getEmptyStateMessage,
   groupRecentGamesByLocalDate,
+  libraryGameKey,
   mergeLibraryPages,
   mergeRecentLibraryPages,
   normalizeRecentGameIds,
@@ -153,6 +155,25 @@ describe("library view model", () => {
     expect(createAllLibraryPageParams(100, 100, " mario ")).toEqual({
       limit: "100", offset: "100", search: "mario", pins_first: "true",
     });
+  });
+
+  it("namespaces playable-host lookup for server-owned games", () => {
+    expect(createPlayableHostsParams({ id: "local_abc", serverId: "server-a" })).toEqual({
+      game_id: "local_abc",
+      server_id: "server-a",
+    });
+    expect(createPlayableHostsParams({ id: "legacy", serverId: null })).toEqual({ game_id: "legacy" });
+  });
+
+  it("does not collapse matching local IDs from different servers", () => {
+    const first = { ...games[0], id: "local_same", serverId: "server-a" };
+    const second = { ...games[0], id: "local_same", serverId: "server-b" };
+
+    expect(libraryGameKey(first)).toBe("server-a:local_same");
+    expect(mergeLibraryPages([first], [second]).map(libraryGameKey)).toEqual([
+      "server-a:local_same",
+      "server-b:local_same",
+    ]);
   });
 
   it("does not count repeated pins as appended rows or skip the next offset", () => {
