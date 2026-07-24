@@ -45,6 +45,7 @@ longer reads them first, verify health, then apply the migration:
 
 ```bash
 ./scripts/deploy-sc-web.sh
+./scripts/smoke-test.sh
 ./scripts/apply-sc-web-migration.sh sc-web/drizzle/<destructive-migration>.sql
 ```
 
