@@ -22,6 +22,7 @@ struct AppState {
     user_id: String,
     server_name: String,
     bind: SocketAddr,
+    lan_player_enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -40,7 +41,7 @@ fn health_payload(state: &AppState) -> PlayerHealth {
     PlayerHealth {
         status: "ok",
         service: "sc-server-player",
-        lan_player: true,
+        lan_player: state.lan_player_enabled,
         version: env!("CARGO_PKG_VERSION"),
         server_id: state.server_id.clone(),
         user_id: state.user_id.clone(),
@@ -218,6 +219,7 @@ pub async fn serve(
     server_id: String,
     user_id: String,
     server_name: String,
+    lan_player_enabled: bool,
 ) {
     let state = Arc::new(AppState {
         client: Client::new(),
@@ -226,6 +228,7 @@ pub async fn serve(
         user_id,
         server_name,
         bind,
+        lan_player_enabled,
     });
 
     let app = app_router(state);
@@ -261,6 +264,7 @@ mod tests {
             user_id: "user-joel".to_string(),
             server_name: "Bazzite".to_string(),
             bind: "0.0.0.0:8787".parse().unwrap(),
+            lan_player_enabled: true,
         };
 
         let payload = health_payload(&state);
@@ -284,6 +288,7 @@ mod tests {
             user_id: "user-joel".to_string(),
             server_name: "Vault".to_string(),
             bind: "0.0.0.0:8787".parse().unwrap(),
+            lan_player_enabled: true,
         });
         let app = app_router(state);
 

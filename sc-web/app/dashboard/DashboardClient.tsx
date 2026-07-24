@@ -26,6 +26,7 @@ interface ServerMetadataSummary {
     player_port?: number;
     player_urls?: string[];
     health_urls?: string[];
+    lan_player_enabled?: boolean;
   };
   ice?: {
     turn_configured?: boolean;
@@ -82,7 +83,8 @@ export default function DashboardClient({ memberships }: Props) {
 
       const probeEntries = await Promise.all(
         Object.entries(nextMetadata).map(async ([id, metadata]) => {
-          const result = await probeLanHealth(metadata.lan?.health_urls, { timeoutMs: 1_200 });
+          if (!metadata.lan?.health_urls?.length) return [id, { reachable: false, reason: "no_urls" } as LanProbeResult] as const;
+          const result = await probeLanHealth(metadata.lan.health_urls, { timeoutMs: 1_200 });
           return [id, result] as const;
         }),
       );

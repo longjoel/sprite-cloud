@@ -6,7 +6,7 @@
 use crate::config;
 use crate::sc_web;
 
-fn lan_metadata(interfaces: &[sc_web::InterfaceInfo], player_port: u16) -> sc_web::LanMetadata {
+fn lan_metadata(interfaces: &[sc_web::InterfaceInfo], player_port: u16, enabled: bool) -> sc_web::LanMetadata {
     let player_urls = interfaces
         .iter()
         .map(|iface| format!("http://{}:{}/", iface.address, player_port))
@@ -20,12 +20,13 @@ fn lan_metadata(interfaces: &[sc_web::InterfaceInfo], player_port: u16) -> sc_we
         player_port,
         player_urls,
         health_urls,
+        lan_player_enabled: enabled,
     }
 }
 
 /// Collect non-secret server metadata for connectivity diagnostics
 /// and version reporting during pairing/startup verification.
-pub(crate) async fn collect_metadata(cfg: &config::Config) -> sc_web::ServerMetadata {
+pub(crate) async fn collect_metadata(cfg: &config::Config, lan_player_enabled: bool) -> sc_web::ServerMetadata {
     let pkg_version = env!("CARGO_PKG_VERSION").to_string();
 
     let server_bin = std::env::current_exe()
@@ -104,7 +105,7 @@ pub(crate) async fn collect_metadata(cfg: &config::Config) -> sc_web::ServerMeta
         video_max_scale: config::gst_video_max_scale(),
     };
 
-    let lan = lan_metadata(&interfaces, config::player_port());
+    let lan = lan_metadata(&interfaces, config::player_port(), lan_player_enabled);
 
     sc_web::ServerMetadata {
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -144,7 +145,7 @@ mod tests {
             },
         ];
 
-        let lan = lan_metadata(&interfaces, 8787);
+        let lan = lan_metadata(&interfaces, 8787, true);
 
         assert_eq!(lan.player_port, 8787);
         assert_eq!(

@@ -143,6 +143,22 @@ export async function probeLanHealth(
     pageProtocol: options.pageProtocol ?? currentPageProtocol(),
   };
 
+  // Fast pre-probe: try the first URL with a 300ms timeout.
+  // If a remote host doesn't answer in 300ms, skip the remaining URLs
+  // instead of burning 1200ms per URL on unreachable targets.
+  if (candidates.length > 1) {
+    const quickOptions = { ...resolvedOptions, timeoutMs: 300 };
+    const quickResult = await probeOne(candidates[0], quickOptions);
+    if (!quickResult.reachable) {
+      // Mixed-content blocked is instant — still worth trying other URLs
+      // (e.g. one might be HTTPS). All other failures mean the host is
+      // likely remote — don't waste time on the rest.
+      if (quickResult.reason !== "mixed_content_blocked") {
+        return quickResult;
+      }
+    }
+  }
+
   let lastFailure: LanProbeUnreachable | null = null;
   for (const url of candidates) {
     const result = await probeOne(url, resolvedOptions);

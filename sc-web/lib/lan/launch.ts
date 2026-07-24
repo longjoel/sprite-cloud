@@ -24,9 +24,8 @@ export interface LaunchHost {
 
 export function canUseLanPlayer(
   probe: { reachable: boolean; reason?: string },
-  routeHint: string,
 ): boolean {
-  return probe.reachable || (routeHint === "local" && probe.reason === "mixed_content_blocked");
+  return probe.reachable || probe.reason === "mixed_content_blocked";
 }
 
 /** Returns a host only when normal Play has an unambiguous healthy target. */

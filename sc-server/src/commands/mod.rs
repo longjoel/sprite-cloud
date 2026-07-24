@@ -85,7 +85,7 @@ pub(crate) async fn cmd_pair(code: &str, sc_web_url: &str) -> Result<()> {
 
 // ── start subcommand (HTTP polling, in-process sessions) ────────────
 
-pub(crate) async fn cmd_start(sc_web_url: Option<String>) -> Result<()> {
+pub(crate) async fn cmd_start(sc_web_url: Option<String>, no_lan_player: bool) -> Result<()> {
     let mut cfg = config::load().context("load config (run 'sc-server pair' first)")?;
 
     if let Some(url) = sc_web_url {
@@ -116,7 +116,7 @@ pub(crate) async fn cmd_start(sc_web_url: Option<String>) -> Result<()> {
     }
 
     // Verify API key
-    let metadata = collect_metadata(&cfg).await;
+    let metadata = collect_metadata(&cfg, !no_lan_player).await;
     let verify = match client.verify_with_metadata(&metadata).await {
         Ok(v) => v,
         Err(e) => {
@@ -174,17 +174,22 @@ pub(crate) async fn cmd_start(sc_web_url: Option<String>) -> Result<()> {
     tracing::info!("sc-server running — polling for commands...");
 
     // Start LAN player HTTP server (port 8787) for direct guest connections
-    let player_addr: SocketAddr = std::env::var("GV_PLAYER_BIND")
-        .unwrap_or_else(|_| "0.0.0.0:8787".into())
-        .parse()
-        .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 8787)));
-    tokio::spawn(crate::player_server::serve(
-        player_addr,
-        cfg.sc_web.url.clone(),
-        verify.server_id.clone(),
-        verify.user_id.clone(),
-        verify.name.clone(),
-    ));
+    if !no_lan_player {
+        let player_addr: SocketAddr = std::env::var("GV_PLAYER_BIND")
+            .unwrap_or_else(|_| "0.0.0.0:8787".into())
+            .parse()
+            .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 8787)));
+        tokio::spawn(crate::player_server::serve(
+            player_addr,
+            cfg.sc_web.url.clone(),
+            verify.server_id.clone(),
+            verify.user_id.clone(),
+            verify.name.clone(),
+            true,
+        ));
+    } else {
+        tracing::info!("LAN player disabled (--no-lan-player) — relay-only mode");
+    }
 
     const POLL_ERROR_BACKOFF_MS: u64 = 5_000;
     let mut sessions: HashMap<String, Arc<GameSession>> = HashMap::new();

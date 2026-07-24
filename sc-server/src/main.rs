@@ -58,6 +58,11 @@ enum Command {
         /// Override the sc-web URL from config
         #[arg(long)]
         sc_web_url: Option<String>,
+
+        /// Disable the LAN player HTTP endpoint (port 8787).
+        /// Use this when you only want relay-based play through sc-web.
+        #[arg(long)]
+        no_lan_player: bool,
     },
 }
 
@@ -78,6 +83,6 @@ async fn main() -> Result<()> {
         Command::Install => install::run(),
         Command::Scan { upload } => scan_cmd::run(upload).await,
         Command::Pair { code, sc_web_url } => commands::cmd_pair(&code, &sc_web_url).await,
-        Command::Start { sc_web_url } => commands::cmd_start(sc_web_url).await,
+        Command::Start { sc_web_url, no_lan_player } => commands::cmd_start(sc_web_url, no_lan_player).await,
     }
 }

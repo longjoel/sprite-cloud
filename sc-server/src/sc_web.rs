@@ -85,6 +85,7 @@ pub struct LanMetadata {
     pub player_urls: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub health_urls: Vec<String>,
+    pub lan_player_enabled: bool,
 }
 
 /// ICE configuration summary for route/connectivity diagnostics.

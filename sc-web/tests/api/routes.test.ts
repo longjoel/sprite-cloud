@@ -1218,7 +1218,7 @@ describe("GET /api/playable-hosts", () => {
       server_id: "server-1",
       name: "Home PC",
       has_game: true,
-      route_hint: "local",
+      capabilities: { lan: true, stun: true, turn: false },
       lan: {
         player_port: 8787,
         player_urls: ["http://192.168.1.100:8787/"],
@@ -1265,21 +1265,21 @@ describe("GET /api/playable-hosts", () => {
     expect(body.hosts[2].status).toBe("offline");
   });
 
-  it("classifies route hints from server metadata", async () => {
+  it("classifies server capabilities from metadata", async () => {
     mockDb.select.mockReturnValue(
       mockQueryBuilder([
         {
-          serverId: "s1", serverName: "Local", lastSeenAt: new Date(),
+          serverId: "s1", serverName: "LAN", lastSeenAt: new Date(),
           metadata: { interfaces: [{ name: "eth0", address: "192.168.1.100" }], ice: { turn_configured: false } },
           gameFileId: "gf1",
         },
         {
-          serverId: "s2", serverName: "Direct", lastSeenAt: new Date(),
+          serverId: "s2", serverName: "STUN only", lastSeenAt: new Date(),
           metadata: { interfaces: [], ice: { turn_configured: false } },
           gameFileId: "gf2",
         },
         {
-          serverId: "s3", serverName: "Relay", lastSeenAt: new Date(),
+          serverId: "s3", serverName: "TURN", lastSeenAt: new Date(),
           metadata: { interfaces: [], ice: { turn_configured: true } },
           gameFileId: "gf3",
         },
@@ -1290,12 +1290,12 @@ describe("GET /api/playable-hosts", () => {
     const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
     const resp = await GET(req);
     const body = await resp.json();
-    expect(body.hosts[0].route_hint).toBe("local");
-    expect(body.hosts[1].route_hint).toBe("direct");
-    expect(body.hosts[2].route_hint).toBe("relay");
+    expect(body.hosts[0].capabilities).toEqual({ lan: true, stun: true, turn: false });
+    expect(body.hosts[1].capabilities).toEqual({ lan: false, stun: true, turn: false });
+    expect(body.hosts[2].capabilities).toEqual({ lan: false, stun: true, turn: true });
   });
 
-  it("classifies explicit LAN health metadata as local", async () => {
+  it("classifies explicit LAN health metadata as having LAN capability", async () => {
     mockDb.select.mockReturnValue(
       mockQueryBuilder([
         {
@@ -1316,11 +1316,11 @@ describe("GET /api/playable-hosts", () => {
     const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
     const resp = await GET(req);
     const body = await resp.json();
-    expect(body.hosts[0].route_hint).toBe("local");
+    expect(body.hosts[0].capabilities).toEqual({ lan: true, stun: true, turn: true });
     expect(body.hosts[0].lan.health_urls).toEqual(["http://192.0.2.50:8787/health"]);
   });
 
-  it("returns route_hint unknown when metadata is missing", async () => {
+  it("returns all-false capabilities when metadata is missing", async () => {
     mockDb.select.mockReturnValue(
       mockQueryBuilder([
         { serverId: "s1", serverName: "Unknown", lastSeenAt: new Date(), metadata: {}, gameFileId: "gf1" },
@@ -1330,7 +1330,7 @@ describe("GET /api/playable-hosts", () => {
     const req = mkReq("http://localhost/api/playable-hosts?game_id=smw");
     const resp = await GET(req);
     const body = await resp.json();
-    expect(body.hosts[0].route_hint).toBe("unknown");
+    expect(body.hosts[0].capabilities).toEqual({ lan: false, stun: false, turn: false });
   });
 });
 

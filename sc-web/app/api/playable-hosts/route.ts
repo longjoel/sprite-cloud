@@ -35,23 +35,17 @@ function lanSummary(metadata: unknown): LanSummary | null {
   };
 }
 
-function classifyRouteHint(metadata: unknown): string {
+function classifyServerCapabilities(metadata: unknown): { lan: boolean; stun: boolean; turn: boolean } {
   const meta = metadataRecord(metadata);
   const lan = lanSummary(metadata);
   const ice = meta.ice as Record<string, unknown> | undefined;
   const ifaces = meta.interfaces;
 
-  // Explicit LAN player metadata is the strongest signal. Browser reachability
-  // is still checked client-side before direct launch is preferred.
-  if (lan?.health_urls?.length || lan?.player_urls?.length) return "local";
+  const hasLan = !!(lan?.health_urls?.length || lan?.player_urls?.length || (Array.isArray(ifaces) && ifaces.length > 0));
+  const hasTurn = !!(ice?.turn_configured);
+  const hasStun = !!ice || hasTurn;
 
-  // Older sc-server metadata: server on LAN if it reports non-loopback interfaces.
-  if (Array.isArray(ifaces) && ifaces.length > 0) return "local";
-
-  if (ice?.turn_configured) return "relay";
-  if (ice) return "direct";
-
-  return "unknown";
+  return { lan: hasLan, stun: hasStun, turn: hasTurn };
 }
 
 // GET /api/playable-hosts?game_id=...
@@ -90,7 +84,7 @@ export async function GET(request: NextRequest) {
     name: row.serverName,
     status: classifyStatus(row.lastSeenAt),
     has_game: row.gameFileId !== null,
-    route_hint: classifyRouteHint(row.metadata),
+    capabilities: classifyServerCapabilities(row.metadata),
     lan: lanSummary(row.metadata),
     role: row.role,
     metadata: row.metadata ?? {},

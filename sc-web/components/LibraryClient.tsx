@@ -39,12 +39,18 @@ interface PlayableHost {
   name: string;
   status: string;
   has_game: boolean;
-  route_hint: string;
+  capabilities: {
+    lan: boolean;
+    stun: boolean;
+    turn: boolean;
+  };
   lan?: {
     player_port?: number;
     player_urls?: string[];
     health_urls?: string[];
   } | null;
+  role?: string;
+  metadata?: Record<string, unknown>;
 }
 
 interface LibraryClientProps {
@@ -379,10 +385,10 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
 
   async function probePlayableHosts(hosts: PlayableHost[], generation: number) {
     try {
-      const entries = await Promise.all(hosts.map(async (host) => [
-        host.server_id,
-        await probeLanHealth(host.lan?.health_urls, { timeoutMs: 1_200 }),
-      ] as const));
+      const entries = await Promise.all(hosts.map(async (host) => {
+        if (!host.capabilities.lan) return [host.server_id, { reachable: false, reason: "no_urls" } as LanProbeResult] as const;
+        return [host.server_id, await probeLanHealth(host.lan?.health_urls, { timeoutMs: 1_200 })] as const;
+      }));
       if (launchGate.current.isCurrent(generation)) setLanProbeByServer(Object.fromEntries(entries));
     } catch (error) {
       if (launchGate.current.isCurrent(generation)) setLaunchError(formatLaunchError(error, "Could not check host connections. You can retry."));
@@ -390,7 +396,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   }
 
   function canAttemptLanLaunch(probe: LanProbeResult | undefined, host: PlayableHost): boolean {
-    return probe ? canUseLanPlayer(probe, host.route_hint) : false;
+    return host.capabilities.lan && probe ? canUseLanPlayer(probe) : false;
   }
 
   function lanPlayerUrlsWhenDirectOrPolicyBlocked(host: PlayableHost): string[] | null {
@@ -413,7 +419,9 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
 
       const host = automatic ? chooseLaunchHost(hosts, getPreferredServer(gameId)) : null;
       if (host) {
-        const probe = await probeLanHealth(host.lan?.health_urls, { timeoutMs: 1_200 });
+        const probe = host.capabilities.lan
+          ? await probeLanHealth(host.lan?.health_urls, { timeoutMs: 1_200 })
+          : { reachable: false, reason: "no_urls" } as LanProbeResult;
         if (!launchGate.current.isCurrent(generation)) return;
         await navigateToGame(gameId, host.server_id, generation, canAttemptLanLaunch(probe, host) ? host.lan?.player_urls : null);
         if (launchGate.current.isCurrent(generation)) closeHostPicker();
