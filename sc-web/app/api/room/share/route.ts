@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "session not found" }, { status: 404 });
   }
 
-  if (existing.status === "stopped" || existing.status === "ended") {
+  if (!["spawning", "ready", "connected", "playing"].includes(existing.status)) {
     return NextResponse.json({ error: "session ended" }, { status: 410 });
   }
 

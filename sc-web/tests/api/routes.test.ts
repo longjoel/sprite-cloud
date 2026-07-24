@@ -1080,6 +1080,27 @@ describe("GET /api/room/resolve/[code]", () => {
 });
 
 describe("POST /api/room/join", () => {
+  it("rejects any guest join state outside the active allowlist", async () => {
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{
+      id: "sess-unknown",
+      workerUrl: "http://localhost:9999",
+      gameId: "local_0123456789abcdef0123456789abcdef",
+      serverId: "server-1",
+      status: "unknown_future_state",
+      maxSeats: 4,
+      commandWorkerToken: "worker-token",
+    }]));
+    const { POST } = await import("@/app/api/room/join/route");
+    const req = mkReq("http://localhost/api/room/join", {
+      ...jsonBody({ room_token: "room-token", client_id: "client-1" }),
+    });
+
+    const resp = await POST(req);
+
+    expect(resp.status).toBe(410);
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
   it("never writes the room bearer capability to signaling logs", async () => {
     const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
     mockDb.select.mockReturnValueOnce(mockQueryBuilder([]));
@@ -1149,6 +1170,26 @@ describe("POST /api/room/join", () => {
   });
 });
 
+
+describe("POST /api/room/share", () => {
+  it("rejects timed-out sessions instead of rotating their room capability", async () => {
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{
+      id: "sess-timed-out",
+      userId: "user-1",
+      serverId: "server-1",
+      status: "timed_out",
+    }]));
+    const { POST } = await import("@/app/api/room/share/route");
+    const req = mkReq("http://localhost/api/room/share", {
+      ...jsonBody({ session_id: "sess-timed-out" }),
+    });
+
+    const resp = await POST(req);
+
+    expect(resp.status).toBe(410);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+});
 
 // ── /api/server/result ─────────────────────────────────────────────────
 
