@@ -8,7 +8,7 @@ use axum::{
     body::Body,
     extract::{Path, Query, Request, State},
     response::Json,
-    routing::{any, get},
+    routing::{any, get, post},
 };
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,7 @@ use std::sync::Arc;
 struct AppState {
     client: Client,
     sc_web: String,
+    server_api_key: Option<String>,
     server_id: String,
     user_id: String,
     server_name: String,
@@ -100,6 +101,7 @@ fn app_router() -> Router<Arc<AppState>> {
         .route("/api/pins", get(list_pins).post(toggle_pin))
         .route("/api/recent-plays", get(list_recent_plays))
         .route("/api/games/:id", get(get_game).put(rename_game))
+        .route("/api/room/shorten", post(proxy_server_authenticated))
         .route("/health", get(health))
         .route("/api/*path", any(proxy))
         .route("/sdp", any(proxy))
@@ -174,6 +176,23 @@ async fn proxy(
     proxy_to_sc_web(&state, req, &path).await
 }
 
+async fn proxy_server_authenticated(
+    State(state): State<Arc<AppState>>,
+    mut req: Request,
+) -> Result<axum::response::Response, axum::http::StatusCode> {
+    let api_key = state
+        .server_api_key
+        .as_ref()
+        .ok_or(axum::http::StatusCode::NOT_FOUND)?;
+    req.headers_mut().insert(
+        axum::http::header::AUTHORIZATION,
+        format!("Bearer {api_key}")
+            .parse()
+            .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?,
+    );
+    proxy_to_sc_web(&state, req, "/api/room/shorten").await
+}
+
 /// Shared proxy helper — forwards the request to sc-web and returns the response.
 async fn proxy_to_sc_web(
     state: &AppState,
@@ -203,6 +222,7 @@ async fn proxy_to_sc_web(
     for (k, v) in &headers {
         builder = builder.header(k.as_str(), v);
     }
+    builder = builder.header("x-sc-server-lan", "1");
 
     let resp = builder
         .body(body_bytes.to_vec())
@@ -268,6 +288,7 @@ pub(crate) fn open_library_preferences() -> std::io::Result<SharedLibraryState> 
 pub(crate) async fn serve(
     bind: SocketAddr,
     sc_web: String,
+    server_api_key: String,
     server_id: String,
     user_id: String,
     server_name: String,
@@ -279,6 +300,7 @@ pub(crate) async fn serve(
     let state = Arc::new(AppState {
         client: Client::new(),
         sc_web,
+        server_api_key: Some(server_api_key),
         server_id,
         user_id,
         server_name,
@@ -324,6 +346,7 @@ pub(crate) async fn serve_standalone(
     let state = Arc::new(AppState {
         client: Client::new(),
         sc_web: String::new(),
+        server_api_key: None,
         server_id: "standalone".to_string(),
         user_id: "local".to_string(),
         server_name: hostname(),
@@ -1161,6 +1184,7 @@ mod tests {
         let state = AppState {
             client: Client::new(),
             sc_web: "https://sprite-cloud.com".to_string(),
+            server_api_key: None,
             server_id: "server-bazzite".to_string(),
             user_id: "user-joel".to_string(),
             server_name: "Bazzite".to_string(),
@@ -1188,6 +1212,7 @@ mod tests {
         let state = Arc::new(AppState {
             client: Client::new(),
             sc_web: "https://sprite-cloud.com".to_string(),
+            server_api_key: None,
             server_id: "server-vault".to_string(),
             user_id: "user-joel".to_string(),
             server_name: "Vault".to_string(),
@@ -1233,6 +1258,7 @@ mod tests {
         let state = Arc::new(AppState {
             client: Client::new(),
             sc_web: String::new(),
+            server_api_key: None,
             server_id: "standalone".to_string(),
             user_id: "local".to_string(),
             server_name: "Vault".to_string(),
@@ -1282,6 +1308,7 @@ mod tests {
         let state = Arc::new(AppState {
             client: Client::new(),
             sc_web: String::new(),
+            server_api_key: None,
             server_id: "standalone".to_string(),
             user_id: "local".to_string(),
             server_name: "Local".to_string(),
@@ -1411,6 +1438,7 @@ mod tests {
         let state = Arc::new(AppState {
             client: Client::new(),
             sc_web: String::new(),
+            server_api_key: None,
             server_id: "standalone".to_string(),
             user_id: "local".to_string(),
             server_name: "Vault".to_string(),
@@ -1451,6 +1479,7 @@ mod tests {
         let state = Arc::new(AppState {
             client: Client::new(),
             sc_web: "http://127.0.0.1:1".to_string(),
+            server_api_key: None,
             server_id: "server-vault".to_string(),
             user_id: "user-joel".to_string(),
             server_name: "Vault".to_string(),
@@ -1485,6 +1514,7 @@ mod tests {
         let state = Arc::new(AppState {
             client: Client::new(),
             sc_web: "https://sprite-cloud.com".to_string(),
+            server_api_key: None,
             server_id: "server-vault".to_string(),
             user_id: "user-joel".to_string(),
             server_name: "Vault".to_string(),
@@ -1528,6 +1558,7 @@ mod tests {
         let state = Arc::new(AppState {
             client: Client::new(),
             sc_web: "http://127.0.0.1:1".to_string(),
+            server_api_key: None,
             server_id: "server-vault".to_string(),
             user_id: "user-joel".to_string(),
             server_name: "Vault".to_string(),

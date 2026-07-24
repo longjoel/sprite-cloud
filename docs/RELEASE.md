@@ -60,15 +60,19 @@ export GV_WEB_HEALTH_URL=https://your-gateway.example/api/health
 
 ## Migration workflow
 
-When schema changes exist:
+Generate migrations during development. For a destructive migration, production
+ordering is code first, health verification second, migration last:
 
 ```bash
 cd sc-web
 npx drizzle-kit generate
 cd ..
-./scripts/apply-sc-web-migration.sh sc-web/drizzle/<migration>.sql
 ./scripts/deploy-sc-web.sh
+./scripts/smoke-test.sh
+./scripts/apply-sc-web-migration.sh sc-web/drizzle/<destructive-migration>.sql
 ```
+
+Backward-compatible additive migrations may be applied before the matching code.
 
 For simple self-hosted installs, `GV_WEB_SCHEMA_PUSH_ON_START=1` can apply the current schema at startup. For stricter production releases, keep it `0` and apply migrations explicitly.
 

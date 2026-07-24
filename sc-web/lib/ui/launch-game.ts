@@ -1,6 +1,7 @@
 // Shared launch lifecycle utilities.
 // Used by XMB, classic library, and any future launcher to create short
 // codes and build player URLs in one canonical place.
+import { csrfHeaders } from "@/components/library-utils";
 
 export interface CreateLaunchShortCodeParams {
   gameId: string;
@@ -21,7 +22,7 @@ export async function createLaunchShortCode(
 
   const resp = await fetch("/api/room/shorten", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: csrfHeaders(),
     body: JSON.stringify({
       game_id: gameId,
       host_token: hostToken,

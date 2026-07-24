@@ -5,14 +5,19 @@ import { eq, sql } from "drizzle-orm";
 import LandingPage from "@/components/LandingPage";
 import LibraryClient from "@/components/LibraryClient";
 import { getPublicWatchPreview } from "@/lib/public-watch";
+import { headers } from "next/headers";
 
 // ── Server component — landing page or library ────────────────────────
 
 export default async function Home() {
   const session = await auth();
+  const isLanProxy = (await headers()).get("x-sc-server-lan") === "1";
 
   // First-run: if no users exist, show setup
   if (!session) {
+    if (isLanProxy) {
+      return <LibraryClient serverIds={[]} session={null} />;
+    }
     const [row] = await db
       .select({ count: sql<number>`count(*)` })
       .from(users);

@@ -34,6 +34,9 @@ export function capabilityVariant(capability: "lan" | "stun" | "turn") {
 }
 
 export function csrfHeaders(): Record<string, string> {
+  if (typeof document === "undefined") {
+    return { "Content-Type": "application/json" };
+  }
   let token = document.cookie
     .split(";")
     .map((p) => p.trim())

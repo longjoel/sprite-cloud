@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useInterval } from "@/lib/poll";
 import { Button, Toast } from "@/components/ui";
+import { csrfHeaders } from "@/components/library-utils";
 import RemapPanel from "./GamePlayerRemapPanel";
 import OptionsOverlay from "./OptionsOverlay";
 import ControllerLayoutPanel from "./ControllerLayoutPanel";
@@ -589,7 +590,7 @@ export default function GamePlayer({
         // Create a short code for the share link
         const scResp = await fetch("/api/room/shorten", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: csrfHeaders(),
           body: JSON.stringify({
             game_id: gameId,
             host_token: hostToken || crypto.randomUUID(),

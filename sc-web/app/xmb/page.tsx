@@ -99,11 +99,22 @@ export default function XmbPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameListRef = useRef<HTMLDivElement>(null);
 
-  // ── Auth guard — redirect to signin if not logged in ──────────────
+  // Cloud visitors still sign in; LAN-proxied clients prove locality through
+  // sc-server's exact health route and can use the server-owned library.
   useEffect(() => {
-    if (status === "unauthenticated") {
-      router.replace("/api/auth/signin");
-    }
+    if (status !== "unauthenticated") return;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const response = await fetch("/health", { signal: controller.signal });
+        const health = response.ok ? await response.json() as { service?: string } : null;
+        if (health?.service === "sc-server-player") return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+      }
+      if (!controller.signal.aborted) router.replace("/api/auth/signin");
+    })();
+    return () => controller.abort();
   }, [status, router]);
 
   // Bootstrap/auth can remove Settings after it was focused. Keep a real body active.
