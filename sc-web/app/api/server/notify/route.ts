@@ -39,6 +39,12 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   playing: [SESSION_ENDED, "timed_out"],
 };
 
+class NotifyConflict extends Error {
+  constructor(readonly kind: "lease" | "session") {
+    super(kind);
+  }
+}
+
 function notifyTargetStatus(current: string, hasSdpAnswer: boolean): string | null {
   if (current === "playing" && hasSdpAnswer) return "playing";
   if (hasSdpAnswer && ["spawning", SESSION_READY, SESSION_CONNECTED].includes(current)) {
@@ -123,21 +129,7 @@ export async function POST(request: NextRequest) {
       ) {
         return NextResponse.json({ error: "stop command does not match session game" }, { status: 409 });
       }
-      const [lease] = await db
-        .update(commands)
-        .set({ status: STATUS_COMPLETED, completedAt: new Date(), lastError: null })
-        .where(
-          and(
-            eq(commands.id, body.command_id),
-            eq(commands.serverId, server.id),
-            eq(commands.status, STATUS_LEASED),
-            eq(commands.leaseToken, body.lease_token),
-          ),
-        )
-        .returning({ id: commands.id });
-      if (!lease) {
-        return NextResponse.json({ error: "command lease not found" }, { status: 409 });
-      }
+
     }
 
     let session: {
@@ -176,20 +168,40 @@ export async function POST(request: NextRequest) {
       session_id: session.id,
       session_status: session.status,
     });
-    const [ended] = await db
-      .update(sessions)
-      .set({ status: SESSION_ENDED, endedAt: new Date(), stateEnteredAt: new Date() })
-      .where(
-        and(
-          eq(sessions.id, session.id),
-          eq(sessions.serverId, server.id),
-          eq(sessions.gameId, body.game_id),
-          eq(sessions.status, session.status),
-        ),
-      )
-      .returning({ id: sessions.id });
-    if (!ended) {
-      return NextResponse.json({ error: "session state changed" }, { status: 409 });
+    try {
+      await db.transaction(async (tx) => {
+        const [ended] = await tx
+          .update(sessions)
+          .set({ status: SESSION_ENDED, endedAt: new Date(), stateEnteredAt: new Date() })
+          .where(and(
+            eq(sessions.id, session.id),
+            eq(sessions.serverId, server.id),
+            eq(sessions.gameId, body.game_id),
+            eq(sessions.status, session.status),
+          ))
+          .returning({ id: sessions.id });
+        if (!ended) throw new NotifyConflict("session");
+
+        if (!isWorkerDead) {
+          const [lease] = await tx
+            .update(commands)
+            .set({ status: STATUS_COMPLETED, completedAt: new Date(), lastError: null })
+            .where(and(
+              eq(commands.id, body.command_id),
+              eq(commands.serverId, server.id),
+              eq(commands.status, STATUS_LEASED),
+              eq(commands.leaseToken, body.lease_token!),
+            ))
+            .returning({ id: commands.id });
+          if (!lease) throw new NotifyConflict("lease");
+        }
+      });
+    } catch (error) {
+      if (error instanceof NotifyConflict) {
+        const message = error.kind === "lease" ? "command lease not found" : "session state changed";
+        return NextResponse.json({ error: message }, { status: 409 });
+      }
+      throw error;
     }
 
     return NextResponse.json({ ok: true });
@@ -218,26 +230,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "command does not match game" }, { status: 409 });
   }
 
-  // ── Complete the exact command lease ──────────────────────────────────
+  // The exact lease is completed in the same transaction as the session mutation.
   if (!body.lease_token) {
     return NextResponse.json({ error: "lease_token required" }, { status: 400 });
   }
-  const [lease] = await db
-    .update(commands)
-    .set({ status: STATUS_COMPLETED, completedAt: new Date(), lastError: null })
-    .where(
-      and(
-        eq(commands.id, body.command_id),
-        eq(commands.serverId, server.id),
-        eq(commands.status, STATUS_LEASED),
-        eq(commands.leaseToken, body.lease_token),
-      ),
-    )
-    .returning({ id: commands.id });
-
-  if (!lease) {
-    return NextResponse.json({ error: "command lease not found" }, { status: 409 });
-  }
+  const leaseToken: string = body.lease_token;
 
   // ── Find or update session ────────────────────────────────────────────
   //
@@ -332,31 +329,49 @@ export async function POST(request: NextRequest) {
     if (!exactTargetStatus) {
       return NextResponse.json({ error: "invalid session state transition" }, { status: 409 });
     }
-    const [updatedSession] = await db
-      .update(sessions)
-      .set({
-        workerUrl: body.worker_url,
-        status: exactTargetStatus,
-        roomToken,
-        sdpAnswer: body.sdp_answer ?? null,
-        stateEnteredAt: new Date(),
-      })
-      .where(and(
-        eq(sessions.id, bySession.id),
-        eq(sessions.serverId, server.id),
-        eq(sessions.status, bySession.status),
-      ))
-      .returning({ id: sessions.id });
-    if (!updatedSession) {
-      return NextResponse.json({ error: "session state changed" }, { status: 409 });
-    }
+    try {
+      await db.transaction(async (tx) => {
+        const [updatedSession] = await tx
+          .update(sessions)
+          .set({
+            workerUrl: body.worker_url,
+            status: exactTargetStatus,
+            roomToken,
+            sdpAnswer: body.sdp_answer ?? null,
+            stateEnteredAt: new Date(),
+          })
+          .where(and(
+            eq(sessions.id, bySession.id),
+            eq(sessions.serverId, server.id),
+            eq(sessions.status, bySession.status),
+          ))
+          .returning({ id: sessions.id });
+        if (!updatedSession) throw new NotifyConflict("session");
 
-    // Also store SDP answer on the command (per-guest isolation)
-    if (body.sdp_answer) {
-      await db
-        .update(commands)
-        .set({ sdpAnswer: body.sdp_answer })
-        .where(eq(commands.id, body.command_id));
+        if (body.sdp_answer) {
+          await tx
+            .update(commands)
+            .set({ sdpAnswer: body.sdp_answer })
+            .where(and(eq(commands.id, body.command_id), eq(commands.serverId, server.id)));
+        }
+        const [lease] = await tx
+          .update(commands)
+          .set({ status: STATUS_COMPLETED, completedAt: new Date(), lastError: null })
+          .where(and(
+            eq(commands.id, body.command_id),
+            eq(commands.serverId, server.id),
+            eq(commands.status, STATUS_LEASED),
+            eq(commands.leaseToken, leaseToken),
+          ))
+          .returning({ id: commands.id });
+        if (!lease) throw new NotifyConflict("lease");
+      });
+    } catch (error) {
+      if (error instanceof NotifyConflict) {
+        const message = error.kind === "lease" ? "command lease not found" : "session state changed";
+        return NextResponse.json({ error: message }, { status: 409 });
+      }
+      throw error;
     }
   } else {
     // Not found by session_id or command_id (e.g. sdp_offer after start_game).
@@ -407,31 +422,49 @@ export async function POST(request: NextRequest) {
       }
 
       roomToken = byGame.roomToken || roomToken;
-      const [updatedFallback] = await db
-        .update(sessions)
-        .set({
-          workerUrl: body.worker_url,
-          status: fallbackTargetStatus,
-          roomToken,
-          sdpAnswer: body.sdp_answer ?? null,
-          stateEnteredAt: new Date(),
-        })
-        .where(and(
-          eq(sessions.id, byGame.id),
-          eq(sessions.serverId, server.id),
-          eq(sessions.status, byGame.status),
-        ))
-        .returning({ id: sessions.id });
-      if (!updatedFallback) {
-        return NextResponse.json({ error: "session state changed" }, { status: 409 });
-      }
+      try {
+        await db.transaction(async (tx) => {
+          const [updatedFallback] = await tx
+            .update(sessions)
+            .set({
+              workerUrl: body.worker_url,
+              status: fallbackTargetStatus,
+              roomToken,
+              sdpAnswer: body.sdp_answer ?? null,
+              stateEnteredAt: new Date(),
+            })
+            .where(and(
+              eq(sessions.id, byGame.id),
+              eq(sessions.serverId, server.id),
+              eq(sessions.status, byGame.status),
+            ))
+            .returning({ id: sessions.id });
+          if (!updatedFallback) throw new NotifyConflict("session");
 
-      // Also store SDP answer on the command (per-guest isolation)
-      if (body.sdp_answer) {
-        await db
-          .update(commands)
-          .set({ sdpAnswer: body.sdp_answer })
-          .where(eq(commands.id, body.command_id));
+          if (body.sdp_answer) {
+            await tx
+              .update(commands)
+              .set({ sdpAnswer: body.sdp_answer })
+              .where(and(eq(commands.id, body.command_id), eq(commands.serverId, server.id)));
+          }
+          const [lease] = await tx
+            .update(commands)
+            .set({ status: STATUS_COMPLETED, completedAt: new Date(), lastError: null })
+            .where(and(
+              eq(commands.id, body.command_id),
+              eq(commands.serverId, server.id),
+              eq(commands.status, STATUS_LEASED),
+              eq(commands.leaseToken, leaseToken),
+            ))
+            .returning({ id: commands.id });
+          if (!lease) throw new NotifyConflict("lease");
+        });
+      } catch (error) {
+        if (error instanceof NotifyConflict) {
+          const message = error.kind === "lease" ? "command lease not found" : "session state changed";
+          return NextResponse.json({ error: message }, { status: 409 });
+        }
+        throw error;
       }
     } else {
       if (byGame) {
@@ -445,17 +478,43 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "active session not found" }, { status: 409 });
       }
       // A leased start command may create its initial session as a legacy edge case.
-      await db.insert(sessions).values({
-        userId: server.userId,
-        serverId: server.id,
-        gameId: body.game_id,
-        commandId: body.command_id,
-        workerUrl: body.worker_url,
-        status: targetStatus,
-        roomToken,
-        sdpAnswer: body.sdp_answer ?? null,
-        stateEnteredAt: new Date(),
-      });
+      try {
+        await db.transaction(async (tx) => {
+          await tx.insert(sessions).values({
+            userId: server.userId,
+            serverId: server.id,
+            gameId: body.game_id,
+            commandId: body.command_id,
+            workerUrl: body.worker_url,
+            status: targetStatus,
+            roomToken,
+            sdpAnswer: body.sdp_answer ?? null,
+            stateEnteredAt: new Date(),
+          });
+          if (body.sdp_answer) {
+            await tx
+              .update(commands)
+              .set({ sdpAnswer: body.sdp_answer })
+              .where(and(eq(commands.id, body.command_id), eq(commands.serverId, server.id)));
+          }
+          const [lease] = await tx
+            .update(commands)
+            .set({ status: STATUS_COMPLETED, completedAt: new Date(), lastError: null })
+            .where(and(
+              eq(commands.id, body.command_id),
+              eq(commands.serverId, server.id),
+              eq(commands.status, STATUS_LEASED),
+              eq(commands.leaseToken, leaseToken),
+            ))
+            .returning({ id: commands.id });
+          if (!lease) throw new NotifyConflict("lease");
+        });
+      } catch (error) {
+        if (error instanceof NotifyConflict) {
+          return NextResponse.json({ error: "command lease not found" }, { status: 409 });
+        }
+        throw error;
+      }
     }
   }
 
