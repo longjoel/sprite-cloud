@@ -154,6 +154,10 @@ describe("production deploy workflow", () => {
     expect(commandRoute).toContain("const prepared = await db.transaction");
     expect(commandRoute).toContain('const launchLockKey = `${serverId}:${uid}`');
     expect(commandRoute).toContain("eq(sessions.userId, uid)");
+    expect(commandRoute).toContain("type: CMD_STOP_GAME");
+    expect(commandRoute).toContain("session_id: victim.id");
+    expect(commandRoute).toContain("roomToken: null");
+    expect(commandRoute).not.toContain("recycledRoomToken");
     expect(commandRoute).not.toContain('const launchLockKey = `${serverId}:${hostToken');
     expect(lock).toBeGreaterThan(-1);
     expect(victims).toBeGreaterThan(lock);
