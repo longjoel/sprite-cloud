@@ -44,12 +44,12 @@ jobs:
       - name: Transfer image to VPS
         run: |
           docker save sc-web-prod:latest | gzip | \
-            ssh -o StrictHostKeyChecking=accept-new \
+            ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new \
               <vps-user>@<vps-host> 'gunzip | docker load'
 
       - name: Restart sc-web on VPS
         run: |
-          ssh -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> '
+          ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> '
             cd /docker/sc-web && \
             docker compose down sc-web && \
             docker compose up -d sc-web
@@ -59,7 +59,7 @@ jobs:
         run: |
           sleep 10
           for i in $(seq 1 6); do
-            if ssh -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> \
+            if ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> \
               'curl -fsS http://localhost:3000/api/health >/dev/null'; then
               echo "✓ Health check passed"
               exit 0
@@ -74,13 +74,13 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.apply_phase4c_migration
         run: |
           set -euo pipefail
-          HEALTH_JSON=$(ssh -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> \
+          HEALTH_JSON=$(ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> \
             'curl -fsS http://localhost:3000/api/health')
           grep -Eq '"phase4c_library_owner"[[:space:]]*:[[:space:]]*"sc-server"' <<<"$HEALTH_JSON"
-          scp -o StrictHostKeyChecking=accept-new \
+          scp -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new \
             sc-web/drizzle/0016_remove_cloud_library.sql \
             <vps-user>@<vps-host>:/tmp/0016_remove_cloud_library.sql
-          ssh -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> 'bash -s' <<'REMOTE'
+          ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> 'bash -s' <<'REMOTE'
           set -euo pipefail
           PG_CONTAINER=sc-web-postgres-1
           docker inspect "$PG_CONTAINER" >/dev/null
