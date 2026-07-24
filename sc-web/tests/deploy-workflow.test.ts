@@ -7,6 +7,7 @@ const migrationHelper = readFileSync("../scripts/apply-sc-web-migration.sh", "ut
 const scriptsReadme = readFileSync("../scripts/README.md", "utf8");
 const releaseGuide = readFileSync("../docs/RELEASE.md", "utf8");
 const hostInstaller = readFileSync("../scripts/install.sh", "utf8");
+const publicInstaller = readFileSync("public/install.sh", "utf8");
 const playerScript = readFileSync("public/player/play-v2.js", "utf8");
 const scPlayerScript = readFileSync("public/player/sc-player.js", "utf8");
 const browserLogger = readFileSync("public/browser-log.js", "utf8");
@@ -72,12 +73,16 @@ describe("production deploy workflow", () => {
 
   it("verifies the release checksum before replacing the installed host binary", () => {
     const checksum = hostInstaller.indexOf("sha256sum -c");
-    const install = hostInstaller.indexOf('install -m 0755');
+    const installIndex = hostInstaller.indexOf('install -m 0755');
 
     expect(checksum).toBeGreaterThan(-1);
-    expect(install).toBeGreaterThan(checksum);
+    expect(installIndex).toBeGreaterThan(checksum);
     expect(hostInstaller).not.toContain('curl -sSL "$BIN_URL" -o "$BIN_PATH"');
     expect(hostInstaller).not.toContain('ARCH="armv7"');
+    expect(hostInstaller).toContain('mktemp "$BIN_DIR/.sc-server.XXXXXX"');
+    expect(hostInstaller).toContain('mv -f "$STAGED_BIN" "$BIN_PATH"');
+    expect(publicInstaller).toContain('mktemp "$INSTALL_DIR/.${BIN}.XXXXXX"');
+    expect(publicInstaller).toContain('mv -f "$STAGED_BIN" "$INSTALL_DIR/$BIN"');
     expect(rootReadme).toContain("scripts/install.sh | bash -s --");
     expect(rootReadme).not.toContain("scripts/install.sh | sh -s --");
     expect(scriptsReadme).toContain("| bash -s --");
@@ -126,6 +131,8 @@ describe("production deploy workflow", () => {
 
   it("keeps the permanent public watch URL free of room capabilities", () => {
     expect(publicWatch).not.toContain("`/r/${roomToken}");
+    expect(publicWatch).toContain('like(sessions.roomToken, `${PUBLIC_ROOM_PREFIX}%`)');
+    expect(publicWatch).not.toContain("ensureRoomToken");
     expect(watchPage).not.toContain("redirect(publicPath)");
     expect(watchPage).toContain("<PublicRoomPlayer {...publicSession} />");
   });

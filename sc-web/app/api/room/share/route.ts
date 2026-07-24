@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Generate new room_token (rotate even if one exists)
-  const roomToken = randomBytes(16).toString("hex");
+  const roomToken = `public_${randomBytes(16).toString("hex")}`;
   const maxSeats = body.max_seats ?? 4;
 
   await db

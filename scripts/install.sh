@@ -180,7 +180,16 @@ EXPECTED_SHA="$(cut -d ' ' -f1 "$DOWNLOAD_SHA")"
 [[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{64}$ ]] || err "invalid checksum file"
 (cd "$DOWNLOAD_DIR" && printf '%s  %s\n' "$EXPECTED_SHA" sc-server | sha256sum -c - >/dev/null) \
   || err "checksum verification failed"
-$SUDO install -m 0755 "$DOWNLOAD_BIN" "$BIN_PATH"
+BIN_DIR="$(dirname "$BIN_PATH")"
+STAGED_BIN="$($SUDO mktemp "$BIN_DIR/.sc-server.XXXXXX")" || err "could not stage install in $BIN_DIR"
+if ! $SUDO install -m 0755 "$DOWNLOAD_BIN" "$STAGED_BIN"; then
+  $SUDO rm -f "$STAGED_BIN"
+  err "binary staging failed"
+fi
+if ! $SUDO mv -f "$STAGED_BIN" "$BIN_PATH"; then
+  $SUDO rm -f "$STAGED_BIN"
+  err "atomic binary install failed"
+fi
 ok "sc-server installed to $BIN_PATH"
 
 # ── Config ─────────────────────────────────────────────────────────────
