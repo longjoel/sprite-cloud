@@ -1084,7 +1084,7 @@ describe("POST /api/server/notify", () => {
     const resp = await POST(req as any);
 
     expect(resp.status).toBe(409);
-    expect(mockDb.select).toHaveBeenCalledTimes(2);
+    expect(mockDb.select).toHaveBeenCalledTimes(1);
     expect(mockDb.update).not.toHaveBeenCalled();
   });
 
@@ -1159,6 +1159,7 @@ describe("POST /api/server/notify", () => {
         payload: {
           game_id: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           host_token: "host-race",
+          session_id: "session-race",
         },
       }]))
       .mockReturnValueOnce(mockQueryBuilder([{
@@ -1230,7 +1231,7 @@ describe("POST /api/server/notify", () => {
     expect(resp.status).toBe(200);
   });
 
-  it("creates a session on the first leased start_game notify", async () => {
+  it("rejects a leased start callback without the exact prepared session", async () => {
     mockDb.select
       .mockReturnValueOnce(mockQueryBuilder([{
         id: "cmd-1",
@@ -1254,9 +1255,9 @@ describe("POST /api/server/notify", () => {
       headers: authHeader(),
     });
     const resp = await POST(req as any);
-    expect(resp.status).toBe(200);
+    expect(resp.status).toBe(409);
     const body = await resp.json();
-    expect(body.ok).toBe(true);
+    expect(body.error).toBe("exact command session_id required");
   });
 });
 

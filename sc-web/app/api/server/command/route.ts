@@ -569,15 +569,35 @@ export async function POST(request: NextRequest) {
 
       // End prior sessions for this stable server/owner identity, create the new generation and peer
       // capability, and publish the prepared command as one atomic unit.
-      let recycledRoomToken: string | null = null;
       const victims = await tx
-        .select({ id: sessions.id, gameId: sessions.gameId, roomToken: sessions.roomToken })
+        .select({
+          id: sessions.id,
+          gameId: sessions.gameId,
+          commandId: sessions.commandId,
+        })
         .from(sessions)
-        .where(and(eq(sessions.userId, uid), eq(sessions.serverId, serverId)));
+        .where(and(
+          eq(sessions.userId, uid),
+          eq(sessions.serverId, serverId),
+          inArray(sessions.status, [...ACTIVE_SESSION_STATES]),
+        ));
       for (const victim of victims) {
-        if (victim.gameId === (enrichedPayload.game_id as string) && victim.roomToken) {
-          recycledRoomToken = victim.roomToken;
+        if (victim.commandId) {
+          await tx
+            .update(commands)
+            .set({ status: "cancelled", leaseToken: null, leasedAt: null, leaseExpiresAt: null })
+            .where(and(
+              eq(commands.id, victim.commandId),
+              inArray(commands.status, ["preparing", STATUS_PENDING, "leased"]),
+            ));
         }
+        await tx.insert(commands).values({
+          serverId,
+          type: CMD_STOP_GAME,
+          payload: { game_id: victim.gameId, session_id: victim.id },
+          workerToken: crypto.randomBytes(16).toString("hex"),
+          status: STATUS_PENDING,
+        });
         await tx
           .update(sessions)
           .set({ status: "ended", endedAt: new Date(), roomToken: null })
@@ -590,7 +610,7 @@ export async function POST(request: NextRequest) {
         gameId: enrichedPayload.game_id as string,
         commandId: cmd.id,
         hostToken: hostToken ?? null,
-        roomToken: recycledRoomToken,
+        roomToken: null,
         status: "spawning",
         generation: 1,
         stateEnteredAt: new Date(),

@@ -230,6 +230,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "command does not match game" }, { status: 409 });
   }
 
+  const commandSessionId = commandPayload.session_id;
+  if (
+    typeof commandSessionId !== "string"
+    || typeof body.session_id !== "string"
+    || body.session_id !== commandSessionId
+  ) {
+    return NextResponse.json({ error: "exact command session_id required" }, { status: 409 });
+  }
+
   // The exact lease is completed in the same transaction as the session mutation.
   if (!body.lease_token) {
     return NextResponse.json({ error: "lease_token required" }, { status: 400 });
@@ -270,36 +279,11 @@ export async function POST(request: NextRequest) {
       .limit(1);
   }
 
-  if (!body.session_id && !bySession) {
-    const [byCmd] = await db
-      .select({
-        id: sessions.id,
-        status: sessions.status,
-        roomToken: sessions.roomToken,
-        hostToken: sessions.hostToken,
-        generation: sessions.generation,
-        serverId: sessions.serverId,
-        gameId: sessions.gameId,
-        commandId: sessions.commandId,
-      })
-      .from(sessions)
-      .where(and(eq(sessions.commandId, body.command_id), eq(sessions.serverId, server.id)))
-      .limit(1);
-    bySession = byCmd;
-  }
-  const sessionCapabilityMatches = bySession && (
-    bySession.commandId === cmd.id
-    || (typeof commandPayload.room_token === "string" && commandPayload.room_token === bySession.roomToken)
-    || (typeof commandPayload.host_token === "string" && commandPayload.host_token === bySession.hostToken)
-  );
   if (
     bySession?.serverId !== server.id
     || bySession?.gameId !== body.game_id
-    || !sessionCapabilityMatches
+    || bySession?.id !== commandSessionId
   ) {
-    bySession = undefined;
-  }
-  if (body.session_id && !bySession) {
     return NextResponse.json({ error: "session does not match callback command" }, { status: 409 });
   }
 
