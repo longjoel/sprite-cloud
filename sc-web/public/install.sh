@@ -87,11 +87,15 @@ fi
 [ "$HTTP_CODE" = "200" ] || err "Download failed (HTTP $HTTP_CODE)"
 chmod +x "$TMP/$BIN"
 
-# Verify checksum if available
+# Verify checksum. Use the digest rather than the recorded asset path so releases
+# created by older workflows (which embedded release-assets/) remain verifiable.
 if curl -fsSL "$SHA_URL" -o "$TMP/$BIN.sha256" 2>/dev/null; then
-  (cd "$TMP" && sha256sum -c "$BIN.sha256" 2>/dev/null) || warn "Checksum verification failed — continuing anyway"
+  EXPECTED_SHA="$(cut -d ' ' -f1 "$TMP/$BIN.sha256")"
+  [[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{64}$ ]] || err "Invalid checksum file"
+  (cd "$TMP" && printf '%s  %s\n' "$EXPECTED_SHA" "$BIN" | sha256sum -c - >/dev/null) \
+    || err "Checksum verification failed"
 else
-  warn "No checksum available for verification"
+  err "No checksum available for $TAG"
 fi
 
 done_log "Downloaded $BIN $TAG ($ARCH)"
