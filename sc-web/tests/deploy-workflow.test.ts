@@ -127,8 +127,11 @@ describe("production deploy workflow", () => {
   });
 
   it("stages Next static assets inside the nonignored CI Docker context", () => {
-    expect(ciWorkflow).toContain("cp -r sc-web/.next/static ./sc-web-standalone/.next/static");
-    expect(ciDockerfile).toContain("COPY sc-web-standalone/.next/static/");
+    expect(ciWorkflow).toContain("cp -r sc-web/.next/standalone ./sc-web-standalone");
+    expect(ciWorkflow).toContain("cp -r sc-web/.next/static ./sc-web-standalone/sc-web/.next/static");
+    expect(ciDockerfile).toContain("COPY sc-web-standalone/ ./");
+    expect(ciDockerfile).toContain("COPY sc-web-standalone/sc-web/.next/static/ ./sc-web/.next/static/");
+    expect(ciDockerfile).toContain("COPY sc-web/public/ ./sc-web/public/");
     expect(ciDockerfile).not.toContain("COPY sc-web/.next/static/");
     expect(ciDockerfile).toContain("npm install drizzle-kit@0.31.10 postgres@3.4.9");
     expect(ciDockerfile).toContain("COPY sc-web/drizzle.config.ts ./sc-web/");

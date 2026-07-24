@@ -10,15 +10,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Standalone Next.js output — placed under sc-web/ so the entrypoint
-# can cd /app/sc-web && node server.js
-COPY sc-web-standalone/ ./sc-web/
+# Complete monorepo standalone output, including root node_modules and
+# sc-web/server.js in the paths emitted by Next.js.
+COPY sc-web-standalone/ ./
 
 # Static assets served by Next.js (must be next to server.js in standalone)
-COPY sc-web/public/ ./sc-web/sc-web/public/
+COPY sc-web/public/ ./sc-web/public/
 
 # Next.js build static assets (JS chunks, CSS) — not in standalone output
-COPY sc-web-standalone/.next/static/ ./sc-web/sc-web/.next/static/
+COPY sc-web-standalone/sc-web/.next/static/ ./sc-web/.next/static/
 
 # Schema assets and isolated tooling used by the guarded empty-database initializer.
 COPY sc-web/drizzle.config.ts ./sc-web/
@@ -31,6 +31,11 @@ WORKDIR /app
 # Production entrypoint (guarded empty-DB initialization, then server startup)
 COPY docker/sc-web/entrypoint.prod.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 
 EXPOSE 3000
 CMD ["/entrypoint.sh"]
