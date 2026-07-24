@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { commands, peerTokens, serverMembers, servers, sessions, shortCodes } from "@/lib/db/schema";
 import { ACTIVE_SESSION_STATES, CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, SESSION_CONNECTED, SESSION_PLAYING, SESSION_READY, SESSION_SPAWNING, SESSION_STATE_TIMEOUT_MS, STATUS_PENDING } from "@/lib/constants";
-import { and, desc, eq, inArray, lt } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import { applyRateLimit } from "@/lib/rate-limit";
 import { recordLaunchEvent } from "@/lib/launch-events";
 import { waitForSdpAnswer } from "@/lib/pending-sdp";
@@ -561,7 +561,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const launchLockKey = `${serverId}:${hostToken ?? uid}`;
     const prepared = await db.transaction(async (tx) => {
+      // Serialize all launches from the same host identity before reading or
+      // ending prior sessions. The lock is released automatically on commit.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${launchLockKey}, 0))`);
+
       // End prior host-token sessions, create the new generation and peer
       // capability, and publish the prepared command as one atomic unit.
       let recycledRoomToken: string | null = null;

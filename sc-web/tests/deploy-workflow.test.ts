@@ -17,6 +17,7 @@ const migration = readFileSync("drizzle/0016_remove_cloud_library.sql", "utf8");
 const publicWatch = readFileSync("lib/public-watch.ts", "utf8");
 const watchPage = readFileSync("app/watch/page.tsx", "utf8");
 const gamePlayer = readFileSync("components/GamePlayer.tsx", "utf8");
+const commandRoute = readFileSync("app/api/server/command/route.ts", "utf8");
 const playerServer = readFileSync("../sc-server/src/player_server.rs", "utf8");
 const rootReadme = readFileSync("../README.md", "utf8");
 const quickstart = readFileSync("../QUICKSTART.md", "utf8");
@@ -88,7 +89,8 @@ describe("production deploy workflow", () => {
     expect(scriptsReadme).toContain("| bash -s --");
     expect(scriptsReadme).not.toContain("| sh -s --");
     expect(hostInstaller).not.toMatch(/\| sh(?:\s|$)/);
-    expect(quickstart).toContain("https://sprite-cloud.com/install.sh | bash");
+    expect(quickstart).toContain("sudo ./scripts/install.sh --web-url");
+    expect(quickstart).not.toContain("https://sprite-cloud.com/install.sh");
     expect(quickstart).not.toContain("https://get.gamesvault.app");
   });
 
@@ -135,6 +137,16 @@ describe("production deploy workflow", () => {
     expect(publicWatch).not.toContain("ensureRoomToken");
     expect(watchPage).not.toContain("redirect(publicPath)");
     expect(watchPage).toContain("<PublicRoomPlayer {...publicSession} />");
+  });
+
+  it("serializes fresh launches before replacing the current host session", () => {
+    const lock = commandRoute.indexOf("pg_advisory_xact_lock");
+    const victims = commandRoute.indexOf("const victims = await tx");
+    const publish = commandRoute.indexOf("status: STATUS_PENDING", victims);
+    expect(commandRoute).toContain("const prepared = await db.transaction");
+    expect(lock).toBeGreaterThan(-1);
+    expect(victims).toBeGreaterThan(lock);
+    expect(publish).toBeGreaterThan(victims);
   });
 
   it("strips capability-bearing referrers and sends CSRF on UI stop", () => {

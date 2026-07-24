@@ -30,12 +30,12 @@ You need a Linux machine with your ROM files. The host streams games to players 
 ### 1. Install sc-server
 
 ```bash
-# From GitHub Releases (once CI is set up):
-curl -fsSL https://sprite-cloud.com/install.sh | bash
-
-# For now: build from source
+# Install the checksum-verifying host package from this repository:
 git clone https://github.com/longjoel/sprite-cloud
 cd sprite-cloud
+sudo ./scripts/install.sh --web-url https://your-gateway.example --rom-dir /path/to/roms
+
+# Or build from source:
 cargo build --release -p sc-core -p sc-server
 sudo cp target/release/sc-server /usr/local/bin/
 ```
