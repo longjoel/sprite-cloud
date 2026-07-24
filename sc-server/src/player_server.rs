@@ -101,6 +101,7 @@ fn app_router() -> Router<Arc<AppState>> {
         .route("/api/pins", get(list_pins).post(toggle_pin))
         .route("/api/recent-plays", get(list_recent_plays))
         .route("/api/games/:id", get(get_game).put(rename_game))
+        .route("/api/playable-hosts", get(playable_hosts))
         .route("/api/room/shorten", post(proxy_server_authenticated))
         .route("/health", get(health))
         .route("/api/*path", any(proxy))
@@ -503,6 +504,48 @@ async fn local_game_exists(state: &AppState, game_id: &str) -> bool {
         .await
         .iter()
         .any(|game| game.id == game_id)
+}
+
+#[derive(Deserialize)]
+struct PlayableHostsQuery {
+    game_id: String,
+    server_id: String,
+}
+
+async fn playable_hosts(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<PlayableHostsQuery>,
+    headers: axum::http::HeaderMap,
+) -> Result<Json<serde_json::Value>, axum::http::StatusCode> {
+    if query.server_id != state.server_id || !local_game_exists(&state, &query.game_id).await {
+        return Ok(Json(serde_json::json!({ "hosts": [] })));
+    }
+
+    let host = headers
+        .get(axum::http::header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .ok_or(axum::http::StatusCode::BAD_REQUEST)?;
+    let _: axum::http::uri::Authority = host
+        .parse()
+        .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
+    let player_url = format!("http://{host}");
+
+    Ok(Json(serde_json::json!({
+        "hosts": [{
+            "server_id": state.server_id,
+            "name": state.server_name,
+            "status": "online",
+            "has_game": true,
+            "capabilities": { "lan": true, "stun": false, "turn": false },
+            "lan": {
+                "player_port": state.bind.port(),
+                "player_urls": [player_url],
+                "health_urls": [format!("{player_url}/health")]
+            },
+            "role": "admin",
+            "metadata": {}
+        }]
+    })))
 }
 
 async fn get_game(
@@ -1605,6 +1648,29 @@ mod tests {
         assert_eq!(payload["games"][0]["platform"], "snes");
         assert_eq!(payload["games"][0]["serverId"], "server-vault");
         assert_eq!(payload["games"][0]["maxPlayers"], 1);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/playable-hosts?game_id={expected_id}&server_id=server-vault"))
+                    .header("host", "192.168.86.128:8787")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["hosts"][0]["server_id"], "server-vault");
+        assert_eq!(payload["hosts"][0]["has_game"], true);
+        assert_eq!(
+            payload["hosts"][0]["lan"]["player_urls"][0],
+            "http://192.168.86.128:8787"
+        );
 
         let response = app
             .oneshot(
