@@ -91,6 +91,7 @@ if $ROOTLESS; then
   DATA_DIR="${HOME}/.local/share/sprite-cloud"
   SYSTEMD_DIR="${HOME}/.config/systemd/user"
   SYSTEMCTL="systemctl --user"
+  JOURNALCTL="journalctl --user"
   SU_CMD=""  # no user switch needed
 else
   MODE="system-wide (root)"
@@ -106,7 +107,8 @@ else
   CONFIG_DIR="/etc/sprite-cloud"
   DATA_DIR="/var/lib/sprite-cloud"
   SYSTEMD_DIR="/etc/systemd/system"
-  SYSTEMCTL="sudo systemctl"
+  SYSTEMCTL="${SUDO:+$SUDO }systemctl"
+  JOURNALCTL="${SUDO:+$SUDO }journalctl"
   SU_CMD="sprite-cloud:sprite-cloud"
 fi
 
@@ -305,14 +307,17 @@ echo ""
 printf "  Next steps:\n"
 echo ""
 printf "  ${BOLD}1. Pair your server:${NC}\n"
-printf "     Go to ${CYAN}${WEB_URL}${NC} → Pair Server → copy the code\n"
+printf "     Open ${CYAN}${WEB_URL%/}/dashboard${NC} → Pair Server → copy the code\n"
 printf "     Run: ${BOLD}sc-server pair <CODE> --sc-web-url ${WEB_URL}${NC}\n"
 echo ""
 printf "  ${BOLD}2. Start the service:${NC}\n"
 printf "     ${BOLD}${SYSTEMCTL} enable --now sc-server${NC}\n"
+if $ROOTLESS; then
+  printf "     Run this as your login user; ${BOLD}do not prefix it with sudo${NC}.\n"
+fi
 echo ""
 printf "  Status:  ${BOLD}${SYSTEMCTL} status sc-server${NC}\n"
-printf "  Logs:    ${BOLD}journalctl ${SYSTEMCTL/#systemctl/} -u sc-server -f${NC}\n"
+printf "  Logs:    ${BOLD}${JOURNALCTL} -u sc-server -f${NC}\n"
 printf "  Config:  ${BOLD}${CONFIG_FILE}${NC}\n"
 printf "  Cores:   ${BOLD}${CORES_DIR}${NC}\n"
 echo ""

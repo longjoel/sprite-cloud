@@ -19,6 +19,13 @@ pub async fn run() -> Result<()> {
     println!("  Press Enter to accept defaults shown in [brackets].");
     println!();
 
+    let existing = config::load().ok();
+    let sc_web_url = existing
+        .as_ref()
+        .map(|cfg| cfg.sc_web.url.clone())
+        .filter(|url| !url.trim().is_empty())
+        .unwrap_or_else(|| "https://sprite-cloud.com".to_string());
+
     // ── 1. ROM directory ──────────────────────────────────────────
     let default_roms = guess_rom_dir();
     print!("  ROM directory [{}]: ", default_roms);
@@ -72,13 +79,11 @@ pub async fn run() -> Result<()> {
         cores_dir
     };
     println!("  ✓ Cores: {}", cores_dir);
+    println!();
+    println!("  Connect your server after setup:");
+    println!("    {}/dashboard", sc_web_url.trim_end_matches('/'));
 
     // ── 3. NAT check ─────────────────────────────────────────────
-    let sc_web_url = config::load()
-        .ok()
-        .and_then(|c| Some(c.sc_web.url))
-        .unwrap_or_else(|| "https://sprite-cloud.com".to_string());
-
     println!();
     println!("  Checking network...");
     let detection = match nat::detect(&[
@@ -148,10 +153,13 @@ pub async fn run() -> Result<()> {
     // ── 6. Save config ───────────────────────────────────────────
     let cfg = config::Config {
         sc_web: config::ScWeb { url: sc_web_url },
-        auth: config::Auth {
-            api_key: String::new(),
-            server_id: String::new(),
-        },
+        auth: existing
+            .as_ref()
+            .map(|cfg| cfg.auth.clone())
+            .unwrap_or(config::Auth {
+                api_key: String::new(),
+                server_id: String::new(),
+            }),
         rom: if rom_roots.is_empty() {
             None
         } else {
@@ -173,6 +181,7 @@ pub async fn run() -> Result<()> {
     println!("  ✓ Config saved to ~/.config/sprite-cloud/config.toml");
     println!();
     println!("  Next step: pair with your account");
+    println!("    Open: {}/dashboard", cfg.sc_web.url.trim_end_matches('/'));
     println!("    sc-server pair <code> --sc-web-url {}", cfg.sc_web.url);
     println!();
 

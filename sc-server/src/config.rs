@@ -122,6 +122,62 @@ fn csv_env(name: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Return ROM roots using an explicit runtime override first, then persisted config.
+pub fn effective_rom_roots(config: Option<&Config>) -> Vec<String> {
+    select_rom_roots(csv_env("GV_ROM_ROOTS"), config)
+}
+
+fn select_rom_roots(env_roots: Vec<String>, config: Option<&Config>) -> Vec<String> {
+    if !env_roots.is_empty() {
+        return env_roots;
+    }
+
+    config
+        .and_then(|cfg| cfg.rom.as_ref())
+        .map(|rom| rom.roots.clone())
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config_with_roots(roots: &[&str]) -> Config {
+        Config {
+            sc_web: ScWeb {
+                url: "https://sprite-cloud.com".into(),
+            },
+            auth: Auth {
+                api_key: String::new(),
+                server_id: String::new(),
+            },
+            rom: Some(Rom {
+                roots: roots.iter().map(|root| (*root).to_string()).collect(),
+            }),
+            cores: None,
+            ice: None,
+        }
+    }
+
+    #[test]
+    fn persisted_rom_roots_survive_restart_without_env_override() {
+        let cfg = config_with_roots(&["/games/roms"]);
+        assert_eq!(
+            select_rom_roots(Vec::new(), Some(&cfg)),
+            vec!["/games/roms"]
+        );
+    }
+
+    #[test]
+    fn explicit_env_rom_roots_override_persisted_roots() {
+        let cfg = config_with_roots(&["/games/roms"]);
+        assert_eq!(
+            select_rom_roots(vec!["/mnt/override".into()], Some(&cfg)),
+            vec!["/mnt/override"]
+        );
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum IceTransportPolicySetting {
     All,
