@@ -1049,7 +1049,7 @@ describe("POST /api/server/notify", () => {
     const resp = await POST(req as any);
 
     expect(resp.status).toBe(409);
-    expect(mockDb.update).toHaveBeenCalledTimes(1);
+    expect(mockDb.update).not.toHaveBeenCalled();
   });
 
   it("does not apply a notify callback to an unrelated same-server session", async () => {
@@ -1088,7 +1088,7 @@ describe("POST /api/server/notify", () => {
     const resp = await POST(req as any);
 
     expect(resp.status).toBe(409);
-    expect(mockDb.update).toHaveBeenCalledTimes(1);
+    expect(mockDb.update).not.toHaveBeenCalled();
   });
 
   it("requires an exact session id for worker-dead cleanup", async () => {
@@ -1149,7 +1149,7 @@ describe("POST /api/server/notify", () => {
     const resp = await POST(req as any);
 
     expect(resp.status).toBe(409);
-    expect(mockDb.update).toHaveBeenCalledTimes(1);
+    expect(mockDb.update).not.toHaveBeenCalled();
   });
 
   it("does not revive a session that ends between validation and update", async () => {
@@ -1174,9 +1174,7 @@ describe("POST /api/server/notify", () => {
         gameId: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         commandId: "cmd-start",
       }]));
-    mockDb.update
-      .mockReturnValueOnce(mockQueryBuilder([{ id: "cmd-race" }]))
-      .mockReturnValueOnce(mockQueryBuilder([]));
+    mockDb.update.mockReturnValueOnce(mockQueryBuilder([]));
     const { POST } = await import("@/app/api/server/notify/route");
     const req = mkReq("http://localhost/api/server/notify", {
       ...jsonBody({
@@ -1194,6 +1192,8 @@ describe("POST /api/server/notify", () => {
 
     expect(resp.status).toBe(409);
     expect(await resp.json()).toEqual({ error: "session state changed" });
+    expect(mockDb.transaction).toHaveBeenCalledTimes(1);
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
   });
 
   it("accepts an authorized stop action without worker_url", async () => {

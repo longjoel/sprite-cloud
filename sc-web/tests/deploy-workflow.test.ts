@@ -16,6 +16,7 @@ const publicWatch = readFileSync("lib/public-watch.ts", "utf8");
 const watchPage = readFileSync("app/watch/page.tsx", "utf8");
 const gamePlayer = readFileSync("components/GamePlayer.tsx", "utf8");
 const playerServer = readFileSync("../sc-server/src/player_server.rs", "utf8");
+const rootReadme = readFileSync("../README.md", "utf8");
 
 describe("production deploy workflow", () => {
   it("treats a successful health curl exit code as success without capturing its body", () => {
@@ -75,6 +76,8 @@ describe("production deploy workflow", () => {
     expect(install).toBeGreaterThan(checksum);
     expect(hostInstaller).not.toContain('curl -sSL "$BIN_URL" -o "$BIN_PATH"');
     expect(hostInstaller).not.toContain('ARCH="armv7"');
+    expect(rootReadme).toContain("scripts/install.sh | bash -s --");
+    expect(rootReadme).not.toContain("scripts/install.sh | sh -s --");
   });
 
   it("publishes only after both advertised architecture builds succeed", () => {

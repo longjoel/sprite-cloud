@@ -57,7 +57,7 @@ cargo run -p sc-server -- start
 ## One-liner host install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/longjoel/sprite-cloud/main/scripts/install.sh | sh -s -- --web-url https://your-gateway.example --rom-dir /path/to/roms
+curl -sSL https://raw.githubusercontent.com/longjoel/sprite-cloud/main/scripts/install.sh | bash -s -- --web-url https://your-gateway.example --rom-dir /path/to/roms
 ```
 
 The installer detects Linux distro/arch, installs system dependencies, downloads `sc-server` from GitHub Releases, writes config, and installs a systemd service.
