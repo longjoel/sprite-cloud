@@ -1,6 +1,7 @@
 // ── Shared dashboard utilities (CSRF, time helpers, type guards) ──────
 
 import { pollUntil } from "@/lib/poll";
+import { randomUuid } from "@/lib/browser/random-uuid";
 
 // ── Type Guards ────────────────────────────────────────────────────────
 
@@ -47,7 +48,7 @@ export function csrfHeaders(): Record<string, string> {
       .slice(1)
       .join("=");
     if (!token) {
-      token = crypto.randomUUID();
+      token = randomUuid();
       document.cookie = `sc_csrf_token=${encodeURIComponent(
         token,
       )}; Path=/; SameSite=Lax`;

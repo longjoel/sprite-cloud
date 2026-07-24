@@ -11,6 +11,7 @@ import { buildLanPlayerLaunchUrl, canUseLanPlayer, chooseLaunchHost, createLaunc
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
 import { createAllLibraryPageParams, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, createPlayableHostsParams, filterLibraryGames, formatRecentGroupLabel, formatRelativeAge, groupRecentGamesByLocalDate, libraryGameKey, mergeLibraryPages, mergeRecentLibraryPages, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
 import type { LanLibraryLink } from "@/lib/lan/library-handoff";
+import { randomUuid } from "@/lib/browser/random-uuid";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -97,7 +98,7 @@ function csrfHeaders(): Record<string, string> {
     .slice(1)
     .join("=");
   if (!token) {
-    token = crypto.randomUUID();
+    token = randomUuid();
     document.cookie = `sc_csrf_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax`;
   }
   return { "Content-Type": "application/json", "x-csrf-token": decodeURIComponent(token) };
@@ -368,7 +369,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session }:
   }, []);
 
   const navigateToGame = useCallback(async (gameId: string, serverId: string, generation: number, lanPlayerUrls?: string[] | null) => {
-    const hostToken = crypto.randomUUID();
+    const hostToken = randomUuid();
     const resp = await fetch("/api/room/shorten", {
       method: "POST",
       headers: csrfHeaders(),
