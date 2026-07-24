@@ -24,9 +24,12 @@ ops/
 
 ## Recovery from templates
 
-To reconstitute a fresh host from these templates:
+Normal users should install a user service with [the sc-server installation guide](../docs/SC-SERVER-INSTALL.md). The units in `ops/` are operator/developer recovery templates for managed system services.
 
-### Dev/self-host sc-server host
+### Managed sc-server host
+
+The managed unit runs as `sprite-cloud`, reads `/etc/sprite-cloud/config.toml`, and uses the data/core paths declared by the unit and environment file. Its ROM root must be readable by `sprite-cloud`.
+
 ```bash
 # systemd unit
 sudo cp ops/dev-host/sc-server.service /etc/systemd/system/
@@ -36,10 +39,16 @@ sudo systemctl daemon-reload
 sudo cp ops/dev-host/sprite-cloud.env.example /etc/sprite-cloud.env
 sudo $EDITOR /etc/sprite-cloud.env
 
-# config
-sudo mkdir -p /etc/sprite-cloud
-# write /etc/sprite-cloud/config.toml with web URL, auth, ROM roots
+# create the service-owned config directory
+sudo install -d -o sprite-cloud -g sprite-cloud -m 750 /etc/sprite-cloud
+
+# pair through the same XDG path used by the system unit
+sudo -u sprite-cloud env XDG_CONFIG_HOME=/etc \
+  /usr/local/bin/sc-server pair <CODE> \
+  --sc-web-url https://your-gateway.example
 ```
+
+Do not manually paste API keys into the config or pair as the invoking login user.
 
 ### VPS
 ```bash

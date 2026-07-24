@@ -19,6 +19,7 @@ const scPlayerScript = readFileSync("public/player/sc-player.js", "utf8");
 const browserLogger = readFileSync("public/browser-log.js", "utf8");
 const productionEntrypoint = readFileSync("../docker/sc-web/entrypoint.prod.sh", "utf8");
 const developmentEntrypoint = readFileSync("../docker/sc-web/entrypoint.sh", "utf8");
+const hostEntrypoint = readFileSync("../docker/sc-server/entrypoint.sh", "utf8");
 const migration = readFileSync("drizzle/0016_remove_cloud_library.sql", "utf8");
 const publicWatch = readFileSync("lib/public-watch.ts", "utf8");
 const watchPage = readFileSync("app/watch/page.tsx", "utf8");
@@ -125,6 +126,17 @@ describe("production deploy workflow", () => {
     expect(hostInstaller).not.toContain('SYSTEMCTL="sudo systemctl"');
     expect(hostInstaller).toContain('if [[ -f "$CONFIG_FILE" ]]');
     expect(hostInstaller).toContain("existing config preserved");
+    expect(hostInstaller).toContain(`[auth]
+api_key = ""
+server_id = ""`);
+    expect(hostInstaller).toContain('$SUDO chown "$SU_CMD" "$CONFIG_DIR" "$CONFIG_FILE"');
+  });
+
+  it("pairs a container once without logging the pairing code", () => {
+    expect(hostEntrypoint).toContain('config_file="$config_home/sprite-cloud/config.toml"');
+    expect(hostEntrypoint).toContain('if [ -s "$config_file" ]');
+    expect(hostEntrypoint).toContain('sc-server pair "$GV_PAIR_CODE"');
+    expect(hostEntrypoint).not.toContain("auto-pairing with code $GV_PAIR_CODE");
   });
 
   it("publishes only after both advertised architecture builds succeed", () => {

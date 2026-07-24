@@ -21,11 +21,17 @@ if ! ldd /usr/local/bin/sc-server >/dev/null 2>&1; then
 fi
 
 # ── One-liner pairing mode ───────────────────────────────────────────
-# If GV_PAIR_CODE and GV_WEB_URL are set, auto-pair before starting.
-# This lets users run a single `docker run` command without pre-creating config.
+# If GV_PAIR_CODE and GV_WEB_URL are set and no persistent config exists,
+# auto-pair once before starting. Never print the pairing code.
+config_home="${XDG_CONFIG_HOME:-${HOME:-/root}/.config}"
+config_file="$config_home/sprite-cloud/config.toml"
 if [ -n "${GV_PAIR_CODE:-}" ] && [ -n "${GV_WEB_URL:-}" ]; then
-  echo "[sc-server] auto-pairing with code $GV_PAIR_CODE → $GV_WEB_URL"
-  sc-server pair "$GV_PAIR_CODE" --sc-web-url "$GV_WEB_URL"
+  if [ -s "$config_file" ]; then
+    echo "[sc-server] persistent pairing config found — skipping one-time pairing"
+  else
+    echo "[sc-server] auto-pairing with $GV_WEB_URL"
+    sc-server pair "$GV_PAIR_CODE" --sc-web-url "$GV_WEB_URL"
+  fi
 fi
 
 # ── Wait for sc-web ─────────────────────────────────────────────────

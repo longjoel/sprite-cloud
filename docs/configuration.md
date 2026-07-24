@@ -29,7 +29,9 @@ First admin account creation is handled by the `/setup` flow. When the `users` t
 
 For the complete lifecycle, see **[SC-SERVER-INSTALL.md](SC-SERVER-INSTALL.md)**.
 
-Default config locations:
+The CLI normally uses the user XDG configuration directory. `/etc/sprite-cloud/config.toml` is selected only when a managed system unit explicitly sets `XDG_CONFIG_HOME=/etc`; pair that unit as its service account.
+
+Config locations:
 
 | Install mode | Path |
 |---|---|
@@ -72,6 +74,17 @@ Runtime env vars:
 `GV_WORKER_HOST`/`GV_WORKER_PORT` are compatibility names for the browser-facing local player endpoint.
 
 Explicit environment variables take precedence over persisted ROM/core values. Without an override, paired and standalone startup both load the values saved by setup.
+
+Persistence boundaries:
+
+| State | Default user path | Upgrade behavior |
+|---|---|---|
+| Pairing and setup config | `~/.config/sprite-cloud/config.toml` | preserved |
+| Shared library preferences/history | `~/.local/share/sprite-cloud/library-state.json` | preserved |
+| Downloaded cores | `[cores].dir` / `GV_CORES_DIR` | preserved outside the binary |
+| Other mutable server data | `GV_DATA_DIR` | preserved outside the binary |
+
+Do not remove these paths during an upgrade. The public installer replaces only the verified executable.
 
 ## Core overrides
 
