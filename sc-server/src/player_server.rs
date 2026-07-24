@@ -6,7 +6,7 @@
 use axum::{
     Router,
     body::Body,
-    extract::{Query, Request, State},
+    extract::{Path, Query, Request, State},
     response::Json,
     routing::{any, get},
 };
@@ -28,6 +28,7 @@ struct AppState {
     sessions: Arc<
         tokio::sync::Mutex<std::collections::HashMap<String, Arc<crate::session::GameSession>>>,
     >,
+    preferences: Arc<tokio::sync::Mutex<crate::library_state::LibraryStateStore>>,
 }
 
 /// Game library and scan state for standalone mode.
@@ -95,6 +96,10 @@ fn app_router() -> Router<Arc<AppState>> {
         // These exact routes are always owned by sc-server. The wildcard proxy
         // below handles only cloud/auth/signaling routes that remain in sc-web.
         .route("/api/games", get(list_games))
+        .route("/api/favorites", get(list_favorites).post(toggle_favorite))
+        .route("/api/pins", get(list_pins).post(toggle_pin))
+        .route("/api/recent-plays", get(list_recent_plays))
+        .route("/api/games/:id", get(proxy).put(rename_game))
         .route("/health", get(health))
         .route("/api/*path", any(proxy))
         .route("/sdp", any(proxy))
@@ -252,6 +257,14 @@ async fn proxy_to_sc_web(
     Ok(response)
 }
 
+pub(crate) type SharedLibraryState =
+    Arc<tokio::sync::Mutex<crate::library_state::LibraryStateStore>>;
+
+pub(crate) fn open_library_preferences() -> std::io::Result<SharedLibraryState> {
+    crate::library_state::LibraryStateStore::load(crate::library_state::state_path())
+        .map(|store| Arc::new(tokio::sync::Mutex::new(store)))
+}
+
 pub(crate) async fn serve(
     bind: SocketAddr,
     sc_web: String,
@@ -261,6 +274,7 @@ pub(crate) async fn serve(
     lan_player_enabled: bool,
     game_list: Arc<tokio::sync::RwLock<Vec<LocalGame>>>,
     rom_roots: Arc<Vec<String>>,
+    preferences: SharedLibraryState,
 ) {
     let state = Arc::new(AppState {
         client: Client::new(),
@@ -275,6 +289,7 @@ pub(crate) async fn serve(
             rom_roots,
         }),
         sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        preferences,
     });
 
     let app = app_router().with_state(state);
@@ -299,6 +314,7 @@ pub(crate) async fn serve_standalone(
     bind: SocketAddr,
     game_list: Arc<tokio::sync::RwLock<Vec<LocalGame>>>,
     rom_roots: Arc<Vec<String>>,
+    preferences: SharedLibraryState,
 ) {
     let standalone = StandaloneState {
         game_list,
@@ -315,6 +331,7 @@ pub(crate) async fn serve_standalone(
         lan_player_enabled: true,
         standalone: Some(standalone),
         sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        preferences,
     });
 
     let app = app_router()
@@ -356,6 +373,10 @@ struct GameEntry {
     server_id: String,
     #[serde(rename = "maxPlayers")]
     max_players: u8,
+    favorite: bool,
+    pinned: bool,
+    #[serde(rename = "playedAt", skip_serializing_if = "Option::is_none")]
+    played_at: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -363,6 +384,10 @@ struct GameListQuery {
     limit: Option<usize>,
     offset: Option<usize>,
     search: Option<String>,
+    #[serde(default)]
+    pins_first: bool,
+    #[serde(default)]
+    ids_only: bool,
 }
 
 async fn list_games(
@@ -373,30 +398,28 @@ async fn list_games(
         .standalone
         .as_ref()
         .ok_or(axum::http::StatusCode::NOT_FOUND)?;
+    let preferences = state.preferences.lock().await.snapshot();
     let games = standalone.game_list.read().await;
     let search = query.search.unwrap_or_default().trim().to_lowercase();
     let mut entries: Vec<GameEntry> = games
         .iter()
         .filter(|game| {
-            search.is_empty() || game.discovered.file_name.to_lowercase().contains(&search)
+            let fallback = local_game_name(game);
+            search.is_empty()
+                || preferences
+                    .display_name(&game.id, &fallback)
+                    .to_lowercase()
+                    .contains(&search)
         })
-        .map(|game| GameEntry {
-            id: game.id.clone(),
-            name: std::path::Path::new(&game.discovered.file_name)
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or(&game.discovered.file_name)
-                .to_string(),
-            platform: game
-                .discovered
-                .platform
-                .clone()
-                .unwrap_or_else(|| "unknown".to_string()),
-            server_id: state.server_id.clone(),
-            max_players: 1,
-        })
+        .map(|game| game_entry(game, &state, &preferences))
         .collect();
-    entries.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    entries.sort_by(|left, right| {
+        query
+            .pins_first
+            .then(|| right.pinned.cmp(&left.pinned))
+            .filter(|ordering| !ordering.is_eq())
+            .unwrap_or_else(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+    });
 
     let total = entries.len();
     let offset = query.offset.unwrap_or(0).min(total);
@@ -404,6 +427,194 @@ async fn list_games(
     let page: Vec<GameEntry> = entries.into_iter().skip(offset).take(limit).collect();
 
     Ok(Json(serde_json::json!({ "games": page, "total": total })))
+}
+
+fn local_game_name(game: &LocalGame) -> String {
+    std::path::Path::new(&game.discovered.file_name)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or(&game.discovered.file_name)
+        .to_string()
+}
+
+fn game_entry(
+    game: &LocalGame,
+    state: &AppState,
+    preferences: &crate::library_state::LibraryPreferences,
+) -> GameEntry {
+    let fallback = local_game_name(game);
+    GameEntry {
+        id: game.id.clone(),
+        name: preferences.display_name(&game.id, &fallback).to_string(),
+        platform: game
+            .discovered
+            .platform
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
+        server_id: state.server_id.clone(),
+        max_players: 1,
+        favorite: preferences.is_favorite(&game.id),
+        pinned: preferences.is_pinned(&game.id),
+        played_at: preferences.recent.get(&game.id).cloned(),
+    }
+}
+
+async fn local_game_exists(state: &AppState, game_id: &str) -> bool {
+    let Some(standalone) = state.standalone.as_ref() else {
+        return false;
+    };
+    standalone
+        .game_list
+        .read()
+        .await
+        .iter()
+        .any(|game| game.id == game_id)
+}
+
+async fn preference_entries(
+    state: &AppState,
+    predicate: impl Fn(&GameEntry) -> bool,
+) -> Vec<GameEntry> {
+    let Some(standalone) = state.standalone.as_ref() else {
+        return Vec::new();
+    };
+    let preferences = state.preferences.lock().await.snapshot();
+    let games = standalone.game_list.read().await;
+    games
+        .iter()
+        .map(|game| game_entry(game, state, &preferences))
+        .filter(predicate)
+        .collect()
+}
+
+async fn list_favorites(
+    Query(query): Query<GameListQuery>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, axum::http::StatusCode> {
+    let search = query.search.unwrap_or_default().trim().to_lowercase();
+    let mut entries = preference_entries(&state, |game| {
+        game.favorite && (search.is_empty() || game.name.to_lowercase().contains(&search))
+    })
+    .await;
+    entries.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    let total = entries.len();
+    let offset = query.offset.unwrap_or(0).min(total);
+    let limit = query.limit.unwrap_or(100).clamp(1, 200);
+    let page: Vec<_> = entries.into_iter().skip(offset).take(limit).collect();
+    Ok(Json(serde_json::json!({ "games": page, "total": total })))
+}
+
+#[derive(Deserialize)]
+struct GamePreferenceRequest {
+    #[serde(rename = "gameId")]
+    game_id: String,
+}
+
+async fn toggle_favorite(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<GamePreferenceRequest>,
+) -> Result<Json<serde_json::Value>, axum::http::StatusCode> {
+    if !local_game_exists(&state, &request.game_id).await {
+        return Err(axum::http::StatusCode::NOT_FOUND);
+    }
+    let favorited = state
+        .preferences
+        .lock()
+        .await
+        .toggle_favorite(&request.game_id)
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(serde_json::json!({ "favorited": favorited })))
+}
+
+async fn list_pins(
+    Query(query): Query<GameListQuery>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, axum::http::StatusCode> {
+    let preferences = state.preferences.lock().await.snapshot();
+    if query.ids_only {
+        return Ok(Json(serde_json::json!({ "ids": preferences.pins })));
+    }
+    let entries = preference_entries(&state, |game| game.pinned).await;
+    let by_id: std::collections::HashMap<_, _> = entries
+        .into_iter()
+        .map(|entry| (entry.id.clone(), entry))
+        .collect();
+    let ordered: Vec<_> = preferences
+        .pins
+        .iter()
+        .filter_map(|id| by_id.get(id))
+        .collect();
+    Ok(Json(serde_json::json!({ "games": ordered })))
+}
+
+async fn toggle_pin(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<GamePreferenceRequest>,
+) -> Result<Json<serde_json::Value>, axum::http::StatusCode> {
+    if !local_game_exists(&state, &request.game_id).await {
+        return Err(axum::http::StatusCode::NOT_FOUND);
+    }
+    let mut preferences = state.preferences.lock().await;
+    let pinned = preferences
+        .toggle_pin(&request.game_id)
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
+    let pin_count = preferences.snapshot().pins.len();
+    Ok(Json(
+        serde_json::json!({ "pinned": pinned, "pinCount": pin_count }),
+    ))
+}
+
+async fn list_recent_plays(
+    Query(query): Query<GameListQuery>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, axum::http::StatusCode> {
+    let search = query.search.unwrap_or_default().trim().to_lowercase();
+    let mut entries = preference_entries(&state, |game| {
+        game.played_at.is_some()
+            && (search.is_empty() || game.name.to_lowercase().contains(&search))
+    })
+    .await;
+    entries.sort_by(|left, right| right.played_at.cmp(&left.played_at));
+    let total = entries.len();
+    let offset = query.offset.unwrap_or(0).min(total);
+    let limit = query.limit.unwrap_or(100).clamp(1, 200);
+    let page: Vec<_> = entries.into_iter().skip(offset).take(limit).collect();
+    Ok(Json(serde_json::json!({ "games": page, "total": total })))
+}
+
+fn current_timestamp() -> Result<String, axum::http::StatusCode> {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+#[derive(Deserialize)]
+struct RenameGameRequest {
+    name: String,
+}
+
+async fn rename_game(
+    Path(game_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<RenameGameRequest>,
+) -> Result<Json<serde_json::Value>, axum::http::StatusCode> {
+    if !local_game_exists(&state, &game_id).await {
+        return Err(axum::http::StatusCode::NOT_FOUND);
+    }
+    let name = request.name.trim();
+    if name.is_empty() || name.len() > 200 {
+        return Err(axum::http::StatusCode::BAD_REQUEST);
+    }
+    state
+        .preferences
+        .lock()
+        .await
+        .rename(&game_id, name)
+        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(
+        serde_json::json!({ "game": { "id": game_id, "name": name } }),
+    ))
 }
 
 pub(crate) fn resolve_local_game(
@@ -563,6 +774,15 @@ async fn launch_game(
             sessions.remove(&cleanup_id);
         }
     });
+    if let Ok(played_at) = current_timestamp()
+        && let Err(error) = state
+            .preferences
+            .lock()
+            .await
+            .record_played(&request.game_id, &played_at)
+    {
+        tracing::warn!("[library] failed to record recent play: {error}");
+    }
     Ok(Json(serde_json::json!({
         "status": "ready",
         "game_id": request.game_id,
@@ -641,11 +861,12 @@ async fn library_page(
         .as_ref()
         .ok_or(axum::http::StatusCode::NOT_FOUND)?;
     let games = standalone.game_list.read().await;
+    let preferences = state.preferences.lock().await.snapshot();
     let hostname = state.server_name.clone();
     let count = games.len();
 
     // Group by platform while retaining the opaque local game id for launch.
-    let mut platforms: std::collections::BTreeMap<String, Vec<(String, String)>> =
+    let mut platforms: std::collections::BTreeMap<String, Vec<(String, String, bool, bool)>> =
         std::collections::BTreeMap::new();
     for game in games.iter() {
         let platform = game
@@ -653,10 +874,14 @@ async fn library_page(
             .platform
             .clone()
             .unwrap_or_else(|| "other".to_string());
-        platforms
-            .entry(platform)
-            .or_default()
-            .push((game.id.clone(), game.discovered.file_name.clone()));
+        platforms.entry(platform).or_default().push((
+            game.id.clone(),
+            preferences
+                .display_name(&game.id, &local_game_name(game))
+                .to_string(),
+            preferences.is_favorite(&game.id),
+            preferences.is_pinned(&game.id),
+        ));
     }
 
     let mut platform_sections = String::new();
@@ -665,10 +890,17 @@ async fn library_page(
             "<details open><summary><strong>{}</strong> <span class=\"count\">({})</span></summary><ul>",
             html_escape(platform), entries.len()
         ));
-        for (game_id, name) in entries {
+        for (game_id, name, favorite, pinned) in entries {
             platform_sections.push_str(&format!(
-                "<li><span>{}</span><button class=\"play\" data-game-id=\"{}\" onclick=\"launchGame(this.dataset.gameId)\">Play</button></li>",
-                html_escape(name), html_escape(game_id)
+                "<li><span>{}</span><button class=\"pref\" data-game-id=\"{}\" onclick=\"togglePreference('/api/favorites',this.dataset.gameId)\">{}</button><button class=\"pref\" data-game-id=\"{}\" onclick=\"togglePreference('/api/pins',this.dataset.gameId)\">{}</button><button class=\"pref\" data-game-id=\"{}\" data-name=\"{}\" onclick=\"renameGame(this.dataset.gameId,this.dataset.name)\">Rename</button><button class=\"play\" data-game-id=\"{}\" onclick=\"launchGame(this.dataset.gameId)\">Play</button></li>",
+                html_escape(name),
+                html_escape(game_id),
+                if *favorite { "★" } else { "☆" },
+                html_escape(game_id),
+                if *pinned { "Pinned" } else { "Pin" },
+                html_escape(game_id),
+                html_escape(name),
+                html_escape(game_id)
             ));
         }
         platform_sections.push_str("</ul></details>");
@@ -691,6 +923,7 @@ async fn library_page(
   button:hover {{ background: #172441; }}
   button:disabled {{ opacity: .5; cursor: wait; }}
   .play {{ margin-left: auto; padding: 4px 12px; }}
+  .pref {{ padding: 4px 8px; border-color: #202d49; }}
   .count {{ color: #8aa0b8; font-size: 0.8rem; }}
   details {{ margin-bottom: 12px; background: #10172a; border: 1px solid #202d49; border-radius: 2px; padding: 12px 16px; }}
   summary {{ cursor: pointer; font-size: 1rem; padding: 4px 0; }}
@@ -834,6 +1067,26 @@ async fn library_page(
   window.addEventListener('blur', () => {{ inputState = 0; sendInput(); }});
   window.addEventListener('pagehide', stopActiveGame);
 
+  async function togglePreference(path, gameId) {{
+    const response = await fetch(path, {{
+      method: 'POST', headers: {{'Content-Type':'application/json'}},
+      body: JSON.stringify({{gameId}})
+    }});
+    if (!response.ok) throw new Error('Preference update failed');
+    location.reload();
+  }}
+
+  async function renameGame(gameId, currentName) {{
+    const name = prompt('Game name', currentName);
+    if (!name || name.trim() === currentName) return;
+    const response = await fetch('/api/games/' + encodeURIComponent(gameId), {{
+      method: 'PUT', headers: {{'Content-Type':'application/json'}},
+      body: JSON.stringify({{name:name.trim()}})
+    }});
+    if (!response.ok) throw new Error('Rename failed');
+    location.reload();
+  }}
+
   async function rescan() {{
     const btn = document.querySelector('button');
     const status = document.getElementById('status');
@@ -876,6 +1129,16 @@ mod tests {
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt;
 
+    fn test_preferences() -> Arc<tokio::sync::Mutex<crate::library_state::LibraryStateStore>> {
+        let path = std::env::temp_dir().join(format!(
+            "sc-library-state-test-{:032x}.json",
+            rand::random::<u128>()
+        ));
+        Arc::new(tokio::sync::Mutex::new(
+            crate::library_state::LibraryStateStore::load(path).unwrap(),
+        ))
+    }
+
     #[test]
     fn health_payload_is_non_secret_lan_probe_identity() {
         let state = AppState {
@@ -888,6 +1151,7 @@ mod tests {
             lan_player_enabled: true,
             standalone: None,
             sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            preferences: test_preferences(),
         };
 
         let payload = health_payload(&state);
@@ -914,6 +1178,7 @@ mod tests {
             lan_player_enabled: true,
             standalone: None,
             sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            preferences: test_preferences(),
         });
         let app = app_router().with_state(state);
 
@@ -961,6 +1226,7 @@ mod tests {
                 rom_roots: Arc::new(Vec::new()),
             }),
             sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            preferences: test_preferences(),
         });
 
         let html = library_page(State(state)).await.unwrap().0;
@@ -974,6 +1240,113 @@ mod tests {
         assert!(html.contains("function closePlayer()"));
         assert!(html.contains("function setPlayButtonsDisabled(disabled)"));
         assert!(html.contains("launchGeneration++;\n    setPlayButtonsDisabled(false);"));
+    }
+
+    #[tokio::test]
+    async fn standalone_library_preferences_are_durable_and_reflected_in_games() {
+        let local_game = LocalGame::new(
+            "/roms",
+            crate::scan::DiscoveredFile {
+                relative_path: "snes/super-mario-world.sfc".to_string(),
+                file_name: "super-mario-world.sfc".to_string(),
+                file_size: 524_288,
+                sha256: None,
+                crc: None,
+                platform: Some("snes".to_string()),
+            },
+        );
+        let game_id = local_game.id.clone();
+        let preferences = test_preferences();
+        preferences
+            .lock()
+            .await
+            .record_played(&game_id, "2026-07-23T22:00:00Z")
+            .unwrap();
+        let state = Arc::new(AppState {
+            client: Client::new(),
+            sc_web: String::new(),
+            server_id: "standalone".to_string(),
+            user_id: "local".to_string(),
+            server_name: "Local".to_string(),
+            bind: "127.0.0.1:8787".parse().unwrap(),
+            lan_player_enabled: true,
+            standalone: Some(StandaloneState {
+                game_list: Arc::new(tokio::sync::RwLock::new(vec![local_game])),
+                rom_roots: Arc::new(vec!["/roms".to_string()]),
+            }),
+            sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            preferences,
+        });
+        let app = app_router().with_state(state);
+
+        for (path, body) in [
+            ("/api/favorites", serde_json::json!({ "gameId": game_id })),
+            ("/api/pins", serde_json::json!({ "gameId": game_id })),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri(path)
+                        .header("content-type", "application/json")
+                        .body(Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri(format!("/api/games/{game_id}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"name":"Super Mario World"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/games?pins_first=true")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let game = &body["games"][0];
+        assert_eq!(game["name"], "Super Mario World");
+        assert_eq!(game["favorite"], true);
+        assert_eq!(game["pinned"], true);
+        assert!(game["playedAt"].as_str().unwrap().ends_with('Z'));
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/recent-plays")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({ "gameId": game_id }).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
     }
 
     #[test]
@@ -1031,6 +1404,7 @@ mod tests {
                 rom_roots: Arc::new(Vec::new()),
             }),
             sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            preferences: test_preferences(),
         });
         let app = app_router()
             .route("/api/stop", axum::routing::post(stop_game))
@@ -1070,6 +1444,7 @@ mod tests {
                 rom_roots: Arc::new(vec!["/roms".to_string()]),
             }),
             sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            preferences: test_preferences(),
         });
         let app = app_router().with_state(state);
 
@@ -1085,6 +1460,63 @@ mod tests {
             .await
             .unwrap();
 
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    }
+
+    #[tokio::test]
+    async fn paired_preferences_use_the_same_trusted_lan_boundary_as_library_reads() {
+        let state = Arc::new(AppState {
+            client: Client::new(),
+            sc_web: "https://sprite-cloud.com".to_string(),
+            server_id: "server-vault".to_string(),
+            user_id: "user-joel".to_string(),
+            server_name: "Vault".to_string(),
+            bind: "0.0.0.0:8787".parse().unwrap(),
+            lan_player_enabled: true,
+            standalone: Some(StandaloneState {
+                game_list: Arc::new(tokio::sync::RwLock::new(Vec::new())),
+                rom_roots: Arc::new(vec!["/roms".to_string()]),
+            }),
+            sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            preferences: test_preferences(),
+        });
+        let response = app_router()
+            .with_state(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/api/favorites")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn paired_game_detail_get_still_proxies_to_sc_web() {
+        let state = Arc::new(AppState {
+            client: Client::new(),
+            sc_web: "http://127.0.0.1:1".to_string(),
+            server_id: "server-vault".to_string(),
+            user_id: "user-joel".to_string(),
+            server_name: "Vault".to_string(),
+            bind: "0.0.0.0:8787".parse().unwrap(),
+            lan_player_enabled: true,
+            standalone: None,
+            sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            preferences: test_preferences(),
+        });
+        let response = app_router()
+            .with_state(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/api/games/legacy-game-id")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
     }
 
@@ -1116,6 +1548,7 @@ mod tests {
                 rom_roots: Arc::new(vec!["/roms".to_string()]),
             }),
             sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            preferences: test_preferences(),
         });
         let app = app_router().with_state(state);
 

@@ -28,6 +28,9 @@ Browser ──HTTP──▶ sc-server:8787 (LAN player proxy) ──HTTPS──�
 - Instead, a one-shot `host_token` is embedded in the URL fragment
 - sc-web validates: `host_token` matches a short-code row → resolves server owner
 - No session cookies, no CSRF tokens, no user identity on this path
+- Server-wide library preferences (favorites, pins, display names, and recent
+  history) use the same trusted-LAN boundary as the local library listing.
+  They are intentionally shared by everyone using that `sc-server`.
 - The `host_token` is a `crypto.randomUUID()` — 122 bits of entropy, single-use
 
 ### 3. Standalone LAN mode (trusted network)
@@ -38,7 +41,8 @@ Browser ──HTTP──▶ sc-server:8787 ──▶ local game
 
 - Enabled only with `sc-server start --standalone`
 - Does not use sc-web, an account, cookies, or a host token
-- `GET /api/games`, `POST /api/scan`, `POST /api/launch`, and `POST /api/stop` are available directly
+- Library preference routes plus `GET /api/games`, `POST /api/scan`,
+  `POST /api/launch`, and `POST /api/stop` are available directly
 - Treats devices that can reach port 8787 as trusted local users
 - Do not expose port 8787 to the public internet
 - Use `GV_PLAYER_BIND=127.0.0.1:8787` when access should be limited to the host

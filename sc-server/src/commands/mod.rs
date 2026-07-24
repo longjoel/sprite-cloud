@@ -96,6 +96,8 @@ pub(crate) async fn cmd_start(
     }
 
     let mut cfg = config::load().context("load config (run 'sc-server pair' first)")?;
+    let library_preferences = crate::player_server::open_library_preferences()
+        .context("load local library preferences")?;
 
     if let Some(url) = sc_web_url {
         cfg.sc_web.url = url;
@@ -204,6 +206,7 @@ pub(crate) async fn cmd_start(
             true,
             Arc::clone(&local_game_list),
             Arc::clone(&local_rom_roots),
+            Arc::clone(&library_preferences),
         ));
     } else {
         tracing::info!("LAN player disabled (--no-lan-player) — relay-only mode");
@@ -242,6 +245,7 @@ pub(crate) async fn cmd_start(
                                     game::handle_start_game(
                                         cmd, &client, &mut sessions,
                                         &rom_roots, &local_game_list, &pc_pool,
+                                        &library_preferences,
                                     ).await;
                                 } else if cmd.command_type == "stop_game" {
                                     game::handle_stop_game(cmd, &client, &mut sessions).await;
@@ -373,6 +377,8 @@ async fn cmd_start_standalone(no_lan_player: bool) -> Result<()> {
 
 async fn run_standalone_server(rom_roots: Vec<String>) -> Result<()> {
     tracing::info!("ROM roots: {:?}", rom_roots);
+    let library_preferences = crate::player_server::open_library_preferences()
+        .context("load local library preferences")?;
 
     gstreamer::init().context("initialize GStreamer")?;
     tracing::info!("GStreamer initialized");
@@ -391,7 +397,8 @@ async fn run_standalone_server(rom_roots: Vec<String>) -> Result<()> {
     tracing::info!(
         "Standalone server listening on http://{player_addr} — open this in your browser"
     );
-    crate::player_server::serve_standalone(player_addr, game_list, rom_roots).await;
+    crate::player_server::serve_standalone(player_addr, game_list, rom_roots, library_preferences)
+        .await;
 
     Ok(())
 }

@@ -11,11 +11,13 @@ import {
   formatRelativeAge,
   getEmptyStateMessage,
   groupRecentGamesByLocalDate,
+  isServerLocalGame,
   libraryGameKey,
   mergeLibraryPages,
   mergeRecentLibraryPages,
   normalizeRecentGameIds,
   normalizeRecentGameIdsWithTimestamps,
+  shouldRecordRecentPlayFromClient,
   type LibraryGame,
 } from "@/lib/ui/library-view-model";
 
@@ -29,6 +31,16 @@ const games: LibraryGame[] = [
 const ids = (result: LibraryGame[]) => result.map((game) => game.id);
 
 describe("library view model", () => {
+  it("distinguishes opaque server-local IDs from legacy cloud games with server IDs", () => {
+    expect(isServerLocalGame({ id: "local_0123456789abcdef0123456789abcdef" })).toBe(true);
+    expect(isServerLocalGame({ id: "550e8400-e29b-41d4-a716-446655440000" })).toBe(false);
+  });
+
+  it("does not let browser launch requests pre-record server-owned recent history", () => {
+    expect(shouldRecordRecentPlayFromClient({ id: "local_0123456789abcdef0123456789abcdef" })).toBe(false);
+    expect(shouldRecordRecentPlayFromClient({ id: "550e8400-e29b-41d4-a716-446655440000" })).toBe(true);
+  });
+
   it("defines every library section in canonical order", () => {
     expect(LIBRARY_SECTIONS.map(({ id }) => id)).toEqual(["all", "favorites", "recent", "pins"]);
   });

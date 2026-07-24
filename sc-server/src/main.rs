@@ -6,6 +6,7 @@ mod encoder_probe;
 mod gst_audio;
 mod gst_video;
 mod install;
+mod library_state;
 mod nat;
 mod platform;
 mod player_server;

@@ -27,6 +27,14 @@ export function libraryGameKey(game: { id: string; serverId?: string | null }): 
   return `${game.serverId ?? "legacy"}:${game.id}`;
 }
 
+export function isServerLocalGame(game: { id: string }): boolean {
+  return /^local_[0-9a-f]{32}$/.test(game.id);
+}
+
+export function shouldRecordRecentPlayFromClient(game: { id: string }): boolean {
+  return !isServerLocalGame(game);
+}
+
 export function createPlayableHostsParams(game: { id: string; serverId?: string | null }): Record<string, string> {
   return game.serverId
     ? { game_id: game.id, server_id: game.serverId }

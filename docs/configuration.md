@@ -59,6 +59,8 @@ Runtime env vars:
 | `GV_WORKER_HOST` | auto-detected LAN IP | Compatibility name for the host/IP advertised in player URLs for the local player endpoint |
 | `GV_WORKER_PORT` | `8787` | Compatibility name for the port advertised in player URLs |
 | `GV_PLAYER_BIND` | `0.0.0.0:8787` | Local player HTTP bind address |
+| `GV_DATA_DIR` | platform local-data directory | Mutable server data directory, including shared library preferences |
+| `GV_LIBRARY_STATE_PATH` | `$GV_DATA_DIR/library-state.json` | Explicit shared library preference/history file path |
 | `GV_SAVE_DIR` | temp/default | Save-state/SRAM directory |
 | `GV_SYSTEM_DIR` | temp/default | BIOS/system directory |
 
