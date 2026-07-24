@@ -59,9 +59,8 @@ jobs:
         run: |
           sleep 10
           for i in $(seq 1 6); do
-            STATUS=$(ssh -o StrictHostKeyChecking=accept-new root@sprite-cloud.com \
-              'curl -sf http://localhost:3000/api/health' && echo "ok" || echo "fail")
-            if [ "$STATUS" = "ok" ]; then
+            if ssh -o StrictHostKeyChecking=accept-new root@sprite-cloud.com \
+              'curl -fsS http://localhost:3000/api/health >/dev/null'; then
               echo "✓ Health check passed"
               exit 0
             fi
