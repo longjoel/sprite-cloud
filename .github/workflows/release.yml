@@ -77,7 +77,7 @@ jobs:
           for arch in x86_64 aarch64; do
             if [ -f "artifacts/$arch/sc-server" ]; then
               cp "artifacts/$arch/sc-server" "release-assets/sc-server-$arch"
-              sha256sum "release-assets/sc-server-$arch" > "release-assets/sc-server-$arch.sha256"
+              (cd release-assets && sha256sum "sc-server-$arch" > "sc-server-$arch.sha256")
             fi
           done
 
