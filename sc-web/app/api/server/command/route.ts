@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { commands, peerTokens, serverMembers, servers, sessions, shortCodes } from "@/lib/db/schema";
 import { ACTIVE_SESSION_STATES, CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, SESSION_CONNECTED, SESSION_PLAYING, SESSION_READY, SESSION_SPAWNING, SESSION_STATE_TIMEOUT_MS, STATUS_PENDING } from "@/lib/constants";
-import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { applyRateLimit } from "@/lib/rate-limit";
 import { recordLaunchEvent } from "@/lib/launch-events";
 import { waitForSdpAnswer } from "@/lib/pending-sdp";
@@ -471,19 +471,6 @@ export async function POST(request: NextRequest) {
     if (enrichedPayload.sdp) {
       const reconnectCutoff = new Date(Date.now() - SESSION_STATE_TIMEOUT_MS);
 
-      await db
-        .update(sessions)
-        .set({ status: "timed_out", endedAt: new Date(), stateEnteredAt: new Date() })
-        .where(
-          and(
-            eq(sessions.userId, uid),
-            eq(sessions.serverId, serverId),
-            eq(sessions.gameId, enrichedPayload.game_id as string),
-            inArray(sessions.status, [...RECONNECT_TRANSIENT_STATES]),
-            lt(sessions.stateEnteredAt, reconnectCutoff),
-          ),
-        );
-
       const [existing] = await db
         .select({ id: sessions.id, commandId: sessions.commandId, roomToken: sessions.roomToken, status: sessions.status })
         .from(sessions)
@@ -492,7 +479,13 @@ export async function POST(request: NextRequest) {
             eq(sessions.userId, uid),
             eq(sessions.serverId, serverId),
             eq(sessions.gameId, enrichedPayload.game_id as string),
-            inArray(sessions.status, [...RECONNECT_TRANSIENT_STATES, SESSION_PLAYING]),
+            or(
+              eq(sessions.status, SESSION_PLAYING),
+              and(
+                inArray(sessions.status, [...RECONNECT_TRANSIENT_STATES]),
+                gte(sessions.stateEnteredAt, reconnectCutoff),
+              ),
+            ),
           ),
         )
         .orderBy(desc(sessions.createdAt))
