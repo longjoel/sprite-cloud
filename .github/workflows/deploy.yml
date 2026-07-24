@@ -50,9 +50,8 @@ jobs:
       - name: Restart sc-web on VPS
         run: |
           ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new root@sprite-cloud.com '
-            cd /docker/sc-web && \
-            docker compose down sc-web && \
-            docker compose up -d sc-web
+            cd /root/sc-deploy && \
+            docker compose up -d --no-deps --force-recreate web
           '
 
       - name: Health check
@@ -60,7 +59,7 @@ jobs:
           sleep 10
           for i in $(seq 1 6); do
             if ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new root@sprite-cloud.com \
-              'curl -fsS http://localhost:3000/api/health >/dev/null'; then
+              'cd /root/sc-deploy && docker compose exec -T web curl -fsS http://localhost:3000/api/health >/dev/null'; then
               echo "✓ Health check passed"
               exit 0
             fi
@@ -75,28 +74,28 @@ jobs:
         run: |
           set -euo pipefail
           HEALTH_JSON=$(ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new root@sprite-cloud.com \
-            'curl -fsS http://localhost:3000/api/health')
+            'cd /root/sc-deploy && docker compose exec -T web curl -fsS http://localhost:3000/api/health')
           grep -Eq '"phase4c_library_owner"[[:space:]]*:[[:space:]]*"sc-server"' <<<"$HEALTH_JSON"
           scp -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new \
             sc-web/drizzle/0016_remove_cloud_library.sql \
             root@sprite-cloud.com:/tmp/0016_remove_cloud_library.sql
           ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new root@sprite-cloud.com 'bash -s' <<'REMOTE'
           set -euo pipefail
-          PG_CONTAINER=sc-web-postgres-1
-          docker inspect "$PG_CONTAINER" >/dev/null
-          PG_USER=$(docker exec "$PG_CONTAINER" printenv POSTGRES_USER)
-          PG_DB=$(docker exec "$PG_CONTAINER" printenv POSTGRES_DB)
-          BACKUP_DIR=/docker/sc-web/backups
+          cd /root/sc-deploy
+          docker compose ps --status running postgres | grep -q postgres
+          PG_USER=$(docker compose exec -T postgres printenv POSTGRES_USER)
+          PG_DB=$(docker compose exec -T postgres printenv POSTGRES_DB)
+          BACKUP_DIR=/root/sc-deploy/backups
           BACKUP_FILE="$BACKUP_DIR/pre-0016-$(date -u +%Y%m%dT%H%M%SZ).sql.gz"
           mkdir -p "$BACKUP_DIR"
-          docker exec "$PG_CONTAINER" pg_dump -U "$PG_USER" "$PG_DB" | gzip -9 > "$BACKUP_FILE"
+          docker compose exec -T postgres pg_dump -U "$PG_USER" "$PG_DB" | gzip -9 > "$BACKUP_FILE"
           test -s "$BACKUP_FILE"
-          docker exec -i "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -v ON_ERROR_STOP=1 \
+          docker compose exec -T postgres psql -U "$PG_USER" -d "$PG_DB" -v ON_ERROR_STOP=1 \
             < /tmp/0016_remove_cloud_library.sql
-          LEGACY_COUNT=$(docker exec "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -Atc \
+          LEGACY_COUNT=$(docker compose exec -T postgres psql -U "$PG_USER" -d "$PG_DB" -Atc \
             "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('favorites','pinned_games','recent_plays','game_files','games','server_rom_roots');")
           test "$LEGACY_COUNT" = "0"
           rm -f /tmp/0016_remove_cloud_library.sql
-          curl -fsS http://localhost:3000/api/health >/dev/null
+          docker compose exec -T web curl -fsS http://localhost:3000/api/health >/dev/null
           printf 'Migration complete; backup: %s\n' "$BACKUP_FILE"
           REMOTE
