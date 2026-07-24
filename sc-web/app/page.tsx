@@ -7,6 +7,7 @@ import LibraryClient from "@/components/LibraryClient";
 import { getPublicWatchPreview } from "@/lib/public-watch";
 import { headers } from "next/headers";
 import { verifyBearerToken } from "@/lib/server-auth";
+import { extractLanLibraryLinks } from "@/lib/lan/library-handoff";
 
 // ── Server component — landing page or library ────────────────────────
 
@@ -37,18 +38,21 @@ export default async function Home() {
 
   // Authenticated: find all servers the user is a member of
   let serverIds: string[] = [];
+  let lanLibraries = [] as ReturnType<typeof extractLanLibraryLinks>;
   if (session?.user?.id) {
     const memberships = await db
-      .select({ serverId: servers.id })
+      .select({ serverId: servers.id, name: servers.name, metadata: servers.metadata })
       .from(serverMembers)
       .innerJoin(servers, eq(serverMembers.serverId, servers.id))
       .where(eq(serverMembers.userId, session.user.id));
     serverIds = memberships.map((m) => m.serverId);
+    lanLibraries = extractLanLibraryLinks(memberships);
   }
 
   return (
     <LibraryClient
       serverIds={serverIds}
+      lanLibraries={lanLibraries}
       session={{ user: session.user }}
     />
   );
