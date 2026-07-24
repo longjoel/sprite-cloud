@@ -9,7 +9,7 @@ import LibraryToolbar from "@/components/LibraryToolbar";
 import { Star20Filled, Star20Regular, Pin20Filled, Pin20Regular, Edit20Regular, Desktop20Regular } from "@fluentui/react-icons";
 import { buildLanPlayerLaunchUrl, canUseLanPlayer, chooseLaunchHost, createLaunchRequestGate, formatLaunchError } from "@/lib/lan/launch";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
-import { createAllLibraryPageParams, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, createPlayableHostsParams, filterLibraryGames, formatRecentGroupLabel, formatRelativeAge, groupRecentGamesByLocalDate, libraryGameKey, mergeLibraryPages, mergeRecentLibraryPages, shouldRecordRecentPlayFromClient, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
+import { createAllLibraryPageParams, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, createPlayableHostsParams, filterLibraryGames, formatRecentGroupLabel, formatRelativeAge, groupRecentGamesByLocalDate, libraryGameKey, mergeLibraryPages, mergeRecentLibraryPages, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -121,7 +121,7 @@ async function toggleFavorite(gameId: string): Promise<boolean> {
     body: JSON.stringify({ gameId }),
   });
   const data = await resp.json();
-  return data.favorited;
+  return data.favorite?.isFavorite ?? data.favorited ?? false;
 }
 
 async function togglePin(gameId: string): Promise<{ pinned: boolean; pinCount: number }> {
@@ -130,7 +130,11 @@ async function togglePin(gameId: string): Promise<{ pinned: boolean; pinCount: n
     headers: csrfHeaders(),
     body: JSON.stringify({ gameId }),
   });
-  return resp.json();
+  const data = await resp.json();
+  return {
+    pinned: data.pin?.isPinned ?? data.pinned ?? false,
+    pinCount: data.pinCount ?? 0,
+  };
 }
 
 async function fetchPinnedGames(): Promise<Game[]> {
@@ -144,15 +148,6 @@ async function fetchPinnedGames(): Promise<Game[]> {
   }
 }
 
-async function recordRecentPlay(gameId: string) {
-  try {
-    await fetch("/api/recent-plays", {
-      method: "POST",
-      headers: csrfHeaders(),
-      body: JSON.stringify({ gameId }),
-    });
-  } catch { /* fire-and-forget */ }
-}
 
 // ── Component ─────────────────────────────────────────────────────────
 
@@ -187,6 +182,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   const [allGames, setAllGames] = useState<Game[]>([]);
   const [allTotal, setAllTotal] = useState(0);
   const [allLoading, setAllLoading] = useState(false);
+  const hasServers = serverIds.length > 0 || allGames.some((game) => Boolean(game.serverId));
 
   const [favGames, setFavGames] = useState<Game[]>([]);
   const [favTotal, setFavTotal] = useState(0);
@@ -204,22 +200,16 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   const [pinsLoading, setPinsLoading] = useState(false);
 
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const hasServers = serverIds.length > 0;
 
-  // Load favorites and the complete (max 20) pinned rows on mount.
+  // Load shared server-owned favorites and the complete (max 20) pinned rows.
   useEffect(() => {
-    if (!session?.user?.id) {
-      setPinnedGames([]);
-      setPinnedIds(new Set());
-      return;
-    }
     fetchFavoriteIds().then(setFavoriteIds);
     setPinsLoading(true);
     fetchPinnedGames().then((games) => {
       setPinnedGames(games);
       setPinnedIds(new Set(games.map((game) => game.id)));
     }).finally(() => setPinsLoading(false));
-  }, [session?.user?.id]);
+  }, []);
 
 
   // Debounced search
@@ -248,6 +238,11 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       const data = await fetchPage("/api/games", createAllLibraryPageParams(PAGE_SIZE, offset, searchTerm));
       setAllGames(reset ? data.games : mergeLibraryPages(current, data.games));
       setAllTotal(data.total);
+    } catch {
+      if (reset) {
+        setAllGames([]);
+        setAllTotal(0);
+      }
     } finally {
       setAllLoading(false);
     }
@@ -264,6 +259,11 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       if (!favoritesRequests.current.isCurrent(generation)) return;
       setFavGames(reset ? data.games : [...current, ...data.games]);
       setFavTotal(data.total);
+    } catch {
+      if (reset && favoritesRequests.current.isCurrent(generation)) {
+        setFavGames([]);
+        setFavTotal(0);
+      }
     } finally {
       if (favoritesRequests.current.isCurrent(generation)) setFavLoading(false);
     }
@@ -280,21 +280,24 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       if (!recentRequests.current.isCurrent(generation)) return;
       setRecentGames(reset ? mergeRecentLibraryPages([], data.games) : mergeRecentLibraryPages(current, data.games));
       setRecentTotal(data.total);
+    } catch {
+      if (reset && recentRequests.current.isCurrent(generation)) {
+        setRecentGames([]);
+        setRecentTotal(0);
+      }
     } finally {
       if (recentRequests.current.isCurrent(generation)) setRecentLoading(false);
     }
   }, [recentLoading, fetchPage]);
 
   useEffect(() => {
-    if (!hasServers) return;
     loadAllGames(true, search, [], 0);
-  }, [search, hasServers]);
+  }, [search]);
 
   useEffect(() => {
-    if (!hasServers || !session?.user?.id) return;
     if (tab === "favorites") loadFavorites(true, search, [], 0);
     if (tab === "recent") loadRecent(true, search, [], 0);
-  }, [tab, search, hasServers, session?.user?.id]);
+  }, [tab, search]);
 
   // ── Infinite scroll sentinel ────────────────────────────────────
 
@@ -406,7 +409,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   }
 
   const loadHosts = async (game: Game, automatic: boolean) => {
-    if (!hasServers || !launchGate.current.tryBeginLaunch()) return;
+    if (!game.serverId || !launchGate.current.tryBeginLaunch()) return;
     const generation = openHostPicker(game, !automatic);
     const gameKey = libraryGameKey(game);
     setLaunchingGame(gameKey);
@@ -445,7 +448,6 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   };
 
   const handlePlay = (game: Game) => {
-    if (shouldRecordRecentPlayFromClient(game)) recordRecentPlay(game.id);
     void loadHosts(game, true);
   };
 
@@ -581,15 +583,15 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   // ── Render helpers ──────────────────────────────────────────────
 
   const gameActions: GameActionModel = {
-    canFavorite: Boolean(session?.user?.id),
-    canPin: Boolean(session?.user?.id),
-    canRename: Boolean(session?.user?.id),
+    canFavorite: true,
+    canPin: true,
+    canRename: true,
     isFavorite: (gameId: string) => favoriteIds.has(gameId),
     isPinned: (gameId: string) => pinnedIds.has(gameId),
     onPlay: handlePlay,
-    onToggleFavorite: session?.user?.id ? handleToggleFavorite : undefined,
-    onTogglePin: session?.user?.id ? handleTogglePin : undefined,
-    onRename: session?.user?.id ? startRename : undefined,
+    onToggleFavorite: handleToggleFavorite,
+    onTogglePin: handleTogglePin,
+    onRename: startRename,
     onChooseHost: hasServers ? chooseHost : undefined,
   };
 

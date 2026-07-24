@@ -31,9 +31,6 @@ export function isServerLocalGame(game: { id: string }): boolean {
   return /^local_[0-9a-f]{32}$/.test(game.id);
 }
 
-export function shouldRecordRecentPlayFromClient(game: { id: string }): boolean {
-  return !isServerLocalGame(game);
-}
 
 export function createPlayableHostsParams(game: { id: string; serverId?: string | null }): Record<string, string> {
   return game.serverId

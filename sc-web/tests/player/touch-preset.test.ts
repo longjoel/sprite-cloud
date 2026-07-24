@@ -23,10 +23,11 @@ describe("touch preset selection", () => {
     expect(source).not.toContain("if (!v || !connected) return;\n    // Map platform name to gamepad preset");
   });
 
-  it("carries platform metadata through the unauthenticated LAN short-code resolver", () => {
-    const route = readFileSync("app/api/room/resolve/[code]/route.ts", "utf8");
+  it("loads platform metadata from the LAN-owned game detail route", () => {
+    const resolver = readFileSync("app/api/room/resolve/[code]/route.ts", "utf8");
     const page = readFileSync("app/p/[code]/page.tsx", "utf8");
-    expect(route).toContain("platform: game?.platform");
-    expect(page).toContain("let platform = data.platform || \"\"");
+    expect(resolver).not.toContain("games.");
+    expect(page).toContain("fetch(`/api/games/${encodeURIComponent(gameId)}`)");
+    expect(page).toContain("platform = detail.platform || \"\"");
   });
 });

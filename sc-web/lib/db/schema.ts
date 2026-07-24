@@ -1,4 +1,4 @@
-import { jsonb, pgTable, text, timestamp, unique, uuid, integer, bigint, index, boolean } from "drizzle-orm/pg-core";
+import { jsonb, pgTable, text, timestamp, unique, uuid, integer, index } from "drizzle-orm/pg-core";
 
 // ── Users (created via OAuth) ────────────────────────────────────────
 
@@ -153,65 +153,6 @@ export const launchEvents = pgTable(
   }),
 );
 
-// ── Server ROM roots (directories sc-server scans for game files) ─────
-//
-// Reported by sc-server during pairing. sc-web uses these to discover
-// ROMs and resolve full paths for start_game commands.
-
-export const serverRomRoots = pgTable(
-  "server_rom_roots",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    serverId: uuid("server_id")
-      .references(() => servers.id)
-      .notNull(),
-    path: text("path").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-  },
-  (table) => ({
-    unq: unique("server_rom_roots_server_path").on(
-      table.serverId,
-      table.path,
-    ),
-  }),
-);
-
-// ── Games (library entries) ─────────────────────────────────────────
-
-export const games = pgTable("games", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
-  platform: text("platform").notNull(),
-  maxPlayers: integer("max_players").notNull().default(1),
-  nameSource: text("name_source").notNull().default("import"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
-
-// ── Game files (ROM paths per server) ────────────────────────────────
-
-export const gameFiles = pgTable(
-  "game_files",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    gameId: uuid("game_id")
-      .references(() => games.id)
-      .notNull(),
-    serverId: uuid("server_id")
-      .references(() => servers.id)
-      .notNull(),
-    romPath: text("rom_path").notNull(),
-    fileName: text("file_name").notNull(),
-    fileSize: bigint("file_size", { mode: "number" }),
-    fileHash: text("file_hash"),
-    discoveredAt: timestamp("discovered_at", { withTimezone: true }).defaultNow(),
-  },
-  (table) => ({
-    unq: unique("game_files_server_path").on(table.serverId, table.romPath),
-    idxGame: index("idx_game_files_game").on(table.gameId),
-    idxServer: index("idx_game_files_server").on(table.serverId),
-  }),
-);
 
 // ── Peer tokens (per-peer bearer tokens for WebRTC auth) ─────────────
 //
@@ -250,61 +191,3 @@ export const shortCodes = pgTable("short_codes", {
   serverId: text("server_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
-
-// ── Favorites (user-bookmarked games) ────────────────────────────────
-
-export const favorites = pgTable(
-  "favorites",
-  {
-    userId: uuid("user_id")
-      .references(() => users.id)
-      .notNull(),
-    gameId: uuid("game_id")
-      .references(() => games.id)
-      .notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => ({
-    pk: unique("favorites_user_game").on(table.userId, table.gameId),
-  }),
-);
-
-// ── Pinned games (user-pinned, max 20, sorted by position) ──────────
-
-export const pinnedGames = pgTable(
-  "pinned_games",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    userId: uuid("user_id")
-      .references(() => users.id)
-      .notNull(),
-    gameId: uuid("game_id")
-      .references(() => games.id)
-      .notNull(),
-    position: integer("position").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => ({
-    userGame: unique("pinned_games_user_game").on(table.userId, table.gameId),
-    idxUserPos: index("idx_pinned_games_user_pos").on(table.userId, table.position),
-  }),
-);
-
-// ── Recent plays (per-user launch history) ───────────────────────────
-
-export const recentPlays = pgTable(
-  "recent_plays",
-  {
-    id: uuid("id").defaultRandom().primaryKey(),
-    userId: uuid("user_id")
-      .references(() => users.id)
-      .notNull(),
-    gameId: uuid("game_id")
-      .references(() => games.id)
-      .notNull(),
-    playedAt: timestamp("played_at", { withTimezone: true }).defaultNow().notNull(),
-  },
-  (table) => ({
-    idxUserPlayed: index("idx_recent_plays_user_played").on(table.userId, table.playedAt.desc()),
-  }),
-);

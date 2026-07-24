@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { pairingCodes, serverMembers, serverRomRoots, servers } from "@/lib/db/schema";
+import { pairingCodes, serverMembers, servers } from "@/lib/db/schema";
 import { generateApiKey, hashApiKey } from "@/lib/server-auth";
 import { eq, and } from "drizzle-orm";
 import { applyRateLimit } from "@/lib/rate-limit";
@@ -8,13 +8,12 @@ import { applyRateLimit } from "@/lib/rate-limit";
 const PAIR_RATE_LIMIT = 10; // requests per minute per IP
 
 // POST /api/auth/pair/claim — sc-server claims a pairing code, gets an API key.
-// Optionally reports its ROM root directories for game discovery.
 export async function POST(request: NextRequest) {
   // Rate limiting — 10 req/min per IP
   const rateLimited = applyRateLimit(request, PAIR_RATE_LIMIT);
   if (rateLimited) return rateLimited;
 
-  let body: { code: string; server_name?: string; rom_roots?: string[] };
+  let body: { code: string; server_name?: string };
   try {
     body = await request.json();
   } catch {
@@ -109,24 +108,6 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // Upsert ROM roots if the server reported them.
-  // Remove old roots not in the new list; insert new ones.
-  const romRoots: string[] = body.rom_roots ?? [];
-  if (romRoots.length > 0) {
-    // Delete roots no longer reported
-    await db
-      .delete(serverRomRoots)
-      .where(eq(serverRomRoots.serverId, serverId));
-
-    // Insert the current set
-    await db.insert(serverRomRoots).values(
-      romRoots.map((path) => ({
-        serverId,
-        path,
-      })),
-    );
-  }
-  // If rom_roots is absent or empty, preserve existing roots (backward compat).
 
   return NextResponse.json({
     server_id: serverId,

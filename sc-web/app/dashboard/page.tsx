@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { serverMembers, servers, serverRomRoots } from "@/lib/db/schema";
+import { serverMembers, servers } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import AppHeader from "@/components/fluent/AppHeader";
@@ -28,14 +28,6 @@ export default async function DashboardPage() {
       ),
     );
 
-  const romRootsByServer: Record<string, string[]> = {};
-  for (const srv of adminServers) {
-    const roots = await db
-      .select({ path: serverRomRoots.path })
-      .from(serverRomRoots)
-      .where(eq(serverRomRoots.serverId, srv.id));
-    romRootsByServer[srv.id] = roots.map((r) => r.path);
-  }
 
   return (
     <main style={S.main}>
@@ -73,7 +65,7 @@ export default async function DashboardPage() {
             name: srv.name || srv.id.slice(0, 8),
             lastSeenAt: srv.lastSeenAt?.toISOString() ?? null,
             role: "admin",
-            romRoots: romRootsByServer[srv.id] ?? [],
+
           }))}
         />
       )}

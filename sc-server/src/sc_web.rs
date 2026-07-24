@@ -466,8 +466,7 @@ impl ScWebClient {
 
     /// POST /api/server/result — report the result of a completed command.
     ///
-    /// Used by browse_files and scan_paths to report file trees and
-    /// match results back to sc-web for browser polling.
+    /// Used by launch and signaling handlers to report transient outcomes.
     pub async fn command_result(
         &self,
         command_id: &str,
@@ -498,29 +497,6 @@ impl ScWebClient {
         Ok(())
     }
 
-    /// POST /api/server/import — auto-import scanned game files into library.
-    pub async fn import_library(
-        &self,
-        server_id: &str,
-        files: &[serde_json::Value],
-    ) -> anyhow::Result<()> {
-        let url = format!("{}/api/server/import", self.base_url);
-        let resp = self
-            .client
-            .post(&url)
-            .bearer_auth(&self.auth.api_key)
-            .json(&serde_json::json!({ "server_id": server_id, "files": files }))
-            .send()
-            .await
-            .context("POST /api/server/import")?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
-            anyhow::bail!("import failed: HTTP {status} — {body}");
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]

@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import XmbSettings, { hasXmbSettingsAccess, type XmbServer } from "@/components/xmb/XmbSettings";
-import { LIBRARY_SECTIONS, filterLibraryGames, getEmptyStateMessage, isServerLocalGame, libraryGameKey, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
-import { loadXmbAuthenticatedData, type PinnedGameRow } from "@/lib/ui/xmb-authenticated-load";
+import { LIBRARY_SECTIONS, filterLibraryGames, getEmptyStateMessage, libraryGameKey, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
+import { loadXmbAuthenticatedData } from "@/lib/ui/xmb-authenticated-load";
 import {
   activateXmbNavigation,
   activateXmbSettingsAction,
@@ -89,10 +89,7 @@ export default function XmbPage() {
     library: { totalGames: number; pinnedCount: number } | null;
     ice: { stunConfigured: boolean; turnConfigured: boolean; transportPolicy: string };
   } | null>(null);
-  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
-  const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
-  const [recentGames, setRecentGames] = useState<Array<{ id: string; playedAt: string }>>([]);
-  const [pinnedGamesFromBootstrap, setPinnedGamesList] = useState<PinnedGameRow[]>([]);
+
   const [isMobile, setIsMobile] = useState(false);
   const [launching, setLaunching] = useState(false);
   const settingsAvailable = bootstrap !== null
@@ -194,7 +191,7 @@ export default function XmbPage() {
     return () => controller.abort();
   }, [search, status]);
 
-  // ── Fetch bootstrap + recent plays (once, when authenticated) ─────
+  // ── Fetch cloud account/server metadata (once, when authenticated) ──
   useEffect(() => {
     if (status !== "authenticated") return;
     const controller = new AbortController();
@@ -202,15 +199,11 @@ export default function XmbPage() {
       signal: controller.signal,
       fetcher: fetch,
       setBootstrap,
-      setFavoriteIds,
-      setPinnedIds,
-      setRecentGames,
-      setPinnedGamesList,
     });
     return () => controller.abort();
   }, [status]);
 
-  // ── Merged games — apply favorite/pin/recent from bootstrap onto /api/games ──
+  // ── Server-owned games already include favorite, pin, and recent state ──
   const sub = SUB_CATEGORIES[focusedSub];
 
   const mergedGames: Game[] = (() => {
@@ -220,38 +213,10 @@ export default function XmbPage() {
         .sort((left, right) => right.playedAt!.localeCompare(left.playedAt!))
         .map((game, index) => [libraryGameKey(game), index]),
     );
-    const apiGames: Game[] = games.map((g) => {
-      const serverLocal = isServerLocalGame(g);
-      return {
-        ...g,
-        favorite: serverLocal ? g.favorite : favoriteIds.has(g.id) || g.favorite,
-        pinned: serverLocal ? g.pinned : pinnedIds.has(g.id) || g.pinned,
-        recentRank: (() => {
-          if (serverLocal) return localRecentRanks.get(libraryGameKey(g)) ?? null;
-          const idx = recentGames.findIndex((rg) => rg.id === g.id);
-          return idx >= 0 ? idx : (localRecentRanks.get(libraryGameKey(g)) ?? null);
-        })(),
-      };
-    });
-
-    // Append pinned games from bootstrap not already in the API window
-    const existingIds = new Set(apiGames.map((g) => g.id));
-    for (const pg of pinnedGamesFromBootstrap) {
-      if (!existingIds.has(pg.id)) {
-        apiGames.push({
-          id: pg.id,
-          name: pg.name,
-          platform: pg.platform,
-          maxPlayers: pg.maxPlayers ?? undefined,
-          favorite: favoriteIds.has(pg.id),
-          pinned: true,
-          recentRank: (() => { const idx = recentGames.findIndex((rg) => rg.id === pg.id); return idx >= 0 ? idx : null; })(),
-          serverId: pg.serverId,
-          coverUrl: null,
-        });
-      }
-    }
-    return apiGames;
+    return games.map((game) => ({
+      ...game,
+      recentRank: localRecentRanks.get(libraryGameKey(game)) ?? null,
+    }));
   })();
 
   const filteredGames = filterLibraryGames(mergedGames, {
