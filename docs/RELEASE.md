@@ -75,7 +75,7 @@ cd ..
 
 Backward-compatible additive migrations may be applied before the matching code.
 
-For simple self-hosted installs, `GV_WEB_SCHEMA_PUSH_ON_START=1` can apply the current schema at startup. For stricter production releases, keep it `0` and apply migrations explicitly.
+For a new self-hosted install, `GV_WEB_SCHEMA_PUSH_ON_START=1` may initialize an empty database. It refuses to run against a nonempty database; existing installations must apply reviewed migrations explicitly.
 
 ## CI gate
 

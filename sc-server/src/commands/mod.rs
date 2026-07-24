@@ -231,11 +231,18 @@ pub(crate) async fn cmd_start(
                     Ok(resp) => {
                         if !resp.commands.is_empty() {
                             for cmd in &resp.commands {
+                                let game_id = cmd
+                                    .payload
+                                    .get("game_id")
+                                    .and_then(|value| value.as_str());
                                 tracing::info!(
-                                    "[POLL] command {}: {} {}",
+                                    "[POLL] command {}: {} game_id={:?} has_host_token={} has_room_token={} has_peer_token={}",
                                     cmd.id,
                                     cmd.command_type,
-                                    cmd.payload,
+                                    game_id,
+                                    cmd.payload.get("host_token").is_some(),
+                                    cmd.payload.get("room_token").is_some(),
+                                    cmd.payload.get("peer_token").is_some(),
                                 );
 
                                 if cmd.command_type == "start_game" {
@@ -262,8 +269,11 @@ pub(crate) async fn cmd_start(
                             }
                         }
                         for gid in &dead {
-                            sessions.remove(gid);
-                            let _ = client.notify_worker_dead(gid, None).await;
+                            if let Some(session) = sessions.remove(gid) {
+                                let _ = client
+                                    .notify_worker_dead(gid, session.cloud_session_id.as_deref())
+                                    .await;
+                            }
                         }
 
                         tokio::time::sleep(Duration::from_millis(resp.next_poll_ms)).await;

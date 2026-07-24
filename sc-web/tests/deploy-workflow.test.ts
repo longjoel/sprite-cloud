@@ -8,6 +8,8 @@ const scriptsReadme = readFileSync("../scripts/README.md", "utf8");
 const releaseGuide = readFileSync("../docs/RELEASE.md", "utf8");
 const hostInstaller = readFileSync("../scripts/install.sh", "utf8");
 const playerScript = readFileSync("public/player/play-v2.js", "utf8");
+const browserLogger = readFileSync("public/browser-log.js", "utf8");
+const productionEntrypoint = readFileSync("../docker/sc-web/entrypoint.prod.sh", "utf8");
 
 describe("production deploy workflow", () => {
   it("treats a successful health curl exit code as success without capturing its body", () => {
@@ -81,5 +83,17 @@ describe("production deploy workflow", () => {
     expect(playerScript).not.toContain('urlParams.get("host_token")');
     expect(playerScript).not.toContain('console.log("[gv] guest join — resolving room_token:", rt)');
     expect(playerScript).not.toContain('console.log("[gv] room/join response:", joinData)');
+    expect(browserLogger).not.toContain("href: clampString(location.href");
+    expect(browserLogger).not.toContain('roomToken: clampString(searchParams.get("join")');
+    expect(browserLogger).toContain('out[key] = "[REDACTED]"');
+    expect(browserLogger).toContain('location.pathname.replace(/^\\/r\\/[^/]+/, "/r/[redacted]")');
+  });
+
+  it("never pushes a destructive schema onto a nonempty database at startup", () => {
+    const nonemptyGuard = productionEntrypoint.indexOf('if [ "$table_count" != "0" ]');
+    const schemaPush = productionEntrypoint.indexOf("npx drizzle-kit push --force");
+    expect(nonemptyGuard).toBeGreaterThan(-1);
+    expect(schemaPush).toBeGreaterThan(nonemptyGuard);
+    expect(productionEntrypoint).toContain("refusing schema push on a nonempty database");
   });
 });

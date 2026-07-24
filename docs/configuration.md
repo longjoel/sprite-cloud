@@ -11,7 +11,7 @@ File: `sc-web/.env.local` for local dev, or container environment in production.
 | `DATABASE_URL` | yes | PostgreSQL connection string |
 | `AUTH_SECRET` | yes | Auth.js/NextAuth session secret (`openssl rand -base64 32`) |
 | `AUTH_URL` / `NEXTAUTH_URL` | prod | Public gateway origin, e.g. `https://games.example.com` |
-| `GV_WEB_SCHEMA_PUSH_ON_START` | no | `1` to apply the current Drizzle schema on container startup |
+| `GV_WEB_SCHEMA_PUSH_ON_START` | no | `1` only to initialize an empty database; nonempty databases refuse startup schema pushes |
 | `GV_WEB_SKIP_SETUP_INIT` | no | `1` to suppress first-run setup-code generation |
 | `GV_ICE_STUN_URLS` | no | Comma-separated STUN URLs; defaults to Google STUN when empty |
 | `GV_ICE_TURN_URLS` | no | Comma-separated TURN URLs |

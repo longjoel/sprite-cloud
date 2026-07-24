@@ -133,6 +133,7 @@ services:
       AUTH_SECRET: $(openssl rand -hex 32)
       AUTH_URL: https://your-domain.com
       DATABASE_URL: postgresql://sprite_cloud:your-db-password@postgres:5432/sprite_cloud
+      # Empty-database initialization only; existing DBs require explicit migrations.
       GV_WEB_SCHEMA_PUSH_ON_START: "1"
       GV_ICE_STUN_URLS: stun:stun.l.google.com:19302
       # Optional TURN (recommended for players outside LAN):

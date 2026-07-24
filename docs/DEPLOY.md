@@ -53,7 +53,7 @@ Required env:
 | `AUTH_SECRET` | Auth.js/NextAuth session encryption |
 | `AUTH_URL` | Public gateway origin |
 | `DATABASE_URL` | Postgres connection string — on the current VPS this must resolve to `postgresql://sprite_cloud:...@127.0.0.1:5432/sprite_cloud` |
-| `GV_WEB_SCHEMA_PUSH_ON_START` | `1` for simple self-hosted schema updates |
+| `GV_WEB_SCHEMA_PUSH_ON_START` | `1` only for empty-database initialization; apply reviewed migrations to existing databases |
 | `GV_ICE_STUN_URLS` | STUN URLs |
 | `GV_ICE_TURN_URLS` | TURN URLs, recommended for public internet play |
 | `GV_ICE_TURN_USERNAME` | TURN username |

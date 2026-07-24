@@ -196,6 +196,11 @@ pub(super) async fn handle_start_game(
     // Create session
     let session = Arc::new(GameSession {
         game_id: game_id.to_string(),
+        cloud_session_id: cmd
+            .payload
+            .get("session_id")
+            .and_then(|value| value.as_str())
+            .map(str::to_owned),
         cancel: tokio_util::sync::CancellationToken::new(),
         pc: std::sync::Mutex::new(stack.pc),
         video_track: std::sync::Mutex::new(stack.video_track),
@@ -420,7 +425,11 @@ pub(super) async fn handle_stop_game(
 
     if let Some(session) = sessions.remove(game_id) {
         session.cancel.cancel();
-        let session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
+        let session_id = cmd
+            .payload
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .or(session.cloud_session_id.as_deref());
         let _ = client
             .notify_stop(&cmd.id, &cmd.lease_token, game_id, session_id)
             .await;
@@ -691,10 +700,7 @@ pub(super) async fn handle_guest_sdp(
         "guest_exchange_started",
         &format!("game_id={} peer_token_present={}", session.game_id, !peer_token.is_empty()),
     );
-    tracing::info!(
-        "[SDP] guest SDP exchange (peer_token={})",
-        &peer_token[..peer_token.len().min(8)]
-    );
+    tracing::info!("[SDP] guest SDP exchange (peer capability present)");
 
     // Build a FRESH PC with NO pre-added tracks.
     // Pool PCs carry their own video/audio tracks — adding session tracks on
@@ -827,10 +833,7 @@ pub(super) async fn wire_dc_handler_for_guest(
     };
 
     let Some(pc) = pc else {
-        tracing::warn!(
-            "[DC] guest PC not found for peer_token={}",
-            &peer_token[..8]
-        );
+        tracing::warn!("[DC] guest PC not found for supplied peer capability");
         return;
     };
 
@@ -867,7 +870,7 @@ pub(super) async fn wire_dc_handler_for_guest(
                 let session = Arc::clone(&session_cleanup);
                 let pt = pt_cleanup.clone();
                 Box::pin(async move {
-                    tracing::info!("[DC] guest disconnected (peer_token={})", &pt[..8]);
+                    tracing::info!("[DC] guest disconnected");
                     let mut guests = session.guests.lock().await;
                     guests.retain(|g| g.peer_token != pt);
                 })

@@ -39,8 +39,15 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   playing: [SESSION_ENDED, "timed_out"],
 };
 
-function isValidTransition(from: string, to: string): boolean {
-  return VALID_TRANSITIONS[from]?.includes(to) ?? false;
+function notifyTargetStatus(current: string, hasSdpAnswer: boolean): string | null {
+  if (current === "playing" && hasSdpAnswer) return "playing";
+  if (hasSdpAnswer && ["spawning", SESSION_READY, SESSION_CONNECTED].includes(current)) {
+    return SESSION_CONNECTED;
+  }
+  if (!hasSdpAnswer && ["spawning", SESSION_READY].includes(current)) {
+    return SESSION_READY;
+  }
+  return null;
 }
 
 // ── POST — sc-server reports worker URL / SDP answer ────────────────────
@@ -86,63 +93,113 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ── Stop action: transition session to ended ──────────────────────────
+  // ── Stop action: transition one authorized active session to ended ──────
   if (effectiveAction === "stop") {
+    if (isWorkerDead && !body.session_id) {
+      return NextResponse.json({ error: "worker-dead notification requires session_id" }, { status: 400 });
+    }
 
-    let session: { id: string; status: string; serverId: string | null } | undefined;
+    if (!isWorkerDead) {
+      if (!body.lease_token) {
+        return NextResponse.json({ error: "lease_token required" }, { status: 400 });
+      }
+      const [stopCommand] = await db
+        .select({
+          id: commands.id,
+          serverId: commands.serverId,
+          type: commands.type,
+          payload: commands.payload,
+        })
+        .from(commands)
+        .where(and(eq(commands.id, body.command_id), eq(commands.serverId, server.id)))
+        .limit(1);
+      const stopPayload = (stopCommand?.payload || {}) as Record<string, unknown>;
+      if (
+        !stopCommand
+        || stopCommand.serverId !== server.id
+        || stopCommand.type !== "stop_game"
+        || stopPayload.game_id !== body.game_id
+      ) {
+        return NextResponse.json({ error: "stop command does not match session game" }, { status: 409 });
+      }
+      const [lease] = await db
+        .update(commands)
+        .set({ status: STATUS_COMPLETED, completedAt: new Date(), lastError: null })
+        .where(
+          and(
+            eq(commands.id, body.command_id),
+            eq(commands.serverId, server.id),
+            eq(commands.status, STATUS_LEASED),
+            eq(commands.leaseToken, body.lease_token),
+          ),
+        )
+        .returning({ id: commands.id });
+      if (!lease) {
+        return NextResponse.json({ error: "command lease not found" }, { status: 409 });
+      }
+    }
 
-    // Prefer session_id when available (most precise)
+    let session: {
+      id: string;
+      status: string;
+      serverId: string | null;
+      gameId: string;
+    } | undefined;
     if (body.session_id) {
       [session] = await db
-        .select({ id: sessions.id, status: sessions.status, serverId: sessions.serverId })
-        .from(sessions)
-        .where(and(eq(sessions.id, body.session_id), eq(sessions.serverId, server.id)))
-        .limit(1);
-    }
-
-    if (!isWorkerDead && !session) {
-      // Try command_id (for explicit stop_game commands)
-      [session] = await db
-        .select({ id: sessions.id, status: sessions.status, serverId: sessions.serverId })
-        .from(sessions)
-        .where(and(eq(sessions.commandId, body.command_id), eq(sessions.serverId, server.id)))
-        .limit(1);
-    }
-
-    // Fallback: find by game_id + server_id (for worker_dead or missing cmd match)
-    if (!session) {
-      [session] = await db
-        .select({ id: sessions.id, status: sessions.status, serverId: sessions.serverId })
+        .select({
+          id: sessions.id,
+          status: sessions.status,
+          serverId: sessions.serverId,
+          gameId: sessions.gameId,
+        })
         .from(sessions)
         .where(
           and(
-            eq(sessions.gameId, body.game_id),
+            eq(sessions.id, body.session_id),
             eq(sessions.serverId, server.id),
+            eq(sessions.gameId, body.game_id),
           ),
         )
+        .limit(1);
+    } else {
+      [session] = await db
+        .select({
+          id: sessions.id,
+          status: sessions.status,
+          serverId: sessions.serverId,
+          gameId: sessions.gameId,
+        })
+        .from(sessions)
+        .where(and(eq(sessions.gameId, body.game_id), eq(sessions.serverId, server.id)))
         .orderBy(desc(sessions.createdAt))
         .limit(1);
     }
 
-    if (session?.serverId !== server.id) {
-      session = undefined;
+    if (
+      session?.serverId !== server.id
+      || session?.gameId !== body.game_id
+      || !VALID_TRANSITIONS[session.status]?.includes(SESSION_ENDED)
+    ) {
+      return NextResponse.json({ error: "active session not found" }, { status: 409 });
     }
 
-    if (session) {
-      logSignalingStage("stop", "session_resolved", {
-        game_id: body.game_id,
-        session_id: session.id,
-        session_status: session.status,
-      });
-      await db
-        .update(sessions)
-        .set({
-          status: SESSION_ENDED,
-          endedAt: new Date(),
-          stateEnteredAt: new Date(),
-        })
-        .where(and(eq(sessions.id, session.id), eq(sessions.serverId, server.id)));
-    }
+    logSignalingStage("stop", "session_resolved", {
+      game_id: body.game_id,
+      session_id: session.id,
+      session_status: session.status,
+    });
+    await db
+      .update(sessions)
+      .set({ status: SESSION_ENDED, endedAt: new Date(), stateEnteredAt: new Date() })
+      .where(
+        and(
+          eq(sessions.id, session.id),
+          eq(sessions.serverId, server.id),
+          eq(sessions.gameId, body.game_id),
+          ne(sessions.status, SESSION_ENDED),
+        ),
+      );
 
     return NextResponse.json({ ok: true });
   }
@@ -170,24 +227,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "command does not match game" }, { status: 409 });
   }
 
-  // ── Complete the command lease ────────────────────────────────────────
-  if (body.lease_token) {
-    const [lease] = await db
-      .update(commands)
-      .set({ status: STATUS_COMPLETED, completedAt: new Date(), lastError: null })
-      .where(
-        and(
-          eq(commands.id, body.command_id),
-          eq(commands.serverId, server.id),
-          eq(commands.status, STATUS_LEASED),
-          eq(commands.leaseToken, body.lease_token),
-        ),
-      )
-      .returning({ id: commands.id });
+  // ── Complete the exact command lease ──────────────────────────────────
+  if (!body.lease_token) {
+    return NextResponse.json({ error: "lease_token required" }, { status: 400 });
+  }
+  const [lease] = await db
+    .update(commands)
+    .set({ status: STATUS_COMPLETED, completedAt: new Date(), lastError: null })
+    .where(
+      and(
+        eq(commands.id, body.command_id),
+        eq(commands.serverId, server.id),
+        eq(commands.status, STATUS_LEASED),
+        eq(commands.leaseToken, body.lease_token),
+      ),
+    )
+    .returning({ id: commands.id });
 
-    if (!lease) {
-      return NextResponse.json({ error: "command lease not found" }, { status: 409 });
-    }
+  if (!lease) {
+    return NextResponse.json({ error: "command lease not found" }, { status: 409 });
   }
 
   // ── Find or update session ────────────────────────────────────────────
@@ -253,6 +311,9 @@ export async function POST(request: NextRequest) {
   ) {
     bySession = undefined;
   }
+  if (body.session_id && !bySession) {
+    return NextResponse.json({ error: "session does not match callback command" }, { status: 409 });
+  }
 
   // Determine target state
   // Invariant: worker HTTP readiness promotes spawning -> ready.
@@ -276,11 +337,15 @@ export async function POST(request: NextRequest) {
       session_id: bySession.id,
       session_status: bySession.status,
     });
+    const exactTargetStatus = notifyTargetStatus(bySession.status, !!body.sdp_answer);
+    if (!exactTargetStatus) {
+      return NextResponse.json({ error: "invalid session state transition" }, { status: 409 });
+    }
     await db
       .update(sessions)
       .set({
         workerUrl: body.worker_url,
-        status: targetStatus,
+        status: exactTargetStatus,
         roomToken,
         sdpAnswer: body.sdp_answer ?? null,
         stateEnteredAt: new Date(),
@@ -306,6 +371,7 @@ export async function POST(request: NextRequest) {
         generation: sessions.generation,
         serverId: sessions.serverId,
         status: sessions.status,
+        commandId: sessions.commandId,
       })
       .from(sessions)
       .where(
@@ -317,7 +383,12 @@ export async function POST(request: NextRequest) {
       .orderBy(desc(sessions.createdAt))
       .limit(1);
 
-    if (byGame && byGame.serverId === server.id) {
+    const fallbackCapabilityMatches = byGame && (
+      byGame.commandId === cmd.id
+      || (typeof commandPayload.room_token === "string" && commandPayload.room_token === byGame.roomToken)
+      || (typeof commandPayload.host_token === "string" && commandPayload.host_token === byGame.hostToken)
+    );
+    if (byGame && byGame.serverId === server.id && fallbackCapabilityMatches) {
       logSignalingStage(notifyFlow, "session_resolved", {
         command_id: body.command_id,
         game_id: body.game_id,
@@ -328,9 +399,10 @@ export async function POST(request: NextRequest) {
       // Reject stale updates: if a newer generation exists and this notify
       // doesn't explicitly target the current generation, skip the update.
       // This prevents an old worker's SDP answer from overwriting a new session.
-      if (byGame.status === "ended" || byGame.status === "timed_out") {
+      const fallbackTargetStatus = notifyTargetStatus(byGame.status, !!body.sdp_answer);
+      if (!fallbackTargetStatus) {
         return NextResponse.json(
-          { ok: false, error: "session already ended" },
+          { ok: false, error: "invalid session state transition" },
           { status: 409 },
         );
       }
@@ -340,7 +412,7 @@ export async function POST(request: NextRequest) {
         .update(sessions)
         .set({
           workerUrl: body.worker_url,
-          status: targetStatus,
+          status: fallbackTargetStatus,
           roomToken,
           sdpAnswer: body.sdp_answer ?? null,
           stateEnteredAt: new Date(),
@@ -355,11 +427,17 @@ export async function POST(request: NextRequest) {
           .where(eq(commands.id, body.command_id));
       }
     } else {
+      if (byGame) {
+        return NextResponse.json({ error: "session does not match callback command" }, { status: 409 });
+      }
       logSignalingStage(notifyFlow, "session_missing_creating_legacy_row", {
         command_id: body.command_id,
         game_id: body.game_id,
       });
-      // No session at all — create one (legacy / edge case)
+      if (cmd.type !== "start_game") {
+        return NextResponse.json({ error: "active session not found" }, { status: 409 });
+      }
+      // A leased start command may create its initial session as a legacy edge case.
       await db.insert(sessions).values({
         userId: server.userId,
         serverId: server.id,
