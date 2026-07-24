@@ -6,8 +6,8 @@ Sprite Cloud has three roles:
 
 | Role | Runs where | What it does |
 |---|---|---|
-| `sc-web` | Gateway server | Web UI, email/password auth, setup wizard, library, pairing, command relay |
-| `sc-server` | Host machine with ROMs | Polls the gateway, runs emulator cores in-process, streams video/audio over WebRTC |
+| `sc-web` | Optional gateway server | Hosted web UI, accounts, pairing, and command/WebRTC signaling relay |
+| `sc-server` | Host machine with ROMs | Scans and serves the local library, runs emulator cores, and streams video/audio over WebRTC; can run standalone |
 | Browser player | Player device | Plays in the browser — no plugin or native app |
 
 Architecture overview: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
@@ -16,6 +16,15 @@ Protocol and wire formats: **[docs/PROTOCOL.md](docs/PROTOCOL.md)**
 ## Quick start
 
 For the user-facing guide, see **[QUICKSTART.md](QUICKSTART.md)**.
+
+### Run sc-server standalone (no account or gateway)
+
+```bash
+export GV_ROM_ROOTS=/path/to/roms
+cargo run -p sc-server -- start --standalone
+```
+
+Open `http://<host-lan-ip>:8787`. The local page lists the server-owned library and launches games directly over WebRTC. ROM names and filesystem paths remain on the host.
 
 ### Run sc-web locally
 

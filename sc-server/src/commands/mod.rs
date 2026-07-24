@@ -12,8 +12,8 @@ use std::time::Duration;
 use crate::config;
 use crate::core_bridge;
 use crate::dat;
-use crate::sc_web;
 use crate::saves;
+use crate::sc_web;
 
 /// Build the worker HTTP URL using GV_WORKER_HOST env var (LAN IP) or fallback.
 fn worker_url(game_id: &str) -> String {
@@ -85,7 +85,11 @@ pub(crate) async fn cmd_pair(code: &str, sc_web_url: &str) -> Result<()> {
 
 // ── start subcommand (HTTP polling, in-process sessions) ────────────
 
-pub(crate) async fn cmd_start(sc_web_url: Option<String>, no_lan_player: bool, standalone: bool) -> Result<()> {
+pub(crate) async fn cmd_start(
+    sc_web_url: Option<String>,
+    no_lan_player: bool,
+    standalone: bool,
+) -> Result<()> {
     // ── Standalone mode — no sc-web, no pairing, local library only ──
     if standalone {
         return cmd_start_standalone(no_lan_player).await;
@@ -180,6 +184,13 @@ pub(crate) async fn cmd_start(sc_web_url: Option<String>, no_lan_player: bool, s
 
     // Start LAN player HTTP server (port 8787) for direct guest connections
     if !no_lan_player {
+        // sc-server owns the paired LAN library. Scan only when the local
+        // HTTP player is enabled so relay-only mode avoids unnecessary I/O.
+        let local_games = scan_library(&rom_roots);
+        tracing::info!("Local library: {} games", local_games.len());
+        let local_game_list = Arc::new(tokio::sync::RwLock::new(local_games));
+        let local_rom_roots = Arc::new(rom_roots.clone());
+
         let player_addr: SocketAddr = std::env::var("GV_PLAYER_BIND")
             .unwrap_or_else(|_| "0.0.0.0:8787".into())
             .parse()
@@ -191,6 +202,8 @@ pub(crate) async fn cmd_start(sc_web_url: Option<String>, no_lan_player: bool, s
             verify.user_id.clone(),
             verify.name.clone(),
             true,
+            Arc::clone(&local_game_list),
+            Arc::clone(&local_rom_roots),
         ));
     } else {
         tracing::info!("LAN player disabled (--no-lan-player) — relay-only mode");
@@ -287,10 +300,35 @@ pub(crate) async fn cmd_start(sc_web_url: Option<String>, no_lan_player: bool, s
     Ok(())
 }
 
+// ── Local library ownership ─────────────────────────────────────────
+
+fn scan_library(rom_roots: &[String]) -> Vec<scan::DiscoveredFile> {
+    let mut all_files = Vec::new();
+    for root in rom_roots {
+        let path = std::path::Path::new(root);
+        if !path.is_dir() {
+            tracing::warn!("ROM root not found, skipping: {root}");
+            continue;
+        }
+        match scan::discover_roms(path) {
+            Ok(files) => {
+                tracing::info!("  {} — {} files", root, files.len());
+                all_files.extend(files);
+            }
+            Err(error) => tracing::warn!("Scan failed for {root}: {error:#}"),
+        }
+    }
+    all_files
+}
+
 // ── Standalone mode — no sc-web, local library only ───────────────
 
 async fn cmd_start_standalone(no_lan_player: bool) -> Result<()> {
-    tracing::info!("Starting in standalone mode — no cloud account needed");
+    if no_lan_player {
+        anyhow::bail!("--standalone cannot be combined with --no-lan-player");
+    }
+
+    tracing::info!("Starting sc-server in standalone mode (no sc-web, no pairing)");
 
     // ROM roots from env var only (no config file in standalone mode)
     let rom_roots: Vec<String> = std::env::var("GV_ROM_ROOTS")
@@ -306,8 +344,12 @@ async fn cmd_start_standalone(no_lan_player: bool) -> Result<()> {
     if rom_roots.is_empty() {
         // Try common default paths
         let candidates = [
-            "~/roms", "~/ROMs", "~/games", "~/retro",
-            "/home/pi/roms", "/home/user/roms",
+            "~/roms",
+            "~/ROMs",
+            "~/games",
+            "~/retro",
+            "/home/pi/roms",
+            "/home/user/roms",
         ];
         for c in &candidates {
             let expanded = shellexpand::tilde(c).to_string();
@@ -315,66 +357,41 @@ async fn cmd_start_standalone(no_lan_player: bool) -> Result<()> {
                 tracing::info!("Auto-detected ROM root: {expanded}");
                 // We'll use this as the single root
                 let roots = vec![expanded];
-                return run_standalone_server(roots, no_lan_player).await;
+                return run_standalone_server(roots).await;
             }
         }
-        anyhow::bail!(
-            "No ROM roots found. Set GV_ROM_ROOTS=/path/to/roms or place ROMs in ~/roms"
-        );
+        anyhow::bail!("No ROM roots found. Set GV_ROM_ROOTS=/path/to/roms or place ROMs in ~/roms");
     }
 
-    run_standalone_server(rom_roots, no_lan_player).await
+    run_standalone_server(rom_roots).await
 }
 
-async fn run_standalone_server(rom_roots: Vec<String>, no_lan_player: bool) -> Result<()> {
-    use std::path::Path;
-    use crate::scan;
-
+async fn run_standalone_server(rom_roots: Vec<String>) -> Result<()> {
     tracing::info!("ROM roots: {:?}", rom_roots);
 
-    // Scan ROMs
-    let mut all_files: Vec<scan::DiscoveredFile> = Vec::new();
-    for root in &rom_roots {
-        let path = Path::new(root);
-        if !path.is_dir() {
-            tracing::warn!("ROM root not found, skipping: {root}");
-            continue;
-        }
-        match scan::discover_roms(path) {
-            Ok(files) => {
-                tracing::info!("  {} — {} files", root, files.len());
-                all_files.extend(files);
-            }
-            Err(e) => tracing::warn!("Scan failed for {root}: {e:#}"),
-        }
-    }
+    gstreamer::init().context("initialize GStreamer")?;
+    tracing::info!("GStreamer initialized");
+    webrtc::prewarm_ice_agent().await;
 
+    let all_files = scan_library(&rom_roots);
     tracing::info!("Total: {} games discovered", all_files.len());
     let game_list = Arc::new(tokio::sync::RwLock::new(all_files));
     let rom_roots = Arc::new(rom_roots);
 
     // Start LAN player with local API routes
-    if !no_lan_player {
-        let player_addr: SocketAddr = std::env::var("GV_PLAYER_BIND")
-            .unwrap_or_else(|_| "0.0.0.0:8787".into())
-            .parse()
-            .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 8787)));
-        tracing::info!(
-            "Standalone server listening on http://{player_addr} — open this in your browser"
-        );
-        crate::player_server::serve_standalone(
-            player_addr,
-            game_list,
-            rom_roots,
-        ).await;
-    } else {
-        tracing::info!("Standalone mode with --no-lan-player has no function — exiting");
-    }
+    let player_addr: SocketAddr = std::env::var("GV_PLAYER_BIND")
+        .unwrap_or_else(|_| "0.0.0.0:8787".into())
+        .parse()
+        .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 8787)));
+    tracing::info!(
+        "Standalone server listening on http://{player_addr} — open this in your browser"
+    );
+    crate::player_server::serve_standalone(player_addr, game_list, rom_roots).await;
 
     Ok(())
 }
 
-mod dc_handler;
+pub(crate) mod dc_handler;
 mod game;
 mod save_handlers;
 

@@ -13,7 +13,7 @@ use super::*;
 /// - Binary 3 bytes: `[seat, state_lo, state_hi]` → `SetInput { port, state }`
 ///
 /// Called once on session creation and again on SDP retry when the PC is swapped.
-pub(super) fn wire_dc_handler(session: &Arc<GameSession>) {
+pub(crate) fn wire_dc_handler(session: &Arc<GameSession>) {
     let session = Arc::clone(session);
     let pc = session.pc.lock().expect("mutex poisoned").clone();
 

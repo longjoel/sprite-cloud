@@ -6,7 +6,11 @@
 use crate::config;
 use crate::sc_web;
 
-fn lan_metadata(interfaces: &[sc_web::InterfaceInfo], player_port: u16, enabled: bool) -> sc_web::LanMetadata {
+fn lan_metadata(
+    interfaces: &[sc_web::InterfaceInfo],
+    player_port: u16,
+    enabled: bool,
+) -> sc_web::LanMetadata {
     let player_urls = interfaces
         .iter()
         .map(|iface| format!("http://{}:{}/", iface.address, player_port))
@@ -24,9 +28,18 @@ fn lan_metadata(interfaces: &[sc_web::InterfaceInfo], player_port: u16, enabled:
     }
 }
 
+fn public_rom_roots(_configured: &[String]) -> Vec<String> {
+    // ROM paths are private host information. sc-server owns the library and
+    // never sends local filesystem paths to sc-web.
+    Vec::new()
+}
+
 /// Collect non-secret server metadata for connectivity diagnostics
 /// and version reporting during pairing/startup verification.
-pub(crate) async fn collect_metadata(cfg: &config::Config, lan_player_enabled: bool) -> sc_web::ServerMetadata {
+pub(crate) async fn collect_metadata(
+    cfg: &config::Config,
+    lan_player_enabled: bool,
+) -> sc_web::ServerMetadata {
     let pkg_version = env!("CARGO_PKG_VERSION").to_string();
 
     let server_bin = std::env::current_exe()
@@ -76,11 +89,12 @@ pub(crate) async fn collect_metadata(cfg: &config::Config, lan_player_enabled: b
 
     let public_ip = detect_public_ip().await;
 
-    let rom_roots: Vec<String> = cfg
+    let configured_rom_roots = cfg
         .rom
         .as_ref()
-        .map(|r| r.roots.clone())
+        .map(|rom| rom.roots.as_slice())
         .unwrap_or_default();
+    let rom_roots = public_rom_roots(configured_rom_roots);
 
     let ice_cfg = config::runtime_ice_config();
     let ice = sc_web::IceMetadata {
@@ -131,6 +145,12 @@ async fn detect_public_ip() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn public_metadata_never_includes_rom_root_paths() {
+        let configured = vec!["/home/user/private-roms".to_string()];
+        assert!(public_rom_roots(&configured).is_empty());
+    }
 
     #[test]
     fn lan_metadata_builds_player_and_health_urls_for_each_interface() {
