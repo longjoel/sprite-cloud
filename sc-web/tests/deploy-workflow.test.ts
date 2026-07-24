@@ -134,8 +134,9 @@ describe("production deploy workflow", () => {
 
   it("isolates the production schema CLI from the application package graph", () => {
     expect(productionDockerfile).toContain("WORKDIR /app/schema-tools");
-    expect(productionDockerfile).toContain("npm install drizzle-kit@0.31.10");
+    expect(productionDockerfile).toContain("npm install drizzle-kit@0.31.10 postgres@3.4.9");
     expect(productionDockerfile).not.toContain("WORKDIR /app/sc-web\nRUN npm init");
+    expect(productionEntrypoint).toContain("export NODE_PATH=/app/schema-tools/node_modules");
     expect(productionEntrypoint).toContain("/app/schema-tools/node_modules/.bin/drizzle-kit");
   });
 
