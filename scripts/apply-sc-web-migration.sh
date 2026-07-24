@@ -9,9 +9,10 @@ set -euo pipefail
 #
 # What it does:
 #   1. Validates the migration file exists and is readable
-#   2. Applies it via psql inside the sc-web-postgres-1 container
-#   3. Fails on any SQL error (ON_ERROR_STOP=1)
-#   4. Runs a lightweight verification query (checks tables exist)
+#   2. Creates and verifies a timestamped compressed production backup
+#   3. Applies it via psql inside the sc-web-postgres-1 container
+#   4. Fails on any SQL error (ON_ERROR_STOP=1)
+#   5. Runs a lightweight verification query (checks tables exist)
 #
 # Follow the migration file's declared ordering. Destructive removals must run
 # only after compatible sc-web code is deployed and health-checked; additive,
@@ -26,6 +27,7 @@ VPS_USER="${GV_VPS_USER:-root}"
 PG_CONTAINER="${GV_PG_CONTAINER:-sc-web-postgres-1}"
 PG_USER="${GV_PG_USER:-sprite_cloud}"
 PG_DB="${GV_PG_DB:-sprite_cloud}"
+BACKUP_DIR="${GV_DB_BACKUP_DIR:-/docker/sc-web/backups}"
 
 log()  { printf '[migration] %s\n' "$*"; }
 warn() { printf '[migration][warn] %s\n' "$*" >&2; }
@@ -48,7 +50,25 @@ if [[ ! -f "$MIGRATION_FILE" ]]; then
 fi
 
 MIGRATION_NAME="$(basename "$MIGRATION_FILE")"
-log "applying migration: $MIGRATION_NAME"
+log "preparing migration: $MIGRATION_NAME"
+
+for value in "$PG_CONTAINER" "$PG_USER" "$PG_DB"; do
+  [[ "$value" =~ ^[A-Za-z0-9_.-]+$ ]] || fail "unsafe database identifier"
+done
+[[ "$BACKUP_DIR" =~ ^/[A-Za-z0-9_./-]+$ ]] || fail "unsafe backup directory"
+
+# ── verified backup ────────────────────────────────────────────────────
+
+BACKUP_FILE="$BACKUP_DIR/pre-${MIGRATION_NAME%.sql}-$(date -u +%Y%m%dT%H%M%SZ).sql.gz"
+log "creating verified backup: $VPS_HOST:$BACKUP_FILE"
+ssh "$VPS_USER@$VPS_HOST" "
+  set -euo pipefail
+  mkdir -p '$BACKUP_DIR'
+  docker inspect '$PG_CONTAINER' >/dev/null
+  docker exec '$PG_CONTAINER' pg_dump -U '$PG_USER' '$PG_DB' | gzip -9 > '$BACKUP_FILE'
+  test -s '$BACKUP_FILE'
+"
+log "backup verified: $BACKUP_FILE"
 
 # ── apply ──────────────────────────────────────────────────────────────
 

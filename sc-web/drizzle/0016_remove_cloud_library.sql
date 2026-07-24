@@ -1,5 +1,6 @@
 -- DESTRUCTIVE: deploy and health-check sc-web code that no longer reads these
--- tables before applying this migration. Never apply this migration first.
+-- tables, then create and verify a database backup before applying this migration.
+-- Never apply this migration first or without a verified backup.
 -- Remove legacy commands that can upload private filesystem/library metadata.
 DELETE FROM "commands" WHERE "type" IN ('browse_files', 'scan_paths');
 UPDATE "commands"

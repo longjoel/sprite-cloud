@@ -41,7 +41,8 @@ curl -sSL https://raw.githubusercontent.com/longjoel/sprite-cloud/main/scripts/i
 ```
 
 For destructive migrations that remove tables or columns, deploy code that no
-longer reads them first, verify health, then apply the migration:
+longer reads them first, verify health, then run the migration helper. The helper
+creates and verifies a timestamped compressed database backup before applying SQL:
 
 ```bash
 ./scripts/deploy-sc-web.sh

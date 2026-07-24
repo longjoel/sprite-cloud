@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const workflow = readFileSync("../.github/workflows/deploy.yml", "utf8");
+const migrationHelper = readFileSync("../scripts/apply-sc-web-migration.sh", "utf8");
+const scriptsReadme = readFileSync("../scripts/README.md", "utf8");
+const releaseGuide = readFileSync("../docs/RELEASE.md", "utf8");
 
 describe("production deploy workflow", () => {
   it("treats a successful health curl exit code as success without capturing its body", () => {
@@ -28,5 +31,17 @@ describe("production deploy workflow", () => {
     expect(backup).toBeGreaterThan(health);
     expect(pgDump).toBeGreaterThan(backup);
     expect(migration).toBeGreaterThan(pgDump);
+  });
+
+  it("makes a verified backup mandatory in the canonical migration helper", () => {
+    const backup = migrationHelper.indexOf("pg_dump");
+    const nonempty = migrationHelper.indexOf("test -s '$BACKUP_FILE'");
+    const apply = migrationHelper.indexOf('psql -U $PG_USER');
+
+    expect(backup).toBeGreaterThan(-1);
+    expect(nonempty).toBeGreaterThan(backup);
+    expect(apply).toBeGreaterThan(nonempty);
+    expect(scriptsReadme).toContain("creates and verifies a timestamped compressed database backup");
+    expect(releaseGuide).toContain("verified backup third");
   });
 });
