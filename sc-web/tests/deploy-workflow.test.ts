@@ -26,8 +26,15 @@ const rootReadme = readFileSync("../README.md", "utf8");
 const quickstart = readFileSync("../QUICKSTART.md", "utf8");
 
 describe("production deploy workflow", () => {
+  it("uses the installed nondefault VPS key for every SSH transport", () => {
+    expect(workflow).toContain("name: vps-key");
+    expect(workflow).not.toMatch(/\bssh -o StrictHostKeyChecking/);
+    expect(workflow).not.toMatch(/\bscp -o StrictHostKeyChecking/);
+    expect(workflow.match(/-i ~\/\.ssh\/vps-key/g)?.length).toBe(6);
+  });
+
   it("treats a successful health curl exit code as success without capturing its body", () => {
-    expect(workflow).toContain("if ssh -o StrictHostKeyChecking=accept-new");
+    expect(workflow).toContain("if ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new");
     expect(workflow).toContain("curl -fsS http://localhost:3000/api/health >/dev/null");
     expect(workflow).not.toContain("STATUS=$(ssh");
   });
