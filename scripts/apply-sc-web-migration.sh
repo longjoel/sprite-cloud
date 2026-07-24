@@ -50,6 +50,7 @@ if [[ ! -f "$MIGRATION_FILE" ]]; then
 fi
 
 MIGRATION_NAME="$(basename "$MIGRATION_FILE")"
+[[ "$MIGRATION_NAME" =~ ^[A-Za-z0-9_.-]+\.sql$ ]] || fail "unsafe migration filename"
 log "preparing migration: $MIGRATION_NAME"
 
 for value in "$PG_CONTAINER" "$PG_USER" "$PG_DB"; do
