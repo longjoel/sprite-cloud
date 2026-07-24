@@ -382,6 +382,36 @@ describe("POST /api/server/command", () => {
     expect(mockDb.insert).not.toHaveBeenCalled();
   });
 
+  it("rejects guest SDP for a timed-out room session even with its peer token", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "session-timed-out",
+        serverId: "server-1",
+        gameId: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        status: "timed_out",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "player", seat: 1 }]));
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      ...jsonBody({
+        server_id: "server-1",
+        type: "sdp_offer",
+        payload: {
+          game_id: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          room_token: "expired-room",
+          peer_token: "expired-peer",
+          sdp: "v=0\r\n",
+        },
+      }),
+    });
+
+    const resp = await POST(req as any);
+
+    expect(resp.status).toBe(410);
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
   it("accepts and enriches a peer token bound to the exact room session", async () => {
     mockAuth.mockResolvedValueOnce(null);
     mockDb.select

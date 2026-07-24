@@ -36,12 +36,17 @@ describe("production deploy workflow", () => {
 
   it("makes a verified backup mandatory in the canonical migration helper", () => {
     const backup = migrationHelper.indexOf("pg_dump");
-    const nonempty = migrationHelper.indexOf("test -s '$BACKUP_FILE'");
-    const apply = migrationHelper.indexOf('psql -U $PG_USER');
+    const nonempty = migrationHelper.indexOf("test -s");
+    const apply = migrationHelper.indexOf("psql -U $PG_USER");
+    const preHealth = migrationHelper.indexOf("curl -fsS http://localhost:3000/api/health >/dev/null");
+    const postHealth = migrationHelper.lastIndexOf("curl -fsS http://localhost:3000/api/health >/dev/null");
 
+    expect(preHealth).toBeGreaterThan(-1);
+    expect(backup).toBeGreaterThan(preHealth);
     expect(backup).toBeGreaterThan(-1);
     expect(nonempty).toBeGreaterThan(backup);
     expect(apply).toBeGreaterThan(nonempty);
+    expect(postHealth).toBeGreaterThan(apply);
     expect(migrationHelper).toContain("LEGACY_COUNT=");
     expect(migrationHelper).toContain('[[ "$LEGACY_COUNT" == "0" ]]');
     expect(migrationHelper).toContain("curl -fsS http://localhost:3000/api/health >/dev/null");
@@ -56,5 +61,6 @@ describe("production deploy workflow", () => {
     expect(checksum).toBeGreaterThan(-1);
     expect(install).toBeGreaterThan(checksum);
     expect(hostInstaller).not.toContain('curl -sSL "$BIN_URL" -o "$BIN_PATH"');
+    expect(hostInstaller).not.toContain('ARCH="armv7"');
   });
 });

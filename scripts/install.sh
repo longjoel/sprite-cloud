@@ -53,7 +53,7 @@ fi
 case "$UNAME_M" in
   x86_64)  ARCH="x86_64" ;;
   aarch64) ARCH="aarch64" ;;
-  armv7l)  ARCH="armv7" ;;
+  armv7l)  err "unsupported architecture: armv7l (release assets are x86_64 and aarch64)" ;;
   *)       err "unsupported architecture: $UNAME_M" ;;
 esac
 

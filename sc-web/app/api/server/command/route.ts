@@ -212,7 +212,7 @@ export async function POST(request: NextRequest) {
       if (roomSession.serverId !== body.server_id || roomSession.gameId !== sdpPayload?.game_id) {
         return NextResponse.json({ error: "room_token does not match server or game" }, { status: 403 });
       }
-      if (roomSession.status === "stopped" || roomSession.status === "ended") {
+      if (!["spawning", "ready", "connected", "playing"].includes(roomSession.status)) {
         return NextResponse.json({ error: "session ended" }, { status: 410 });
       }
       if (!peerToken) {
