@@ -20,7 +20,15 @@ COPY sc-web/public/ ./sc-web/sc-web/public/
 # Next.js build static assets (JS chunks, CSS) — not in standalone output
 COPY sc-web-standalone/.next/static/ ./sc-web/sc-web/.next/static/
 
-# Production entrypoint (applies DB schema, starts node server.js)
+# Schema assets and isolated tooling used by the guarded empty-database initializer.
+COPY sc-web/drizzle.config.ts ./sc-web/
+COPY sc-web/drizzle/ ./sc-web/drizzle/
+COPY sc-web/lib/db/schema.ts ./sc-web/lib/db/
+WORKDIR /app/schema-tools
+RUN npm init -y 2>/dev/null && npm install drizzle-kit@0.31.10 postgres@3.4.9
+WORKDIR /app
+
+# Production entrypoint (guarded empty-DB initialization, then server startup)
 COPY docker/sc-web/entrypoint.prod.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
