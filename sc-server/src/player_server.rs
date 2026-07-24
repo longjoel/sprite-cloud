@@ -32,8 +32,36 @@ struct AppState {
 
 /// Game library and scan state for standalone mode.
 #[derive(Clone)]
+pub(crate) struct LocalGame {
+    id: String,
+    content_path: std::path::PathBuf,
+    discovered: crate::scan::DiscoveredFile,
+}
+
+impl LocalGame {
+    pub(crate) fn new(root: &str, discovered: crate::scan::DiscoveredFile) -> Self {
+        use sha2::{Digest, Sha256};
+
+        let root_path = std::path::Path::new(root);
+        let content_path = root_path.join(&discovered.relative_path);
+        let mut hasher = Sha256::new();
+        hasher.update(root_path.as_os_str().as_encoded_bytes());
+        hasher.update([0]);
+        hasher.update(discovered.relative_path.as_bytes());
+        let digest = hasher.finalize();
+        let id = format!("local_{}", hex::encode(&digest[..16]));
+
+        Self {
+            id,
+            content_path,
+            discovered,
+        }
+    }
+}
+
+#[derive(Clone)]
 struct StandaloneState {
-    game_list: Arc<tokio::sync::RwLock<Vec<crate::scan::DiscoveredFile>>>,
+    game_list: Arc<tokio::sync::RwLock<Vec<LocalGame>>>,
     rom_roots: Arc<Vec<String>>,
 }
 
@@ -224,14 +252,14 @@ async fn proxy_to_sc_web(
     Ok(response)
 }
 
-pub async fn serve(
+pub(crate) async fn serve(
     bind: SocketAddr,
     sc_web: String,
     server_id: String,
     user_id: String,
     server_name: String,
     lan_player_enabled: bool,
-    game_list: Arc<tokio::sync::RwLock<Vec<crate::scan::DiscoveredFile>>>,
+    game_list: Arc<tokio::sync::RwLock<Vec<LocalGame>>>,
     rom_roots: Arc<Vec<String>>,
 ) {
     let state = Arc::new(AppState {
@@ -267,9 +295,9 @@ pub async fn serve(
 }
 
 /// Standalone mode — no sc-web, local game library API.
-pub async fn serve_standalone(
+pub(crate) async fn serve_standalone(
     bind: SocketAddr,
-    game_list: Arc<tokio::sync::RwLock<Vec<crate::scan::DiscoveredFile>>>,
+    game_list: Arc<tokio::sync::RwLock<Vec<LocalGame>>>,
     rom_roots: Arc<Vec<String>>,
 ) {
     let standalone = StandaloneState {
@@ -349,15 +377,18 @@ async fn list_games(
     let search = query.search.unwrap_or_default().trim().to_lowercase();
     let mut entries: Vec<GameEntry> = games
         .iter()
-        .filter(|file| search.is_empty() || file.file_name.to_lowercase().contains(&search))
-        .map(|file| GameEntry {
-            id: file.relative_path.clone(),
-            name: std::path::Path::new(&file.file_name)
+        .filter(|game| {
+            search.is_empty() || game.discovered.file_name.to_lowercase().contains(&search)
+        })
+        .map(|game| GameEntry {
+            id: game.id.clone(),
+            name: std::path::Path::new(&game.discovered.file_name)
                 .file_stem()
                 .and_then(|stem| stem.to_str())
-                .unwrap_or(&file.file_name)
+                .unwrap_or(&game.discovered.file_name)
                 .to_string(),
-            platform: file
+            platform: game
+                .discovered
                 .platform
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string()),
@@ -377,44 +408,23 @@ async fn list_games(
 
 fn resolve_local_game(
     game_id: &str,
-    games: &[crate::scan::DiscoveredFile],
+    games: &[LocalGame],
     rom_roots: &[String],
 ) -> Result<(std::path::PathBuf, String), String> {
-    let relative = std::path::Path::new(game_id);
-    if relative.is_absolute()
-        || relative.components().any(|component| {
-            matches!(
-                component,
-                std::path::Component::ParentDir
-                    | std::path::Component::RootDir
-                    | std::path::Component::Prefix(_)
-            )
-        })
-    {
-        return Err("invalid game id".to_string());
-    }
-
     let game = games
         .iter()
-        .find(|candidate| candidate.relative_path == game_id)
+        .find(|candidate| candidate.id == game_id)
         .ok_or_else(|| "game not found".to_string())?;
+    let resolved = crate::scan::resolve_within_roots(&game.content_path, rom_roots)
+        .map_err(|error| error.to_string())?;
 
-    for root in rom_roots {
-        let candidate = std::path::Path::new(root).join(relative);
-        if !candidate.exists() {
-            continue;
-        }
-        let resolved = crate::scan::resolve_within_roots(&candidate, rom_roots)
-            .map_err(|error| error.to_string())?;
-        return Ok((
-            resolved,
-            game.platform
-                .clone()
-                .unwrap_or_else(|| "unknown".to_string()),
-        ));
-    }
-
-    Err("ROM file not found".to_string())
+    Ok((
+        resolved,
+        game.discovered
+            .platform
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -563,14 +573,14 @@ async fn trigger_scan(
 
     // Run scan in a blocking task
     let result = tokio::task::spawn_blocking(move || {
-        let mut all: Vec<crate::scan::DiscoveredFile> = Vec::new();
+        let mut all: Vec<LocalGame> = Vec::new();
         for root in roots.iter() {
             let path = std::path::Path::new(root);
             if !path.is_dir() {
                 continue;
             }
             if let Ok(files) = crate::scan::discover_roms(path) {
-                all.extend(files);
+                all.extend(files.into_iter().map(|file| LocalGame::new(root, file)));
             }
         }
         all
@@ -604,11 +614,15 @@ async fn library_page(
     let mut platforms: std::collections::BTreeMap<String, Vec<(String, String)>> =
         std::collections::BTreeMap::new();
     for game in games.iter() {
-        let platform = game.platform.clone().unwrap_or_else(|| "other".to_string());
+        let platform = game
+            .discovered
+            .platform
+            .clone()
+            .unwrap_or_else(|| "other".to_string());
         platforms
             .entry(platform)
             .or_default()
-            .push((game.relative_path.clone(), game.file_name.clone()));
+            .push((game.id.clone(), game.discovered.file_name.clone()));
     }
 
     let mut platform_sections = String::new();
@@ -867,18 +881,43 @@ mod tests {
     }
 
     #[test]
-    fn local_launch_rejects_paths_outside_configured_rom_roots() {
-        let games = vec![crate::scan::DiscoveredFile {
-            relative_path: "../private/secret.sfc".to_string(),
-            file_name: "secret.sfc".to_string(),
-            file_size: 1,
+    fn local_game_ids_are_stable_opaque_and_root_scoped() {
+        let discovered = crate::scan::DiscoveredFile {
+            relative_path: "snes/Super Mario World.sfc".to_string(),
+            file_name: "Super Mario World.sfc".to_string(),
+            file_size: 512,
             sha256: None,
             crc: None,
             platform: Some("snes".to_string()),
-        }];
+        };
+        let first = LocalGame::new("/roms-a", discovered.clone());
+        let same = LocalGame::new("/roms-a", discovered.clone());
+        let other_root = LocalGame::new("/roms-b", discovered);
+
+        assert_eq!(first.id, same.id);
+        assert_ne!(first.id, other_root.id);
+        assert!(first.id.starts_with("local_"));
+        assert!(!first.id.to_lowercase().contains("mario"));
+        assert!(!first.id.contains('/'));
+    }
+
+    #[test]
+    fn local_launch_rejects_paths_outside_configured_rom_roots() {
+        let game = LocalGame::new(
+            "/roms",
+            crate::scan::DiscoveredFile {
+                relative_path: "../private/secret.sfc".to_string(),
+                file_name: "secret.sfc".to_string(),
+                file_size: 1,
+                sha256: None,
+                crc: None,
+                platform: Some("snes".to_string()),
+            },
+        );
+        let game_id = game.id.clone();
         let roots = vec!["/roms".to_string()];
 
-        assert!(resolve_local_game("../private/secret.sfc", &games, &roots).is_err());
+        assert!(resolve_local_game(&game_id, &[game], &roots).is_err());
     }
 
     #[tokio::test]
@@ -955,7 +994,8 @@ mod tests {
 
     #[tokio::test]
     async fn paired_mode_serves_game_library_locally_instead_of_proxying() {
-        let game_list = Arc::new(tokio::sync::RwLock::new(vec![
+        let local_game = LocalGame::new(
+            "/roms",
             crate::scan::DiscoveredFile {
                 relative_path: "snes/super-mario-world.sfc".to_string(),
                 file_name: "super-mario-world.sfc".to_string(),
@@ -964,7 +1004,9 @@ mod tests {
                 crc: None,
                 platform: Some("snes".to_string()),
             },
-        ]));
+        );
+        let expected_id = local_game.id.clone();
+        let game_list = Arc::new(tokio::sync::RwLock::new(vec![local_game]));
         let state = Arc::new(AppState {
             client: Client::new(),
             sc_web: "http://127.0.0.1:1".to_string(),
@@ -997,7 +1039,7 @@ mod tests {
             .unwrap();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(payload["total"], 1);
-        assert_eq!(payload["games"][0]["id"], "snes/super-mario-world.sfc");
+        assert_eq!(payload["games"][0]["id"], expected_id);
         assert_eq!(payload["games"][0]["platform"], "snes");
         assert_eq!(payload["games"][0]["serverId"], "server-vault");
         assert_eq!(payload["games"][0]["maxPlayers"], 1);
