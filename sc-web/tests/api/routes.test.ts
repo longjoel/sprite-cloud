@@ -325,6 +325,97 @@ describe("POST /api/server/command", () => {
     expect(mockDb.insert).not.toHaveBeenCalled();
   });
 
+  it("rejects a room-token SDP offer without an exact session peer token", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{
+      id: "session-1",
+      serverId: "server-1",
+      gameId: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      status: "ready",
+    }]));
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      ...jsonBody({
+        server_id: "server-1",
+        type: "sdp_offer",
+        payload: {
+          game_id: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          room_token: "room-token",
+          sdp: "v=0\r\n",
+        },
+      }),
+    });
+
+    const resp = await POST(req as any);
+
+    expect(resp.status).toBe(403);
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it("rejects a peer token issued for another room session", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "session-1",
+        serverId: "server-1",
+        gameId: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        status: "ready",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([]));
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      ...jsonBody({
+        server_id: "server-1",
+        type: "sdp_offer",
+        payload: {
+          game_id: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          room_token: "room-token",
+          peer_token: "peer-from-another-session",
+          sdp: "v=0\r\n",
+        },
+      }),
+    });
+
+    const resp = await POST(req as any);
+
+    expect(resp.status).toBe(403);
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it("accepts and enriches a peer token bound to the exact room session", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "session-1",
+        serverId: "server-1",
+        gameId: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        status: "ready",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "player", seat: 2 }]));
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      ...jsonBody({
+        server_id: "server-1",
+        type: "sdp_offer",
+        payload: {
+          game_id: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          room_token: "room-token",
+          peer_token: "peer-for-session-1",
+          sdp: "v=0\r\n",
+        },
+      }),
+    });
+
+    const resp = await POST(req as any);
+
+    expect(resp.status).toBe(201);
+    const insertBuilder = mockDb.insert.mock.results[0].value;
+    expect(insertBuilder.values).toHaveBeenCalledWith(expect.objectContaining({
+      serverId: "server-1",
+      payload: expect.objectContaining({ peer_role: "player", peer_seat: 2 }),
+    }));
+  });
+
   it("returns 400 for invalid type", async () => {
     const { POST } = await import("@/app/api/server/command/route");
     const req = mkReq("http://localhost/api/server/command", {

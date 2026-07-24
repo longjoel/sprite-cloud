@@ -52,7 +52,7 @@ fi
 
 case "$UNAME_M" in
   x86_64)  ARCH="x86_64" ;;
-  aarch64) ARCH="arm64" ;;
+  aarch64) ARCH="aarch64" ;;
   armv7l)  ARCH="armv7" ;;
   *)       err "unsupported architecture: $UNAME_M" ;;
 esac
@@ -167,10 +167,20 @@ ok "directories created"
 
 # ── Download binary ────────────────────────────────────────────────────
 BIN_URL="${GV_BIN_URL:-https://github.com/longjoel/sprite-cloud/releases/latest/download/sc-server-${ARCH}}"
+SHA_URL="${GV_BIN_SHA256_URL:-${BIN_URL}.sha256}"
+DOWNLOAD_DIR="$(mktemp -d)"
+trap 'rm -rf "$DOWNLOAD_DIR"' EXIT
+DOWNLOAD_BIN="$DOWNLOAD_DIR/sc-server"
+DOWNLOAD_SHA="$DOWNLOAD_DIR/sc-server.sha256"
 
 log "Downloading sc-server ($ARCH)…"
-$SUDO curl -sSL "$BIN_URL" -o "$BIN_PATH"
-$SUDO chmod +x "$BIN_PATH"
+curl -fsSL "$BIN_URL" -o "$DOWNLOAD_BIN" || err "binary download failed"
+curl -fsSL "$SHA_URL" -o "$DOWNLOAD_SHA" || err "checksum download failed"
+EXPECTED_SHA="$(cut -d ' ' -f1 "$DOWNLOAD_SHA")"
+[[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{64}$ ]] || err "invalid checksum file"
+(cd "$DOWNLOAD_DIR" && printf '%s  %s\n' "$EXPECTED_SHA" sc-server | sha256sum -c - >/dev/null) \
+  || err "checksum verification failed"
+$SUDO install -m 0755 "$DOWNLOAD_BIN" "$BIN_PATH"
 ok "sc-server installed to $BIN_PATH"
 
 # ── Config ─────────────────────────────────────────────────────────────

@@ -127,6 +127,7 @@ export async function POST(request: NextRequest) {
   }
 
   let lanStartUserId: string | undefined;
+  let authenticatedPeer: { role: string; seat: number | null } | null = null;
 
   // ── LAN host start via short-code bearer token ─────────────────────
   // The embedded LAN player runs on http://<server-ip>:8787, so it cannot
@@ -200,7 +201,7 @@ export async function POST(request: NextRequest) {
     if (!serverId && roomToken) {
       // Resolve room_token → active session → server_id
       const [roomSession] = await db
-        .select({ serverId: sessions.serverId, gameId: sessions.gameId, status: sessions.status })
+        .select({ id: sessions.id, serverId: sessions.serverId, gameId: sessions.gameId, status: sessions.status })
         .from(sessions)
         .where(eq(sessions.roomToken, roomToken))
         .limit(1);
@@ -214,6 +215,18 @@ export async function POST(request: NextRequest) {
       if (roomSession.status === "stopped" || roomSession.status === "ended") {
         return NextResponse.json({ error: "session ended" }, { status: 410 });
       }
+      if (!peerToken) {
+        return NextResponse.json({ error: "peer_token required for guest SDP" }, { status: 403 });
+      }
+      const [peer] = await db
+        .select({ role: peerTokens.role, seat: peerTokens.seat })
+        .from(peerTokens)
+        .where(and(eq(peerTokens.token, peerToken), eq(peerTokens.sessionId, roomSession.id)))
+        .limit(1);
+      if (!peer) {
+        return NextResponse.json({ error: "peer_token does not match room session" }, { status: 403 });
+      }
+      authenticatedPeer = peer;
       serverId = roomSession.serverId!;
       // Guest auth successful — skip session + CSRF + membership checks
     } else if (!serverId) {
@@ -312,29 +325,17 @@ export async function POST(request: NextRequest) {
       has_room_token: typeof sp.room_token === "string",
       has_host_token: typeof sp.host_token === "string",
     });
-    if (peerToken) {
-      const [peer] = await db
-        .select({ role: peerTokens.role, seat: peerTokens.seat })
-        .from(peerTokens)
-        .where(eq(peerTokens.token, peerToken))
-        .limit(1);
-      if (peer) {
-        enrichedPayload = {
-          ...sp,
-          peer_role: peer.role,
-          peer_seat: peer.seat,
-        };
-        logSignalingStage("guest_offer", "payload_enriched", {
-          game_id: sp.game_id,
-          peer_role: peer.role,
-          peer_seat: peer.seat,
-        });
-      } else {
-        logSignalingStage("guest_offer", "payload_enrichment_missing_peer", {
-          game_id: sp.game_id,
-          has_peer_token: true,
-        });
-      }
+    if (authenticatedPeer) {
+      enrichedPayload = {
+        ...sp,
+        peer_role: authenticatedPeer.role,
+        peer_seat: authenticatedPeer.seat,
+      };
+      logSignalingStage("guest_offer", "payload_enriched", {
+        game_id: sp.game_id,
+        peer_role: authenticatedPeer.role,
+        peer_seat: authenticatedPeer.seat,
+      });
     }
   }
 
