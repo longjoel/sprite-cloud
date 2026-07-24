@@ -5,6 +5,7 @@ const workflow = readFileSync("../.github/workflows/deploy.yml", "utf8");
 const migrationHelper = readFileSync("../scripts/apply-sc-web-migration.sh", "utf8");
 const scriptsReadme = readFileSync("../scripts/README.md", "utf8");
 const releaseGuide = readFileSync("../docs/RELEASE.md", "utf8");
+const hostInstaller = readFileSync("../scripts/install.sh", "utf8");
 
 describe("production deploy workflow", () => {
   it("treats a successful health curl exit code as success without capturing its body", () => {
@@ -43,5 +44,14 @@ describe("production deploy workflow", () => {
     expect(apply).toBeGreaterThan(nonempty);
     expect(scriptsReadme).toContain("creates and verifies a timestamped compressed database backup");
     expect(releaseGuide).toContain("verified backup third");
+  });
+
+  it("verifies the release checksum before replacing the installed host binary", () => {
+    const checksum = hostInstaller.indexOf("sha256sum -c");
+    const install = hostInstaller.indexOf('install -m 0755');
+
+    expect(checksum).toBeGreaterThan(-1);
+    expect(install).toBeGreaterThan(checksum);
+    expect(hostInstaller).not.toContain('curl -sSL "$BIN_URL" -o "$BIN_PATH"');
   });
 });
