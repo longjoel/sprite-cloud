@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { sessions, shortCodes, serverMembers, servers } from "@/lib/db/schema";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { verifyBearerToken } from "@/lib/server-auth";
 
 // ── GET /api/room/resolve/:code — resolve a short code to game params
 //
@@ -38,17 +39,14 @@ export async function GET(
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
-  // LAN proxy pass-through: if the caller provides the correct host_token
-  // in the query string, treat them as the host (no auth session needed).
-  // This lets sc-server's player proxy negotiate host reconnection without
-  // browser auth cookies from the sc-web origin.
-  const tokenHint = url.searchParams.get("host_token") || undefined;
-  let isHost = false;
-  if (tokenHint && tokenHint === entry.hostToken) {
-    isHost = true;
-  }
+  // Paired sc-server proxies this exact route with its server bearer. The
+  // browser never carries the host capability in its launch URL.
+  const bearerServer = forceGuest
+    ? null
+    : await verifyBearerToken(request.headers.get("authorization"));
+  let isHost = bearerServer?.id === entry.serverId;
 
-  // Fall back to auth session check if token hint didn't match
+  // Fall back to auth session check when this is not the owning sc-server.
   if (!isHost && !forceGuest) {
     const session = await auth();
     if (session?.user?.id) {

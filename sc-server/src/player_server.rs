@@ -102,6 +102,7 @@ fn app_router() -> Router<Arc<AppState>> {
         .route("/api/recent-plays", get(list_recent_plays))
         .route("/api/games/:id", get(get_game).put(rename_game))
         .route("/api/playable-hosts", get(playable_hosts))
+        .route("/api/room/resolve/:code", get(proxy_server_authenticated))
         .route("/api/room/shorten", post(proxy_server_authenticated))
         .route("/health", get(health))
         .route("/api/*path", any(proxy))
@@ -185,7 +186,13 @@ async fn proxy_server_authenticated(
     mut req: Request,
 ) -> Result<axum::response::Response, axum::http::StatusCode> {
     attach_server_bearer(&state, &mut req)?;
-    proxy_to_sc_web(&state, req, "/api/room/shorten").await
+    let target = req
+        .uri()
+        .path_and_query()
+        .map(|value| value.as_str())
+        .unwrap_or("/api/room/shorten")
+        .to_string();
+    proxy_to_sc_web(&state, req, &target).await
 }
 
 fn attach_server_bearer(

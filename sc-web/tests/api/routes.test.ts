@@ -930,6 +930,27 @@ describe("POST /api/server/notify", () => {
     expect(resp.status).toBe(404);
   });
 
+  it("does not stop a session owned by another authenticated server", async () => {
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{ id: "session-on-server-2", status: "playing", serverId: "server-2" }]),
+    );
+    const { POST } = await import("@/app/api/server/notify/route");
+    const req = mkReq("http://localhost/api/server/notify", {
+      ...jsonBody({
+        command_id: "stop-command",
+        game_id: "local_0123456789abcdef0123456789abcdef",
+        session_id: "session-on-server-2",
+        action: "stop",
+      }),
+      headers: authHeader(),
+    });
+
+    const resp = await POST(req as any);
+
+    expect(resp.status).toBe(200);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
   it("accepts stop action without worker_url", async () => {
     // Mock command lookup
     mockDb.select.mockReturnValue(
@@ -1016,7 +1037,62 @@ describe("GET /api/server/notify", () => {
 
 // ── /api/room/join ──────────────────────────────────────────────────────
 
+describe("GET /api/room/resolve/[code]", () => {
+  it("returns the host capability only to the owning sc-server bearer", async () => {
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{
+      gameId: "local_0123456789abcdef0123456789abcdef",
+      hostToken: "host-secret",
+      serverId: "server-1",
+    }]));
+    const { GET } = await import("@/app/api/room/resolve/[code]/route");
+    const req = mkReq("http://localhost/api/room/resolve/ABC123", {
+      headers: authHeader(),
+    });
+
+    const resp = await GET(req, { params: Promise.resolve({ code: "ABC123" }) });
+    const body = await resp.json();
+
+    expect(resp.status).toBe(200);
+    expect(body.host_token).toBe("host-secret");
+    expect(mockVerifyBearerToken).toHaveBeenCalledWith("Bearer scsk_test_api_key_12345");
+  });
+
+  it("does not accept a host capability supplied in the URL query", async () => {
+    mockVerifyBearerToken.mockResolvedValueOnce(null);
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        gameId: "local_0123456789abcdef0123456789abcdef",
+        hostToken: "host-secret",
+        serverId: "server-1",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([]))
+      .mockReturnValueOnce(mockQueryBuilder([]));
+    const { GET } = await import("@/app/api/room/resolve/[code]/route");
+    const req = mkReq("http://localhost/api/room/resolve/ABC123?host_token=host-secret");
+
+    const resp = await GET(req, { params: Promise.resolve({ code: "ABC123" }) });
+    const body = await resp.json();
+
+    expect(resp.status).toBe(404);
+    expect(body.host_token).toBeUndefined();
+  });
+});
+
 describe("POST /api/room/join", () => {
+  it("never writes the room bearer capability to signaling logs", async () => {
+    const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([]));
+    const { POST } = await import("@/app/api/room/join/route");
+    const req = mkReq("http://localhost/api/room/join", {
+      ...jsonBody({ room_token: "secret-room-capability" }),
+    });
+
+    await POST(req);
+
+    expect(log.mock.calls.flat().join(" ")).not.toContain("secret-room-capability");
+  });
+
   it("resolves preview requests without minting a peer token", async () => {
     mockDb.select.mockReturnValueOnce(
       mockQueryBuilder([{

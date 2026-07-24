@@ -89,30 +89,30 @@ export async function POST(request: NextRequest) {
   // ── Stop action: transition session to ended ──────────────────────────
   if (effectiveAction === "stop") {
 
-    let session: { id: string; status: string } | undefined;
+    let session: { id: string; status: string; serverId: string | null } | undefined;
 
     // Prefer session_id when available (most precise)
     if (body.session_id) {
       [session] = await db
-        .select({ id: sessions.id, status: sessions.status })
+        .select({ id: sessions.id, status: sessions.status, serverId: sessions.serverId })
         .from(sessions)
-        .where(eq(sessions.id, body.session_id))
+        .where(and(eq(sessions.id, body.session_id), eq(sessions.serverId, server.id)))
         .limit(1);
     }
 
     if (!isWorkerDead && !session) {
       // Try command_id (for explicit stop_game commands)
       [session] = await db
-        .select({ id: sessions.id, status: sessions.status })
+        .select({ id: sessions.id, status: sessions.status, serverId: sessions.serverId })
         .from(sessions)
-        .where(eq(sessions.commandId, body.command_id))
+        .where(and(eq(sessions.commandId, body.command_id), eq(sessions.serverId, server.id)))
         .limit(1);
     }
 
     // Fallback: find by game_id + server_id (for worker_dead or missing cmd match)
     if (!session) {
       [session] = await db
-        .select({ id: sessions.id, status: sessions.status })
+        .select({ id: sessions.id, status: sessions.status, serverId: sessions.serverId })
         .from(sessions)
         .where(
           and(
@@ -122,6 +122,10 @@ export async function POST(request: NextRequest) {
         )
         .orderBy(desc(sessions.createdAt))
         .limit(1);
+    }
+
+    if (session?.serverId !== server.id) {
+      session = undefined;
     }
 
     if (session) {
@@ -137,7 +141,7 @@ export async function POST(request: NextRequest) {
           endedAt: new Date(),
           stateEnteredAt: new Date(),
         })
-        .where(eq(sessions.id, session.id));
+        .where(and(eq(sessions.id, session.id), eq(sessions.serverId, server.id)));
     }
 
     return NextResponse.json({ ok: true });
@@ -188,7 +192,7 @@ export async function POST(request: NextRequest) {
   //  When updating by game_id fallback, reject if a newer generation exists
   //  (prevents stale worker_dead / SDP answers from updating newer sessions).
 
-  let bySession: { id: string; status: string; roomToken: string | null; generation: number } | undefined;
+  let bySession: { id: string; status: string; roomToken: string | null; generation: number; serverId: string | null } | undefined;
 
   if (body.session_id) {
     [bySession] = await db
@@ -197,9 +201,10 @@ export async function POST(request: NextRequest) {
         status: sessions.status,
         roomToken: sessions.roomToken,
         generation: sessions.generation,
+        serverId: sessions.serverId,
       })
       .from(sessions)
-      .where(eq(sessions.id, body.session_id))
+      .where(and(eq(sessions.id, body.session_id), eq(sessions.serverId, server.id)))
       .limit(1);
   }
 
@@ -210,11 +215,15 @@ export async function POST(request: NextRequest) {
         status: sessions.status,
         roomToken: sessions.roomToken,
         generation: sessions.generation,
+        serverId: sessions.serverId,
       })
       .from(sessions)
-      .where(and(eq(sessions.commandId, body.command_id)))
+      .where(and(eq(sessions.commandId, body.command_id), eq(sessions.serverId, server.id)))
       .limit(1);
     bySession = byCmd;
+  }
+  if (bySession?.serverId !== server.id) {
+    bySession = undefined;
   }
 
   // Determine target state
@@ -248,7 +257,7 @@ export async function POST(request: NextRequest) {
         sdpAnswer: body.sdp_answer ?? null,
         stateEnteredAt: new Date(),
       })
-      .where(eq(sessions.id, bySession.id));
+      .where(and(eq(sessions.id, bySession.id), eq(sessions.serverId, server.id)));
 
     // Also store SDP answer on the command (per-guest isolation)
     if (body.sdp_answer) {
@@ -267,6 +276,7 @@ export async function POST(request: NextRequest) {
         hostToken: sessions.hostToken,
         roomToken: sessions.roomToken,
         generation: sessions.generation,
+        serverId: sessions.serverId,
         status: sessions.status,
       })
       .from(sessions)
@@ -279,7 +289,7 @@ export async function POST(request: NextRequest) {
       .orderBy(desc(sessions.createdAt))
       .limit(1);
 
-    if (byGame) {
+    if (byGame && byGame.serverId === server.id) {
       logSignalingStage(notifyFlow, "session_resolved", {
         command_id: body.command_id,
         game_id: body.game_id,
@@ -307,7 +317,7 @@ export async function POST(request: NextRequest) {
           sdpAnswer: body.sdp_answer ?? null,
           stateEnteredAt: new Date(),
         })
-        .where(eq(sessions.id, byGame.id));
+        .where(and(eq(sessions.id, byGame.id), eq(sessions.serverId, server.id)));
 
       // Also store SDP answer on the command (per-guest isolation)
       if (body.sdp_answer) {

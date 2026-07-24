@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const workflow = readFileSync("../.github/workflows/deploy.yml", "utf8");
+const releaseWorkflow = readFileSync("../.github/workflows/release.yml", "utf8");
 const migrationHelper = readFileSync("../scripts/apply-sc-web-migration.sh", "utf8");
 const scriptsReadme = readFileSync("../scripts/README.md", "utf8");
 const releaseGuide = readFileSync("../docs/RELEASE.md", "utf8");
@@ -62,5 +63,12 @@ describe("production deploy workflow", () => {
     expect(install).toBeGreaterThan(checksum);
     expect(hostInstaller).not.toContain('curl -sSL "$BIN_URL" -o "$BIN_PATH"');
     expect(hostInstaller).not.toContain('ARCH="armv7"');
+  });
+
+  it("publishes only after both advertised architecture builds succeed", () => {
+    expect(releaseWorkflow).toContain("needs: [build-x86_64, build-aarch64]");
+    expect(releaseWorkflow).not.toContain("continue-on-error: true");
+    expect(releaseWorkflow).toContain("runs-on: ubuntu-24.04-arm");
+    expect(releaseWorkflow).toContain('test -f "artifacts/$arch/sc-server"');
   });
 });
