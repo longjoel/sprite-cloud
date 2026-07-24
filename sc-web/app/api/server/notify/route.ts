@@ -270,7 +270,7 @@ export async function POST(request: NextRequest) {
       .limit(1);
   }
 
-  if (!bySession) {
+  if (!body.session_id && !bySession) {
     const [byCmd] = await db
       .select({
         id: sessions.id,

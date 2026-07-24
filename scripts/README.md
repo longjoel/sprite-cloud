@@ -19,7 +19,7 @@ Keep this directory boring. Scripts here should be reusable release/dev entrypoi
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/longjoel/sprite-cloud/main/scripts/install.sh \
-  | sh -s -- --web-url https://your-gateway.example --rom-dir /path/to/roms
+  | bash -s -- --web-url https://your-gateway.example --rom-dir /path/to/roms
 ```
 
 ## Local dev
