@@ -199,6 +199,7 @@ pub(crate) async fn cmd_start(
         tokio::spawn(crate::player_server::serve(
             player_addr,
             cfg.sc_web.url.clone(),
+            cfg.auth.api_key.clone(),
             verify.server_id.clone(),
             verify.user_id.clone(),
             verify.name.clone(),

@@ -279,6 +279,52 @@ describe("POST /api/server/command", () => {
     expect(resp.status).toBe(401);
   });
 
+  it("rejects an unauthenticated SDP offer without a validated bearer token", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      ...jsonBody({
+        server_id: "server-1",
+        type: "sdp_offer",
+        payload: {
+          game_id: "local_0123456789abcdef0123456789abcdef",
+          sdp: "v=0\r\n",
+        },
+      }),
+    });
+
+    const resp = await POST(req as any);
+
+    expect(resp.status).toBe(401);
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it("rejects a room-token SDP offer for a different game", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{
+      serverId: "server-1",
+      gameId: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      status: "ready",
+    }]));
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      ...jsonBody({
+        server_id: "server-1",
+        type: "sdp_offer",
+        payload: {
+          game_id: "local_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          room_token: "room-token",
+          sdp: "v=0\r\n",
+        },
+      }),
+    });
+
+    const resp = await POST(req as any);
+
+    expect(resp.status).toBe(403);
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
   it("returns 400 for invalid type", async () => {
     const { POST } = await import("@/app/api/server/command/route");
     const req = mkReq("http://localhost/api/server/command", {
@@ -585,6 +631,39 @@ describe("POST /api/server/command", () => {
     expect(body.host_peer_token).toBeTruthy();
     expect(sessionUpdates).toContainEqual(expect.objectContaining({ status: "timed_out" }));
     expect(mockDb.insert).toHaveBeenCalledWith(sessionsTable);
+  });
+});
+
+// ── /api/room/shorten ─────────────────────────────────────────────────
+
+describe("POST /api/room/shorten", () => {
+  const body = {
+    game_id: "local_0123456789abcdef0123456789abcdef",
+    host_token: "host-token",
+    server_id: "server-1",
+  };
+
+  it("rejects unauthenticated callers without a server bearer token", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockVerifyBearerToken.mockResolvedValueOnce(null);
+    const { POST } = await import("@/app/api/room/shorten/route");
+
+    const resp = await POST(mkReq("http://localhost/api/room/shorten", jsonBody(body)));
+
+    expect(resp.status).toBe(401);
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it("accepts the owning sc-server bearer token", async () => {
+    const { POST } = await import("@/app/api/room/shorten/route");
+
+    const resp = await POST(mkReq("http://localhost/api/room/shorten", {
+      ...jsonBody(body),
+      headers: { ...jsonBody(body).headers, ...authHeader() },
+    }));
+
+    expect(resp.status).toBe(201);
+    expect(mockVerifyBearerToken).toHaveBeenCalled();
   });
 });
 

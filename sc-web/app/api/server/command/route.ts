@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid json" }, { status: 400 });
   }
 
-  let serverId = body.server_id;
+  let serverId: string | undefined;
 
   // Validate type
   if (!body.type || !VALID_TYPES.has(body.type)) {
@@ -200,13 +200,16 @@ export async function POST(request: NextRequest) {
     if (!serverId && roomToken) {
       // Resolve room_token → active session → server_id
       const [roomSession] = await db
-        .select({ serverId: sessions.serverId, status: sessions.status })
+        .select({ serverId: sessions.serverId, gameId: sessions.gameId, status: sessions.status })
         .from(sessions)
         .where(eq(sessions.roomToken, roomToken))
         .limit(1);
 
       if (!roomSession) {
         return NextResponse.json({ error: "invalid room_token" }, { status: 403 });
+      }
+      if (roomSession.serverId !== body.server_id || roomSession.gameId !== sdpPayload?.game_id) {
+        return NextResponse.json({ error: "room_token does not match server or game" }, { status: 403 });
       }
       if (roomSession.status === "stopped" || roomSession.status === "ended") {
         return NextResponse.json({ error: "session ended" }, { status: 410 });

@@ -40,12 +40,15 @@ curl -sSL https://raw.githubusercontent.com/longjoel/sprite-cloud/main/scripts/i
 ./scripts/smoke-test.sh
 ```
 
-If schema changes exist:
+For destructive migrations that remove tables or columns, deploy code that no
+longer reads them first, verify health, then apply the migration:
 
 ```bash
-./scripts/apply-sc-web-migration.sh sc-web/drizzle/<migration>.sql
 ./scripts/deploy-sc-web.sh
+./scripts/apply-sc-web-migration.sh sc-web/drizzle/<destructive-migration>.sql
 ```
+
+Backward-compatible additive migrations may be applied before the matching code.
 
 ## Rule
 
