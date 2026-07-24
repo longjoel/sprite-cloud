@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
     logSignalingStage("guest_join", "preview_resolved", {
       game_id: session.gameId,
       session_id: session.id,
-      worker_token: session.commandWorkerToken,
+      has_worker_token: typeof session.commandWorkerToken === "string",
     });
     return NextResponse.json({
       worker_url: session.workerUrl,
@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
     role,
     seat,
     session_id: session.id,
-    worker_token: session.commandWorkerToken,
+    has_worker_token: typeof session.commandWorkerToken === "string",
   });
 
   return NextResponse.json({

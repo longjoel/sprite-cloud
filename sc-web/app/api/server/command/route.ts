@@ -66,8 +66,9 @@ function validatePayload(type: string, payload: unknown): { ok: true; payload: R
       return { ok: true, payload };
     }
     case CMD_STOP_GAME: {
-      if (!hasOnlyKeys(payload, ["game_id"])) return { ok: false, error: "payload has unexpected fields" };
+      if (!hasOnlyKeys(payload, ["game_id", "host_token"])) return { ok: false, error: "payload has unexpected fields" };
       if (!isOpaqueGameId(payload.game_id)) return { ok: false, error: "opaque payload.game_id required" };
+      if (payload.host_token !== undefined && typeof payload.host_token !== "string") return { ok: false, error: "payload.host_token must be string" };
       return { ok: true, payload };
     }
     case CMD_SDP_OFFER: {
@@ -166,13 +167,41 @@ export async function POST(request: NextRequest) {
     }
     lanStartUserId = owner.userId;
     serverId = body.server_id;
+  } else if (
+    body.type === CMD_STOP_GAME
+    && typeof lanStartPayload.host_token === "string"
+    && typeof lanStartPayload.game_id === "string"
+  ) {
+    const [shortCode] = await db
+      .select({ code: shortCodes.code })
+      .from(shortCodes)
+      .where(and(
+        eq(shortCodes.serverId, body.server_id),
+        eq(shortCodes.gameId, lanStartPayload.game_id),
+        eq(shortCodes.hostToken, lanStartPayload.host_token),
+      ))
+      .limit(1);
+    if (!shortCode) {
+      return NextResponse.json({ error: "invalid LAN stop token" }, { status: 403 });
+    }
+    const [owner] = await db
+      .select({ userId: serverMembers.userId })
+      .from(serverMembers)
+      .where(and(eq(serverMembers.serverId, body.server_id), eq(serverMembers.role, "admin")))
+      .limit(1);
+    if (!owner) {
+      return NextResponse.json({ error: "server owner not found" }, { status: 403 });
+    }
+    lanStartUserId = owner.userId;
+    serverId = body.server_id;
   } else if (body.type === CMD_SDP_OFFER) {
     const sdpPayload = body.payload as Record<string, unknown> | undefined;
     const roomToken = sdpPayload?.room_token as string | undefined;
     const peerToken = sdpPayload?.peer_token as string | undefined;
     const hostToken = sdpPayload?.host_token as string | undefined;
     console.log("[COMMAND] sdp_offer received — room_token:", !!roomToken, "peer_token:", !!peerToken, "host_token:", !!hostToken);
-    if (hostToken && typeof sdpPayload?.game_id === "string") {
+    const carriesGuestCapability = !!roomToken || !!peerToken;
+    if (!carriesGuestCapability && hostToken && typeof sdpPayload?.game_id === "string") {
       // LAN guest: verify host_token matches a valid short-code row
       const [shortCode] = await db
         .select({ code: shortCodes.code })
@@ -198,7 +227,10 @@ export async function POST(request: NextRequest) {
         }
       }
     }
-    if (!serverId && roomToken) {
+    if (carriesGuestCapability) {
+      if (!roomToken || !peerToken) {
+        return NextResponse.json({ error: "room_token and peer_token required for guest SDP" }, { status: 403 });
+      }
       // Resolve room_token → active session → server_id
       const [roomSession] = await db
         .select({ id: sessions.id, serverId: sessions.serverId, gameId: sessions.gameId, status: sessions.status })
@@ -313,6 +345,24 @@ export async function POST(request: NextRequest) {
     } else {
       console.info("[COMMAND] start_game using deterministic transport selection — no gateway-side LAN auto-detection");
     }
+  } else if (body.type === CMD_STOP_GAME) {
+    const [targetSession] = await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(and(
+        eq(sessions.serverId, serverId),
+        eq(sessions.gameId, payloadResult.payload.game_id as string),
+        typeof payloadResult.payload.host_token === "string"
+          ? eq(sessions.hostToken, payloadResult.payload.host_token)
+          : undefined,
+        inArray(sessions.status, [...ACTIVE_SESSION_STATES]),
+      ))
+      .orderBy(desc(sessions.createdAt))
+      .limit(1);
+    if (!targetSession) {
+      return NextResponse.json({ error: "active session not found" }, { status: 409 });
+    }
+    enrichedPayload = { ...payloadResult.payload, session_id: targetSession.id };
   } else if (body.type === CMD_SDP_OFFER) {
     // Invariant: guest/browser SDP offers carry peer_token and optionally room_token.
     // Host reconnect offers carry host_token and MUST NOT be enriched with guest role/seat.
@@ -563,20 +613,6 @@ export async function POST(request: NextRequest) {
       status: "spawning",
       has_worker_token: true,
     });
-  }
-
-  if (body.type === CMD_STOP_GAME) {
-    const gameId = (payloadResult.payload as any).game_id as string;
-    await db
-      .update(sessions)
-      .set({ status: "ended", endedAt: new Date(), roomToken: null })
-      .where(
-        and(
-          eq(sessions.gameId, gameId),
-          eq(sessions.serverId, serverId),
-          eq(sessions.status, "ready"),
-        ),
-      );
   }
 
   // ── Long-poll: if this is a start_game or sdp_offer with SDP, hold the

@@ -11,6 +11,11 @@ const playerScript = readFileSync("public/player/play-v2.js", "utf8");
 const scPlayerScript = readFileSync("public/player/sc-player.js", "utf8");
 const browserLogger = readFileSync("public/browser-log.js", "utf8");
 const productionEntrypoint = readFileSync("../docker/sc-web/entrypoint.prod.sh", "utf8");
+const migration = readFileSync("drizzle/0016_remove_cloud_library.sql", "utf8");
+const publicWatch = readFileSync("lib/public-watch.ts", "utf8");
+const watchPage = readFileSync("app/watch/page.tsx", "utf8");
+const gamePlayer = readFileSync("components/GamePlayer.tsx", "utf8");
+const playerServer = readFileSync("../sc-server/src/player_server.rs", "utf8");
 
 describe("production deploy workflow", () => {
   it("treats a successful health curl exit code as success without capturing its body", () => {
@@ -100,5 +105,20 @@ describe("production deploy workflow", () => {
     expect(nonemptyGuard).toBeGreaterThan(-1);
     expect(schemaPush).toBeGreaterThan(nonemptyGuard);
     expect(productionEntrypoint).toContain("refusing schema push on a nonempty database");
+  });
+
+  it("keeps the destructive migration atomic", () => {
+    expect(migration).toMatch(/BEGIN;[\s\S]*DROP TABLE IF EXISTS "server_rom_roots";[\s\S]*COMMIT;/);
+  });
+
+  it("keeps the permanent public watch URL free of room capabilities", () => {
+    expect(publicWatch).not.toContain("`/r/${roomToken}");
+    expect(watchPage).not.toContain("redirect(publicPath)");
+    expect(watchPage).toContain("<PublicRoomPlayer {...publicSession} />");
+  });
+
+  it("strips capability-bearing referrers and sends CSRF on UI stop", () => {
+    expect(playerServer).toContain('name == "referer"');
+    expect(gamePlayer).toMatch(/type: "stop_game",[\s\S]*?headers: csrfHeaders\(\)|headers: csrfHeaders\(\)[\s\S]*?type: "stop_game"/);
   });
 });

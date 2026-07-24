@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { commands, sessions, servers } from "@/lib/db/schema";
 import { verifyBearerToken, unauthorizedResponse } from "@/lib/server-auth";
-import { and, eq, ne, desc } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import { STATUS_COMPLETED, STATUS_LEASED, SESSION_READY, SESSION_CONNECTED, SESSION_ENDED } from "@/lib/constants";
 import { applyRateLimit } from "@/lib/rate-limit";
 import { randomBytes } from "crypto";
@@ -95,8 +95,8 @@ export async function POST(request: NextRequest) {
 
   // ── Stop action: transition one authorized active session to ended ──────
   if (effectiveAction === "stop") {
-    if (isWorkerDead && !body.session_id) {
-      return NextResponse.json({ error: "worker-dead notification requires session_id" }, { status: 400 });
+    if (!body.session_id) {
+      return NextResponse.json({ error: "stop notification requires session_id" }, { status: 400 });
     }
 
     if (!isWorkerDead) {
@@ -119,6 +119,7 @@ export async function POST(request: NextRequest) {
         || stopCommand.serverId !== server.id
         || stopCommand.type !== "stop_game"
         || stopPayload.game_id !== body.game_id
+        || stopPayload.session_id !== body.session_id
       ) {
         return NextResponse.json({ error: "stop command does not match session game" }, { status: 409 });
       }
@@ -145,36 +146,22 @@ export async function POST(request: NextRequest) {
       serverId: string | null;
       gameId: string;
     } | undefined;
-    if (body.session_id) {
-      [session] = await db
-        .select({
-          id: sessions.id,
-          status: sessions.status,
-          serverId: sessions.serverId,
-          gameId: sessions.gameId,
-        })
-        .from(sessions)
-        .where(
-          and(
-            eq(sessions.id, body.session_id),
-            eq(sessions.serverId, server.id),
-            eq(sessions.gameId, body.game_id),
-          ),
-        )
-        .limit(1);
-    } else {
-      [session] = await db
-        .select({
-          id: sessions.id,
-          status: sessions.status,
-          serverId: sessions.serverId,
-          gameId: sessions.gameId,
-        })
-        .from(sessions)
-        .where(and(eq(sessions.gameId, body.game_id), eq(sessions.serverId, server.id)))
-        .orderBy(desc(sessions.createdAt))
-        .limit(1);
-    }
+    [session] = await db
+      .select({
+        id: sessions.id,
+        status: sessions.status,
+        serverId: sessions.serverId,
+        gameId: sessions.gameId,
+      })
+      .from(sessions)
+      .where(
+        and(
+          eq(sessions.id, body.session_id),
+          eq(sessions.serverId, server.id),
+          eq(sessions.gameId, body.game_id),
+        ),
+      )
+      .limit(1);
 
     if (
       session?.serverId !== server.id
@@ -189,7 +176,7 @@ export async function POST(request: NextRequest) {
       session_id: session.id,
       session_status: session.status,
     });
-    await db
+    const [ended] = await db
       .update(sessions)
       .set({ status: SESSION_ENDED, endedAt: new Date(), stateEnteredAt: new Date() })
       .where(
@@ -197,9 +184,13 @@ export async function POST(request: NextRequest) {
           eq(sessions.id, session.id),
           eq(sessions.serverId, server.id),
           eq(sessions.gameId, body.game_id),
-          ne(sessions.status, SESSION_ENDED),
+          eq(sessions.status, session.status),
         ),
-      );
+      )
+      .returning({ id: sessions.id });
+    if (!ended) {
+      return NextResponse.json({ error: "session state changed" }, { status: 409 });
+    }
 
     return NextResponse.json({ ok: true });
   }
@@ -341,7 +332,7 @@ export async function POST(request: NextRequest) {
     if (!exactTargetStatus) {
       return NextResponse.json({ error: "invalid session state transition" }, { status: 409 });
     }
-    await db
+    const [updatedSession] = await db
       .update(sessions)
       .set({
         workerUrl: body.worker_url,
@@ -350,7 +341,15 @@ export async function POST(request: NextRequest) {
         sdpAnswer: body.sdp_answer ?? null,
         stateEnteredAt: new Date(),
       })
-      .where(and(eq(sessions.id, bySession.id), eq(sessions.serverId, server.id)));
+      .where(and(
+        eq(sessions.id, bySession.id),
+        eq(sessions.serverId, server.id),
+        eq(sessions.status, bySession.status),
+      ))
+      .returning({ id: sessions.id });
+    if (!updatedSession) {
+      return NextResponse.json({ error: "session state changed" }, { status: 409 });
+    }
 
     // Also store SDP answer on the command (per-guest isolation)
     if (body.sdp_answer) {
@@ -408,7 +407,7 @@ export async function POST(request: NextRequest) {
       }
 
       roomToken = byGame.roomToken || roomToken;
-      await db
+      const [updatedFallback] = await db
         .update(sessions)
         .set({
           workerUrl: body.worker_url,
@@ -417,7 +416,15 @@ export async function POST(request: NextRequest) {
           sdpAnswer: body.sdp_answer ?? null,
           stateEnteredAt: new Date(),
         })
-        .where(and(eq(sessions.id, byGame.id), eq(sessions.serverId, server.id)));
+        .where(and(
+          eq(sessions.id, byGame.id),
+          eq(sessions.serverId, server.id),
+          eq(sessions.status, byGame.status),
+        ))
+        .returning({ id: sessions.id });
+      if (!updatedFallback) {
+        return NextResponse.json({ error: "session state changed" }, { status: 409 });
+      }
 
       // Also store SDP answer on the command (per-guest isolation)
       if (body.sdp_answer) {

@@ -1,13 +1,13 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { resolvePublicWatchPath } from "@/lib/public-watch";
+import { resolvePublicWatchSession } from "@/lib/public-watch";
+import PublicRoomPlayer from "@/components/PublicRoomPlayer";
 
 export const dynamic = "force-dynamic";
 
 export default async function WatchPage() {
-  const publicPath = await resolvePublicWatchPath();
-  if (publicPath) {
-    redirect(publicPath);
+  const publicSession = await resolvePublicWatchSession();
+  if (publicSession) {
+    return <PublicRoomPlayer {...publicSession} />;
   }
 
   return (
