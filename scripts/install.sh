@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Sprite Cloud — one-liner self-hosted install
-#   curl -sSL https://... | sh            # system-wide (needs sudo)
-#   curl -sSL https://... | sh -s -- --rootless  # user-only (no sudo)
+#   curl -sSL https://... | bash            # system-wide (needs sudo)
+#   curl -sSL https://... | bash -s -- --rootless  # user-only (no sudo)
 set -euo pipefail
 
 BOLD='\033[1m'
