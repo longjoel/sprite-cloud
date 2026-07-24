@@ -139,11 +139,22 @@ describe("production deploy workflow", () => {
     expect(watchPage).toContain("<PublicRoomPlayer {...publicSession} />");
   });
 
+  it("requires an explicit user action before making a session public", () => {
+    const gate = gamePlayer.indexOf("if (!shareRequested) return");
+    const shareCall = gamePlayer.indexOf('fetch("/api/room/share"');
+    expect(gamePlayer).toContain("setShareRequested(true)");
+    expect(gate).toBeGreaterThan(-1);
+    expect(shareCall).toBeGreaterThan(gate);
+  });
+
   it("serializes fresh launches before replacing the current host session", () => {
     const lock = commandRoute.indexOf("pg_advisory_xact_lock");
     const victims = commandRoute.indexOf("const victims = await tx");
     const publish = commandRoute.indexOf("status: STATUS_PENDING", victims);
     expect(commandRoute).toContain("const prepared = await db.transaction");
+    expect(commandRoute).toContain('const launchLockKey = `${serverId}:${uid}`');
+    expect(commandRoute).toContain("eq(sessions.userId, uid)");
+    expect(commandRoute).not.toContain('const launchLockKey = `${serverId}:${hostToken');
     expect(lock).toBeGreaterThan(-1);
     expect(victims).toBeGreaterThan(lock);
     expect(publish).toBeGreaterThan(victims);

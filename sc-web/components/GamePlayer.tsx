@@ -552,7 +552,11 @@ export default function GamePlayer({
     closePanel();
   }, [closePanel]);
 
+  const [shortCode, setShortCode] = useState<string | null>(shortCodeProp ?? null);
+  const [shareRequested, setShareRequested] = useState(false);
+
   const handleQrCode = useCallback(() => {
+    setShareRequested(true);
     openPanel("share");
   }, [openPanel]);
 
@@ -565,9 +569,8 @@ export default function GamePlayer({
 
   // ── Share ─────────────────────────────────────────────────────────
 
-  const [shortCode, setShortCode] = useState<string | null>(shortCodeProp ?? null);
-
   useEffect(() => {
+    if (!shareRequested) return;
     if (!connected) return;
     if (shortCodeProp) return; // already provided via props (LAN pass-through)
     if (roomToken) return;
@@ -576,7 +579,7 @@ export default function GamePlayer({
       try {
         const resp = await fetch("/api/room/share", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: csrfHeaders(),
           body: JSON.stringify({
             game_id: gameId,
             server_id: serverId,
@@ -602,8 +605,9 @@ export default function GamePlayer({
           setShortCode(scData.code);
         }
       } catch { /* best-effort */ }
+      finally { setShareRequested(false); }
     })();
-  }, [connected, gameId, serverId, hostToken, roomToken]);
+  }, [shareRequested, connected, gameId, serverId, hostToken, roomToken, shortCode, shortCodeProp]);
 
   // Guest/LAN room entry points carry explicit room context. Ordinary solo
   // launches keep disc-room controls out of the primary options hierarchy.
