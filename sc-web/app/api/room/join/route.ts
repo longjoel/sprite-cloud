@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
   logSignalingStage("guest_join", "request_received", {
     client_id: clientId,
     has_client_id: !!clientId,
-    room_token: body.room_token,
+    has_room_token: true,
   });
 
   const [session] = await db
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
 
   if (!session) {
     logSignalingStage("guest_join", "session_lookup_failed", {
-      room_token: body.room_token,
+      has_room_token: true,
     });
     return NextResponse.json({ error: "room not found" }, { status: 404 });
   }
