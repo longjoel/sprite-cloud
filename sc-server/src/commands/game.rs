@@ -17,6 +17,7 @@ pub(super) async fn handle_start_game(
     client: &sc_web::ScWebClient,
     sessions: &mut HashMap<String, Arc<GameSession>>,
     rom_roots: &[String],
+    local_games: &Arc<tokio::sync::RwLock<Vec<crate::player_server::LocalGame>>>,
     pool: &webrtc::PcPool,
 ) {
     let game_id = cmd
@@ -30,8 +31,12 @@ pub(super) async fn handle_start_game(
         .and_then(|v| v.as_str())
         .unwrap_or("");
     let _host_token = cmd.payload.get("host_token").and_then(|v| v.as_str());
-    let platform = cmd.payload.get("platform").and_then(|v| v.as_str());
-    let rom_path = cmd.payload.get("rom_path").and_then(|v| v.as_str());
+    let legacy_platform = cmd
+        .payload
+        .get("platform")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let legacy_rom_path = cmd.payload.get("rom_path").and_then(|v| v.as_str());
     let sdp_offer = cmd.payload.get("sdp").and_then(|v| v.as_str());
     let is_lan = cmd
         .payload
@@ -63,22 +68,53 @@ pub(super) async fn handle_start_game(
         old.cancel.cancel();
     }
 
-    // Resolve ROM path
+    // Resolve opaque local IDs inside sc-server. Legacy path/platform fields are
+    // retained only for compatibility while the hosted frontend migrates.
     let t0 = std::time::Instant::now();
-    let content_path = rom_path.and_then(|rel| {
-        for root in rom_roots {
-            let full = std::path::Path::new(root).join(rel);
-            if full.exists() {
-                return Some(full.to_string_lossy().to_string());
+    let local_resolution = if game_id.starts_with("local_") {
+        let games = local_games.read().await;
+        match crate::player_server::resolve_local_game(game_id, &games, rom_roots) {
+            Ok(resolved) => Some(resolved),
+            Err(error) => {
+                tracing::warn!("[SESSION] local game resolution failed: {game_id}: {error}");
+                let _ = client
+                    .command_result(
+                        &cmd.id,
+                        &cmd.lease_token,
+                        &serde_json::json!({"error": "game_not_found", "message": error}),
+                    )
+                    .await;
+                return;
             }
         }
-        tracing::warn!("[SESSION] rom_path not found: {rel}");
+    } else {
         None
-    });
+    };
+
+    let (content_path, platform) = if let Some((path, platform)) = local_resolution {
+        (Some(path.to_string_lossy().to_string()), Some(platform))
+    } else {
+        let content_path = legacy_rom_path.and_then(|relative| {
+            let relative_path = std::path::Path::new(relative);
+            for root in rom_roots {
+                let candidate = std::path::Path::new(root).join(relative_path);
+                if !candidate.exists() {
+                    continue;
+                }
+                match crate::scan::resolve_within_roots(&candidate, rom_roots) {
+                    Ok(resolved) => return Some(resolved.to_string_lossy().to_string()),
+                    Err(error) => tracing::warn!("[SESSION] rejected rom_path {relative}: {error}"),
+                }
+            }
+            tracing::warn!("[SESSION] rom_path not found: {relative}");
+            None
+        });
+        (content_path, legacy_platform)
+    };
 
     // Resolve (and download if needed) core from platform
     let t1 = std::time::Instant::now();
-    let core_path = match platform.and_then(crate::platform::core_for_platform) {
+    let core_path = match platform.as_deref().and_then(crate::platform::core_for_platform) {
         Some(core_file) => match core_bridge::ensure_core(&core_file, client.http_client()).await {
             Ok(path) => {
                 tracing::info!("[SESSION] core resolved: {}", path.display());
@@ -162,13 +198,25 @@ pub(super) async fn handle_start_game(
     });
 
     // Load libretro core
-    core_bridge::load_core_into_session(
+    if let Err(error) = core_bridge::load_core_into_session(
         &session,
         core_path.as_deref(),
         content_path.as_deref(),
-        platform,
+        platform.as_deref(),
     )
-    .await;
+    .await
+    {
+        session.cancel.cancel();
+        tracing::error!("[SESSION] core startup failed: {error}");
+        let _ = client
+            .command_result(
+                &cmd.id,
+                &cmd.lease_token,
+                &serde_json::json!({"error": "core_start_failed", "message": error}),
+            )
+            .await;
+        return;
+    }
 
     let worker_url = worker_url(game_id);
 
@@ -900,6 +948,7 @@ pub(super) async fn handle_scan_paths(
     rom_roots: &[String],
     scan_lock: &Arc<tokio::sync::Mutex<()>>,
     dat_index: &Arc<tokio::sync::RwLock<Option<dat::DatIndex>>>,
+    local_game_list: &Arc<tokio::sync::RwLock<Vec<crate::player_server::LocalGame>>>,
     server_id: &str,
 ) {
     let paths: Vec<String> = cmd
@@ -939,6 +988,10 @@ pub(super) async fn handle_scan_paths(
         scan::hash_files(&mut files, &resolved);
         all_files.extend(files);
     }
+
+    // Refresh the authoritative opaque-ID map from every configured root.
+    // The legacy import below remains temporarily for sc-web compatibility.
+    *local_game_list.write().await = scan_library(rom_roots);
 
     let mut dat_lock = dat_index.write().await;
     if dat_lock.is_none() {

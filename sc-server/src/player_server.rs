@@ -406,7 +406,7 @@ async fn list_games(
     Ok(Json(serde_json::json!({ "games": page, "total": total })))
 }
 
-fn resolve_local_game(
+pub(crate) fn resolve_local_game(
     game_id: &str,
     games: &[LocalGame],
     rom_roots: &[String],
@@ -427,10 +427,22 @@ fn resolve_local_game(
     ))
 }
 
+fn new_runtime_session_id() -> String {
+    format!("{:032x}", rand::random::<u128>())
+}
+
 #[derive(Deserialize)]
 struct LocalLaunchRequest {
     game_id: String,
     sdp: String,
+}
+
+async fn shutdown_local_session(session: &Arc<crate::session::GameSession>) {
+    session.cancel.cancel();
+    let pc = session.pc.lock().ok().map(|pc| pc.clone());
+    if let Some(pc) = pc {
+        let _ = pc.close().await;
+    }
 }
 
 async fn launch_game(
@@ -467,8 +479,9 @@ async fn launch_game(
         .map_err(|message| api_error(axum::http::StatusCode::INTERNAL_SERVER_ERROR, &message))?;
     let rom_hash = crate::saves::hash_rom(&content_path);
 
+    let session_id = new_runtime_session_id();
     let session = Arc::new(crate::session::GameSession {
-        game_id: request.game_id.clone(),
+        game_id: session_id.clone(),
         cancel: tokio_util::sync::CancellationToken::new(),
         pc: std::sync::Mutex::new(stack.pc),
         video_track: std::sync::Mutex::new(stack.video_track),
@@ -491,19 +504,21 @@ async fn launch_game(
         core_sample_rate: tokio::sync::Mutex::new(48_000.0),
     });
 
-    crate::core_bridge::load_core_into_session(
+    if let Err(message) = crate::core_bridge::load_core_into_session(
         &session,
         Some(&core_path),
         content_path.to_str(),
         Some(&platform),
     )
-    .await;
+    .await
+    {
+        shutdown_local_session(&session).await;
+        return Err(api_error(
+            axum::http::StatusCode::BAD_GATEWAY,
+            &format!("core startup failed: {message}"),
+        ));
+    }
     crate::commands::dc_handler::wire_dc_handler(&session);
-
-    let streaming_session = Arc::clone(&session);
-    tokio::spawn(async move {
-        crate::streaming::run_stream(streaming_session).await;
-    });
 
     let pc = session
         .pc
@@ -518,17 +533,36 @@ async fn launch_game(
     let answer = match crate::webrtc::exchange_sdp_on_pc(&pc, &request.sdp).await {
         Ok(answer) => answer,
         Err(message) => {
-            session.cancel.cancel();
+            shutdown_local_session(&session).await;
             return Err(api_error(axum::http::StatusCode::BAD_GATEWAY, &message));
         }
     };
 
-    let session_id = format!("{:032x}", rand::random::<u128>());
+    let streaming_session = Arc::clone(&session);
+    tokio::spawn(async move {
+        crate::streaming::run_stream(streaming_session).await;
+    });
+
     state
         .sessions
         .lock()
         .await
-        .insert(session_id.clone(), session);
+        .insert(session_id.clone(), Arc::clone(&session));
+
+    let cleanup_sessions = Arc::clone(&state.sessions);
+    let cleanup_session = Arc::clone(&session);
+    let cleanup_id = session_id.clone();
+    tokio::spawn(async move {
+        cleanup_session.cancel.cancelled().await;
+        shutdown_local_session(&cleanup_session).await;
+        let mut sessions = cleanup_sessions.lock().await;
+        if sessions
+            .get(&cleanup_id)
+            .is_some_and(|current| Arc::ptr_eq(current, &cleanup_session))
+        {
+            sessions.remove(&cleanup_id);
+        }
+    });
     Ok(Json(serde_json::json!({
         "status": "ready",
         "game_id": request.game_id,
@@ -691,6 +725,7 @@ async fn library_page(
   let pc = null;
   let dc = null;
   let activeSessionId = null;
+  let launchGeneration = 0;
   let inputState = 0;
   const keyBits = {{ ArrowUp:4, ArrowDown:5, ArrowLeft:6, ArrowRight:7,
     w:4, s:5, a:6, d:7, z:0, x:8, c:9, v:1, f:10, g:11,
@@ -710,46 +745,59 @@ async fn library_page(
     if (dc && dc.readyState === 'open') dc.send(new Uint8Array([0, inputState & 255, inputState >> 8]));
   }}
 
+  function setPlayButtonsDisabled(disabled) {{
+    document.querySelectorAll('.play').forEach(button => button.disabled = disabled);
+  }}
+
   async function launchGame(gameId) {{
     closePlayer();
+    const generation = launchGeneration;
     const overlay = document.getElementById('player');
     const playerStatus = document.getElementById('playerStatus');
+    setPlayButtonsDisabled(true);
     overlay.classList.add('active');
     playerStatus.textContent = 'Starting ' + gameId + '…';
-    pc = new RTCPeerConnection();
-    dc = pc.createDataChannel('diagnostics');
-    dc.binaryType = 'arraybuffer';
-    dc.onopen = () => {{ dc.send(JSON.stringify({{cmd:'auth', local_players:1}})); playerStatus.textContent = 'Connected'; }};
-    pc.ontrack = event => {{
+    const connection = new RTCPeerConnection();
+    pc = connection;
+    connection.addTransceiver('video', {{direction:'recvonly'}});
+    connection.addTransceiver('audio', {{direction:'recvonly'}});
+    const channel = connection.createDataChannel('diagnostics');
+    dc = channel;
+    channel.binaryType = 'arraybuffer';
+    channel.onopen = () => {{ channel.send(JSON.stringify({{cmd:'auth', local_players:1}})); playerStatus.textContent = 'Connected'; }};
+    connection.ontrack = event => {{
       const element = event.track.kind === 'video' ? document.getElementById('video') : document.getElementById('audio');
       element.srcObject = event.streams[0];
       element.play().catch(() => {{ playerStatus.textContent = 'Tap to start playback'; }});
     }};
-    pc.onconnectionstatechange = () => {{ playerStatus.textContent = pc.connectionState; }};
+    connection.onconnectionstatechange = () => {{ playerStatus.textContent = connection.connectionState; }};
     try {{
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await waitForIce(pc);
+      const offer = await connection.createOffer();
+      await connection.setLocalDescription(offer);
+      await waitForIce(connection);
       const response = await fetch('/api/launch', {{
         method: 'POST',
         headers: {{'Content-Type':'application/json'}},
-        body: JSON.stringify({{game_id:gameId, sdp:pc.localDescription.sdp}})
+        body: JSON.stringify({{game_id:gameId, sdp:connection.localDescription.sdp}})
       }});
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Launch failed');
+      if (generation !== launchGeneration) {{ stopSession(result.session_id); return; }}
       activeSessionId = result.session_id;
       if (!overlay.classList.contains('active')) {{ stopActiveGame(); return; }}
-      await pc.setRemoteDescription({{type:'answer', sdp:result.sdp}});
+      await connection.setRemoteDescription({{type:'answer', sdp:result.sdp}});
     }} catch (error) {{
-      stopActiveGame();
-      playerStatus.textContent = error.message;
+      if (generation === launchGeneration) {{
+        stopActiveGame();
+        playerStatus.textContent = error.message;
+      }}
+    }} finally {{
+      if (generation === launchGeneration) setPlayButtonsDisabled(false);
     }}
   }}
 
-  function stopActiveGame() {{
-    if (!activeSessionId) return;
-    const sessionId = activeSessionId;
-    activeSessionId = null;
+  function stopSession(sessionId) {{
+    if (!sessionId) return;
     const body = JSON.stringify({{session_id:sessionId}});
     if (navigator.sendBeacon) {{
       navigator.sendBeacon('/api/stop', new Blob([body], {{type:'application/json'}}));
@@ -759,7 +807,15 @@ async fn library_page(
     }}
   }}
 
+  function stopActiveGame() {{
+    const sessionId = activeSessionId;
+    activeSessionId = null;
+    stopSession(sessionId);
+  }}
+
   function closePlayer() {{
+    launchGeneration++;
+    setPlayButtonsDisabled(false);
     inputState = 0; sendInput();
     if (dc) dc.close();
     if (pc) pc.close();
@@ -878,6 +934,46 @@ mod tests {
             .and_then(|value| value.to_str().ok())
             .unwrap_or_default();
         assert!(content_type.starts_with("application/json"));
+    }
+
+    #[test]
+    fn runtime_session_ids_are_unique_and_filesystem_safe() {
+        let first = new_runtime_session_id();
+        let second = new_runtime_session_id();
+
+        assert_ne!(first, second);
+        assert_eq!(first.len(), 32);
+        assert!(first.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    }
+
+    #[tokio::test]
+    async fn standalone_player_offer_requests_audio_video_and_data() {
+        let state = Arc::new(AppState {
+            client: Client::new(),
+            sc_web: String::new(),
+            server_id: "standalone".to_string(),
+            user_id: "local".to_string(),
+            server_name: "Vault".to_string(),
+            bind: "127.0.0.1:8787".parse().unwrap(),
+            lan_player_enabled: true,
+            standalone: Some(StandaloneState {
+                game_list: Arc::new(tokio::sync::RwLock::new(Vec::new())),
+                rom_roots: Arc::new(Vec::new()),
+            }),
+            sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+        });
+
+        let html = library_page(State(state)).await.unwrap().0;
+        assert!(html.contains("addTransceiver('video', {direction:'recvonly'})"));
+        assert!(html.contains("addTransceiver('audio', {direction:'recvonly'})"));
+        assert!(html.contains("createDataChannel('diagnostics')"));
+        assert!(html.contains("launchGeneration"));
+        assert!(html.contains("const connection = new RTCPeerConnection()"));
+        assert!(html.contains("connection.localDescription.sdp"));
+        assert!(html.contains("stopSession(result.session_id)"));
+        assert!(html.contains("function closePlayer()"));
+        assert!(html.contains("function setPlayButtonsDisabled(disabled)"));
+        assert!(html.contains("launchGeneration++;\n    setPlayButtonsDisabled(false);"));
     }
 
     #[test]

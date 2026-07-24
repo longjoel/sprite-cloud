@@ -334,7 +334,7 @@ pub async fn load_core_into_session(
     core_path: Option<&std::path::Path>,
     content_path: Option<&str>,
     _platform: Option<&str>,
-) {
+) -> Result<(), String> {
     let game_id = &session.game_id;
 
     let core_path_str = match core_path {
@@ -358,14 +358,15 @@ pub async fn load_core_into_session(
         Ok(m) => m,
         Err(e) => {
             tracing::error!("[CORE] out shm: {e}");
-            return;
+            return Err(format!("create output shared memory: {e}"));
         }
     };
     let in_mmap = match map_shm::<InputShm>(&in_name, InputShm::size()) {
         Ok(m) => m,
         Err(e) => {
             tracing::error!("[CORE] in shm: {e}");
-            return;
+            unlink_shm(&out_name);
+            return Err(format!("create input shared memory: {e}"));
         }
     };
 
@@ -386,7 +387,13 @@ pub async fn load_core_into_session(
     tracing::info!("[CORE] system_dir={}", system_dir);
 
     let mut child = match std::process::Command::new(&core_bin)
-        .args([&core_path_str, &actual_rom_path, &out_name, &in_name, &system_dir])
+        .args([
+            &core_path_str,
+            &actual_rom_path,
+            &out_name,
+            &in_name,
+            &system_dir,
+        ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -396,7 +403,7 @@ pub async fn load_core_into_session(
             tracing::error!("[CORE] spawn sc-core: {e}");
             unlink_shm(&out_name);
             unlink_shm(&in_name);
-            return;
+            return Err(format!("spawn sc-core: {e}"));
         }
     };
 
@@ -433,7 +440,7 @@ pub async fn load_core_into_session(
             tracing::error!("[CORE] child exited early with {status}: {stderr_out}");
             unlink_shm(&out_name);
             unlink_shm(&in_name);
-            return;
+            return Err(format!("sc-core exited early with {status}: {stderr_out}"));
         }
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -441,9 +448,10 @@ pub async fn load_core_into_session(
     if width == 0 || fps == 0.0 {
         tracing::error!("[CORE] child didn't report metadata in time");
         let _ = child.kill();
+        let _ = child.wait();
         unlink_shm(&out_name);
         unlink_shm(&in_name);
-        return;
+        return Err("sc-core did not report metadata before timeout".to_string());
     }
 
     tracing::info!("[CORE] child ready: {width}×{height} @ {fps:.1}fps");
@@ -672,4 +680,49 @@ pub async fn load_core_into_session(
         unlink_shm(&in_name_clone);
         tracing::info!("[BRIDGE] exited ({} frames)", frame_num);
     });
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn core_startup_failure_is_reported_to_caller() {
+        let stack = crate::webrtc::build_session_pc_lan().await.unwrap();
+        let session = Arc::new(GameSession {
+            game_id: format!("{:032x}", rand::random::<u128>()),
+            cancel: tokio_util::sync::CancellationToken::new(),
+            pc: std::sync::Mutex::new(stack.pc),
+            video_track: std::sync::Mutex::new(stack.video_track),
+            audio_track: std::sync::Mutex::new(stack.audio_track),
+            dc: tokio::sync::Mutex::new(None),
+            guests: tokio::sync::Mutex::new(Vec::new()),
+            host_connected: std::sync::atomic::AtomicBool::new(false),
+            local_players: std::sync::atomic::AtomicU32::new(1),
+            core_loaded: std::sync::atomic::AtomicBool::new(false),
+            core_loading: std::sync::atomic::AtomicBool::new(false),
+            core_cmd_tx: tokio::sync::Mutex::new(None),
+            core_frame_rx: tokio::sync::Mutex::new(None),
+            core_response_rx: tokio::sync::Mutex::new(None),
+            video_enc: tokio::sync::Mutex::new(None),
+            audio_enc: tokio::sync::Mutex::new(None),
+            rom_hash: tokio::sync::Mutex::new(None),
+            core_width: tokio::sync::Mutex::new(0),
+            core_height: tokio::sync::Mutex::new(0),
+            core_fps: tokio::sync::Mutex::new(0.0),
+            core_sample_rate: tokio::sync::Mutex::new(48_000.0),
+        });
+
+        let result = load_core_into_session(
+            &session,
+            Some(std::path::Path::new("/definitely/missing/core.so")),
+            Some("/definitely/missing/game.rom"),
+            Some("test"),
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert!(!session.core_loaded.load(Ordering::Relaxed));
+    }
 }
