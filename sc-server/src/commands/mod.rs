@@ -302,8 +302,8 @@ pub(crate) async fn cmd_start(
 
 // ── Local library ownership ─────────────────────────────────────────
 
-fn scan_library(rom_roots: &[String]) -> Vec<scan::DiscoveredFile> {
-    let mut all_files = Vec::new();
+fn scan_library(rom_roots: &[String]) -> Vec<crate::player_server::LocalGame> {
+    let mut all_games = Vec::new();
     for root in rom_roots {
         let path = std::path::Path::new(root);
         if !path.is_dir() {
@@ -313,12 +313,16 @@ fn scan_library(rom_roots: &[String]) -> Vec<scan::DiscoveredFile> {
         match scan::discover_roms(path) {
             Ok(files) => {
                 tracing::info!("  {} — {} files", root, files.len());
-                all_files.extend(files);
+                all_games.extend(
+                    files
+                        .into_iter()
+                        .map(|file| crate::player_server::LocalGame::new(root, file)),
+                );
             }
             Err(error) => tracing::warn!("Scan failed for {root}: {error:#}"),
         }
     }
-    all_files
+    all_games
 }
 
 // ── Standalone mode — no sc-web, local library only ───────────────
