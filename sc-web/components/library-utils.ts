@@ -1,5 +1,7 @@
 // ── Library client utilities ──────────────────────────────────────────
 
+import { randomUuid } from "@/lib/browser/random-uuid";
+
 export function getPreferredServer(gameId: string): string | null {
   if (typeof document === "undefined") return null;
   const match = document.cookie
@@ -45,7 +47,7 @@ export function csrfHeaders(): Record<string, string> {
     .slice(1)
     .join("=");
   if (!token) {
-    token = crypto.randomUUID();
+    token = randomUuid();
     document.cookie = `sc_csrf_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax`;
   }
   return { "Content-Type": "application/json", "x-csrf-token": decodeURIComponent(token) };

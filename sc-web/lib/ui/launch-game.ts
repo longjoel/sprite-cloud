@@ -2,6 +2,7 @@
 // Used by XMB, classic library, and any future launcher to create short
 // codes and build player URLs in one canonical place.
 import { csrfHeaders } from "@/components/library-utils";
+import { randomUuid } from "@/lib/browser/random-uuid";
 
 export interface CreateLaunchShortCodeParams {
   gameId: string;
@@ -18,7 +19,7 @@ export interface CreateLaunchShortCodeParams {
 export async function createLaunchShortCode(
   params: CreateLaunchShortCodeParams,
 ): Promise<string> {
-  const { gameId, serverId, hostToken = crypto.randomUUID(), signal } = params;
+  const { gameId, serverId, hostToken = randomUuid(), signal } = params;
 
   const resp = await fetch("/api/room/shorten", {
     method: "POST",

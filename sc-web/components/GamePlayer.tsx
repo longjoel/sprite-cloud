@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useInterval } from "@/lib/poll";
 import { Button, Toast } from "@/components/ui";
 import { csrfHeaders } from "@/components/library-utils";
+import { randomUuid } from "@/lib/browser/random-uuid";
 import RemapPanel from "./GamePlayerRemapPanel";
 import OptionsOverlay from "./OptionsOverlay";
 import ControllerLayoutPanel from "./ControllerLayoutPanel";
@@ -596,7 +597,7 @@ export default function GamePlayer({
           headers: csrfHeaders(),
           body: JSON.stringify({
             game_id: gameId,
-            host_token: hostToken || crypto.randomUUID(),
+            host_token: hostToken || randomUuid(),
             server_id: serverId,
           }),
         });

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui";
+import { randomUuid } from "@/lib/browser/random-uuid";
 
 interface DevToolsProps {
   show: boolean;
@@ -31,7 +32,7 @@ export default function DevTools({ show, onClose }: DevToolsProps) {
       .slice(1)
       .join("=");
     if (!token) {
-      token = crypto.randomUUID();
+      token = randomUuid();
       document.cookie = `sc_csrf_token=${encodeURIComponent(
         token,
       )}; Path=/; SameSite=Lax`;
