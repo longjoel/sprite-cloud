@@ -24,4 +24,14 @@ describe("LAN-owned library access", () => {
     expect(source).toContain("axum::http::header::AUTHORIZATION");
     expect(source).toContain('req.uri().path() == "/"');
   });
+
+  it("hands cloud users to the server-owned LAN library", () => {
+    const page = readFileSync("app/page.tsx", "utf8");
+    const client = readFileSync("components/LibraryClient.tsx", "utf8");
+    expect(page).toContain("extractLanLibraryLinks");
+    expect(page).toContain("lanLibraries={lanLibraries}");
+    expect(client).toContain("Your games stay on sc-server");
+    expect(client).toContain("Open ${library.name} library");
+    expect(client).toContain("href={library.url}");
+  });
 });

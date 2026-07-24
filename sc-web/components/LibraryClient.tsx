@@ -10,6 +10,7 @@ import { Star20Filled, Star20Regular, Pin20Filled, Pin20Regular, Edit20Regular, 
 import { buildLanPlayerLaunchUrl, canUseLanPlayer, chooseLaunchHost, createLaunchRequestGate, formatLaunchError } from "@/lib/lan/launch";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
 import { createAllLibraryPageParams, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, createPlayableHostsParams, filterLibraryGames, formatRecentGroupLabel, formatRelativeAge, groupRecentGamesByLocalDate, libraryGameKey, mergeLibraryPages, mergeRecentLibraryPages, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
+import type { LanLibraryLink } from "@/lib/lan/library-handoff";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -56,6 +57,7 @@ interface PlayableHost {
 
 interface LibraryClientProps {
   serverIds: string[];
+  lanLibraries?: LanLibraryLink[];
   session: { user?: { id?: string; name?: string | null; email?: string | null } } | null;
 }
 
@@ -151,7 +153,7 @@ async function fetchPinnedGames(): Promise<Game[]> {
 
 // ── Component ─────────────────────────────────────────────────────────
 
-export default function LibraryClient({ serverIds, session }: LibraryClientProps) {
+export default function LibraryClient({ serverIds, lanLibraries = [], session }: LibraryClientProps) {
   const router = useRouter();
 
   const [hostPickerGame, setHostPickerGame] = useState<Game | null>(null);
@@ -183,6 +185,7 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   const [allTotal, setAllTotal] = useState(0);
   const [allLoading, setAllLoading] = useState(false);
   const hasServers = serverIds.length > 0 || allGames.some((game) => Boolean(game.serverId));
+  const needsLanHandoff = session !== null && lanLibraries.length > 0;
 
   const [favGames, setFavGames] = useState<Game[]>([]);
   const [favTotal, setFavTotal] = useState(0);
@@ -203,13 +206,14 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
 
   // Load shared server-owned favorites and the complete (max 20) pinned rows.
   useEffect(() => {
+    if (needsLanHandoff) return;
     fetchFavoriteIds().then(setFavoriteIds);
     setPinsLoading(true);
     fetchPinnedGames().then((games) => {
       setPinnedGames(games);
       setPinnedIds(new Set(games.map((game) => game.id)));
     }).finally(() => setPinsLoading(false));
-  }, []);
+  }, [needsLanHandoff]);
 
 
   // Debounced search
@@ -291,13 +295,15 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
   }, [recentLoading, fetchPage]);
 
   useEffect(() => {
+    if (needsLanHandoff) return;
     loadAllGames(true, search, [], 0);
-  }, [search]);
+  }, [search, needsLanHandoff]);
 
   useEffect(() => {
+    if (needsLanHandoff) return;
     if (tab === "favorites") loadFavorites(true, search, [], 0);
     if (tab === "recent") loadRecent(true, search, [], 0);
-  }, [tab, search]);
+  }, [tab, search, needsLanHandoff]);
 
   // ── Infinite scroll sentinel ────────────────────────────────────
 
@@ -685,6 +691,20 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
       <section style={styles.section}>
         <h2 style={{ ...styles.h2, marginBottom: "var(--space-4)" }}>Library</h2>
 
+        {needsLanHandoff && (
+          <div style={styles.lanHandoff}>
+            <strong>Your games stay on sc-server</strong>
+            <span>Open the library directly on a server available to this device.</span>
+            <div style={styles.lanHandoffLinks}>
+              {lanLibraries.map((library) => (
+                <a key={library.serverId} href={library.url} style={styles.lanHandoffLink}>
+                  {`Open ${library.name} library`}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
         <LibraryToolbar
           activeSection={tab}
           counts={{ all: allTotal, favorites: favTotal, recent: recentTotal, pins: pinnedGames.length }}
@@ -718,7 +738,9 @@ export default function LibraryClient({ serverIds, session }: LibraryClientProps
           )
         ) : sortedGames.length === 0 ? (
           <p style={styles.empty}>
-            {selectedPlatforms.size > 0
+            {needsLanHandoff
+              ? "Open your server-owned library above."
+              : selectedPlatforms.size > 0
               ? "No games match the selected platforms."
               : tab === "all" ? "No games found." : tab === "favorites" ? "No favorites yet." : tab === "pins" ? "No pinned games yet." : "No recent plays."}
           </p>
@@ -887,6 +909,29 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "var(--font-mono)",
   },
   section: { padding: "0 24px", marginBottom: "var(--space-8)" },
+  lanHandoff: {
+    display: "grid",
+    gap: "var(--space-3)",
+    marginBottom: "var(--space-5)",
+    padding: "var(--space-5)",
+    border: "1px solid var(--color-accent)",
+    borderRadius: 2,
+    background: "var(--color-sky-mid)",
+    color: "var(--color-cloud)",
+  },
+  lanHandoffLinks: { display: "flex", flexWrap: "wrap", gap: "var(--space-3)" },
+  lanHandoffLink: {
+    display: "inline-flex",
+    minHeight: 38,
+    alignItems: "center",
+    padding: "0 var(--space-4)",
+    border: "1px solid var(--color-accent)",
+    borderRadius: 2,
+    background: "var(--color-accent)",
+    color: "var(--color-sky-deep)",
+    fontWeight: 700,
+    textDecoration: "none",
+  },
 
   recentGroup: { marginBottom: "var(--space-6)" },
   recentDate: {
