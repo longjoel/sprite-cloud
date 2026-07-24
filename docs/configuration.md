@@ -25,7 +25,9 @@ First admin account creation is handled by the `/setup` flow. When the `users` t
 
 ## sc-server host runtime
 
-`sc-server pair <CODE> --sc-web-url <URL>` writes the persistent config file.
+`sc-server setup` writes the persistent ROM, core, gateway, and ICE configuration. `sc-server pair <CODE> --sc-web-url <URL>` adds or refreshes credentials without discarding those setup choices.
+
+For the complete lifecycle, see **[SC-SERVER-INSTALL.md](SC-SERVER-INSTALL.md)**.
 
 Default config locations:
 
@@ -46,6 +48,9 @@ server_id = "..."
 
 [rom]
 roots = ["/srv/storage/games/roms"]
+
+[cores]
+dir = "/usr/lib/libretro"
 ```
 
 Runtime env vars:
@@ -53,8 +58,8 @@ Runtime env vars:
 | Variable | Default | Description |
 |---|---|---|
 | `GV_WEB_TIMEOUT_SECS` | `30` | HTTP request timeout for gateway API calls |
-| `GV_ROM_ROOTS` | from config | Comma-separated ROM roots used during pairing/startup |
-| `GV_CORES_DIR` | workspace/test-data fallback | Libretro core cache/download directory |
+| `GV_ROM_ROOTS` | `[rom].roots` from config | Comma-separated runtime override for persisted ROM roots |
+| `GV_CORES_DIR` | `[cores].dir` from config, then workspace fallback | Runtime override for the persisted libretro core directory |
 | `GV_BUILDBOT_URL` | libretro buildbot | Core download base URL |
 | `GV_WORKER_HOST` | auto-detected LAN IP | Compatibility name for the host/IP advertised in player URLs for the local player endpoint |
 | `GV_WORKER_PORT` | `8787` | Compatibility name for the port advertised in player URLs |
@@ -65,6 +70,8 @@ Runtime env vars:
 | `GV_SYSTEM_DIR` | temp/default | BIOS/system directory |
 
 `GV_WORKER_HOST`/`GV_WORKER_PORT` are compatibility names for the browser-facing local player endpoint.
+
+Explicit environment variables take precedence over persisted ROM/core values. Without an override, paired and standalone startup both load the values saved by setup.
 
 ## Core overrides
 

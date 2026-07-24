@@ -97,13 +97,13 @@ describe("production deploy workflow", () => {
     expect(hostInstaller).toContain('mv -f "$STAGED_BIN" "$BIN_PATH"');
     expect(publicInstaller).toContain('mktemp "$INSTALL_DIR/.${BIN}.XXXXXX"');
     expect(publicInstaller).toContain('mv -f "$STAGED_BIN" "$INSTALL_DIR/$BIN"');
-    expect(rootReadme).toContain("scripts/install.sh | bash -s --");
+    expect(rootReadme).toContain("curl -fsSL https://sprite-cloud.com/install.sh | bash");
+    expect(scriptsReadme).toContain("curl -fsSL https://sprite-cloud.com/install.sh | bash");
+    expect(scriptsReadme).toContain("sudo ./scripts/install.sh");
     expect(rootReadme).not.toContain("scripts/install.sh | sh -s --");
-    expect(scriptsReadme).toContain("| bash -s --");
-    expect(scriptsReadme).not.toContain("| sh -s --");
+    expect(scriptsReadme).not.toContain("scripts/install.sh | sh -s --");
     expect(hostInstaller).not.toMatch(/\| sh(?:\s|$)/);
-    expect(quickstart).toContain("sudo ./scripts/install.sh --web-url");
-    expect(quickstart).not.toContain("https://sprite-cloud.com/install.sh");
+    expect(quickstart).toContain("https://sprite-cloud.com/install.sh");
     expect(quickstart).not.toContain("https://get.gamesvault.app");
   });
 
@@ -123,6 +123,8 @@ describe("production deploy workflow", () => {
     expect(publicInstaller).toContain("sc-server install");
     expect(publicInstaller).not.toContain("sc-server --install");
     expect(hostInstaller).not.toContain('SYSTEMCTL="sudo systemctl"');
+    expect(hostInstaller).toContain('if [[ -f "$CONFIG_FILE" ]]');
+    expect(hostInstaller).toContain("existing config preserved");
   });
 
   it("publishes only after both advertised architecture builds succeed", () => {
