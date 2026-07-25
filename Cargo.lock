@@ -4321,7 +4321,7 @@ dependencies = [
 
 [[package]]
 name = "sc-server"
-version = "0.11.3"
+version = "0.11.4"
 dependencies = [
  "anyhow",
  "axum",
