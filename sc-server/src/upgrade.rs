@@ -91,11 +91,21 @@ fn rollback_core(destination: &Path, backup: Option<&Path>) -> Result<()> {
     }
     Ok(())
 }
-
 static PENDING_UPGRADE_SIGNAL: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 
+extern "C" fn defer_upgrade_signal(signal: libc::c_int) {
+    use std::sync::atomic::Ordering;
+
+    let _ = PENDING_UPGRADE_SIGNAL.compare_exchange(0, signal, Ordering::SeqCst, Ordering::SeqCst);
+}
+
+struct PreviousSignalAction {
+    signal: libc::c_int,
+    action: libc::sigaction,
+}
+
 struct UpgradeSignalGuard {
-    registrations: Vec<signal_hook::SigId>,
+    previous: Vec<PreviousSignalAction>,
 }
 
 impl UpgradeSignalGuard {
@@ -103,30 +113,29 @@ impl UpgradeSignalGuard {
         use std::sync::atomic::Ordering;
 
         PENDING_UPGRADE_SIGNAL.store(0, Ordering::SeqCst);
-        let mut registrations = Vec::new();
+        let mut previous: Vec<PreviousSignalAction> = Vec::new();
         for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
-            let registration = match unsafe {
-                signal_hook::low_level::register(signal, move || {
-                    let _ = PENDING_UPGRADE_SIGNAL.compare_exchange(
-                        0,
-                        signal,
-                        Ordering::SeqCst,
-                        Ordering::SeqCst,
-                    );
-                })
-            } {
-                Ok(registration) => registration,
-                Err(error) => {
-                    for registration in registrations.drain(..) {
-                        signal_hook::low_level::unregister(registration);
+            let mut replacement = unsafe { std::mem::zeroed::<libc::sigaction>() };
+            replacement.sa_sigaction = defer_upgrade_signal as *const () as usize;
+            replacement.sa_flags = libc::SA_RESTART;
+            unsafe { libc::sigemptyset(&mut replacement.sa_mask) };
+
+            let mut prior = unsafe { std::mem::zeroed::<libc::sigaction>() };
+            if unsafe { libc::sigaction(signal, &replacement, &mut prior) } != 0 {
+                let error = std::io::Error::last_os_error();
+                for installed in previous.iter().rev() {
+                    unsafe {
+                        libc::sigaction(installed.signal, &installed.action, std::ptr::null_mut());
                     }
-                    return Err(error)
-                        .with_context(|| format!("defer signal {signal} during upgrade"));
                 }
-            };
-            registrations.push(registration);
+                return Err(error).with_context(|| format!("defer signal {signal} during upgrade"));
+            }
+            previous.push(PreviousSignalAction {
+                signal,
+                action: prior,
+            });
         }
-        Ok(Self { registrations })
+        Ok(Self { previous })
     }
 }
 
@@ -134,13 +143,14 @@ impl Drop for UpgradeSignalGuard {
     fn drop(&mut self) {
         use std::sync::atomic::Ordering;
 
-        for registration in self.registrations.drain(..) {
-            signal_hook::low_level::unregister(registration);
+        for previous in self.previous.iter().rev() {
+            unsafe {
+                libc::sigaction(previous.signal, &previous.action, std::ptr::null_mut());
+            }
         }
         let pending = PENDING_UPGRADE_SIGNAL.swap(0, Ordering::SeqCst);
         if pending != 0 {
             unsafe {
-                libc::signal(pending, libc::SIG_DFL);
                 libc::kill(libc::getpid(), pending);
             }
         }
@@ -300,6 +310,13 @@ mod tests {
     use super::*;
     use std::os::unix::process::ExitStatusExt;
 
+    static RESTORED_SIGNAL_COUNT: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+
+    extern "C" fn count_restored_signal(_: libc::c_int) {
+        RESTORED_SIGNAL_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
     #[test]
     fn checksum_parser_accepts_standard_sha256_file() {
         let digest = "a".repeat(64);
@@ -337,6 +354,53 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success());
+    }
+
+    #[test]
+    fn native_pair_install_restores_prior_signal_disposition() {
+        if std::env::var_os("SC_UPGRADE_RESTORE_SIGNAL_CHILD").is_some() {
+            RESTORED_SIGNAL_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
+            let mut replacement = unsafe { std::mem::zeroed::<libc::sigaction>() };
+            replacement.sa_sigaction = count_restored_signal as *const () as usize;
+            unsafe { libc::sigemptyset(&mut replacement.sa_mask) };
+            let mut prior = unsafe { std::mem::zeroed::<libc::sigaction>() };
+            assert_eq!(
+                unsafe { libc::sigaction(libc::SIGTERM, &replacement, &mut prior) },
+                0
+            );
+
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::write(dir.path().join("sc-core"), b"old-core").unwrap();
+            std::fs::write(dir.path().join("sc-server"), b"old-server").unwrap();
+            let staged_core = dir.path().join(".staged-core");
+            let staged_server = dir.path().join(".staged-server");
+            std::fs::write(&staged_core, b"new-core").unwrap();
+            std::fs::write(&staged_server, b"new-server").unwrap();
+
+            install_staged_pair(dir.path(), &staged_core, &staged_server).unwrap();
+            unsafe { libc::kill(libc::getpid(), libc::SIGTERM) };
+            for _ in 0..100 {
+                if RESTORED_SIGNAL_COUNT.load(std::sync::atomic::Ordering::SeqCst) != 0 {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            assert_eq!(
+                RESTORED_SIGNAL_COUNT.load(std::sync::atomic::Ordering::SeqCst),
+                1
+            );
+            unsafe { libc::sigaction(libc::SIGTERM, &prior, std::ptr::null_mut()) };
+            return;
+        }
+
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("upgrade::tests::native_pair_install_restores_prior_signal_disposition")
+            .arg("--nocapture")
+            .env("SC_UPGRADE_RESTORE_SIGNAL_CHILD", "1")
+            .status()
+            .unwrap();
+        assert!(status.success(), "child failed with {status}");
     }
 
     #[test]
