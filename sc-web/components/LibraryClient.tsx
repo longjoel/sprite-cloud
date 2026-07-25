@@ -296,9 +296,8 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session }:
   }, [recentLoading, fetchPage]);
 
   useEffect(() => {
-    if (needsLanHandoff) return;
     loadAllGames(true, search, [], 0);
-  }, [search, needsLanHandoff]);
+  }, [search]);
 
   useEffect(() => {
     if (needsLanHandoff) return;

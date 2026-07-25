@@ -177,6 +177,13 @@ pub(crate) async fn cmd_start(
     let local_game_list = Arc::new(tokio::sync::RwLock::new(local_games));
     let local_rom_roots = Arc::new(rom_roots.clone());
 
+    // Sync game catalog to sc-web so the cloud library page works
+    {
+        let prefs_snapshot = library_preferences.lock().await.snapshot();
+        let games_snapshot = local_game_list.read().await;
+        sync_catalog(&client, &games_snapshot, &prefs_snapshot).await;
+    }
+
     // Pre-warm ICE
     webrtc::prewarm_ice_agent().await;
 
@@ -317,6 +324,39 @@ fn scan_library(rom_roots: &[String]) -> Vec<crate::player_server::LocalGame> {
         }
     }
     all_games
+}
+
+/// Push the current game catalog to sc-web for cloud library search.
+///
+/// Sends only metadata (id, name, platform, max_players).
+/// ROM paths and library preferences stay local.
+async fn sync_catalog(
+    client: &crate::sc_web::ScWebClient,
+    games: &[crate::player_server::LocalGame],
+    preferences: &crate::library_state::LibraryPreferences,
+) {
+    let entries: Vec<serde_json::Value> = games
+        .iter()
+        .map(|game| {
+            let fallback = crate::player_server::local_game_name(game);
+            let name = preferences.display_name(&game.id, &fallback);
+            serde_json::json!({
+                "id": game.id,
+                "name": name,
+                "platform": game.discovered.platform.as_deref().unwrap_or("Unknown"),
+                "max_players": 1,
+            })
+        })
+        .collect();
+
+    if entries.is_empty() {
+        tracing::info!("[SYNC] no games to sync");
+        return;
+    }
+
+    if let Err(error) = client.sync_library(&entries).await {
+        tracing::warn!("[SYNC] failed to push catalog to sc-web: {error:#}");
+    }
 }
 
 // ── Standalone mode — no sc-web, local library only ───────────────
