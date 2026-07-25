@@ -344,7 +344,7 @@ async fn sync_catalog(
                 "id": game.id,
                 "name": name,
                 "platform": game.discovered.platform.as_deref().unwrap_or("Unknown"),
-                "max_players": 1,
+                "max_players": 4,
             })
         })
         .collect();

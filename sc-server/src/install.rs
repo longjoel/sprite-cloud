@@ -26,6 +26,10 @@ Restart=on-failure
 RestartSec=10
 Environment=RUST_LOG=info
 Environment="GV_DATA_DIR={data_dir}"
+Environment="GV_ICE_STUN_URLS=stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"
+Environment="GV_ICE_TURN_URLS=turn:sprite-cloud.com:3478?transport=udp"
+Environment="GV_ICE_TURN_USERNAME=guest"
+Environment="GV_ICE_TURN_CREDENTIAL="
 
 [Install]
 WantedBy=default.target

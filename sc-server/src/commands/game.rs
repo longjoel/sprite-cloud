@@ -446,7 +446,8 @@ pub(super) async fn handle_stop_game(
             game_id,
             target_session_id,
         )
-        .await;
+        .await
+        .map_err(|e| tracing::warn!("[POLL] notify_stop failed for {}: {:#}", game_id, e));
 }
 
 pub(super) async fn handle_sdp_offer(
@@ -827,6 +828,7 @@ pub(super) async fn handle_guest_sdp(
 
     // Send SDP answer back via notify_sdp
     let worker_url = worker_url(&session.game_id);
+    let cmd_session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
     if let Err(e) = client
         .notify_sdp(
             &cmd.id,
@@ -834,7 +836,7 @@ pub(super) async fn handle_guest_sdp(
             &worker_url,
             &session.game_id,
             &answer,
-            None,
+            cmd_session_id,
         )
         .await
     {
