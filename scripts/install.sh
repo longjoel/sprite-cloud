@@ -235,16 +235,16 @@ rollback_install() {
 }
 trap 'rollback_install; exit 130' INT TERM HUP
 
+REPLACED_CORE=true
 if ! $SUDO mv -f "$STAGED_CORE" "$CORE_BIN_PATH"; then
   rollback_install
   err "atomic sc-core install failed"
 fi
-REPLACED_CORE=true
+REPLACED_SERVER=true
 if ! $SUDO mv -f "$STAGED_SERVER" "$BIN_PATH"; then
   rollback_install
   err "atomic sc-server install failed; previous binaries restored"
 fi
-REPLACED_SERVER=true
 trap - INT TERM HUP
 $SUDO rm -f "$BACKUP_CORE" "$BACKUP_SERVER"
 ok "sc-core installed to $CORE_BIN_PATH"

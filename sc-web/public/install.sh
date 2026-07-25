@@ -142,16 +142,16 @@ rollback_install() {
 }
 trap 'rollback_install; exit 130' INT TERM HUP
 
+REPLACED_CORE=true
 if ! mv -f "$STAGED_CORE" "$INSTALL_DIR/sc-core"; then
   rollback_install
   err "Could not atomically install sc-core"
 fi
-REPLACED_CORE=true
+REPLACED_SERVER=true
 if ! mv -f "$STAGED_SERVER" "$INSTALL_DIR/sc-server"; then
   rollback_install
   err "Could not atomically install sc-server; previous binaries restored"
 fi
-REPLACED_SERVER=true
 trap - INT TERM HUP
 rm -f "$BACKUP_CORE" "$BACKUP_SERVER"
 done_log "Installed to $INSTALL_DIR/sc-core"
