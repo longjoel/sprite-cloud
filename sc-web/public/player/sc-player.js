@@ -12,6 +12,18 @@ import {
   mappingForGamepad,
 } from "./input-mapping.js";
 
+function isPrivateIP(host) {
+  if (host.endsWith(".local")) return true;
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!ipv4) return false;
+  const b1 = parseInt(ipv4[1], 10);
+  const b2 = parseInt(ipv4[2], 10);
+  return b1 === 10
+    || b1 === 127
+    || (b1 === 172 && b2 >= 16 && b2 <= 31)
+    || (b1 === 192 && b2 === 168);
+}
+
 // ── Constants (no magic values) ───────────────────────────────────────
 // ── Route classification ────────────────────────────────────────────────
 
@@ -839,8 +851,11 @@ export class ScPlayer {
     }
 
     const isRelayOnly = this._iceTransportPolicy === "relay";
-    const isLanDirect = typeof location !== "undefined"
-      && new URLSearchParams(location.search).get("route") === "lan";
+    const isLanDirect = typeof window !== "undefined"
+      && (new URLSearchParams(window.location.search).get("route") === "lan"
+        || (window.location.protocol === "http:"
+          && window.location.port === "8787"
+          && isPrivateIP(window.location.hostname)));
     const timeout = isRelayOnly ? 60_000 : (isLanDirect ? 3_000 : this._iceTimeout);
 
     console.log("[gv] _waitForIceGatheringComplete: waiting (state=" + this._pc.iceGatheringState + ", timeout=" + timeout + "ms, relay=" + isRelayOnly + ")");
