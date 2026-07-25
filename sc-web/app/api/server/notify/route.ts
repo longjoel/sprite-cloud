@@ -10,7 +10,7 @@ import { recordLaunchEvent } from "@/lib/launch-events";
 import { resolveSdpAnswer } from "@/lib/pending-sdp";
 import { logSignalingStage, type SignalingFlow } from "@/lib/signaling";
 
-const NOTIFY_RATE_LIMIT = 60; // requests per minute per IP (server-to-server)
+const NOTIFY_RATE_LIMIT = 300; // requests per minute per IP (server-to-server, burst-tolerant)
 
 // ── Types ──────────────────────────────────────────────────────────────
 
