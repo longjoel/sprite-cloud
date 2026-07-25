@@ -19,6 +19,8 @@ err()  { printf "${RED}✗${NC} %s\n" "$*" >&2; exit 1; }
 ROOTLESS=false
 WEB_URL=""
 ROM_DIR=""
+# Default TURN credential for sprite-cloud.com (override with GV_TURN_CREDENTIAL env var)
+TURN_CREDENTIAL="${GV_TURN_CREDENTIAL:-0bf1912a8e569c803978495362f14dbb1f2ed50e7151c5fd26968748cd1eef7f}"
 
 # ── Parse args ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -326,6 +328,10 @@ Environment="XDG_CONFIG_HOME=${HOME}/.config"
 Environment="GV_CORES_DIR=${CORES_DIR}"
 Environment="GV_DATA_DIR=${DATA_DIR}"
 Environment="RUST_LOG=info"
+Environment="GV_ICE_STUN_URLS=stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"
+Environment="GV_ICE_TURN_URLS=turn:sprite-cloud.com:3478?transport=udp"
+Environment="GV_ICE_TURN_USERNAME=guest"
+Environment="GV_ICE_TURN_CREDENTIAL=${TURN_CREDENTIAL:-}"
 ExecStart=${BIN_PATH} start
 Restart=on-failure
 RestartSec=5
@@ -349,6 +355,10 @@ Environment="XDG_CONFIG_HOME=/etc"
 Environment="GV_CORES_DIR=${CORES_DIR}"
 Environment="GV_DATA_DIR=${DATA_DIR}"
 Environment="RUST_LOG=info"
+Environment="GV_ICE_STUN_URLS=stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"
+Environment="GV_ICE_TURN_URLS=turn:sprite-cloud.com:3478?transport=udp"
+Environment="GV_ICE_TURN_USERNAME=guest"
+Environment="GV_ICE_TURN_CREDENTIAL=${TURN_CREDENTIAL:-}"
 ExecStart=${BIN_PATH} start
 Restart=on-failure
 RestartSec=5
