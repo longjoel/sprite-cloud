@@ -429,7 +429,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session }:
       setPlayableHosts(hosts);
       setHostPickerLoading(false);
 
-      const host = automatic ? chooseLaunchHost(hosts, getPreferredServer(game.id)) : null;
+      const host = automatic ? chooseLaunchHost(hosts, game.serverId || getPreferredServer(game.id)) : null;
       if (host) {
         const probe = host.capabilities.lan
           ? await probeLanHealth(host.lan?.health_urls, { timeoutMs: 1_200 })
