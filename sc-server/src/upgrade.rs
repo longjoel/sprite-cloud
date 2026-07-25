@@ -92,7 +92,45 @@ fn rollback_core(destination: &Path, backup: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
+struct UpgradeSignalGuard {
+    previous: libc::sigset_t,
+}
+
+impl UpgradeSignalGuard {
+    fn block() -> Result<Self> {
+        unsafe {
+            let mut blocked = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
+            if libc::sigemptyset(blocked.as_mut_ptr()) != 0 {
+                return Err(std::io::Error::last_os_error()).context("initialize signal mask");
+            }
+            let mut blocked = blocked.assume_init();
+            for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+                if libc::sigaddset(&mut blocked, signal) != 0 {
+                    return Err(std::io::Error::last_os_error()).context("build signal mask");
+                }
+            }
+            let mut previous = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
+            let rc = libc::pthread_sigmask(libc::SIG_BLOCK, &blocked, previous.as_mut_ptr());
+            if rc != 0 {
+                return Err(std::io::Error::from_raw_os_error(rc)).context("block upgrade signals");
+            }
+            Ok(Self {
+                previous: previous.assume_init(),
+            })
+        }
+    }
+}
+
+impl Drop for UpgradeSignalGuard {
+    fn drop(&mut self) {
+        unsafe {
+            libc::pthread_sigmask(libc::SIG_SETMASK, &self.previous, std::ptr::null_mut());
+        }
+    }
+}
+
 fn install_staged_pair(install_dir: &Path, staged_core: &Path, staged_server: &Path) -> Result<()> {
+    let _signal_guard = UpgradeSignalGuard::block()?;
     let core_destination = install_dir.join("sc-core");
     let server_destination = install_dir.join("sc-server");
     let core_backup = backup_binary(&core_destination)?;
@@ -114,6 +152,11 @@ fn install_staged_pair(install_dir: &Path, staged_core: &Path, staged_server: &P
             let _ = std::fs::remove_file(path);
         }
         return Err(error).with_context(|| format!("install {}", core_destination.display()));
+    }
+
+    #[cfg(test)]
+    if std::env::var_os("SC_UPGRADE_PAUSE_AFTER_CORE").is_some() {
+        std::thread::sleep(std::time::Duration::from_millis(200));
     }
 
     if let Err(error) = std::fs::rename(staged_server, &server_destination) {
@@ -237,6 +280,7 @@ pub async fn run() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::process::ExitStatusExt;
 
     #[test]
     fn checksum_parser_accepts_standard_sha256_file() {
@@ -275,6 +319,52 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success());
+    }
+
+    #[test]
+    fn native_pair_install_defers_termination_until_both_replacements_finish() {
+        if std::env::var_os("SC_UPGRADE_SIGNAL_CHILD").is_some() {
+            let dir = PathBuf::from(std::env::var_os("SC_UPGRADE_SIGNAL_DIR").unwrap());
+            let core = dir.join("sc-core");
+            let server = dir.join("sc-server");
+            let staged_core = dir.join("staged-core");
+            let staged_server = dir.join("staged-server");
+            std::fs::write(&core, b"old-core").unwrap();
+            std::fs::write(&server, b"old-server").unwrap();
+            std::fs::write(&staged_core, b"new-core").unwrap();
+            std::fs::write(&staged_server, b"new-server").unwrap();
+
+            let target_thread = unsafe { libc::pthread_self() };
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                unsafe { libc::pthread_kill(target_thread, libc::SIGTERM) };
+            });
+            install_staged_pair(&dir, &staged_core, &staged_server).unwrap();
+            panic!("pending SIGTERM should be delivered when the transaction guard drops");
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg(
+                "upgrade::tests::native_pair_install_defers_termination_until_both_replacements_finish",
+            )
+            .arg("--nocapture")
+            .env("SC_UPGRADE_SIGNAL_CHILD", "1")
+            .env("SC_UPGRADE_SIGNAL_DIR", dir.path())
+            .env("SC_UPGRADE_PAUSE_AFTER_CORE", "1")
+            .status()
+            .unwrap();
+
+        assert_eq!(status.signal(), Some(libc::SIGTERM));
+        assert_eq!(
+            std::fs::read(dir.path().join("sc-core")).unwrap(),
+            b"new-core"
+        );
+        assert_eq!(
+            std::fs::read(dir.path().join("sc-server")).unwrap(),
+            b"new-server"
+        );
     }
 
     #[test]
