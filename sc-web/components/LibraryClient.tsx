@@ -429,6 +429,9 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session }:
       setPlayableHosts(hosts);
       setHostPickerLoading(false);
 
+// Prefer the game's owning server over cookie-stored preference.
+// Opaque game IDs are server-specific — a cookie from Bazzite
+// won't work for a game owned by VAULT.
       const host = automatic ? chooseLaunchHost(hosts, game.serverId || getPreferredServer(game.id)) : null;
       if (host) {
         const probe = host.capabilities.lan
