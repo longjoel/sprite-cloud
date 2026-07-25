@@ -118,13 +118,16 @@ async function startGame(serverId, gameId, corePath, hostToken, callbacks, sdpOf
   if (sdpOffer) {
     payload.sdp = sdpOffer;
   }
-  // Detect LAN launch — when the page is loaded from a sc-server LAN URL
-  // (http://<lan-ip>:8787/...?route=lan), pass lan:true so sc-server uses
-  // direct LAN WebRTC instead of the pre-warmed relay pool.
+  // Detect LAN launch from either the explicit route marker or the sc-server
+  // origin itself. The short-URL persistence path intentionally rewrites to
+  // /p/<code> and drops the query string, so route=lan is not always present.
   if (typeof window !== "undefined") {
     try {
       const q = new URLSearchParams(window.location.search);
-      if (q.get("route") === "lan") {
+      const isLanOrigin = window.location.protocol === "http:"
+        && window.location.port === "8787"
+        && isPrivateIP(window.location.hostname);
+      if (q.get("route") === "lan" || isLanOrigin) {
         payload.lan = true;
       }
     } catch { /* ignore */ }
