@@ -43,7 +43,7 @@ fn stage_binary(install_dir: &Path, name: &str, bytes: &[u8]) -> Result<PathBuf>
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
 
-    let staged = install_dir.join(format!(".{name}.upgrade-{}", std::process::id()));
+    let staged = install_dir.join(format!(".{name}.upgrade-{:016x}", rand::random::<u64>()));
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -55,6 +55,75 @@ fn stage_binary(install_dir: &Path, name: &str, bytes: &[u8]) -> Result<PathBuf>
     file.sync_all()
         .with_context(|| format!("sync {}", staged.display()))?;
     Ok(staged)
+}
+
+fn backup_binary(destination: &Path) -> Result<Option<PathBuf>> {
+    if !destination.exists() {
+        return Ok(None);
+    }
+    let name = destination
+        .file_name()
+        .and_then(|name| name.to_str())
+        .context("installed binary name is not valid UTF-8")?;
+    let backup =
+        destination.with_file_name(format!(".{name}.backup-{:016x}", rand::random::<u64>()));
+    std::fs::copy(destination, &backup)
+        .with_context(|| format!("back up {}", destination.display()))?;
+    Ok(Some(backup))
+}
+
+fn rollback_core(destination: &Path, backup: Option<&Path>) -> Result<()> {
+    if let Some(backup) = backup {
+        std::fs::rename(backup, destination)
+            .with_context(|| format!("restore {}", destination.display()))?;
+    } else if destination.exists() {
+        std::fs::remove_file(destination)
+            .with_context(|| format!("remove partially installed {}", destination.display()))?;
+    }
+    Ok(())
+}
+
+fn install_staged_pair(install_dir: &Path, staged_core: &Path, staged_server: &Path) -> Result<()> {
+    let core_destination = install_dir.join("sc-core");
+    let server_destination = install_dir.join("sc-server");
+    let core_backup = backup_binary(&core_destination)?;
+    let server_backup = match backup_binary(&server_destination) {
+        Ok(backup) => backup,
+        Err(error) => {
+            if let Some(path) = &core_backup {
+                let _ = std::fs::remove_file(path);
+            }
+            return Err(error);
+        }
+    };
+
+    if let Err(error) = std::fs::rename(staged_core, &core_destination) {
+        if let Some(path) = &core_backup {
+            let _ = std::fs::remove_file(path);
+        }
+        if let Some(path) = &server_backup {
+            let _ = std::fs::remove_file(path);
+        }
+        return Err(error).with_context(|| format!("install {}", core_destination.display()));
+    }
+
+    if let Err(error) = std::fs::rename(staged_server, &server_destination) {
+        let rollback = rollback_core(&core_destination, core_backup.as_deref());
+        if let Some(path) = &server_backup {
+            let _ = std::fs::remove_file(path);
+        }
+        let _ = std::fs::remove_file(staged_server);
+        rollback.context("sc-server install failed and sc-core rollback also failed")?;
+        return Err(error).with_context(|| format!("install {}", server_destination.display()));
+    }
+
+    if let Some(path) = core_backup {
+        let _ = std::fs::remove_file(path);
+    }
+    if let Some(path) = server_backup {
+        let _ = std::fs::remove_file(path);
+    }
+    Ok(())
 }
 
 pub async fn run() -> Result<()> {
@@ -137,15 +206,19 @@ pub async fn run() -> Result<()> {
         }
     }
 
-    // Install the runner first. If the process is interrupted between renames,
-    // the existing server can still launch games with the newer compatible runner.
-    staged.sort_by_key(|(name, _)| if *name == "sc-core" { 0 } else { 1 });
-    for (name, path) in staged {
-        let destination = install_dir.join(name);
-        std::fs::rename(&path, &destination)
-            .with_context(|| format!("install {}", destination.display()))?;
-        println!("  ✓ Installed {}", destination.display());
-    }
+    let staged_core = staged
+        .iter()
+        .find(|(name, _)| *name == "sc-core")
+        .map(|(_, path)| path.as_path())
+        .context("sc-core was not staged")?;
+    let staged_server = staged
+        .iter()
+        .find(|(name, _)| *name == "sc-server")
+        .map(|(_, path)| path.as_path())
+        .context("sc-server was not staged")?;
+    install_staged_pair(install_dir, staged_core, staged_server)?;
+    println!("  ✓ Installed {}", install_dir.join("sc-core").display());
+    println!("  ✓ Installed {}", install_dir.join("sc-server").display());
 
     println!("\n  ✓ Sprite Cloud {} installed", latest.tag_name);
     println!("  Restart the service: systemctl --user restart sc-server");
@@ -170,5 +243,41 @@ mod tests {
         let error = verify_checksum(b"sprite-cloud", &format!("{}  sc-server\n", "0".repeat(64)))
             .unwrap_err();
         assert!(error.to_string().contains("checksum mismatch"));
+    }
+
+    #[test]
+    fn pair_install_rolls_core_back_when_server_replace_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = dir.path().join("sc-core");
+        let server = dir.path().join("sc-server");
+        let staged_core = dir.path().join("staged-core");
+        let missing_server = dir.path().join("missing-server");
+        std::fs::write(&core, b"old-core").unwrap();
+        std::fs::write(&server, b"old-server").unwrap();
+        std::fs::write(&staged_core, b"new-core").unwrap();
+
+        let error = install_staged_pair(dir.path(), &staged_core, &missing_server).unwrap_err();
+
+        assert!(error.to_string().contains("install"));
+        assert_eq!(std::fs::read(&core).unwrap(), b"old-core");
+        assert_eq!(std::fs::read(&server).unwrap(), b"old-server");
+    }
+
+    #[test]
+    fn pair_install_replaces_both_binaries() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = dir.path().join("sc-core");
+        let server = dir.path().join("sc-server");
+        let staged_core = dir.path().join("staged-core");
+        let staged_server = dir.path().join("staged-server");
+        std::fs::write(&core, b"old-core").unwrap();
+        std::fs::write(&server, b"old-server").unwrap();
+        std::fs::write(&staged_core, b"new-core").unwrap();
+        std::fs::write(&staged_server, b"new-server").unwrap();
+
+        install_staged_pair(dir.path(), &staged_core, &staged_server).unwrap();
+
+        assert_eq!(std::fs::read(&core).unwrap(), b"new-core");
+        assert_eq!(std::fs::read(&server).unwrap(), b"new-server");
     }
 }

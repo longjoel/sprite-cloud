@@ -202,21 +202,52 @@ if ! $SUDO install -m 0755 "$DOWNLOAD_CORE" "$STAGED_CORE"; then
   $SUDO rm -f "$STAGED_CORE"
   err "sc-core staging failed"
 fi
-if ! $SUDO mv -f "$STAGED_CORE" "$CORE_BIN_PATH"; then
+STAGED_SERVER="$($SUDO mktemp "$BIN_DIR/.sc-server.XXXXXX")" || {
   $SUDO rm -f "$STAGED_CORE"
+  err "could not stage sc-server in $BIN_DIR"
+}
+if ! $SUDO install -m 0755 "$DOWNLOAD_BIN" "$STAGED_SERVER"; then
+  $SUDO rm -f "$STAGED_CORE" "$STAGED_SERVER"
+  err "sc-server staging failed"
+fi
+
+BACKUP_CORE=""
+BACKUP_SERVER=""
+if $SUDO test -e "$CORE_BIN_PATH"; then
+  BACKUP_CORE="$($SUDO mktemp "$BIN_DIR/.sc-core.backup.XXXXXX")" || err "could not stage sc-core rollback"
+  $SUDO cp -p "$CORE_BIN_PATH" "$BACKUP_CORE" || err "could not back up sc-core"
+fi
+if $SUDO test -e "$BIN_PATH"; then
+  BACKUP_SERVER="$($SUDO mktemp "$BIN_DIR/.sc-server.backup.XXXXXX")" || err "could not stage sc-server rollback"
+  $SUDO cp -p "$BIN_PATH" "$BACKUP_SERVER" || err "could not back up sc-server"
+fi
+
+REPLACED_CORE=false
+REPLACED_SERVER=false
+rollback_install() {
+  if $REPLACED_SERVER; then
+    if [[ -n "$BACKUP_SERVER" ]]; then $SUDO mv -f "$BACKUP_SERVER" "$BIN_PATH"; else $SUDO rm -f "$BIN_PATH"; fi
+  fi
+  if $REPLACED_CORE; then
+    if [[ -n "$BACKUP_CORE" ]]; then $SUDO mv -f "$BACKUP_CORE" "$CORE_BIN_PATH"; else $SUDO rm -f "$CORE_BIN_PATH"; fi
+  fi
+  $SUDO rm -f "$STAGED_CORE" "$STAGED_SERVER" "$BACKUP_CORE" "$BACKUP_SERVER"
+}
+trap 'rollback_install; exit 130' INT TERM HUP
+
+if ! $SUDO mv -f "$STAGED_CORE" "$CORE_BIN_PATH"; then
+  rollback_install
   err "atomic sc-core install failed"
 fi
+REPLACED_CORE=true
+if ! $SUDO mv -f "$STAGED_SERVER" "$BIN_PATH"; then
+  rollback_install
+  err "atomic sc-server install failed; previous binaries restored"
+fi
+REPLACED_SERVER=true
+trap - INT TERM HUP
+$SUDO rm -f "$BACKUP_CORE" "$BACKUP_SERVER"
 ok "sc-core installed to $CORE_BIN_PATH"
-
-STAGED_BIN="$($SUDO mktemp "$BIN_DIR/.sc-server.XXXXXX")" || err "could not stage install in $BIN_DIR"
-if ! $SUDO install -m 0755 "$DOWNLOAD_BIN" "$STAGED_BIN"; then
-  $SUDO rm -f "$STAGED_BIN"
-  err "binary staging failed"
-fi
-if ! $SUDO mv -f "$STAGED_BIN" "$BIN_PATH"; then
-  $SUDO rm -f "$STAGED_BIN"
-  err "atomic binary install failed"
-fi
 ok "sc-server installed to $BIN_PATH"
 
 # ── Config ─────────────────────────────────────────────────────────────

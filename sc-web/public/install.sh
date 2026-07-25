@@ -102,21 +102,60 @@ for BIN in "${BINARIES[@]}"; do
   done_log "Downloaded $BIN $TAG ($ARCH)"
 done
 
-# ── Install atomically in the destination filesystem ───────────
+# ── Install transactionally in the destination filesystem ──────
 mkdir -p "$INSTALL_DIR"
-# Install sc-core first so sc-server is never upgraded without its required runner.
-for BIN in sc-core sc-server; do
-  STAGED_BIN="$(mktemp "$INSTALL_DIR/.${BIN}.XXXXXX")" || err "Could not stage $BIN in $INSTALL_DIR"
-  if ! cp "$TMP/$BIN" "$STAGED_BIN" || ! chmod 0755 "$STAGED_BIN"; then
-    rm -f "$STAGED_BIN"
-    err "Could not stage verified $BIN"
+STAGED_CORE="$(mktemp "$INSTALL_DIR/.sc-core.XXXXXX")" || err "Could not stage sc-core in $INSTALL_DIR"
+if ! cp "$TMP/sc-core" "$STAGED_CORE" || ! chmod 0755 "$STAGED_CORE"; then
+  rm -f "$STAGED_CORE"
+  err "Could not stage verified sc-core"
+fi
+STAGED_SERVER="$(mktemp "$INSTALL_DIR/.sc-server.XXXXXX")" || {
+  rm -f "$STAGED_CORE"
+  err "Could not stage sc-server in $INSTALL_DIR"
+}
+if ! cp "$TMP/sc-server" "$STAGED_SERVER" || ! chmod 0755 "$STAGED_SERVER"; then
+  rm -f "$STAGED_CORE" "$STAGED_SERVER"
+  err "Could not stage verified sc-server"
+fi
+
+BACKUP_CORE=""
+BACKUP_SERVER=""
+if [ -e "$INSTALL_DIR/sc-core" ]; then
+  BACKUP_CORE="$(mktemp "$INSTALL_DIR/.sc-core.backup.XXXXXX")" || err "Could not stage sc-core rollback"
+  cp -p "$INSTALL_DIR/sc-core" "$BACKUP_CORE" || err "Could not back up sc-core"
+fi
+if [ -e "$INSTALL_DIR/sc-server" ]; then
+  BACKUP_SERVER="$(mktemp "$INSTALL_DIR/.sc-server.backup.XXXXXX")" || err "Could not stage sc-server rollback"
+  cp -p "$INSTALL_DIR/sc-server" "$BACKUP_SERVER" || err "Could not back up sc-server"
+fi
+
+REPLACED_CORE=false
+REPLACED_SERVER=false
+rollback_install() {
+  if $REPLACED_SERVER; then
+    if [ -n "$BACKUP_SERVER" ]; then mv -f "$BACKUP_SERVER" "$INSTALL_DIR/sc-server"; else rm -f "$INSTALL_DIR/sc-server"; fi
   fi
-  if ! mv -f "$STAGED_BIN" "$INSTALL_DIR/$BIN"; then
-    rm -f "$STAGED_BIN"
-    err "Could not atomically install $BIN"
+  if $REPLACED_CORE; then
+    if [ -n "$BACKUP_CORE" ]; then mv -f "$BACKUP_CORE" "$INSTALL_DIR/sc-core"; else rm -f "$INSTALL_DIR/sc-core"; fi
   fi
-  done_log "Installed to $INSTALL_DIR/$BIN"
-done
+  rm -f "$STAGED_CORE" "$STAGED_SERVER" "$BACKUP_CORE" "$BACKUP_SERVER"
+}
+trap 'rollback_install; exit 130' INT TERM HUP
+
+if ! mv -f "$STAGED_CORE" "$INSTALL_DIR/sc-core"; then
+  rollback_install
+  err "Could not atomically install sc-core"
+fi
+REPLACED_CORE=true
+if ! mv -f "$STAGED_SERVER" "$INSTALL_DIR/sc-server"; then
+  rollback_install
+  err "Could not atomically install sc-server; previous binaries restored"
+fi
+REPLACED_SERVER=true
+trap - INT TERM HUP
+rm -f "$BACKUP_CORE" "$BACKUP_SERVER"
+done_log "Installed to $INSTALL_DIR/sc-core"
+done_log "Installed to $INSTALL_DIR/sc-server"
 
 # ── Verify ─────────────────────────────────────────────────────
 "$INSTALL_DIR/sc-server" --version 2>/dev/null || warn "sc-server installed but --version check failed"
