@@ -5,7 +5,7 @@ set -euo pipefail
 # Usage: curl -fsSL https://sprite-cloud.com/install.sh | bash
 
 REPO="longjoel/sprite-cloud"
-BIN="sc-server"
+BINARIES=("sc-server" "sc-core")
 INSTALL_DIR="${SC_INSTALL_DIR:-/usr/local/bin}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -66,55 +66,100 @@ TAG="$(curl -fsSL "$API" 2>/dev/null | grep '"tag_name"' | head -1 | sed 's/.*"t
 [ -n "$TAG" ] || err "Could not detect latest release — check internet connection"
 log "Latest release: $TAG"
 
-# ── Download binary ────────────────────────────────────────────
-URL="https://github.com/$REPO/releases/download/$TAG/${BIN}-${ARCH}"
-SHA_URL="${URL}.sha256"
+# ── Download and verify required binaries ──────────────────────
+for BIN in "${BINARIES[@]}"; do
+  URL="https://github.com/$REPO/releases/download/$TAG/${BIN}-${ARCH}"
+  SHA_URL="${URL}.sha256"
 
-log "Downloading $BIN ($ARCH)..."
-HTTP_CODE="$(curl -fsSL -o "$TMP/$BIN" -w '%{http_code}' "$URL" 2>/dev/null || echo "000")"
+  log "Downloading $BIN ($ARCH)..."
+  HTTP_CODE="$(curl -sSL -o "$TMP/$BIN" -w '%{http_code}' "$URL" 2>/dev/null || true)"
 
-if [ "$HTTP_CODE" = "404" ]; then
-  log "No prebuilt binary for $ARCH — build from source:"
-  echo ""
-  echo "  git clone https://github.com/$REPO.git"
-  echo "  cd sprite-cloud"
-  echo "  cargo build --release -p sc-server"
-  echo "  cp target/release/sc-server $INSTALL_DIR/"
-  echo ""
-  exit 1
-fi
+  if [ "$HTTP_CODE" = "404" ]; then
+    log "No prebuilt $BIN binary for $ARCH — build from source:"
+    echo ""
+    echo "  git clone https://github.com/$REPO.git"
+    echo "  cd sprite-cloud"
+    echo "  cargo build --release -p sc-server -p sc-core"
+    echo "  cp target/release/sc-server target/release/sc-core $INSTALL_DIR/"
+    echo ""
+    exit 1
+  fi
 
-[ "$HTTP_CODE" = "200" ] || err "Download failed (HTTP $HTTP_CODE)"
-chmod +x "$TMP/$BIN"
+  [ "$HTTP_CODE" = "200" ] || err "$BIN download failed (HTTP $HTTP_CODE)"
+  chmod +x "$TMP/$BIN"
 
-# Verify checksum. Use the digest rather than the recorded asset path so releases
-# created by older workflows (which embedded release-assets/) remain verifiable.
-if curl -fsSL "$SHA_URL" -o "$TMP/$BIN.sha256" 2>/dev/null; then
-  EXPECTED_SHA="$(cut -d ' ' -f1 "$TMP/$BIN.sha256")"
-  [[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{64}$ ]] || err "Invalid checksum file"
-  (cd "$TMP" && printf '%s  %s\n' "$EXPECTED_SHA" "$BIN" | sha256sum -c - >/dev/null) \
-    || err "Checksum verification failed"
-else
-  err "No checksum available for $TAG"
-fi
+  # Use the digest rather than the recorded asset path so releases created by
+  # older workflows remain verifiable.
+  if curl -fsSL "$SHA_URL" -o "$TMP/$BIN.sha256" 2>/dev/null; then
+    EXPECTED_SHA="$(cut -d ' ' -f1 "$TMP/$BIN.sha256")"
+    [[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{64}$ ]] || err "Invalid $BIN checksum file"
+    (cd "$TMP" && printf '%s  %s\n' "$EXPECTED_SHA" "$BIN" | sha256sum -c - >/dev/null) \
+      || err "$BIN checksum verification failed"
+  else
+    err "No $BIN checksum available for $TAG"
+  fi
 
-done_log "Downloaded $BIN $TAG ($ARCH)"
+  done_log "Downloaded $BIN $TAG ($ARCH)"
+done
 
-# ── Install atomically in the destination filesystem ───────────
+# ── Install transactionally in the destination filesystem ──────
 mkdir -p "$INSTALL_DIR"
-STAGED_BIN="$(mktemp "$INSTALL_DIR/.${BIN}.XXXXXX")" || err "Could not stage install in $INSTALL_DIR"
-if ! cp "$TMP/$BIN" "$STAGED_BIN" || ! chmod 0755 "$STAGED_BIN"; then
-  rm -f "$STAGED_BIN"
-  err "Could not stage verified binary"
+STAGED_CORE="$(mktemp "$INSTALL_DIR/.sc-core.XXXXXX")" || err "Could not stage sc-core in $INSTALL_DIR"
+if ! cp "$TMP/sc-core" "$STAGED_CORE" || ! chmod 0755 "$STAGED_CORE"; then
+  rm -f "$STAGED_CORE"
+  err "Could not stage verified sc-core"
 fi
-if ! mv -f "$STAGED_BIN" "$INSTALL_DIR/$BIN"; then
-  rm -f "$STAGED_BIN"
-  err "Could not atomically install verified binary"
+STAGED_SERVER="$(mktemp "$INSTALL_DIR/.sc-server.XXXXXX")" || {
+  rm -f "$STAGED_CORE"
+  err "Could not stage sc-server in $INSTALL_DIR"
+}
+if ! cp "$TMP/sc-server" "$STAGED_SERVER" || ! chmod 0755 "$STAGED_SERVER"; then
+  rm -f "$STAGED_CORE" "$STAGED_SERVER"
+  err "Could not stage verified sc-server"
 fi
-done_log "Installed to $INSTALL_DIR/$BIN"
+
+BACKUP_CORE=""
+BACKUP_SERVER=""
+if [ -e "$INSTALL_DIR/sc-core" ]; then
+  BACKUP_CORE="$(mktemp "$INSTALL_DIR/.sc-core.backup.XXXXXX")" || err "Could not stage sc-core rollback"
+  cp -p "$INSTALL_DIR/sc-core" "$BACKUP_CORE" || err "Could not back up sc-core"
+fi
+if [ -e "$INSTALL_DIR/sc-server" ]; then
+  BACKUP_SERVER="$(mktemp "$INSTALL_DIR/.sc-server.backup.XXXXXX")" || err "Could not stage sc-server rollback"
+  cp -p "$INSTALL_DIR/sc-server" "$BACKUP_SERVER" || err "Could not back up sc-server"
+fi
+
+REPLACED_CORE=false
+REPLACED_SERVER=false
+rollback_install() {
+  if $REPLACED_SERVER; then
+    if [ -n "$BACKUP_SERVER" ]; then mv -f "$BACKUP_SERVER" "$INSTALL_DIR/sc-server"; else rm -f "$INSTALL_DIR/sc-server"; fi
+  fi
+  if $REPLACED_CORE; then
+    if [ -n "$BACKUP_CORE" ]; then mv -f "$BACKUP_CORE" "$INSTALL_DIR/sc-core"; else rm -f "$INSTALL_DIR/sc-core"; fi
+  fi
+  rm -f "$STAGED_CORE" "$STAGED_SERVER" "$BACKUP_CORE" "$BACKUP_SERVER"
+}
+trap 'rollback_install; exit 130' INT TERM HUP
+
+REPLACED_CORE=true
+if ! mv -f "$STAGED_CORE" "$INSTALL_DIR/sc-core"; then
+  rollback_install
+  err "Could not atomically install sc-core"
+fi
+REPLACED_SERVER=true
+if ! mv -f "$STAGED_SERVER" "$INSTALL_DIR/sc-server"; then
+  rollback_install
+  err "Could not atomically install sc-server; previous binaries restored"
+fi
+trap - INT TERM HUP
+rm -f "$BACKUP_CORE" "$BACKUP_SERVER"
+done_log "Installed to $INSTALL_DIR/sc-core"
+done_log "Installed to $INSTALL_DIR/sc-server"
 
 # ── Verify ─────────────────────────────────────────────────────
-"$INSTALL_DIR/$BIN" --version 2>/dev/null || warn "Binary installed but --version check failed"
+"$INSTALL_DIR/sc-server" --version 2>/dev/null || warn "sc-server installed but --version check failed"
+test -x "$INSTALL_DIR/sc-core" || err "sc-core was not installed as an executable"
 
 echo ""
 printf '  \033[32m%s\033[0m\n' "✓ sc-server $TAG installed successfully"

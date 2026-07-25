@@ -27,14 +27,16 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Build sc-server
-        run: cargo build --release -p sc-server
+      - name: Build sc-server and sc-core
+        run: cargo build --release -p sc-server -p sc-core
 
-      - name: Upload binary
+      - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
           name: x86_64
-          path: target/release/sc-server
+          path: |
+            target/release/sc-server
+            target/release/sc-core
 
   build-aarch64:
     name: Build sc-server (aarch64)
@@ -57,14 +59,16 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Build sc-server
-        run: cargo build --release -p sc-server
+      - name: Build sc-server and sc-core
+        run: cargo build --release -p sc-server -p sc-core
 
-      - name: Upload binary
+      - name: Upload binaries
         uses: actions/upload-artifact@v4
         with:
           name: aarch64
-          path: target/release/sc-server
+          path: |
+            target/release/sc-server
+            target/release/sc-core
 
   create-release:
     name: Create GitHub Release
@@ -87,8 +91,11 @@ jobs:
 
           for arch in x86_64 aarch64; do
             test -f "artifacts/$arch/sc-server"
-            cp "artifacts/$arch/sc-server" "release-assets/sc-server-$arch"
-            (cd release-assets && sha256sum "sc-server-$arch" > "sc-server-$arch.sha256")
+            test -f "artifacts/$arch/sc-core"
+            for binary in sc-server sc-core; do
+              cp "artifacts/$arch/$binary" "release-assets/$binary-$arch"
+              (cd release-assets && sha256sum "$binary-$arch" > "$binary-$arch.sha256")
+            done
           done
 
           ls -la release-assets/

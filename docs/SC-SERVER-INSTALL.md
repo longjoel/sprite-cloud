@@ -249,6 +249,18 @@ systemctl --user restart sc-server
 
 ## Upgrade
 
+Preferred:
+
+```bash
+sc-server upgrade
+systemctl --user restart sc-server
+```
+
+The command downloads and verifies both required executables (`sc-server` and
+`sc-core`) before atomically replacing each file in the current installation directory.
+
+Installer fallback:
+
 Rerun the public installer:
 
 ```bash

@@ -13,6 +13,8 @@ const hostInstaller = readFileSync("../scripts/install.sh", "utf8");
 const publicInstaller = readFileSync("public/install.sh", "utf8");
 const serverSetup = readFileSync("../sc-server/src/setup.rs", "utf8");
 const serverInstall = readFileSync("../sc-server/src/install.rs", "utf8");
+const serverMain = readFileSync("../sc-server/src/main.rs", "utf8");
+const serverUpgrade = readFileSync("../sc-server/src/upgrade.rs", "utf8");
 const serverCommands = readFileSync("../sc-server/src/commands/mod.rs", "utf8");
 const playerScript = readFileSync("public/player/play-v2.js", "utf8");
 const scPlayerScript = readFileSync("public/player/sc-player.js", "utf8");
@@ -95,9 +97,9 @@ describe("production deploy workflow", () => {
     expect(hostInstaller).not.toContain('curl -sSL "$BIN_URL" -o "$BIN_PATH"');
     expect(hostInstaller).not.toContain('ARCH="armv7"');
     expect(hostInstaller).toContain('mktemp "$BIN_DIR/.sc-server.XXXXXX"');
-    expect(hostInstaller).toContain('mv -f "$STAGED_BIN" "$BIN_PATH"');
-    expect(publicInstaller).toContain('mktemp "$INSTALL_DIR/.${BIN}.XXXXXX"');
-    expect(publicInstaller).toContain('mv -f "$STAGED_BIN" "$INSTALL_DIR/$BIN"');
+    expect(hostInstaller).toContain('mv -f "$STAGED_SERVER" "$BIN_PATH"');
+    expect(publicInstaller).toContain('mktemp "$INSTALL_DIR/.sc-server.XXXXXX"');
+    expect(publicInstaller).toContain('mv -f "$STAGED_SERVER" "$INSTALL_DIR/sc-server"');
     expect(rootReadme).toContain("curl -fsSL https://sprite-cloud.com/install.sh | bash");
     expect(scriptsReadme).toContain("curl -fsSL https://sprite-cloud.com/install.sh | bash");
     expect(scriptsReadme).toContain("sudo ./scripts/install.sh");
@@ -113,6 +115,8 @@ describe("production deploy workflow", () => {
     expect(serverCommands).toContain("core_bridge::configure_cores_dir(&cores.dir)");
     expect(serverCommands).toContain("let cfg = apply_pairing(");
     expect(serverSetup).toContain('"    {}/dashboard"');
+    expect(serverSetup).toContain('join("sprite-cloud").join("cores")');
+    expect(serverSetup).not.toContain('let default_cores = "/usr/lib/libretro"');
     expect(hostInstaller).toContain("${WEB_URL%/}/dashboard");
     expect(publicInstaller).toContain("https://sprite-cloud.com/dashboard");
   });
@@ -144,6 +148,37 @@ server_id = ""`);
     expect(releaseWorkflow).not.toContain("continue-on-error: true");
     expect(releaseWorkflow).toContain("runs-on: ubuntu-24.04-arm");
     expect(releaseWorkflow).toContain('test -f "artifacts/$arch/sc-server"');
+    expect(releaseWorkflow).toContain('test -f "artifacts/$arch/sc-core"');
+    expect(releaseWorkflow).toContain('for binary in sc-server sc-core');
+    expect(releaseWorkflow).toContain('release-assets/$binary-$arch');
+  });
+
+  it("installs the required sc-core sibling and exposes a native upgrade command", () => {
+    expect(publicInstaller).toContain('BINARIES=("sc-server" "sc-core")');
+    expect(publicInstaller).toContain('"$INSTALL_DIR/sc-core"');
+    expect(serverMain).toContain("Upgrade");
+    expect(serverMain).toContain("upgrade::run().await");
+  });
+
+  it("pre-stages both binaries and rolls back partial replacements", () => {
+    const publicCoreStage = publicInstaller.indexOf('STAGED_CORE=');
+    const publicServerStage = publicInstaller.indexOf('STAGED_SERVER=');
+    const publicFirstReplace = publicInstaller.indexOf('mv -f "$STAGED_CORE"');
+    expect(publicCoreStage).toBeGreaterThan(-1);
+    expect(publicServerStage).toBeGreaterThan(publicCoreStage);
+    expect(publicFirstReplace).toBeGreaterThan(publicServerStage);
+    expect(publicInstaller).toContain("rollback_install");
+
+    const hostCoreStage = hostInstaller.indexOf('STAGED_CORE=');
+    const hostServerStage = hostInstaller.indexOf('STAGED_SERVER=');
+    const hostFirstReplace = hostInstaller.indexOf('mv -f "$STAGED_CORE"');
+    expect(hostCoreStage).toBeGreaterThan(-1);
+    expect(hostServerStage).toBeGreaterThan(hostCoreStage);
+    expect(hostFirstReplace).toBeGreaterThan(hostServerStage);
+    expect(hostInstaller).toContain("rollback_install");
+
+    expect(serverUpgrade).toContain("install_staged_pair");
+    expect(serverUpgrade).toContain("rollback_core");
   });
 
   it("never persists or logs raw browser signaling capabilities", () => {

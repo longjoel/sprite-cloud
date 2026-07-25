@@ -18,6 +18,7 @@ mod scan_cmd;
 mod session;
 mod setup;
 mod streaming;
+mod upgrade;
 mod webrtc;
 
 use anyhow::Result;
@@ -37,6 +38,9 @@ enum Command {
 
     /// Install as a systemd user service (auto-start on boot)
     Install,
+
+    /// Download and install the latest verified sc-server and sc-core release
+    Upgrade,
 
     /// Discover ROMs and print platform breakdown
     Scan {
@@ -87,8 +91,21 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Setup => setup::run().await,
         Command::Install => install::run(),
+        Command::Upgrade => upgrade::run().await,
         Command::Scan { upload } => scan_cmd::run(upload).await,
         Command::Pair { code, sc_web_url } => commands::cmd_pair(&code, &sc_web_url).await,
         Command::Start { sc_web_url, no_lan_player, standalone } => commands::cmd_start(sc_web_url, no_lan_player, standalone).await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_upgrade_subcommand() {
+        let cli = Cli::try_parse_from(["sc-server", "upgrade"])
+            .expect("upgrade should be a supported subcommand");
+        assert!(matches!(cli.command, Command::Upgrade));
     }
 }
