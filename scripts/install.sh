@@ -183,15 +183,71 @@ EXPECTED_SHA="$(cut -d ' ' -f1 "$DOWNLOAD_SHA")"
 (cd "$DOWNLOAD_DIR" && printf '%s  %s\n' "$EXPECTED_SHA" sc-server | sha256sum -c - >/dev/null) \
   || err "checksum verification failed"
 BIN_DIR="$(dirname "$BIN_PATH")"
-STAGED_BIN="$($SUDO mktemp "$BIN_DIR/.sc-server.XXXXXX")" || err "could not stage install in $BIN_DIR"
-if ! $SUDO install -m 0755 "$DOWNLOAD_BIN" "$STAGED_BIN"; then
-  $SUDO rm -f "$STAGED_BIN"
-  err "binary staging failed"
+# Keep both verified downloads staged before replacing either installed executable.
+CORE_BIN_PATH="${BIN_DIR}/sc-core"
+CORE_BIN_URL="${GV_CORE_BIN_URL:-https://github.com/longjoel/sprite-cloud/releases/latest/download/sc-core-${ARCH}}"
+CORE_SHA_URL="${GV_CORE_BIN_SHA256_URL:-${CORE_BIN_URL}.sha256}"
+DOWNLOAD_CORE="$DOWNLOAD_DIR/sc-core"
+DOWNLOAD_CORE_SHA="$DOWNLOAD_DIR/sc-core.sha256"
+
+log "Downloading sc-core ($ARCH)…"
+curl -fsSL "$CORE_BIN_URL" -o "$DOWNLOAD_CORE" || err "sc-core download failed"
+curl -fsSL "$CORE_SHA_URL" -o "$DOWNLOAD_CORE_SHA" || err "sc-core checksum download failed"
+EXPECTED_CORE_SHA="$(cut -d ' ' -f1 "$DOWNLOAD_CORE_SHA")"
+[[ "$EXPECTED_CORE_SHA" =~ ^[0-9a-fA-F]{64}$ ]] || err "invalid sc-core checksum file"
+(cd "$DOWNLOAD_DIR" && printf '%s  %s\n' "$EXPECTED_CORE_SHA" sc-core | sha256sum -c - >/dev/null) \
+  || err "sc-core checksum verification failed"
+STAGED_CORE="$($SUDO mktemp "$BIN_DIR/.sc-core.XXXXXX")" || err "could not stage sc-core in $BIN_DIR"
+if ! $SUDO install -m 0755 "$DOWNLOAD_CORE" "$STAGED_CORE"; then
+  $SUDO rm -f "$STAGED_CORE"
+  err "sc-core staging failed"
 fi
-if ! $SUDO mv -f "$STAGED_BIN" "$BIN_PATH"; then
-  $SUDO rm -f "$STAGED_BIN"
-  err "atomic binary install failed"
+STAGED_SERVER="$($SUDO mktemp "$BIN_DIR/.sc-server.XXXXXX")" || {
+  $SUDO rm -f "$STAGED_CORE"
+  err "could not stage sc-server in $BIN_DIR"
+}
+if ! $SUDO install -m 0755 "$DOWNLOAD_BIN" "$STAGED_SERVER"; then
+  $SUDO rm -f "$STAGED_CORE" "$STAGED_SERVER"
+  err "sc-server staging failed"
 fi
+
+BACKUP_CORE=""
+BACKUP_SERVER=""
+if $SUDO test -e "$CORE_BIN_PATH"; then
+  BACKUP_CORE="$($SUDO mktemp "$BIN_DIR/.sc-core.backup.XXXXXX")" || err "could not stage sc-core rollback"
+  $SUDO cp -p "$CORE_BIN_PATH" "$BACKUP_CORE" || err "could not back up sc-core"
+fi
+if $SUDO test -e "$BIN_PATH"; then
+  BACKUP_SERVER="$($SUDO mktemp "$BIN_DIR/.sc-server.backup.XXXXXX")" || err "could not stage sc-server rollback"
+  $SUDO cp -p "$BIN_PATH" "$BACKUP_SERVER" || err "could not back up sc-server"
+fi
+
+REPLACED_CORE=false
+REPLACED_SERVER=false
+rollback_install() {
+  if $REPLACED_SERVER; then
+    if [[ -n "$BACKUP_SERVER" ]]; then $SUDO mv -f "$BACKUP_SERVER" "$BIN_PATH"; else $SUDO rm -f "$BIN_PATH"; fi
+  fi
+  if $REPLACED_CORE; then
+    if [[ -n "$BACKUP_CORE" ]]; then $SUDO mv -f "$BACKUP_CORE" "$CORE_BIN_PATH"; else $SUDO rm -f "$CORE_BIN_PATH"; fi
+  fi
+  $SUDO rm -f "$STAGED_CORE" "$STAGED_SERVER" "$BACKUP_CORE" "$BACKUP_SERVER"
+}
+trap 'rollback_install; exit 130' INT TERM HUP
+
+REPLACED_CORE=true
+if ! $SUDO mv -f "$STAGED_CORE" "$CORE_BIN_PATH"; then
+  rollback_install
+  err "atomic sc-core install failed"
+fi
+REPLACED_SERVER=true
+if ! $SUDO mv -f "$STAGED_SERVER" "$BIN_PATH"; then
+  rollback_install
+  err "atomic sc-server install failed; previous binaries restored"
+fi
+trap - INT TERM HUP
+$SUDO rm -f "$BACKUP_CORE" "$BACKUP_SERVER"
+ok "sc-core installed to $CORE_BIN_PATH"
 ok "sc-server installed to $BIN_PATH"
 
 # ── Config ─────────────────────────────────────────────────────────────

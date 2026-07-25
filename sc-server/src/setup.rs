@@ -67,14 +67,16 @@ pub async fn run() -> Result<()> {
     }
 
     // ── 2. Cores directory ────────────────────────────────────────
-    let default_cores = "/usr/lib/libretro";
-    print!("  Libretro cores directory [{}]: ", default_cores);
+    let default_cores = dirs::data_local_dir()
+        .context("no local data directory")?
+        .join("sprite-cloud").join("cores");
+    print!("  Libretro cores directory [{}]: ", default_cores.display());
     stdout.flush()?;
     let mut cores_dir = String::new();
     reader.read_line(&mut cores_dir)?;
     let cores_dir = cores_dir.trim().to_string();
     let cores_dir = if cores_dir.is_empty() {
-        default_cores.to_string()
+        default_cores.to_string_lossy().to_string()
     } else {
         cores_dir
     };
