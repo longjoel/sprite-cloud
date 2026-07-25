@@ -691,10 +691,10 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session }:
       <section style={styles.section}>
         <h2 style={{ ...styles.h2, marginBottom: "var(--space-4)" }}>Library</h2>
 
-        {needsLanHandoff && (
+        {needsLanHandoff && allGames.length === 0 && !allLoading && (
           <div style={styles.lanHandoff}>
             <strong>Your games stay on sc-server</strong>
-            <span>Open the library directly on a server available to this device.</span>
+            <span>No games synced yet. Open the library on your LAN server, or upgrade sc-server to sync.</span>
             <div style={styles.lanHandoffLinks}>
               {lanLibraries.map((library) => (
                 <a key={library.serverId} href={library.url} style={styles.lanHandoffLink}>
@@ -738,8 +738,8 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session }:
           )
         ) : sortedGames.length === 0 ? (
           <p style={styles.empty}>
-            {needsLanHandoff
-              ? "Open your server-owned library above."
+            {needsLanHandoff && allGames.length === 0
+              ? "No games synced from your servers. Upgrade sc-server on your LAN host to v0.11.3."
               : selectedPlatforms.size > 0
               ? "No games match the selected platforms."
               : tab === "all" ? "No games found." : tab === "favorites" ? "No favorites yet." : tab === "pins" ? "No pinned games yet." : "No recent plays."}
