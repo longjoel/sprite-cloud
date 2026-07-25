@@ -24,6 +24,26 @@ export const servers = pgTable("servers", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
+// ── Server game catalog (pushed by sc-server, cached on sc-web) ──────
+//
+// sc-server is the source of truth; this table is a read-only search index.
+// ROM paths, file hashes, and library preferences stay on sc-server.
+
+export const serverGames = pgTable("server_games", {
+  serverId: uuid("server_id")
+    .references(() => servers.id, { onDelete: "cascade" })
+    .notNull(),
+  gameId: text("game_id").notNull(),
+  name: text("name").notNull(),
+  platform: text("platform").notNull().default("Unknown"),
+  maxPlayers: integer("max_players").notNull().default(1),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  pk: unique("server_games_pkey").on(table.serverId, table.gameId),
+  serverIdx: index("idx_server_games_server").on(table.serverId),
+  nameIdx: index("idx_server_games_name").on(table.name),
+}));
+
 // ── Server members (which users can play on which servers) ───────────
 
 export const serverMembers = pgTable(

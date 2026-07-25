@@ -35,9 +35,9 @@ struct AppState {
 /// Game library and scan state for standalone mode.
 #[derive(Clone)]
 pub(crate) struct LocalGame {
-    id: String,
-    content_path: std::path::PathBuf,
-    discovered: crate::scan::DiscoveredFile,
+    pub(crate) id: String,
+    pub(crate) content_path: std::path::PathBuf,
+    pub(crate) discovered: crate::scan::DiscoveredFile,
 }
 
 impl LocalGame {
@@ -471,7 +471,7 @@ async fn list_games(
     Ok(Json(serde_json::json!({ "games": page, "total": total })))
 }
 
-fn local_game_name(game: &LocalGame) -> String {
+pub(crate) fn local_game_name(game: &LocalGame) -> String {
     std::path::Path::new(&game.discovered.file_name)
         .file_stem()
         .and_then(|stem| stem.to_str())

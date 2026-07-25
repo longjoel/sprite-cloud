@@ -497,6 +497,37 @@ impl ScWebClient {
         Ok(())
     }
 
+    /// POST /api/server/sync-games — push the current game catalog to sc-web.
+    ///
+    /// Sends only game metadata (id, name, platform, max_players).
+    /// ROM paths, file hashes, and library preferences stay local.
+    /// Full-replace semantics: sc-web removes any stale rows not in this list.
+    pub async fn sync_library(
+        &self,
+        games: &[serde_json::Value],
+    ) -> Result<()> {
+        let url = format!("{}/api/server/sync-games", self.base_url);
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(&self.auth.api_key)
+            .json(&serde_json::json!({ "games": games }))
+            .send()
+            .await
+            .context("POST /api/server/sync-games — network error")?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("sync-games failed (HTTP {}): {}", status.as_u16(), body);
+        }
+
+        let body: serde_json::Value = resp.json().await.unwrap_or_default();
+        let synced = body.get("synced").and_then(|v| v.as_u64()).unwrap_or(0);
+        tracing::info!("[SYNC] pushed {} games to sc-web", synced);
+        Ok(())
+    }
+
 }
 
 #[cfg(test)]
