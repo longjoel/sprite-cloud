@@ -2,7 +2,7 @@
 -- sc-server pushes game metadata (id, name, platform, max_players) on startup
 -- and after re-scans. The cloud /api/games endpoint queries this table.
 -- ROM paths, file hashes, and library preferences stay on sc-server.
-CREATE TABLE "server_games" (
+CREATE TABLE IF NOT EXISTS "server_games" (
   "server_id" uuid NOT NULL REFERENCES "servers"("id") ON DELETE CASCADE,
   "game_id" text NOT NULL,
   "name" text NOT NULL,
@@ -12,5 +12,5 @@ CREATE TABLE "server_games" (
   PRIMARY KEY ("server_id", "game_id")
 );
 
-CREATE INDEX "idx_server_games_server" ON "server_games" ("server_id");
-CREATE INDEX "idx_server_games_name" ON "server_games" ("name");
+CREATE INDEX IF NOT EXISTS "idx_server_games_server" ON "server_games" ("server_id");
+CREATE INDEX IF NOT EXISTS "idx_server_games_name" ON "server_games" ("name");
