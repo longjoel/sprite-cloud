@@ -5,7 +5,7 @@ set -euo pipefail
 # Usage: curl -fsSL https://sprite-cloud.com/install.sh | bash
 
 REPO="longjoel/sprite-cloud"
-BIN="sc-server"
+BINARIES=("sc-server" "sc-core")
 INSTALL_DIR="${SC_INSTALL_DIR:-/usr/local/bin}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -66,55 +66,61 @@ TAG="$(curl -fsSL "$API" 2>/dev/null | grep '"tag_name"' | head -1 | sed 's/.*"t
 [ -n "$TAG" ] || err "Could not detect latest release — check internet connection"
 log "Latest release: $TAG"
 
-# ── Download binary ────────────────────────────────────────────
-URL="https://github.com/$REPO/releases/download/$TAG/${BIN}-${ARCH}"
-SHA_URL="${URL}.sha256"
+# ── Download and verify required binaries ──────────────────────
+for BIN in "${BINARIES[@]}"; do
+  URL="https://github.com/$REPO/releases/download/$TAG/${BIN}-${ARCH}"
+  SHA_URL="${URL}.sha256"
 
-log "Downloading $BIN ($ARCH)..."
-HTTP_CODE="$(curl -fsSL -o "$TMP/$BIN" -w '%{http_code}' "$URL" 2>/dev/null || echo "000")"
+  log "Downloading $BIN ($ARCH)..."
+  HTTP_CODE="$(curl -sSL -o "$TMP/$BIN" -w '%{http_code}' "$URL" 2>/dev/null || true)"
 
-if [ "$HTTP_CODE" = "404" ]; then
-  log "No prebuilt binary for $ARCH — build from source:"
-  echo ""
-  echo "  git clone https://github.com/$REPO.git"
-  echo "  cd sprite-cloud"
-  echo "  cargo build --release -p sc-server"
-  echo "  cp target/release/sc-server $INSTALL_DIR/"
-  echo ""
-  exit 1
-fi
+  if [ "$HTTP_CODE" = "404" ]; then
+    log "No prebuilt $BIN binary for $ARCH — build from source:"
+    echo ""
+    echo "  git clone https://github.com/$REPO.git"
+    echo "  cd sprite-cloud"
+    echo "  cargo build --release -p sc-server -p sc-core"
+    echo "  cp target/release/sc-server target/release/sc-core $INSTALL_DIR/"
+    echo ""
+    exit 1
+  fi
 
-[ "$HTTP_CODE" = "200" ] || err "Download failed (HTTP $HTTP_CODE)"
-chmod +x "$TMP/$BIN"
+  [ "$HTTP_CODE" = "200" ] || err "$BIN download failed (HTTP $HTTP_CODE)"
+  chmod +x "$TMP/$BIN"
 
-# Verify checksum. Use the digest rather than the recorded asset path so releases
-# created by older workflows (which embedded release-assets/) remain verifiable.
-if curl -fsSL "$SHA_URL" -o "$TMP/$BIN.sha256" 2>/dev/null; then
-  EXPECTED_SHA="$(cut -d ' ' -f1 "$TMP/$BIN.sha256")"
-  [[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{64}$ ]] || err "Invalid checksum file"
-  (cd "$TMP" && printf '%s  %s\n' "$EXPECTED_SHA" "$BIN" | sha256sum -c - >/dev/null) \
-    || err "Checksum verification failed"
-else
-  err "No checksum available for $TAG"
-fi
+  # Use the digest rather than the recorded asset path so releases created by
+  # older workflows remain verifiable.
+  if curl -fsSL "$SHA_URL" -o "$TMP/$BIN.sha256" 2>/dev/null; then
+    EXPECTED_SHA="$(cut -d ' ' -f1 "$TMP/$BIN.sha256")"
+    [[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{64}$ ]] || err "Invalid $BIN checksum file"
+    (cd "$TMP" && printf '%s  %s\n' "$EXPECTED_SHA" "$BIN" | sha256sum -c - >/dev/null) \
+      || err "$BIN checksum verification failed"
+  else
+    err "No $BIN checksum available for $TAG"
+  fi
 
-done_log "Downloaded $BIN $TAG ($ARCH)"
+  done_log "Downloaded $BIN $TAG ($ARCH)"
+done
 
 # ── Install atomically in the destination filesystem ───────────
 mkdir -p "$INSTALL_DIR"
-STAGED_BIN="$(mktemp "$INSTALL_DIR/.${BIN}.XXXXXX")" || err "Could not stage install in $INSTALL_DIR"
-if ! cp "$TMP/$BIN" "$STAGED_BIN" || ! chmod 0755 "$STAGED_BIN"; then
-  rm -f "$STAGED_BIN"
-  err "Could not stage verified binary"
-fi
-if ! mv -f "$STAGED_BIN" "$INSTALL_DIR/$BIN"; then
-  rm -f "$STAGED_BIN"
-  err "Could not atomically install verified binary"
-fi
-done_log "Installed to $INSTALL_DIR/$BIN"
+# Install sc-core first so sc-server is never upgraded without its required runner.
+for BIN in sc-core sc-server; do
+  STAGED_BIN="$(mktemp "$INSTALL_DIR/.${BIN}.XXXXXX")" || err "Could not stage $BIN in $INSTALL_DIR"
+  if ! cp "$TMP/$BIN" "$STAGED_BIN" || ! chmod 0755 "$STAGED_BIN"; then
+    rm -f "$STAGED_BIN"
+    err "Could not stage verified $BIN"
+  fi
+  if ! mv -f "$STAGED_BIN" "$INSTALL_DIR/$BIN"; then
+    rm -f "$STAGED_BIN"
+    err "Could not atomically install $BIN"
+  fi
+  done_log "Installed to $INSTALL_DIR/$BIN"
+done
 
 # ── Verify ─────────────────────────────────────────────────────
-"$INSTALL_DIR/$BIN" --version 2>/dev/null || warn "Binary installed but --version check failed"
+"$INSTALL_DIR/sc-server" --version 2>/dev/null || warn "sc-server installed but --version check failed"
+test -x "$INSTALL_DIR/sc-core" || err "sc-core was not installed as an executable"
 
 echo ""
 printf '  \033[32m%s\033[0m\n' "✓ sc-server $TAG installed successfully"

@@ -13,6 +13,7 @@ const hostInstaller = readFileSync("../scripts/install.sh", "utf8");
 const publicInstaller = readFileSync("public/install.sh", "utf8");
 const serverSetup = readFileSync("../sc-server/src/setup.rs", "utf8");
 const serverInstall = readFileSync("../sc-server/src/install.rs", "utf8");
+const serverMain = readFileSync("../sc-server/src/main.rs", "utf8");
 const serverCommands = readFileSync("../sc-server/src/commands/mod.rs", "utf8");
 const playerScript = readFileSync("public/player/play-v2.js", "utf8");
 const scPlayerScript = readFileSync("public/player/sc-player.js", "utf8");
@@ -113,6 +114,8 @@ describe("production deploy workflow", () => {
     expect(serverCommands).toContain("core_bridge::configure_cores_dir(&cores.dir)");
     expect(serverCommands).toContain("let cfg = apply_pairing(");
     expect(serverSetup).toContain('"    {}/dashboard"');
+    expect(serverSetup).toContain('join("sprite-cloud").join("cores")');
+    expect(serverSetup).not.toContain('let default_cores = "/usr/lib/libretro"');
     expect(hostInstaller).toContain("${WEB_URL%/}/dashboard");
     expect(publicInstaller).toContain("https://sprite-cloud.com/dashboard");
   });
@@ -144,6 +147,16 @@ server_id = ""`);
     expect(releaseWorkflow).not.toContain("continue-on-error: true");
     expect(releaseWorkflow).toContain("runs-on: ubuntu-24.04-arm");
     expect(releaseWorkflow).toContain('test -f "artifacts/$arch/sc-server"');
+    expect(releaseWorkflow).toContain('test -f "artifacts/$arch/sc-core"');
+    expect(releaseWorkflow).toContain('for binary in sc-server sc-core');
+    expect(releaseWorkflow).toContain('release-assets/$binary-$arch');
+  });
+
+  it("installs the required sc-core sibling and exposes a native upgrade command", () => {
+    expect(publicInstaller).toContain('BINARIES=("sc-server" "sc-core")');
+    expect(publicInstaller).toContain('"$INSTALL_DIR/sc-core"');
+    expect(serverMain).toContain("Upgrade");
+    expect(serverMain).toContain("upgrade::run().await");
   });
 
   it("never persists or logs raw browser signaling capabilities", () => {

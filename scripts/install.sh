@@ -183,6 +183,31 @@ EXPECTED_SHA="$(cut -d ' ' -f1 "$DOWNLOAD_SHA")"
 (cd "$DOWNLOAD_DIR" && printf '%s  %s\n' "$EXPECTED_SHA" sc-server | sha256sum -c - >/dev/null) \
   || err "checksum verification failed"
 BIN_DIR="$(dirname "$BIN_PATH")"
+# Keep both verified downloads staged before replacing either installed executable.
+CORE_BIN_PATH="${BIN_DIR}/sc-core"
+CORE_BIN_URL="${GV_CORE_BIN_URL:-https://github.com/longjoel/sprite-cloud/releases/latest/download/sc-core-${ARCH}}"
+CORE_SHA_URL="${GV_CORE_BIN_SHA256_URL:-${CORE_BIN_URL}.sha256}"
+DOWNLOAD_CORE="$DOWNLOAD_DIR/sc-core"
+DOWNLOAD_CORE_SHA="$DOWNLOAD_DIR/sc-core.sha256"
+
+log "Downloading sc-core ($ARCH)…"
+curl -fsSL "$CORE_BIN_URL" -o "$DOWNLOAD_CORE" || err "sc-core download failed"
+curl -fsSL "$CORE_SHA_URL" -o "$DOWNLOAD_CORE_SHA" || err "sc-core checksum download failed"
+EXPECTED_CORE_SHA="$(cut -d ' ' -f1 "$DOWNLOAD_CORE_SHA")"
+[[ "$EXPECTED_CORE_SHA" =~ ^[0-9a-fA-F]{64}$ ]] || err "invalid sc-core checksum file"
+(cd "$DOWNLOAD_DIR" && printf '%s  %s\n' "$EXPECTED_CORE_SHA" sc-core | sha256sum -c - >/dev/null) \
+  || err "sc-core checksum verification failed"
+STAGED_CORE="$($SUDO mktemp "$BIN_DIR/.sc-core.XXXXXX")" || err "could not stage sc-core in $BIN_DIR"
+if ! $SUDO install -m 0755 "$DOWNLOAD_CORE" "$STAGED_CORE"; then
+  $SUDO rm -f "$STAGED_CORE"
+  err "sc-core staging failed"
+fi
+if ! $SUDO mv -f "$STAGED_CORE" "$CORE_BIN_PATH"; then
+  $SUDO rm -f "$STAGED_CORE"
+  err "atomic sc-core install failed"
+fi
+ok "sc-core installed to $CORE_BIN_PATH"
+
 STAGED_BIN="$($SUDO mktemp "$BIN_DIR/.sc-server.XXXXXX")" || err "could not stage install in $BIN_DIR"
 if ! $SUDO install -m 0755 "$DOWNLOAD_BIN" "$STAGED_BIN"; then
   $SUDO rm -f "$STAGED_BIN"
