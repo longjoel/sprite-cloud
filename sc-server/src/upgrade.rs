@@ -92,39 +92,57 @@ fn rollback_core(destination: &Path, backup: Option<&Path>) -> Result<()> {
     Ok(())
 }
 
+static PENDING_UPGRADE_SIGNAL: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
 struct UpgradeSignalGuard {
-    previous: libc::sigset_t,
+    registrations: Vec<signal_hook::SigId>,
 }
 
 impl UpgradeSignalGuard {
     fn block() -> Result<Self> {
-        unsafe {
-            let mut blocked = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
-            if libc::sigemptyset(blocked.as_mut_ptr()) != 0 {
-                return Err(std::io::Error::last_os_error()).context("initialize signal mask");
-            }
-            let mut blocked = blocked.assume_init();
-            for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
-                if libc::sigaddset(&mut blocked, signal) != 0 {
-                    return Err(std::io::Error::last_os_error()).context("build signal mask");
+        use std::sync::atomic::Ordering;
+
+        PENDING_UPGRADE_SIGNAL.store(0, Ordering::SeqCst);
+        let mut registrations = Vec::new();
+        for signal in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+            let registration = match unsafe {
+                signal_hook::low_level::register(signal, move || {
+                    let _ = PENDING_UPGRADE_SIGNAL.compare_exchange(
+                        0,
+                        signal,
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
+                    );
+                })
+            } {
+                Ok(registration) => registration,
+                Err(error) => {
+                    for registration in registrations.drain(..) {
+                        signal_hook::low_level::unregister(registration);
+                    }
+                    return Err(error)
+                        .with_context(|| format!("defer signal {signal} during upgrade"));
                 }
-            }
-            let mut previous = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
-            let rc = libc::pthread_sigmask(libc::SIG_BLOCK, &blocked, previous.as_mut_ptr());
-            if rc != 0 {
-                return Err(std::io::Error::from_raw_os_error(rc)).context("block upgrade signals");
-            }
-            Ok(Self {
-                previous: previous.assume_init(),
-            })
+            };
+            registrations.push(registration);
         }
+        Ok(Self { registrations })
     }
 }
 
 impl Drop for UpgradeSignalGuard {
     fn drop(&mut self) {
-        unsafe {
-            libc::pthread_sigmask(libc::SIG_SETMASK, &self.previous, std::ptr::null_mut());
+        use std::sync::atomic::Ordering;
+
+        for registration in self.registrations.drain(..) {
+            signal_hook::low_level::unregister(registration);
+        }
+        let pending = PENDING_UPGRADE_SIGNAL.swap(0, Ordering::SeqCst);
+        if pending != 0 {
+            unsafe {
+                libc::signal(pending, libc::SIG_DFL);
+                libc::kill(libc::getpid(), pending);
+            }
         }
     }
 }
@@ -334,10 +352,9 @@ mod tests {
             std::fs::write(&staged_core, b"new-core").unwrap();
             std::fs::write(&staged_server, b"new-server").unwrap();
 
-            let target_thread = unsafe { libc::pthread_self() };
-            std::thread::spawn(move || {
+            std::thread::spawn(|| {
                 std::thread::sleep(std::time::Duration::from_millis(50));
-                unsafe { libc::pthread_kill(target_thread, libc::SIGTERM) };
+                unsafe { libc::kill(libc::getpid(), libc::SIGTERM) };
             });
             install_staged_pair(&dir, &staged_core, &staged_server).unwrap();
             panic!("pending SIGTERM should be delivered when the transaction guard drops");
