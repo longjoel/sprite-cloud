@@ -41,19 +41,28 @@ fn verify_checksum(bytes: &[u8], checksum_file: &str) -> Result<()> {
 
 fn stage_binary(install_dir: &Path, name: &str, bytes: &[u8]) -> Result<PathBuf> {
     use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
     let staged = install_dir.join(format!(".{name}.upgrade-{:016x}", rand::random::<u64>()));
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o755)
-        .open(&staged)
-        .with_context(|| format!("stage {}", staged.display()))?;
-    file.write_all(bytes)
-        .with_context(|| format!("write {}", staged.display()))?;
-    file.sync_all()
-        .with_context(|| format!("sync {}", staged.display()))?;
+    let result = (|| -> Result<()> {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o755)
+            .open(&staged)
+            .with_context(|| format!("stage {}", staged.display()))?;
+        file.write_all(bytes)
+            .with_context(|| format!("write {}", staged.display()))?;
+        file.set_permissions(std::fs::Permissions::from_mode(0o755))
+            .with_context(|| format!("set executable permissions on {}", staged.display()))?;
+        file.sync_all()
+            .with_context(|| format!("sync {}", staged.display()))?;
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let _ = std::fs::remove_file(&staged);
+        return Err(error);
+    }
     Ok(staged)
 }
 
@@ -243,6 +252,29 @@ mod tests {
         let error = verify_checksum(b"sprite-cloud", &format!("{}  sc-server\n", "0".repeat(64)))
             .unwrap_err();
         assert!(error.to_string().contains("checksum mismatch"));
+    }
+
+    #[test]
+    fn staged_binary_is_0755_under_restrictive_umask() {
+        if std::env::var_os("SC_STAGE_UMASK_CHILD").is_some() {
+            use std::os::unix::fs::PermissionsExt;
+            let old_umask = unsafe { libc::umask(0o077) };
+            let dir = tempfile::tempdir().unwrap();
+            let staged = stage_binary(dir.path(), "sc-server", b"binary").unwrap();
+            let mode = std::fs::metadata(staged).unwrap().permissions().mode() & 0o777;
+            unsafe { libc::umask(old_umask) };
+            assert_eq!(mode, 0o755);
+            return;
+        }
+
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("upgrade::tests::staged_binary_is_0755_under_restrictive_umask")
+            .arg("--nocapture")
+            .env("SC_STAGE_UMASK_CHILD", "1")
+            .status()
+            .unwrap();
+        assert!(status.success());
     }
 
     #[test]
