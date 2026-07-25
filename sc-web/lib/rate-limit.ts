@@ -107,6 +107,17 @@ export function getClientIP(request?: Request | null): string {
   return "127.0.0.1";
 }
 
+function scopedRateLimitKey(request: Request, key?: string): string {
+  let pathname = "unknown-route";
+  try {
+    pathname = new URL(request.url).pathname;
+  } catch {
+    // Request URLs are normally absolute. Keep malformed/test requests isolated
+    // rather than falling back to the unscoped client key.
+  }
+  return `${pathname}:${key ?? getClientIP(request)}`;
+}
+
 /**
  * Convenience wrapper: applies rate limiting and returns a 429 response
  * when the limit is exceeded.  Otherwise returns null (continue processing).
@@ -119,7 +130,7 @@ export function applyRateLimit(
   windowMs = 60_000,
   key?: string,
 ): Response | null {
-  const effectiveKey = key ?? getClientIP(request);
+  const effectiveKey = scopedRateLimitKey(request, key);
   const result = checkRateLimit(effectiveKey, maxRequests, windowMs);
 
   const headers = new Headers({
@@ -144,7 +155,7 @@ export function applyRateLimit(
  * after a successful rate-limit check.
  */
 export function rateLimitHeaders(request: Request, maxRequests: number, windowMs = 60_000, key?: string): Headers {
-  const effectiveKey = key ?? getClientIP(request);
+  const effectiveKey = scopedRateLimitKey(request, key);
   // We already consumed the request in the main handler — re-compute for headers.
   // This is safe because the key was already counted; we just need the remaining count.
   const entry = store.get(effectiveKey);
