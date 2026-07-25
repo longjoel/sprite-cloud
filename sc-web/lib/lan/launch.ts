@@ -80,15 +80,14 @@ export function formatLaunchError(error: unknown, fallback: string): string {
 
 export function buildLanPlayerLaunchUrl(input: LanLaunchInput): string | null {
   const base = input.playerUrls?.find((url) => typeof url === "string" && url.trim().length > 0);
-  if (!base || !input.gameId || !input.serverId || !input.code || !input.hostToken) return null;
+  if (!base || !input.code || !input.hostToken) return null;
 
   const url = normalizeBaseUrl(base);
   if (!url) return null;
 
-  url.pathname = `/${encodeURIComponent(input.gameId)}`;
+  // Use the short-code path — it resolves cleanly through the sc-server proxy
+  // without carrying game_id / server_id in query params that can mismatch.
+  url.pathname = `/p/${encodeURIComponent(input.code)}`;
   url.search = "";
-  url.searchParams.set("code", input.code);
-  url.searchParams.set("server_id", input.serverId);
-  url.searchParams.set("route", "lan");
   return url.toString();
 }

@@ -7,7 +7,7 @@ describe("buildLanPlayerLaunchUrl", () => {
     expect(canUseLanPlayer({ reachable: false, reason: "timeout" })).toBe(false);
     expect(canUseLanPlayer({ reachable: true })).toBe(true);
   });
-  it("builds a LAN player URL without exposing the host token", () => {
+  it("builds a LAN player URL using the short code path", () => {
     const url = buildLanPlayerLaunchUrl({
       playerUrls: ["http://192.0.2.1:8787/"],
       gameId: "pokemon-yellow",
@@ -16,15 +16,13 @@ describe("buildLanPlayerLaunchUrl", () => {
       hostToken: "host-secret",
     });
 
-    expect(url).toBe(
-      "http://192.0.2.1:8787/pokemon-yellow?code=ABC123&server_id=server-bazzite&route=lan",
-    );
+    expect(url).toBe("http://192.0.2.1:8787/p/ABC123");
     const parsed = new URL(url!);
-    expect(parsed.searchParams.get("host_token")).toBeNull();
+    expect(parsed.search).toBe("");
     expect(parsed.hash).toBe("");
   });
 
-  it("encodes game ids in the path", () => {
+  it("encodes short codes in the path", () => {
     const url = buildLanPlayerLaunchUrl({
       playerUrls: ["http://192.0.2.1:8787/"],
       gameId: "Game Boy/Pokémon Yellow.gb",
@@ -33,9 +31,7 @@ describe("buildLanPlayerLaunchUrl", () => {
       hostToken: "host-secret",
     });
 
-    expect(url).toBe(
-      "http://192.0.2.1:8787/Game%20Boy%2FPok%C3%A9mon%20Yellow.gb?code=XYZ789&server_id=server-vault&route=lan",
-    );
+    expect(url).toBe("http://192.0.2.1:8787/p/XYZ789");
   });
 
   it("ignores invalid or missing launch inputs", () => {
