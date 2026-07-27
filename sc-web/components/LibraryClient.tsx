@@ -106,52 +106,31 @@ function csrfHeaders(): Record<string, string> {
 }
 
 // ── Favorites helpers ─────────────────────────────────────────────────
+const LS_FAVORITES = "sc_favorites";
+const LS_PINS = "sc_pins";
+const LS_RENAMES = "sc_renames";
 
-async function fetchFavoriteIds(): Promise<Set<string>> {
-  try {
-    const resp = await fetch("/api/favorites?limit=200");
-    if (!resp.ok) return new Set();
-    const data = await resp.json();
-    return new Set((data.games || []).map((g: Game) => g.id));
-  } catch {
-    return new Set();
-  }
+function loadFavorites(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(LS_FAVORITES) || "[]")); }
+  catch { return new Set(); }
 }
-
-async function toggleFavorite(gameId: string): Promise<boolean> {
-  const resp = await fetch("/api/favorites", {
-    method: "POST",
-    headers: csrfHeaders(),
-    body: JSON.stringify({ gameId }),
-  });
-  const data = await resp.json();
-  return data.favorite?.isFavorite ?? data.favorited ?? false;
+function saveFavorites(ids: Set<string>) {
+  localStorage.setItem(LS_FAVORITES, JSON.stringify([...ids]));
 }
-
-async function togglePin(gameId: string): Promise<{ pinned: boolean; pinCount: number }> {
-  const resp = await fetch("/api/pins", {
-    method: "POST",
-    headers: csrfHeaders(),
-    body: JSON.stringify({ gameId }),
-  });
-  const data = await resp.json();
-  return {
-    pinned: data.pin?.isPinned ?? data.pinned ?? false,
-    pinCount: data.pinCount ?? 0,
-  };
+function loadPins(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(LS_PINS) || "[]")); }
+  catch { return new Set(); }
 }
-
-async function fetchPinnedGames(): Promise<Game[]> {
-  try {
-    const resp = await fetch("/api/pins");
-    if (!resp.ok) return [];
-    const data = await resp.json();
-    return (data.games || []).slice(0, MAX_PINS);
-  } catch {
-    return [];
-  }
+function savePins(ids: Set<string>) {
+  localStorage.setItem(LS_PINS, JSON.stringify([...ids]));
 }
-
+function loadRenames(): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(LS_RENAMES) || "{}"); }
+  catch { return {}; }
+}
+function saveRenames(renames: Record<string, string>) {
+  localStorage.setItem(LS_RENAMES, JSON.stringify(renames));
+}
 
 // ── Component ─────────────────────────────────────────────────────────
 
@@ -239,6 +218,13 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
       setAllGames(reset ? data.games : mergeLibraryPages(current, data.games));
       setAllTotal(data.total);
       setFetchError(false);
+      // Apply any locally stored renames to freshly loaded games
+      if (reset) {
+        const renames = loadRenames();
+        if (Object.keys(renames).length > 0) {
+          setAllGames((games) => games.map((g) => renames[g.id] ? { ...g, name: renames[g.id] } : g));
+        }
+      }
     } catch {
       if (reset) {
         setAllGames([]);
@@ -522,33 +508,27 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
 
   // ── Favorite toggle ─────────────────────────────────────────────
 
-  const handleToggleFavorite = useCallback(async (gameId: string, e: React.MouseEvent) => {
+  const handleToggleFavorite = useCallback((gameId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const newState = await toggleFavorite(gameId);
     setFavoriteIds((prev) => {
       const next = new Set(prev);
-      if (newState) next.add(gameId); else next.delete(gameId);
+      if (next.has(gameId)) next.delete(gameId); else next.add(gameId);
+      saveFavorites(next);
       return next;
     });
-    if (!newState && tab === "favorites") {
-      setFavGames((prev) => prev.filter((g) => g.id !== gameId));
-      setFavTotal((prev) => prev - 1);
-    }
-  }, [tab]);
+  }, []);
 
   // ── Pin toggle ──────────────────────────────────────────────────
 
-  const handleTogglePin = useCallback(async (gameId: string, e: React.MouseEvent) => {
+  const handleTogglePin = useCallback((gameId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    await togglePin(gameId);
-    setPinsLoading(true);
-    try {
-      const games = await fetchPinnedGames();
-      setPinnedGames(games);
-      setPinnedIds(new Set(games.map((game) => game.id)));
-    } finally {
-      setPinsLoading(false);
-    }
+    setPinnedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(gameId)) next.delete(gameId); else next.add(gameId);
+      if (next.size > MAX_PINS) return prev;
+      savePins(next);
+      return next;
+    });
   }, []);
 
   // ── Current tab's game list ─────────────────────────────────────
