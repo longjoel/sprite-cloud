@@ -4,6 +4,7 @@ import { commands, peerTokens, sessions } from "@/lib/db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { logSignalingStage } from "@/lib/signaling";
+import { playerCapabilities, spectatorCapabilities } from "@/lib/capabilities";
 
 // ── POST /api/room/join — guest resolves a room_token to session details
 //
@@ -96,6 +97,7 @@ export async function POST(request: NextRequest) {
         peer_token: existingPeer.token,
         seat: existingPeer.seat,
         role: existingPeer.role,
+        capabilities: playerCapabilities(existingPeer.seat),
       });
     }
   }
@@ -117,6 +119,7 @@ export async function POST(request: NextRequest) {
       server_id: session.serverId,
       max_seats: session.maxSeats,
       worker_token: session.commandWorkerToken,
+      capabilities: spectatorCapabilities(),
     });
   }
 
@@ -158,5 +161,6 @@ export async function POST(request: NextRequest) {
     peer_token: guestPeerToken,
     seat,
     role,
+    capabilities: playerCapabilities(seat),
   });
 }

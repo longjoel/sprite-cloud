@@ -9,6 +9,7 @@ import { recordLaunchEvent } from "@/lib/launch-events";
 import { waitForSdpAnswer } from "@/lib/pending-sdp";
 import { classifyCommandFlow, logSignalingStage, type SignalingFlow } from "@/lib/signaling";
 import crypto from "crypto";
+import { hostCapabilities, type PlayerCapabilities } from "@/lib/capabilities";
 
 const COMMAND_RATE_LIMIT = 30; // requests per minute per IP
 
@@ -19,6 +20,15 @@ const RECONNECT_TRANSIENT_STATES = [SESSION_SPAWNING, SESSION_READY, SESSION_CON
 
 function isRoomCapability(value: unknown): value is string {
   return typeof value === "string" && /^[a-f0-9]{32}$/.test(value);
+}
+
+function canExecute(capabilities: PlayerCapabilities, commandType: string): boolean {
+  switch (commandType) {
+    case CMD_START_GAME: return capabilities.canStart;
+    case CMD_STOP_GAME: return capabilities.canStop;
+    case CMD_SDP_OFFER: return true; // all roles can send SDP
+    default: return false;
+  }
 }
 
 interface CommandBody {
@@ -302,6 +312,11 @@ export async function POST(request: NextRequest) {
           { status: 403 },
         );
       }
+      // Host SDP reconnects require host capability (admin).
+      // Guest SDP offers are already handled in the guest branch above.
+      if (membership.role !== "admin") {
+        return NextResponse.json({ error: "host authority required" }, { status: 403 });
+      }
       serverId = body.server_id;
     }
   } else {
@@ -329,6 +344,11 @@ export async function POST(request: NextRequest) {
         { error: "server not found or not authorized" },
         { status: 403 },
       );
+    }
+    // start_game and stop_game require host capability (admin role).
+    // Server admins have host authority for all sessions on their server.
+    if (membership.role !== "admin") {
+      return NextResponse.json({ error: "host authority required" }, { status: 403 });
     }
     serverId = body.server_id;
   }
