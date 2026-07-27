@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef, useEffect, useState } from "react";
-import { Card, Badge } from "@fluentui/react-components";
-import { Star20Regular, Star20Filled, Edit20Regular, Pin20Regular, Pin20Filled, MoreHorizontal20Regular, Desktop20Regular } from "@fluentui/react-icons";
+import { Card as MuiCard, CardActionArea, Chip, IconButton, CircularProgress, Button } from "@mui/material";
+import { Star, StarBorder, Edit, PushPin, PushPinOutlined, MoreHoriz, DesktopWindows } from "@mui/icons-material";
 import { getPlatformColor } from "@/lib/platformColors";
 
 interface TileGame {
@@ -41,49 +41,75 @@ export default function GameTile({ game, size = "square", isFavorite = false, is
     event.stopPropagation();
     action(event);
   };
-  const favoriteLabel = isFavorite ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`;
+
+  const favLabel = isFavorite ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`;
   const pinLabel = isPinned ? `Unpin ${game.name}` : `Pin ${game.name}`;
 
-  const actions = (mobile = false) => (
+  const actionButtons = (mobile = false) => (
     <div className={mobile ? "game-tile-overflow-actions" : "game-tile-secondary-actions"}>
       {onToggleFavorite && (
-        <button aria-label={favoriteLabel} title={favoriteLabel} onClick={stop((event) => onToggleFavorite(game.id, event))}>
-          {isFavorite ? <Star20Filled /> : <Star20Regular />}{mobile && <span>{isFavorite ? "Remove favorite" : "Favorite"}</span>}
-        </button>
+        <IconButton size="small" aria-label={favLabel} onClick={stop((event) => onToggleFavorite(game.id, event))}>
+          {isFavorite ? <Star fontSize="inherit" /> : <StarBorder fontSize="inherit" />}
+        </IconButton>
       )}
       {onTogglePin && (
-        <button aria-label={pinLabel} title={pinLabel} onClick={stop((event) => onTogglePin(game.id, event))}>
-          {isPinned ? <Pin20Filled /> : <Pin20Regular />}{mobile && <span>{isPinned ? "Unpin" : "Pin"}</span>}
-        </button>
+        <IconButton size="small" aria-label={pinLabel} onClick={stop((event) => onTogglePin(game.id, event))}>
+          {isPinned ? <PushPin fontSize="inherit" /> : <PushPinOutlined fontSize="inherit" />}
+        </IconButton>
       )}
       {onEdit && (
-        <button aria-label={`Rename ${game.name}`} title={`Rename ${game.name}`} onClick={stop(() => onEdit(game))}>
-          <Edit20Regular />{mobile && <span>Rename</span>}
-        </button>
+        <IconButton size="small" aria-label={`Rename ${game.name}`} onClick={stop(() => onEdit(game))}>
+          <Edit fontSize="inherit" />
+        </IconButton>
       )}
       {onChooseHost && (
-        <button disabled={launching} aria-label={`Choose host for ${game.name}`} title={`Choose host for ${game.name}`} onClick={stop(() => onChooseHost(game))}>
-          <Desktop20Regular /><span>{mobile ? "Choose host…" : "Host"}</span>
-        </button>
+        <Button
+          size="small"
+          disabled={launching}
+          aria-label={`Choose host for ${game.name}`}
+          onClick={stop(() => onChooseHost(game))}
+          startIcon={<DesktopWindows fontSize="inherit" />}
+          sx={{ fontSize: 11, minWidth: 0 }}
+        >
+          Host
+        </Button>
       )}
     </div>
   );
 
   return (
-    <Card focusMode="off" className={`game-tile ${sizeClassMap[size]} ${isFavorite ? "is-favorite" : ""} ${isPinned ? "is-pinned" : ""}`.trim()} appearance="filled-alternative" style={{ userSelect: "none", background: getPlatformColor(game.platform) }}>
-      <button disabled={launching} className="game-tile-play-target" aria-label={`Play ${game.name}`} onClick={() => onPlay(game)}>
-        {launching && <span>Launching…</span>}
-      </button>
-      <Badge appearance="tint" color="informative" className="game-tile-platform">{game.platform}</Badge>
-      {actions()}
+    <MuiCard
+      className={`game-tile ${sizeClassMap[size]} ${isFavorite ? "is-favorite" : ""} ${isPinned ? "is-pinned" : ""}`.trim()}
+      role="group"
+      sx={{ userSelect: "none", background: getPlatformColor(game.platform), position: "relative" }}
+    >
+      <CardActionArea
+        disabled={launching}
+        aria-label={`Play ${game.name}`}
+        onClick={() => onPlay(game)}
+        sx={{ height: "100%", width: "100%" }}
+      >
+        {launching && <CircularProgress size={16} sx={{ position: "absolute", top: 8, right: 8 }} />}
+      </CardActionArea>
+      <Chip
+        label={game.platform}
+        size="small"
+        color="primary"
+        variant="outlined"
+        className="game-tile-platform"
+        sx={{ position: "absolute", top: 6, left: 6, zIndex: 1 }}
+      />
+      {actionButtons()}
       <details className="game-tile-overflow" onClick={(event) => event.stopPropagation()}>
-        <summary aria-label={`More actions for ${game.name}`}><MoreHorizontal20Regular /></summary>
-        {actions(true)}
+        <summary aria-label={`More actions for ${game.name}`}>
+          <MoreHoriz fontSize="inherit" />
+        </summary>
+        {actionButtons(true)}
       </details>
       <div className="game-tile-caption">
         <span ref={nameRef} className={`game-tile-name${overflows ? "" : " no-overflow"}`}>{game.name}</span>
         <span className="game-tile-platform-text">{game.platform}</span>
       </div>
-    </Card>
+    </MuiCard>
   );
 }
