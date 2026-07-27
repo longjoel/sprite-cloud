@@ -22,7 +22,7 @@ export default async function Home() {
   // First-run: if no users exist, show setup
   if (!session) {
     if (isLanProxy) {
-      return <LibraryClient serverIds={[]} session={null} />;
+      return <LibraryClient serverIds={[]} session={null} isLanProxy />;
     }
     const [row] = await db
       .select({ count: sql<number>`count(*)` })
@@ -52,6 +52,7 @@ export default async function Home() {
       serverIds={serverIds}
       lanLibraries={lanLibraries}
       session={{ user: session.user }}
+      isLanProxy={false}
     />
   );
 }
