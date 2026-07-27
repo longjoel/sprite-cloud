@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import GamePlayer from "@/components/GamePlayer";
 import BokehLoading from "@/components/BokehLoading";
 import type { StepState } from "@/components/GamePlayerPipeline";
+import type { PlayerCapabilities } from "@/lib/capabilities";
 
 // ── /p/[code] — resolve short code → loading screen → player ────────
 //
@@ -45,6 +46,8 @@ export default function ShortCodePage() {
   const [gameMeta, setGameMeta] = useState<{
     gameId: string; serverId: string; hostToken?: string; roomToken?: string;
     gameName?: string; platform?: string; coverUrl?: string;
+    capabilities?: PlayerCapabilities;
+    seat?: number;
   } | null>(null);
 
   const [pipeline, setPipeline] = useState<Record<string, StepState>>({});
@@ -84,6 +87,8 @@ export default function ShortCodePage() {
         const serverId = data.server_id as string;
         const hostToken = data.host_token as string | undefined;
         const roomToken = data.room_token as string | undefined;
+        const capabilities = data.capabilities as PlayerCapabilities | undefined;
+        const seat = data.seat as number | undefined;
 
         let gameName = "";
         let platform = "";
@@ -96,7 +101,7 @@ export default function ShortCodePage() {
           }
         } catch { /* metadata is available only through the LAN server */ }
 
-        setGameMeta({ gameId, serverId, hostToken, roomToken, gameName, platform });
+        setGameMeta({ gameId, serverId, hostToken, roomToken, gameName, platform, capabilities, seat });
         setPhase("connecting");
       } catch (e: any) {
         clearTimeout(timeout);
@@ -198,6 +203,8 @@ export default function ShortCodePage() {
             hostToken={gameMeta.hostToken}
             joinToken={gameMeta.roomToken}
             shortCode={code}
+            capabilities={gameMeta.capabilities}
+            seat={gameMeta.seat}
             onClose={() => window.location.assign(homeUrl)}
             onConnected={onConnected}
             onFatalError={(msg) => {
