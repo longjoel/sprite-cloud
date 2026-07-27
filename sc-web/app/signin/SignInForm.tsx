@@ -2,11 +2,14 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
+import { Box, Button, Tabs, Tab, TextField, Typography, InputAdornment, IconButton } from "@mui/material";
+import { Visibility, VisibilityOff } from "@mui/icons-material";
 
 export default function SignInForm() {
   const [tab, setTab] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -15,15 +18,11 @@ export default function SignInForm() {
     setError("");
     setLoading(true);
     try {
-      const result = await signIn("credentials", {
-        email,
-        password,
-        redirect: false,
-      });
+      const result = await signIn("credentials", { email, password, redirect: false });
       if (result?.error) {
         setError("Invalid email or password");
       } else {
-        window.location.href = "/xmb";
+        window.location.href = "/";
       }
     } catch {
       setError("Something went wrong");
@@ -51,7 +50,7 @@ export default function SignInForm() {
         setError(data.error || "Sign-up failed");
       } else {
         await signIn("credentials", { email, password, redirect: false });
-        window.location.href = "/xmb";
+        window.location.href = "/";
       }
     } catch {
       setError("Something went wrong");
@@ -61,145 +60,66 @@ export default function SignInForm() {
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.card}>
-        <h1 style={styles.title}>Sprite Cloud</h1>
-        <div style={styles.tabs}>
-          <button
-            onClick={() => {
-              setTab("signin");
-              setError("");
-            }}
-            style={{
-              ...styles.tab,
-              ...(tab === "signin" ? styles.tabActive : {}),
-            }}
-          >
-            Sign In
-          </button>
-          <button
-            onClick={() => {
-              setTab("signup");
-              setError("");
-            }}
-            style={{
-              ...styles.tab,
-              ...(tab === "signup" ? styles.tabActive : {}),
-            }}
-          >
-            Sign Up
-          </button>
-        </div>
+    <Box sx={s.page}>
+      <Box sx={s.card}>
+        <Typography variant="h6" align="center" sx={{ fontFamily: "var(--font-mono)", mb: 3 }}>
+          Sprite Cloud
+        </Typography>
 
-        <form onSubmit={tab === "signin" ? handleSignIn : handleSignUp} style={styles.form}>
-          <input
+        <Tabs
+          value={tab}
+          onChange={(_, v) => { setTab(v); setError(""); }}
+          sx={{ mb: 2.5 }}
+          variant="fullWidth"
+        >
+          <Tab value="signin" label="Sign In" />
+          <Tab value="signup" label="Sign Up" />
+        </Tabs>
+
+        <Box component="form" onSubmit={tab === "signin" ? handleSignIn : handleSignUp} sx={s.form}>
+          <TextField
             type="email"
-            placeholder="you@example.com"
+            label="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            style={styles.input}
             required
             autoComplete="email"
+            fullWidth
           />
-          <input
-            type="password"
-            placeholder="Password"
+          <TextField
+            type={showPassword ? "text" : "password"}
+            label="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            style={styles.input}
             required
-            minLength={4}
             autoComplete={tab === "signin" ? "current-password" : "new-password"}
+            fullWidth
+            slotProps={{
+              input: {
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton onClick={() => setShowPassword(!showPassword)} edge="end" size="small">
+                      {showPassword ? <VisibilityOff fontSize="inherit" /> : <Visibility fontSize="inherit" />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              },
+            }}
           />
 
-          {error && <p style={styles.error}>{error}</p>}
+          {error && <Typography color="error" variant="body2" align="center">{error}</Typography>}
 
-          <button type="submit" style={styles.button} disabled={loading}>
+          <Button type="submit" variant="contained" disabled={loading} fullWidth sx={{ fontFamily: "var(--font-mono)", mt: 0.5 }}>
             {loading ? "…" : tab === "signin" ? "Sign In" : "Create Account"}
-          </button>
-        </form>
-      </div>
-    </div>
+          </Button>
+        </Box>
+      </Box>
+    </Box>
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: "100vh",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    background: "var(--color-sky-deep)",
-    padding: "16px",
-  },
-  card: {
-    width: "100%",
-    maxWidth: "360px",
-    background: "var(--color-surface-default)",
-    border: "1px solid var(--color-border-default)",
-    borderRadius: "2px",
-    padding: "32px 24px",
-  },
-  title: {
-    color: "var(--color-text-primary)",
-    fontSize: "20px",
-    fontWeight: 700,
-    textAlign: "center",
-    marginBottom: "24px",
-    fontFamily: "var(--font-mono)",
-  },
-  tabs: {
-    display: "flex",
-    gap: "0",
-    marginBottom: "20px",
-    borderBottom: "1px solid var(--color-border-default)",
-  },
-  tab: {
-    flex: 1,
-    padding: "8px 0",
-    background: "none",
-    border: "none",
-    color: "var(--color-text-secondary)",
-    fontSize: "13px",
-    fontWeight: 600,
-    cursor: "pointer",
-    borderBottom: "2px solid transparent",
-    fontFamily: "var(--font-sans)",
-  },
-  tabActive: {
-    color: "var(--color-text-primary)",
-    borderBottomColor: "var(--color-accent)",
-  },
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px",
-  },
-  input: {
-    padding: "10px 12px",
-    background: "var(--color-bg-deep)",
-    border: "1px solid var(--color-border-default)",
-    borderRadius: "2px",
-    color: "var(--color-text-primary)",
-    fontSize: "13px",
-    fontFamily: "var(--font-sans)",
-    outline: "none",
-  },
-  button: {
-    padding: "10px 0",
-    background: "var(--color-accent)",
-    color: "var(--color-sky-deep)",
-    border: "none",
-    borderRadius: "2px",
-    fontSize: "14px",
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: "var(--font-sans)",
-    marginTop: "4px",
-  },
-  error: {
-    color: "var(--color-error)",
-    fontSize: "12px",
-    textAlign: "center",
-  },
+const s = {
+  page: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", p: 2 },
+  card: { width: "100%", maxWidth: 360, p: 4, border: "1px solid var(--color-border-default)", borderRadius: "2px" },
+  form: { display: "flex", flexDirection: "column", gap: 2 },
 };

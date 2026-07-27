@@ -1,66 +1,51 @@
 "use client";
 
-import type { ButtonHTMLAttributes } from "react";
+import { Button as MuiButton, type ButtonProps as MuiButtonProps } from "@mui/material";
 
 type Variant = "primary" | "secondary" | "ghost" | "destructive";
 type Size = "sm" | "md" | "lg";
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+interface ButtonProps extends Omit<MuiButtonProps, "variant" | "size"> {
   variant?: Variant;
   size?: Size;
 }
 
-const variantStyles: Record<Variant, React.CSSProperties> = {
-  primary: {
-    background: "var(--color-accent)",
-    color: "var(--color-bg-deep)",
-    border: "1px solid var(--color-accent)",
-  },
-  secondary: {
-    background: "var(--color-surface-raised)",
-    color: "var(--color-text-primary)",
-    border: "1px solid var(--color-border-default)",
-  },
-  ghost: {
-    background: "none",
-    color: "var(--color-text-secondary)",
-    border: "none",
-    padding: 0,
-  },
-  destructive: {
-    background: "rgba(239,68,68,0.15)",
-    color: "#ef4444",
-    border: "1px solid #ef4444",
-  },
-};
-
-const sizeStyles: Record<Size, React.CSSProperties> = {
-  sm: { padding: "2px 10px", fontSize: "var(--font-size-sm)" },
-  md: { padding: "4px 14px", fontSize: "var(--font-size-base)" },
-  lg: { padding: "8px 24px", fontSize: "var(--font-size-md)" },
+const variantMap: Record<Variant, MuiButtonProps["color"]> = {
+  primary: "primary",
+  secondary: "inherit",
+  ghost: "inherit",
+  destructive: "error",
 };
 
 export default function Button({
   variant = "secondary",
   size = "md",
-  style,
-  children,
+  sx,
   ...rest
 }: ButtonProps) {
+  const sizeStyles = size === "sm"
+    ? { py: 0.25, px: 1.25, fontSize: "var(--font-size-sm)", minHeight: 36 }
+    : size === "md"
+    ? { py: 0.5, px: 1.75, fontSize: "var(--font-size-base)", minHeight: 44 }
+    : { py: 1, px: 3, fontSize: "var(--font-size-md)", minHeight: 44 };
+
+  const ghostStyles = variant === "ghost"
+    ? { border: "none", background: "none", color: "var(--color-text-secondary)", "&:hover": { background: "rgba(56,189,248,0.08)" } }
+    : {};
+
   return (
-    <button
-      style={{
+    <MuiButton
+      variant={variant === "primary" || variant === "destructive" ? "contained" : "outlined"}
+      color={variantMap[variant]}
+      sx={{
         fontFamily: "var(--font-mono)",
-        cursor: "pointer",
+        textTransform: "none",
         borderRadius: "2px",
-        transition: "opacity 0.15s",
-        ...variantStyles[variant],
-        ...sizeStyles[size],
-        ...style,
+        ...sizeStyles,
+        ...ghostStyles,
+        ...(typeof sx === "function" ? {} : sx),
       }}
       {...rest}
-    >
-      {children}
-    </button>
+    />
   );
 }
