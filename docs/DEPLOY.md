@@ -72,7 +72,7 @@ What the script does:
 - repairs stale `DATABASE_URL` in `$VPS_ENV_FILE` if needed
 - restarts `sc-web-sc-web-1` on `--network host`
 - forces `HOSTNAME=0.0.0.0` so Next binds a reachable interface
-- verifies localhost health plus public `/`, `/watch`, and `/api/health`
+- verifies localhost health plus public `/` and `/api/health`
 
 Manual fallback on the VPS:
 

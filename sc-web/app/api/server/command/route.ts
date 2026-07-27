@@ -17,6 +17,10 @@ const COMMAND_RATE_LIMIT = 30; // requests per minute per IP
 const VALID_TYPES = new Set<string>([CMD_START_GAME, CMD_STOP_GAME, CMD_SDP_OFFER]);
 const RECONNECT_TRANSIENT_STATES = [SESSION_SPAWNING, SESSION_READY, SESSION_CONNECTED] as const;
 
+function isRoomCapability(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{32}$/.test(value);
+}
+
 interface CommandBody {
   server_id: string;
   type: string;
@@ -137,6 +141,16 @@ export async function POST(request: NextRequest) {
   // without cookies only when that host_token matches the short-code row for
   // the selected server/game and the caller explicitly marks lan=true.
   const lanStartPayload = payloadResult.payload;
+  if (
+    isRoomCapability(lanStartPayload.host_token)
+    && (
+      (body.type === CMD_START_GAME && lanStartPayload.lan === true)
+      || body.type === CMD_STOP_GAME
+      || body.type === CMD_SDP_OFFER
+    )
+  ) {
+    return NextResponse.json({ error: "room capability cannot authorize host actions" }, { status: 403 });
+  }
   if (
     body.type === CMD_START_GAME &&
     lanStartPayload.lan === true &&

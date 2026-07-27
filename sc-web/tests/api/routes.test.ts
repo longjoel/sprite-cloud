@@ -716,6 +716,27 @@ describe("POST /api/server/command", () => {
     expect(body.sdp_answer).toBe("v=0\r\nanswer");
   });
 
+  it("rejects a private room capability used as a LAN host token", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", jsonBody({
+      server_id: "server-1",
+      type: "start_game",
+      payload: {
+        game_id: "local_0123456789abcdef0123456789abcdef",
+        host_token: "a".repeat(32),
+        lan: true,
+      },
+    }));
+
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(403);
+    expect(await resp.json()).toMatchObject({
+      error: "room capability cannot authorize host actions",
+    });
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
   it("does not auto-inject lan=true from request IP heuristics", async () => {
     const prevLanIps = process.env.GV_SERVER_LAN_IPS;
     process.env.GV_SERVER_LAN_IPS = "192.0.2.1";
@@ -867,6 +888,37 @@ describe("POST /api/room/shorten", () => {
 
     expect(resp.status).toBe(201);
     expect(mockVerifyBearerToken).toHaveBeenCalled();
+  });
+
+  it("binds private invite codes to the active room capability with 80 bits of entropy", async () => {
+    const roomToken = "a".repeat(32);
+    let inserted: Record<string, unknown> | undefined;
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "member" }]))
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "session-1",
+        roomToken,
+        status: "playing",
+      }]));
+    mockDb.insert.mockReturnValueOnce({
+      values: vi.fn((value: Record<string, unknown>) => {
+        inserted = value;
+        return Promise.resolve();
+      }),
+    });
+    const { POST } = await import("@/app/api/room/shorten/route");
+    const resp = await POST(mkReq("http://localhost/api/room/shorten", {
+      ...jsonBody({
+        game_id: "local_0123456789abcdef0123456789abcdef",
+        room_token: roomToken,
+        server_id: "server-1",
+      }),
+    }));
+    const responseBody = await resp.json();
+
+    expect(resp.status).toBe(201);
+    expect(responseBody.code).toMatch(/^[A-HJ-NP-Z2-9]{16}$/);
+    expect(inserted).toMatchObject({ hostToken: roomToken });
   });
 });
 
@@ -1369,9 +1421,76 @@ describe("GET /api/room/resolve/[code]", () => {
     expect(mockVerifyBearerToken).toHaveBeenCalledWith("Bearer scsk_test_api_key_12345");
   });
 
+  it("resolves private invite codes as guests even for an owning server bearer", async () => {
+    const roomToken = "a".repeat(32);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        gameId: "local_0123456789abcdef0123456789abcdef",
+        hostToken: roomToken,
+        serverId: "server-1",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{
+        roomToken,
+        status: "playing",
+      }]));
+    const { GET } = await import("@/app/api/room/resolve/[code]/route");
+    const req = mkReq("http://localhost/api/room/resolve/ABCDEFGHIJKLMNOP", {
+      headers: authHeader(),
+    });
+
+    const resp = await GET(req, { params: Promise.resolve({ code: "ABCDEFGHIJKLMNOP" }) });
+    const body = await resp.json();
+
+    expect(resp.status).toBe(200);
+    expect(body.room_token).toBe(roomToken);
+    expect(body.host_token).toBeUndefined();
+  });
+
+  it("returns host launch authority to an explicit server admin", async () => {
+    mockVerifyBearerToken.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        gameId: "local_0123456789abcdef0123456789abcdef",
+        hostToken: "host-secret",
+        serverId: "server-1",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "admin" }]));
+    const { GET } = await import("@/app/api/room/resolve/[code]/route");
+    const req = mkReq("http://localhost/api/room/resolve/ABCDEFGHIJKLMNOP");
+
+    const resp = await GET(req, { params: Promise.resolve({ code: "ABCDEFGHIJKLMNOP" }) });
+    const body = await resp.json();
+
+    expect(resp.status).toBe(200);
+    expect(body.host_token).toBe("host-secret");
+  });
+
+  it("downgrades ordinary server members with host launch codes to guests", async () => {
+    mockVerifyBearerToken.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        gameId: "local_0123456789abcdef0123456789abcdef",
+        hostToken: "host-secret",
+        serverId: "server-1",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "member" }]))
+      .mockReturnValueOnce(mockQueryBuilder([{
+        roomToken: "room-private",
+        status: "playing",
+      }]));
+    const { GET } = await import("@/app/api/room/resolve/[code]/route");
+    const req = mkReq("http://localhost/api/room/resolve/ABCDEFGHIJKLMNOP");
+
+    const resp = await GET(req, { params: Promise.resolve({ code: "ABCDEFGHIJKLMNOP" }) });
+    const body = await resp.json();
+
+    expect(resp.status).toBe(200);
+    expect(body.room_token).toBe("room-private");
+    expect(body.host_token).toBeUndefined();
+  });
+
   it("does not accept a host capability supplied in the URL query", async () => {
     mockVerifyBearerToken.mockResolvedValueOnce(null);
-    mockAuth.mockResolvedValueOnce(null);
     mockDb.select
       .mockReturnValueOnce(mockQueryBuilder([{
         gameId: "local_0123456789abcdef0123456789abcdef",
@@ -1484,6 +1603,34 @@ describe("POST /api/room/join", () => {
 
 
 describe("POST /api/room/share", () => {
+  it("creates an opaque private room capability without public publication semantics", async () => {
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{
+      id: "sess-active",
+      userId: "user-1",
+      serverId: "server-1",
+      status: "playing",
+    }]));
+    let updateSet: Record<string, unknown> | undefined;
+    mockDb.update.mockReturnValueOnce({
+      set: vi.fn((value: Record<string, unknown>) => {
+        updateSet = value;
+        return { where: vi.fn(() => Promise.resolve(undefined)) };
+      }),
+    });
+
+    const { POST } = await import("@/app/api/room/share/route");
+    const req = mkReq("http://localhost/api/room/share", {
+      ...jsonBody({ session_id: "sess-active" }),
+    });
+
+    const resp = await POST(req);
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.room_token).toMatch(/^[a-f0-9]{32}$/);
+    expect(body.room_token).not.toContain("public_");
+    expect(updateSet).toMatchObject({ roomToken: body.room_token, maxSeats: 4 });
+  });
+
   it("rejects timed-out sessions instead of rotating their room capability", async () => {
     mockDb.select.mockReturnValueOnce(mockQueryBuilder([{
       id: "sess-timed-out",
@@ -1499,6 +1646,56 @@ describe("POST /api/room/share", () => {
     const resp = await POST(req);
 
     expect(resp.status).toBe(410);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("allows the exact owning sc-server bearer to rotate a LAN room capability", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{
+      id: "sess-lan",
+      userId: "user-1",
+      serverId: "server-1",
+      status: "playing",
+    }]));
+    let updateSet: Record<string, unknown> | undefined;
+    mockDb.update.mockReturnValueOnce({
+      set: vi.fn((value: Record<string, unknown>) => {
+        updateSet = value;
+        return { where: vi.fn(() => Promise.resolve(undefined)) };
+      }),
+    });
+
+    const { POST } = await import("@/app/api/room/share/route");
+    const req = mkReq("http://localhost/api/room/share", {
+      ...jsonBody({ session_id: "sess-lan" }),
+      headers: { ...jsonBody({}).headers, ...authHeader() },
+    });
+
+    const resp = await POST(req);
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.room_token).toMatch(/^[a-f0-9]{32}$/);
+    expect(updateSet).toMatchObject({ roomToken: body.room_token });
+  });
+
+  it("rejects a sc-server bearer for another server's session", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockVerifyBearerToken.mockResolvedValueOnce({ id: "server-2", userId: "user-2" });
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{
+      id: "sess-lan",
+      userId: "user-1",
+      serverId: "server-1",
+      status: "playing",
+    }]));
+
+    const { POST } = await import("@/app/api/room/share/route");
+    const req = mkReq("http://localhost/api/room/share", {
+      ...jsonBody({ session_id: "sess-lan" }),
+      headers: { ...jsonBody({}).headers, ...authHeader() },
+    });
+
+    const resp = await POST(req);
+    expect(resp.status).toBe(403);
     expect(mockDb.update).not.toHaveBeenCalled();
   });
 });

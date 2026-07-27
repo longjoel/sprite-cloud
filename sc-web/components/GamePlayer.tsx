@@ -6,7 +6,8 @@ import { useSearchParams } from "next/navigation";
 import { useInterval } from "@/lib/poll";
 import { Button, Toast } from "@/components/ui";
 import { csrfHeaders } from "@/components/library-utils";
-import { randomUuid } from "@/lib/browser/random-uuid";
+
+import { QRCodeSVG } from "qrcode.react";
 import RemapPanel from "./GamePlayerRemapPanel";
 import OptionsOverlay from "./OptionsOverlay";
 import ControllerLayoutPanel from "./ControllerLayoutPanel";
@@ -553,7 +554,9 @@ export default function GamePlayer({
     closePanel();
   }, [closePanel]);
 
-  const [shortCode, setShortCode] = useState<string | null>(shortCodeProp ?? null);
+  // Never reuse the host launch/reconnect code as a player invitation. Share
+  // mints a separate code bound to the rotating room capability.
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [shareRequested, setShareRequested] = useState(false);
 
   const handleQrCode = useCallback(() => {
@@ -573,23 +576,26 @@ export default function GamePlayer({
   useEffect(() => {
     if (!shareRequested) return;
     if (!connected) return;
-    if (shortCodeProp) return; // already provided via props (LAN pass-through)
-    if (roomToken) return;
-    if (shortCode) return; // already set
+    if (!hostToken) return; // guests cannot create or redistribute invitations
+    if (inviteCode) return;
     (async () => {
       try {
-        const resp = await fetch("/api/room/share", {
-          method: "POST",
-          headers: csrfHeaders(),
-          body: JSON.stringify({
-            game_id: gameId,
-            server_id: serverId,
-            max_seats: 4,
-          }),
-        });
-        if (!resp.ok) return;
-        const data = await resp.json();
-        setRoomToken(data.room_token);
+        let activeRoomToken = roomToken;
+        if (!activeRoomToken) {
+          const resp = await fetch("/api/room/share", {
+            method: "POST",
+            headers: csrfHeaders(),
+            body: JSON.stringify({
+              game_id: gameId,
+              server_id: serverId,
+              max_seats: 4,
+            }),
+          });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          activeRoomToken = data.room_token;
+          setRoomToken(activeRoomToken);
+        }
 
         // Create a short code for the share link
         const scResp = await fetch("/api/room/shorten", {
@@ -597,18 +603,18 @@ export default function GamePlayer({
           headers: csrfHeaders(),
           body: JSON.stringify({
             game_id: gameId,
-            host_token: hostToken || randomUuid(),
+            room_token: activeRoomToken,
             server_id: serverId,
           }),
         });
         if (scResp.ok) {
           const scData = await scResp.json();
-          setShortCode(scData.code);
+          setInviteCode(scData.code);
         }
       } catch { /* best-effort */ }
       finally { setShareRequested(false); }
     })();
-  }, [shareRequested, connected, gameId, serverId, hostToken, roomToken, shortCode, shortCodeProp]);
+  }, [shareRequested, connected, gameId, serverId, hostToken, roomToken, inviteCode]);
 
   // Guest/LAN room entry points carry explicit room context. Ordinary solo
   // launches keep disc-room controls out of the primary options hierarchy.
@@ -693,7 +699,7 @@ export default function GamePlayer({
           onOpenSaves={() => { openPanel("saves"); handleListSaves(); }}
           onOpenKeys={() => openPanel("keys")}
           onOpenRoom={roomControlsRelevant ? () => openPanel("room") : undefined}
-          onQrCode={handleQrCode}
+          onQrCode={hostToken ? handleQrCode : undefined}
           onStats={() => openPanel("stats")}
         />
       )}
@@ -899,12 +905,13 @@ export default function GamePlayer({
               <Button variant="secondary" size="sm" onClick={toggleTouchGamepad}>
                 {touchGamepadVisible ? "🎮 Hide Pad" : "🎮 Show Pad"}
               </Button>
-              {shortCode && (
+              {inviteCode && (
                 <Button
                   variant="secondary"
                   size="sm"
                   onClick={() => {
-                    const url = `${window.location.origin}/p/${shortCode}?join`;
+                    const inviteOrigin = shortCodeProp ? "https://sprite-cloud.com" : window.location.origin;
+                    const url = `${inviteOrigin}/p/${inviteCode}?join`;
                     navigator.clipboard.writeText(url).then(
                       () => showToast("Share link copied!", true),
                       () => showToast("Copy failed", false)
@@ -929,17 +936,19 @@ export default function GamePlayer({
               <Button variant="ghost" size="sm" onClick={() => openPanel("options")}>← Options</Button>
               <Button variant="ghost" onClick={closePanel}>✕ Close</Button>
             </div>
-            {shortCode ? (<>
+            {inviteCode ? (<>
             <div style={{ display: "flex", justifyContent: "center", padding: "var(--space-5)" }}>
               {(() => {
                 const qrOrigin = shortCodeProp ? "https://sprite-cloud.com" : window.location.origin;
-                const qrUrl = `${qrOrigin}/p/${shortCode}?join`;
+                const qrUrl = `${qrOrigin}/p/${inviteCode}?join`;
                 return (
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUrl)}`}
-                    alt="QR Code to join game"
-                    style={{ borderRadius: 4, background: "#fff", padding: 8 }}
-                  />
+                  <div
+                    role="img"
+                    aria-label="QR code to join game"
+                    style={{ borderRadius: 4, background: "#fff", padding: 8, lineHeight: 0 }}
+                  >
+                    <QRCodeSVG value={qrUrl} size={200} bgColor="#ffffff" fgColor="#000000" level="M" />
+                  </div>
                 );
               })()}
             </div>
@@ -950,7 +959,7 @@ export default function GamePlayer({
               wordBreak: "break-all",
               padding: "0 var(--space-4)",
             }}>
-              {(shortCodeProp ? "https://sprite-cloud.com" : window.location.origin)}/p/{shortCode}?join
+              {(shortCodeProp ? "https://sprite-cloud.com" : window.location.origin)}/p/{inviteCode}?join
             </p>
             </>
             ) : (

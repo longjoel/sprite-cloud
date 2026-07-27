@@ -10,6 +10,18 @@ import { ScPlayer, State } from "./sc-player.js";
 import { fetchEffectiveIceConfig, logBootstrapStart } from "./bootstrap-common.js";
 import { touchStateToStandardButtons } from "./input-mapping.js";
 
+function isPrivateIP(host) {
+  if (host.endsWith(".local")) return true;
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!ipv4) return false;
+  const b1 = parseInt(ipv4[1], 10);
+  const b2 = parseInt(ipv4[2], 10);
+  return b1 === 10
+    || b1 === 127
+    || (b1 === 172 && b2 >= 16 && b2 <= 31)
+    || (b1 === 192 && b2 === 168);
+}
+
 // ── UUID polyfill ────────────────────────────────────────────────────
 // crypto.randomUUID() is secure-context-only (HTTPS / localhost).
 // On plain HTTP we fall back to crypto.getRandomValues → Math.random.
@@ -109,7 +121,8 @@ async function startGame(serverId, gameId, corePath, hostToken, callbacks, sdpOf
     try {
       const q = new URLSearchParams(window.location.search);
       const isLanOrigin = window.location.protocol === "http:"
-        && window.location.port === "8787";
+        && window.location.port === "8787"
+        && isPrivateIP(window.location.hostname);
       if (q.get("route") === "lan" || isLanOrigin) {
         payload.lan = true;
       }

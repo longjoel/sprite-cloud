@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { serverMembers, shortCodes } from "@/lib/db/schema";
+import { serverMembers, sessions, shortCodes } from "@/lib/db/schema";
 import { verifyBearerToken } from "@/lib/server-auth";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
 
 function randomCode(): string {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const bytes = crypto.randomBytes(6);
+  const bytes = crypto.randomBytes(16);
   let code = "";
-  for (let i = 0; i < 6; i++) code += alphabet[bytes[i] % alphabet.length];
+  for (let i = 0; i < 16; i++) code += alphabet[bytes[i] % alphabet.length];
   return code;
 }
 
@@ -30,7 +30,7 @@ function validateCsrf(request: NextRequest): boolean {
 }
 
 export async function POST(request: NextRequest) {
-  let body: { game_id: string; host_token: string; server_id: string };
+  let body: { game_id: string; host_token?: string; room_token?: string; server_id: string };
   try {
     body = await request.json();
   } catch {
@@ -39,13 +39,20 @@ export async function POST(request: NextRequest) {
 
   const gameId = body.game_id;
   const hostToken = body.host_token;
+  const roomToken = body.room_token;
   const serverId = body.server_id;
 
   if (!/^local_[0-9a-f]{32}$/.test(gameId ?? "")) {
     return NextResponse.json({ error: "opaque game_id required" }, { status: 400 });
   }
-  if (!hostToken || typeof hostToken !== "string" || hostToken.length > 128) {
-    return NextResponse.json({ error: "host_token required" }, { status: 400 });
+  if ((!hostToken && !roomToken) || (hostToken && roomToken)) {
+    return NextResponse.json({ error: "exactly one capability token required" }, { status: 400 });
+  }
+  if (hostToken !== undefined && (typeof hostToken !== "string" || hostToken.length > 128)) {
+    return NextResponse.json({ error: "invalid host_token" }, { status: 400 });
+  }
+  if (roomToken !== undefined && (typeof roomToken !== "string" || !/^[a-f0-9]{32}$/.test(roomToken))) {
+    return NextResponse.json({ error: "invalid room_token" }, { status: 400 });
   }
   if (!serverId || typeof serverId !== "string" || serverId.length > 128) {
     return NextResponse.json({ error: "server_id required" }, { status: 400 });
@@ -74,10 +81,28 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  if (roomToken) {
+    const [activeSession] = await db
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(and(
+        eq(sessions.serverId, serverId),
+        eq(sessions.gameId, gameId),
+        eq(sessions.roomToken, roomToken),
+        inArray(sessions.status, ["spawning", "ready", "connected", "playing"]),
+      ))
+      .limit(1);
+    if (!activeSession) {
+      return NextResponse.json({ error: "active room not found" }, { status: 404 });
+    }
+  }
+
+  const capabilityToken = roomToken ?? hostToken!;
+
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = randomCode();
     try {
-      await db.insert(shortCodes).values({ code, gameId, hostToken, serverId });
+      await db.insert(shortCodes).values({ code, gameId, hostToken: capabilityToken, serverId });
       return NextResponse.json({ code }, { status: 201 });
     } catch (err: unknown) {
       const dbError = err as { code?: string; message?: string };

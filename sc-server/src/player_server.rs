@@ -103,6 +103,7 @@ fn app_router() -> Router<Arc<AppState>> {
         .route("/api/games/:id", get(get_game).put(rename_game))
         .route("/api/playable-hosts", get(playable_hosts))
         .route("/api/room/resolve/:code", get(proxy_server_authenticated))
+        .route("/api/room/share", post(proxy_server_authenticated))
         .route("/api/room/shorten", post(proxy_server_authenticated))
         .route("/health", get(health))
         .route("/api/*path", any(proxy))

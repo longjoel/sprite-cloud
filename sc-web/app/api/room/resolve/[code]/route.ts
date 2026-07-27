@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { sessions, shortCodes, serverMembers, servers } from "@/lib/db/schema";
+import { serverMembers, sessions, shortCodes } from "@/lib/db/schema";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { verifyBearerToken } from "@/lib/server-auth";
 
 // ── GET /api/room/resolve/:code — resolve a short code to game params
 //
-// Auth-aware:
-//   Host (authenticated server member) → host_token for reconnection or restart
-//   Guest (unauthenticated)            → room_token for guest join (no auth needed)
+// Capability-aware:
+//   Owning sc-server bearer → host_token for LAN reconnection or restart
+//   Every browser visitor   → room_token for guest join (no auth needed)
 
 export async function GET(
   request: NextRequest,
@@ -39,6 +39,33 @@ export async function GET(
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
+  // Private invitation entries carry the rotating 128-bit room capability,
+  // never the reusable host capability. Resolve this exact session as a guest
+  // before considering either browser or sc-server host authority.
+  if (/^[a-f0-9]{32}$/.test(entry.hostToken)) {
+    const [inviteSession] = await db
+      .select({ roomToken: sessions.roomToken, status: sessions.status })
+      .from(sessions)
+      .where(and(
+        eq(sessions.serverId, entry.serverId),
+        eq(sessions.gameId, entry.gameId),
+        eq(sessions.roomToken, entry.hostToken),
+      ))
+      .limit(1);
+
+    if (!inviteSession || !["spawning", "ready", "connected", "playing"].includes(inviteSession.status)) {
+      return NextResponse.json(
+        { error: "session ended — ask the host to share again" },
+        { status: 410 },
+      );
+    }
+    return NextResponse.json({
+      game_id: entry.gameId,
+      server_id: entry.serverId,
+      room_token: inviteSession.roomToken,
+    });
+  }
+
   // Paired sc-server proxies this exact route with its server bearer. The
   // browser never carries the host capability in its launch URL.
   const bearerServer = forceGuest
@@ -46,27 +73,25 @@ export async function GET(
     : await verifyBearerToken(request.headers.get("authorization"));
   let isHost = bearerServer?.id === entry.serverId;
 
-  // Fall back to auth session check when this is not the owning sc-server.
   if (!isHost && !forceGuest) {
-    const session = await auth();
-    if (session?.user?.id) {
+    const browserSession = await auth();
+    if (browserSession?.user?.id) {
       const [membership] = await db
         .select({ role: serverMembers.role })
         .from(serverMembers)
-        .innerJoin(servers, eq(servers.id, serverMembers.serverId))
-        .where(
-          and(
-            eq(serverMembers.serverId, entry.serverId),
-            eq(serverMembers.userId, session.user.id),
-          ),
-        )
+        .where(and(
+          eq(serverMembers.serverId, entry.serverId),
+          eq(serverMembers.userId, browserSession.user.id),
+          eq(serverMembers.role, "admin"),
+        ))
         .limit(1);
-      isHost = !!membership;
+      isHost = membership?.role === "admin";
     }
   }
 
   if (isHost) {
-    // Authenticated server member → host_token for reconnection or fresh start
+    // Host authority belongs only to the paired server bearer or an explicit
+    // server admin. Ordinary members never upgrade into host access.
     return NextResponse.json({
       game_id: entry.gameId,
       host_token: entry.hostToken,
