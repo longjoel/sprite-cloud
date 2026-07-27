@@ -207,16 +207,10 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
 
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  // Load shared server-owned favorites and the complete (max 20) pinned rows.
+  // Suppressed pending #586 — favorites/pins backend not yet implemented.
   useEffect(() => {
-    if (needsLanHandoff) return;
-    fetchFavoriteIds().then(setFavoriteIds);
-    setPinsLoading(true);
-    fetchPinnedGames().then((games) => {
-      setPinnedGames(games);
-      setPinnedIds(new Set(games.map((game) => game.id)));
-    }).finally(() => setPinsLoading(false));
-  }, [needsLanHandoff]);
+    return;
+  }, []);
 
 
   // Debounced search
