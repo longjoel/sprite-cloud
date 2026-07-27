@@ -255,9 +255,13 @@ server_id = ""`);
     expect(gate).toBeGreaterThan(-1);
     expect(shareCall).toBeGreaterThan(gate);
   });
-
-  it("renders invitation QR codes locally without third-party capability disclosure", () => {
+  it("generates invitation QR codes locally without disclosing capabilities to third parties", () => {
+    expect(gamePlayer).toContain('from "qrcode.react"');
     expect(gamePlayer).toContain("<QRCodeSVG");
+    expect(gamePlayer).toContain("const [inviteCode, setInviteCode] = useState<string | null>(null)");
+    expect(gamePlayer).not.toContain("useState<string | null>(shortCodeProp ?? null)");
+    expect(gamePlayer).toContain("room_token: activeRoomToken");
+    expect(gamePlayer).toContain("onQrCode={hostToken ? handleQrCode : undefined}");
     expect(gamePlayer).not.toContain("api.qrserver.com");
     expect(nextConfig).not.toContain("api.qrserver.com");
   });

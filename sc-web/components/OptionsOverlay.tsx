@@ -32,7 +32,7 @@ interface OptionsOverlayProps {
   onOpenSaves: () => void;
   onOpenKeys: () => void;
   onOpenRoom?: () => void;
-  onQrCode: () => void;
+  onQrCode?: () => void;
   onStats: () => void;
   triggerRef?: RefObject<HTMLButtonElement | null>;
   triggerDisabled?: boolean;
@@ -100,7 +100,9 @@ export default function OptionsOverlay({
       label: "Session",
       actions: [
         { id: "saves", icon: "▤", label: "Saves", action: onOpenSaves },
-        { id: "share", icon: "⌁", label: "Share / QR", action: onQrCode },
+        ...(onQrCode
+          ? [{ id: "share", icon: "⌁", label: "Share / QR", action: onQrCode }]
+          : []),
         ...(onOpenRoom
           ? [{ id: "room", icon: "👥", label: "Room controls", action: onOpenRoom }]
           : []),
