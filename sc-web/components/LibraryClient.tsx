@@ -60,6 +60,7 @@ interface LibraryClientProps {
   serverIds: string[];
   lanLibraries?: LanLibraryLink[];
   session: { user?: { id?: string; name?: string | null; email?: string | null } } | null;
+  isLanProxy?: boolean;
 }
 
 const PAGE_SIZE = 100;
@@ -154,7 +155,7 @@ async function fetchPinnedGames(): Promise<Game[]> {
 
 // ── Component ─────────────────────────────────────────────────────────
 
-export default function LibraryClient({ serverIds, lanLibraries = [], session }: LibraryClientProps) {
+export default function LibraryClient({ serverIds, lanLibraries = [], session, isLanProxy = false }: LibraryClientProps) {
   const router = useRouter();
 
   const [hostPickerGame, setHostPickerGame] = useState<Game | null>(null);
@@ -185,6 +186,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session }:
   const [allGames, setAllGames] = useState<Game[]>([]);
   const [allTotal, setAllTotal] = useState(0);
   const [allLoading, setAllLoading] = useState(false);
+  const [fetchError, setFetchError] = useState(false);
   const hasServers = serverIds.length > 0 || allGames.some((game) => Boolean(game.serverId));
   const needsLanHandoff = session !== null && lanLibraries.length > 0;
 
@@ -243,10 +245,12 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session }:
       const data = await fetchPage("/api/games", createAllLibraryPageParams(PAGE_SIZE, offset, searchTerm));
       setAllGames(reset ? data.games : mergeLibraryPages(current, data.games));
       setAllTotal(data.total);
+      setFetchError(false);
     } catch {
       if (reset) {
         setAllGames([]);
         setAllTotal(0);
+        setFetchError(true);
       }
     } finally {
       setAllLoading(false);
@@ -683,12 +687,18 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session }:
           { label: "XMB", href: "/xmb" },
           ...(session
             ? [{ label: "Sign out", href: "/api/auth/signout" }]
-            : [{ label: "Sign in", href: "/api/auth/signin" }]),
+            : isLanProxy ? [] : [{ label: "Sign in", href: "/api/auth/signin" }]),
         ]}
       />
 
-      {!session && (
+      {!session && !isLanProxy && (
         <div style={styles.banner}>Sign in to play games on your server.</div>
+      )}
+
+      {fetchError && !allLoading && allGames.length === 0 && !needsLanHandoff && (
+        <div style={styles.banner}>
+          Server is offline. Games will appear when your server reconnects.
+        </div>
       )}
 
       <section style={styles.section}>
