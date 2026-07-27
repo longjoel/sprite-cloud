@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { serverMembers, sessions, shortCodes } from "@/lib/db/schema";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { verifyBearerToken } from "@/lib/server-auth";
+import { hostCapabilities, playerCapabilities } from "@/lib/capabilities";
 
 // ── GET /api/room/resolve/:code — resolve a short code to game params
 //
@@ -63,6 +64,7 @@ export async function GET(
       game_id: entry.gameId,
       server_id: entry.serverId,
       room_token: inviteSession.roomToken,
+      capabilities: playerCapabilities(1),
     });
   }
 
@@ -96,6 +98,7 @@ export async function GET(
       game_id: entry.gameId,
       host_token: entry.hostToken,
       server_id: entry.serverId,
+      capabilities: hostCapabilities(),
     });
   }
 
@@ -120,6 +123,7 @@ export async function GET(
       game_id: entry.gameId,
       server_id: entry.serverId,
       room_token: activeSession.roomToken,
+      capabilities: playerCapabilities(1),
     });
   }
 
