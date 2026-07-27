@@ -13,13 +13,13 @@ const COVER_FALLBACK = (
   </svg>
 );
 
-interface PublicRoomPlayerProps {
+interface RoomInvitePlayerProps {
   roomToken?: string;
   gameId?: string;
   serverId?: string;
 }
 
-export default function PublicRoomPlayer({ roomToken = "", gameId = "", serverId = "" }: PublicRoomPlayerProps) {
+export default function RoomInvitePlayer({ roomToken = "", gameId = "", serverId = "" }: RoomInvitePlayerProps) {
   const router = useRouter();
 
   const [phase, setPhase] = useState<"resolve" | "connecting" | "playing" | "error">("resolve");
@@ -70,7 +70,7 @@ export default function PublicRoomPlayer({ roomToken = "", gameId = "", serverId
       <main style={s.error}>
         <div style={s.errorIcon}>!</div>
         <div style={s.errorTitle}>Connection failed</div>
-        <p style={s.errorDesc}>{error || "The public session could not be opened."}</p>
+        <p style={s.errorDesc}>{error || "The invited session could not be opened."}</p>
         <div style={s.errorActions}>
           <a href="/" style={s.errorBtn}>← Home</a>
           <button onClick={() => window.location.reload()} style={s.errorBtnRetry}>↻ Retry</button>

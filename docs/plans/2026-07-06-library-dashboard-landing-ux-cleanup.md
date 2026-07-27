@@ -2,9 +2,9 @@
 
 > **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.
 
-**Goal:** Make the library views consistent, simplify the dashboard around servers, and replace tell-heavy onboarding with a playable/watchable public entry path.
+**Goal:** Make the library views consistent, simplify the dashboard around servers, and give new users a direct setup path.
 
-**Architecture:** Keep this as a product cleanup program, not a rewrite. The main theme is to stop rendering the same concepts twice in incompatible ways: unify library actions behind one shared game action model, collapse the dashboard into a server-first operational view, and add a public featured/share surface so the first-time experience demonstrates the product instead of explaining it.
+**Architecture:** Keep this as a product cleanup program, not a rewrite. The main theme is to stop rendering the same concepts twice in incompatible ways: unify library actions behind one shared game action model, collapse the dashboard into a server-first operational view, and make onboarding lead directly into account and server setup.
 
 **Tech Stack:** Next.js App Router, React client components, Drizzle-backed APIs already in place, existing Metro/Fluent design system.
 
@@ -29,7 +29,7 @@
 ### New-user entry
 - `sc-web/app/page.tsx:14-23` sends unauthenticated users to `LandingPage`.
 - `sc-web/components/LandingPage.tsx:19-41` is a text-heavy 4-step setup guide.
-- `sc-web/components/LandingPage.tsx:83-89` hardcodes demo credentials instead of giving a one-click “watch/try” experience.
+- `sc-web/components/LandingPage.tsx:83-89` hardcodes demo credentials instead of leading directly into supported setup.
 - Result: we explain the system, but we do not immediately let a new visitor touch it.
 
 ---
@@ -100,21 +100,21 @@
 - Server management remains available, but the page is less noisy.
 - The dashboard can be understood as “servers and server details,” not “misc admin miscellany.”
 
-### Slice E — New-user experience: show, don’t tell
+### Slice E — New-user experience: direct setup path
 **Files:**
 - Modify: `sc-web/components/LandingPage.tsx`
 - Modify: `sc-web/app/page.tsx`
-- Potentially modify/create: room/share/featured-game supporting API or config surfaces, depending on implementation choice
+
 
 **What to do:**
-1. Replace the hardcoded demo-login callout with a permanent public “watch / try” entry.
-2. Keep account creation available, but stop making text instructions the primary first-run experience.
-3. Give unauthenticated visitors a direct path into a real game/session/share surface.
+1. Replace the hardcoded demo-login callout with direct account and setup actions.
+2. Keep concise setup guidance without making unsupported features the primary first-run experience.
+3. Keep private room invitations separate from public landing-page navigation.
 
 **Acceptance criteria:**
-- A new visitor can click into a real experience without first creating an account.
-- The landing page demonstrates the product instead of only describing setup.
-- Demo/public entry does not depend on exposing reusable credentials in the UI.
+- A new visitor can start account and server setup immediately.
+- The landing page describes only supported product paths.
+- Private room capabilities are never advertised as public entry points.
 
 ---
 
@@ -123,7 +123,7 @@
 2. Slice D — make server details the center of the dashboard.
 3. Slice A — fix library capability parity.
 4. Slice B — polish the library presentations.
-5. Slice E — replace demo-login onboarding with a public playable/watchable path.
+5. Slice E — replace demo-login onboarding with a direct setup path.
 
 ---
 
@@ -134,4 +134,4 @@
 - Manual smoke checks:
   - library grid ↔ table toggle preserves capabilities
   - dashboard first paint is server-centric
-  - landing page gives a direct public try/watch action
+  - landing page gives direct account and setup actions

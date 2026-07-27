@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const workflow = readFileSync("../.github/workflows/deploy.yml", "utf8");
@@ -23,9 +23,13 @@ const productionEntrypoint = readFileSync("../docker/sc-web/entrypoint.prod.sh",
 const developmentEntrypoint = readFileSync("../docker/sc-web/entrypoint.sh", "utf8");
 const hostEntrypoint = readFileSync("../docker/sc-server/entrypoint.sh", "utf8");
 const migration = readFileSync("drizzle/0016_remove_cloud_library.sql", "utf8");
-const publicWatch = readFileSync("lib/public-watch.ts", "utf8");
-const watchPage = readFileSync("app/watch/page.tsx", "utf8");
 const gamePlayer = readFileSync("components/GamePlayer.tsx", "utf8");
+const landingPage = readFileSync("components/LandingPage.tsx", "utf8");
+const homePage = readFileSync("app/page.tsx", "utf8");
+const shareRoute = readFileSync("app/api/room/share/route.ts", "utf8");
+const nextConfig = readFileSync("next.config.ts", "utf8");
+const deployScript = readFileSync("../scripts/deploy-sc-web.sh", "utf8");
+const deployGuide = readFileSync("../docs/DEPLOY.md", "utf8");
 const commandRoute = readFileSync("app/api/server/command/route.ts", "utf8");
 const playerServer = readFileSync("../sc-server/src/player_server.rs", "utf8");
 const rootReadme = readFileSync("../README.md", "utf8");
@@ -36,7 +40,7 @@ describe("production deploy workflow", () => {
     expect(workflow).toContain("name: vps-key");
     expect(workflow).not.toMatch(/\bssh -o StrictHostKeyChecking/);
     expect(workflow).not.toMatch(/\bscp -o StrictHostKeyChecking/);
-    expect(workflow.match(/-i ~\/\.ssh\/vps-key/g)?.length).toBe(6);
+    expect(workflow.match(/-i ~\/\.ssh\/vps-key/g)?.length).toBe(8);
   });
 
   it("treats a successful health curl exit code as success without capturing its body", () => {
@@ -56,7 +60,7 @@ describe("production deploy workflow", () => {
     const health = workflow.indexOf("- name: Health check");
     const backup = workflow.indexOf("Back up Postgres and apply Phase 4c migration");
     const pgDump = workflow.indexOf("pg_dump");
-    const migration = workflow.indexOf("ON_ERROR_STOP=1");
+    const migration = workflow.indexOf("ON_ERROR_STOP=1", pgDump);
 
     expect(deploy).toBeGreaterThan(-1);
     expect(health).toBeGreaterThan(deploy);
@@ -231,20 +235,31 @@ server_id = ""`);
     expect(migration).toMatch(/BEGIN;[\s\S]*DROP TABLE IF EXISTS "server_rom_roots";[\s\S]*COMMIT;/);
   });
 
-  it("keeps the permanent public watch URL free of room capabilities", () => {
-    expect(publicWatch).not.toContain("`/r/${roomToken}");
-    expect(publicWatch).toContain('like(sessions.roomToken, `${PUBLIC_ROOM_PREFIX}%`)');
-    expect(publicWatch).not.toContain("ensureRoomToken");
-    expect(watchPage).not.toContain("redirect(publicPath)");
-    expect(watchPage).toContain("<PublicRoomPlayer {...publicSession} />");
+  it("removes public watch and keeps ordinary invitations private", () => {
+    expect(existsSync("app/watch/page.tsx")).toBe(false);
+    expect(existsSync("lib/public-watch.ts")).toBe(false);
+    expect(existsSync("components/PublicRoomPlayer.tsx")).toBe(false);
+    expect(existsSync("components/RoomInvitePlayer.tsx")).toBe(true);
+    expect(homePage).not.toContain("public-watch");
+    expect(landingPage).not.toContain("/watch");
+    expect(landingPage).not.toMatch(/Watch Live|Try Public Demo|Watch \/ Try/);
+    expect(shareRoute).not.toContain("public_");
+    expect(deployScript).not.toContain("/watch");
+    expect(deployGuide).not.toContain("/watch");
   });
 
-  it("requires an explicit user action before making a session public", () => {
+  it("requires an explicit user action before creating a private invitation", () => {
     const gate = gamePlayer.indexOf("if (!shareRequested) return");
     const shareCall = gamePlayer.indexOf('fetch("/api/room/share"');
     expect(gamePlayer).toContain("setShareRequested(true)");
     expect(gate).toBeGreaterThan(-1);
     expect(shareCall).toBeGreaterThan(gate);
+  });
+
+  it("renders invitation QR codes locally without third-party capability disclosure", () => {
+    expect(gamePlayer).toContain("<QRCodeSVG");
+    expect(gamePlayer).not.toContain("api.qrserver.com");
+    expect(nextConfig).not.toContain("api.qrserver.com");
   });
 
   it("serializes fresh launches before replacing the current host session", () => {

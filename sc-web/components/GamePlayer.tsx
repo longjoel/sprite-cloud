@@ -7,6 +7,7 @@ import { useInterval } from "@/lib/poll";
 import { Button, Toast } from "@/components/ui";
 import { csrfHeaders } from "@/components/library-utils";
 import { randomUuid } from "@/lib/browser/random-uuid";
+import { QRCodeSVG } from "qrcode.react";
 import RemapPanel from "./GamePlayerRemapPanel";
 import OptionsOverlay from "./OptionsOverlay";
 import ControllerLayoutPanel from "./ControllerLayoutPanel";
@@ -935,11 +936,13 @@ export default function GamePlayer({
                 const qrOrigin = shortCodeProp ? "https://sprite-cloud.com" : window.location.origin;
                 const qrUrl = `${qrOrigin}/p/${shortCode}?join`;
                 return (
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUrl)}`}
-                    alt="QR Code to join game"
-                    style={{ borderRadius: 4, background: "#fff", padding: 8 }}
-                  />
+                  <div
+                    role="img"
+                    aria-label="QR code to join game"
+                    style={{ borderRadius: 4, background: "#fff", padding: 8, lineHeight: 0 }}
+                  >
+                    <QRCodeSVG value={qrUrl} size={200} bgColor="#ffffff" fgColor="#000000" level="M" />
+                  </div>
                 );
               })()}
             </div>

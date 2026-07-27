@@ -1484,6 +1484,34 @@ describe("POST /api/room/join", () => {
 
 
 describe("POST /api/room/share", () => {
+  it("creates an opaque private room capability without public publication semantics", async () => {
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{
+      id: "sess-active",
+      userId: "user-1",
+      serverId: "server-1",
+      status: "playing",
+    }]));
+    let updateSet: Record<string, unknown> | undefined;
+    mockDb.update.mockReturnValueOnce({
+      set: vi.fn((value: Record<string, unknown>) => {
+        updateSet = value;
+        return { where: vi.fn(() => Promise.resolve(undefined)) };
+      }),
+    });
+
+    const { POST } = await import("@/app/api/room/share/route");
+    const req = mkReq("http://localhost/api/room/share", {
+      ...jsonBody({ session_id: "sess-active" }),
+    });
+
+    const resp = await POST(req);
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.room_token).toMatch(/^[a-f0-9]{32}$/);
+    expect(body.room_token).not.toContain("public_");
+    expect(updateSet).toMatchObject({ roomToken: body.room_token, maxSeats: 4 });
+  });
+
   it("rejects timed-out sessions instead of rotating their room capability", async () => {
     mockDb.select.mockReturnValueOnce(mockQueryBuilder([{
       id: "sess-timed-out",

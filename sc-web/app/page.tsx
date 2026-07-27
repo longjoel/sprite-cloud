@@ -4,7 +4,6 @@ import { serverMembers, servers, users } from "@/lib/db/schema";
 import { eq, sql } from "drizzle-orm";
 import LandingPage from "@/components/LandingPage";
 import LibraryClient from "@/components/LibraryClient";
-import { getPublicWatchPreview } from "@/lib/public-watch";
 import { headers } from "next/headers";
 import { verifyBearerToken } from "@/lib/server-auth";
 import { extractLanLibraryLinks } from "@/lib/lan/library-handoff";
@@ -31,9 +30,8 @@ export default async function Home() {
     if (Number(row?.count ?? 0) === 0) {
       // No users yet — let /setup handle itself via its own redirect
     }
-    const publicWatchPreview = await getPublicWatchPreview();
     // Show the landing page for unauthenticated visitors
-    return <LandingPage publicWatchPreview={publicWatchPreview} />;
+    return <LandingPage />;
   }
 
   // Authenticated: find all servers the user is a member of

@@ -75,7 +75,6 @@ DEPLOYED_SHA="$(printf '%s' "$HEALTH_JSON" | python3 -c "import json,sys; print(
 
 log "verifying public routes"
 curl -fsSI "$GV_WEB_URL/" >/dev/null
-curl -fsSI "$GV_WEB_URL/watch" >/dev/null
 
 log "deploy complete ($GV_SHORT_SHA)"
 log "health: $GV_WEB_URL/api/health"

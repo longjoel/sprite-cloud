@@ -88,8 +88,9 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Generate new room_token (rotate even if one exists)
-  const roomToken = `public_${randomBytes(16).toString("hex")}`;
+  // Generate a private capability for this active session. Room tokens are
+  // intentionally opaque: sharing a room must never imply site-wide publication.
+  const roomToken = randomBytes(16).toString("hex");
   const maxSeats = body.max_seats ?? 4;
 
   await db
