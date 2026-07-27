@@ -1,21 +1,25 @@
 /* ═══════════════════════════════════════════════════════════════════════
    Sprite Cloud — Design Tokens
-   Dark cloud / Metro-inspired — deep sky, crisp whites, pixel accents.
+   Dark Metro — sky depths, crisp white text, electric sky-blue accent.
+   Single source: lib/design-tokens.ts
    ═══════════════════════════════════════════════════════════════════════ */
 
 :root {
   /* ── Sky (backgrounds) ──────────────────────────────────────────── */
-  --color-sky-deep: #0a0e1a;
+  --color-bg-deep: #060b14;
+  --color-sky-deep: #060b14;
   --color-sky-mid: #111827;
   --color-sky-high: #1a2236;
+
+  /* ── Cloud (text) ───────────────────────────────────────────────── */
   --color-cloud: #e5e7eb;
   --color-cloud-dim: #9ca3b8;
 
-  /* ── Accent (one vibrant electric) ──────────────────────────────── */
-  --color-accent: #38bdf8;       /* sky blue */
+  /* ── Accent ─────────────────────────────────────────────────────── */
+  --color-accent: #38bdf8;
   --color-accent-glow: rgba(56, 189, 248, 0.15);
 
-  /* ── Pixel sprite colors (for decorative use) ──────────────────── */
+  /* ── Pixel / decorative ─────────────────────────────────────────── */
   --color-pixel-green: #4ade80;
   --color-pixel-pink: #f472b6;
   --color-pixel-yellow: #facc15;
@@ -31,28 +35,35 @@
   --color-errorBg: rgba(248, 113, 113, 0.08);
   --color-infoBg: rgba(56, 189, 248, 0.08);
 
-  /* ── Semantic UI tokens (used by Metro components) ───────────────── */
-  --color-bg-deep: #060b14;               /* deepest surface (inputs) */
-  --color-surface-default: var(--color-sky-mid);  /* cards, modals */
-  --color-surface-raised: var(--color-sky-high);  /* buttons, badges */
-  --color-text-primary: var(--color-cloud);       /* headings, body */
-  --color-text-secondary: var(--color-cloud-dim); /* muted, hints */
-  --color-border-default: rgba(56, 189, 248, 0.12); /* subtle accent border */
+  /* ── Surface / text / border aliases ────────────────────────────── */
+  --color-surface-default: var(--color-sky-mid);
+  --color-surface-raised: var(--color-sky-high);
+  --color-text-primary: var(--color-cloud);
+  --color-text-secondary: var(--color-cloud-dim);
+  --color-text-dim: var(--color-text-secondary);
+  --color-border-default: rgba(56, 189, 248, 0.12);
 
-  /* ── Legacy aliases (for code not yet migrated) ─────────────────── */
-  --color-mahogany: var(--color-bg-deep);
-  --color-teak: var(--color-surface-default);
-  --color-walnut: var(--color-surface-raised);
+  /* Legacy aliases (Games Humidor → Metro migration) */
+  --color-cream: var(--color-cloud);
+  --color-muted: var(--color-cloud-dim);
+  --color-mahogany: var(--color-sky-deep);
+  --color-teak: var(--color-sky-mid);
+  --color-walnut: var(--color-sky-high);
   --color-bamboo: var(--color-border-default);
   --color-brass: var(--color-accent);
   --color-copper: var(--color-pixel-pink);
-  --color-cream: var(--color-text-primary);
-  --color-muted: var(--color-text-secondary);
   --color-cyan: var(--color-accent);
   --color-magenta: var(--color-pixel-pink);
   --color-lime: var(--color-pixel-green);
+  --color-danger: var(--color-error);
 
-  /* ── Spacing ────────────────────────────────────────────────────── */
+  /* Touch gamepad safe areas (set dynamically via JS) */
+  --touch-safe-left: 0px;
+  --touch-safe-right: 0px;
+  --touch-safe-top: 0px;
+  --touch-safe-bottom: 0px;
+
+  /* ── Spacing (4px scale) ────────────────────────────────────────── */
   --space-0: 0;
   --space-1: 2px;
   --space-2: 4px;
@@ -64,6 +75,7 @@
   --space-8: 32px;
   --space-9: 48px;
   --space-10: 64px;
+  --space-16: 64px;
 
   /* ── Radii (Metro = sharp corners) ──────────────────────────────── */
   --radius-none: 0;
@@ -81,7 +93,6 @@
   --font-size-h3: 20px;
   --font-size-h2: 28px;
   --font-size-h1: 36px;
-
   --font-mono: "Geist Mono", "SF Mono", "Fira Code", monospace;
   --font-sans: "Geist", "SF Pro", system-ui, sans-serif;
 }
@@ -98,7 +109,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ── Scrollbar (dark, minimal) ───────────────────────────────────── */
+/* ── Scrollbar ────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--color-sky-high); border-radius: 3px; }

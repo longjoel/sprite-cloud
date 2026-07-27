@@ -1,49 +1,67 @@
 /**
  * Sprite Cloud Design Tokens
  *
- * 1960s Neo-Futurism — warm wood tones, brass trim, neon accents.
- * "Games Humidor" — not a cold vault, a warm cabinet.
+ * Single canonical source for all CSS variables and Fluent theme values.
+ * No other file defines tokens — globals.css and SpriteCloudProvider
+ * both consume this module.
  *
- * Exports both CSS custom properties (for `globals.css`) and a typed
- * TypeScript object (for inline styles and component props).
- * Single source of truth.  Change a token here, changes everywhere.
+ * Surface: dark sky / Metro-inspired — sharp corners, tight spacing, one accent.
  */
 
 // ═══════════════════════════════════════════════════════════════════════
-// Colors
+// Backgrounds (sky depth)
 // ═══════════════════════════════════════════════════════════════════════
 
-const colors = {
-  // Background depth hierarchy (dark → light)
-  mahogany: "#1a1410", // Deepest page background
-  teak:     "#2d2418", // Card panels, surfaces
-  walnut:   "#3d3020", // Modals, elevated panels
-  bamboo:   "#4a3a28", // Active states, hover
+const surface = {
+  deep:     "#060b14", // page background
+  mid:      "#111827", // cards, surfaces
+  high:     "#1a2236", // buttons, raised panels
+  overlay:  "rgba(2, 6, 23, 0.86)", // modal backdrop
+} as const;
 
-  // Trim & hardware
-  brass:  "#b8964a", // Borders, dividers, metal elements
-  copper: "#c4723a", // Warmer alternative trim (sparing use)
+// ═══════════════════════════════════════════════════════════════════════
+// Text
+// ═══════════════════════════════════════════════════════════════════════
 
-  // Text
-  cream: "#e8dcc8", // Primary body text
-  muted: "#b8a888", // Secondary, labels, dim text
+const text = {
+  primary:   "#e5e7eb", // headings, body
+  secondary: "#9ca3b8", // muted, hints, dim text
+} as const;
 
-  // Neon accents (used sparingly)
-  cyan:    "#00e5ff", // Focus, links, active
-  magenta: "#ff3d7f", // Alerts, emphasis, danger
-  lime:    "#a0ff40", // Play, go, success
+// ═══════════════════════════════════════════════════════════════════════
+// Accent (sky blue)
+// ═══════════════════════════════════════════════════════════════════════
 
-  // Semantic status
-  success: "#4dff88", // Healthy, online, connected
-  warning: "#ffb830", // Degraded, relay, stale
-  error:   "#ff4d4d", // Offline, failed, dead
-  info:    "#00e5ff", // Informational (same as cyan)
+const accent = {
+  main:  "#38bdf8",
+  glow:  "rgba(56, 189, 248, 0.15)",
+  muted: "rgba(56, 189, 248, 0.12)", // subtle border
+} as const;
 
-  // Status backgrounds (translucent overlays on wood tones)
-  successBg: "rgba(77, 255, 136, 0.10)",
-  warningBg: "rgba(255, 184, 48, 0.10)",
-  errorBg:   "rgba(255, 77, 77, 0.08)",
-  infoBg:    "rgba(0, 229, 255, 0.08)",
+// ═══════════════════════════════════════════════════════════════════════
+// Pixel / decorative
+// ═══════════════════════════════════════════════════════════════════════
+
+const pixel = {
+  green:  "#4ade80",
+  pink:   "#f472b6",
+  yellow: "#facc15",
+  red:    "#f87171",
+} as const;
+
+// ═══════════════════════════════════════════════════════════════════════
+// Semantic
+// ═══════════════════════════════════════════════════════════════════════
+
+const status = {
+  success:    "#4ade80",
+  warning:    "#facc15",
+  error:      "#f87171",
+  info:       "#38bdf8",
+  successBg:  "rgba(74, 222, 128, 0.10)",
+  warningBg:  "rgba(250, 204, 21, 0.10)",
+  errorBg:    "rgba(248, 113, 113, 0.08)",
+  infoBg:     "rgba(56, 189, 248, 0.08)",
 } as const;
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -62,10 +80,11 @@ const space = {
   8:  "32px",
   9:  "48px",
   10: "64px",
+  16: "64px",   // legacy alias — same as space-10
 } as const;
 
 // ═══════════════════════════════════════════════════════════════════════
-// Border radius
+// Radii (Metro = sharp corners)
 // ═══════════════════════════════════════════════════════════════════════
 
 const radius = {
@@ -86,117 +105,82 @@ const font = {
   size: {
     xs:   "10px",
     sm:   "12px",
-    base: "13px",
-    md:   "14px",
-    lg:   "16px",
-    xl:   "18px",
+    base: "14px",
+    md:   "16px",
+    lg:   "20px",
+    xl:   "24px",
     h3:   "20px",
-    h2:   "1rem",    // relative to parent
-    h1:   "1.5rem",
-  },
-
-  weight: {
-    normal:  "400",
-    medium:  "500",
-    semibold: "600",
-    bold:    "700",
-  },
-
-  leading: {
-    tight:  "1.3",
-    normal: "1.6",
+    h2:   "28px",
+    h1:   "36px",
   },
 } as const;
 
 // ═══════════════════════════════════════════════════════════════════════
-// Borders
+// Fluent theme overrides
 // ═══════════════════════════════════════════════════════════════════════
 
-const border = {
-  thin:  `1px solid ${colors.brass}`,
-  thick: `2px solid ${colors.brass}`,
-  focus: `1px solid ${colors.cyan}`,
-  error: `1px solid ${colors.error}`,
-} as const;
-
-// ═══════════════════════════════════════════════════════════════════════
-// Shadows (hardware, not glass)
-// ═══════════════════════════════════════════════════════════════════════
-
-const shadow = {
-  // Subtle inner shadow for button depth (physical press feel)
-  inner:   "inset 0 1px 0 rgba(255,255,255,0.04)",
-  // Raised panel — slight lift via border, not box-shadow
-  raised:  "0 1px 0 rgba(0,0,0,0.3)",
-} as const;
-
-// ═══════════════════════════════════════════════════════════════════════
-// Animation
-// ═══════════════════════════════════════════════════════════════════════
-
-const motion = {
-  fast:    "0.1s ease",
-  normal:  "0.15s ease",
-  slow:    "0.3s ease",
-} as const;
-
-// ═══════════════════════════════════════════════════════════════════════
-// Z-index scale
-// ═══════════════════════════════════════════════════════════════════════
-
-const z = {
-  base:   "0",
-  raised: "10",
-  sticky: "100",
-  modal:  "1000",
-  toast:  "2000",
+const fluent = {
+  brandForeground1:      accent.main,
+  brandForeground2:      "#7dd3fc",
+  brandBackground:       "#0c4a6e",
+  brandBackgroundHover:  "#075985",
+  brandBackgroundPressed:"#082f49",
+  neutralForeground1:    text.primary,
+  neutralForeground2:    "#d1d5db",
+  neutralForeground3:    text.secondary,
+  neutralForegroundDisabled: "#4b5563",
+  neutralBackground1:    surface.deep,
+  neutralBackground2:    surface.mid,
+  neutralBackground3:    surface.high,
+  neutralBackground4:    "#1f2937",
 } as const;
 
 // ═══════════════════════════════════════════════════════════════════════
 // Exports
 // ═══════════════════════════════════════════════════════════════════════
 
-/** All design tokens as a flat typed object. */
-export const tokens = {
-  color:  colors,
-  space,
-  radius,
-  font,
-  border,
-  shadow,
-  motion,
-  z,
-} as const;
-
+export const tokens = { surface, text, accent, pixel, status, space, radius, font, fluent } as const;
 export type Tokens = typeof tokens;
 
-/**
- * CSS custom properties string (for `:root` in `globals.css`).
- * Generate once, paste into the CSS file.
- */
+/** CSS custom properties for :root. */
 export function cssCustomProperties(): string {
-  const lines: string[] = ["/* Sprite Cloud Design Tokens — generated from lib/design-tokens.ts */"];
+  const lines: string[] = [
+    "/* Sprite Cloud Design Tokens — auto-generated */",
+    ":root {",
+    `  --color-bg-deep: ${surface.deep};`,
+    `  --color-sky-deep: ${surface.deep};`,
+    `  --color-sky-mid: ${surface.mid};`,
+    `  --color-sky-high: ${surface.high};`,
+    `  --color-cloud: ${text.primary};`,
+    `  --color-cloud-dim: ${text.secondary};`,
+    `  --color-accent: ${accent.main};`,
+    `  --color-accent-glow: ${accent.glow};`,
+    `  --color-pixel-green: ${pixel.green};`,
+    `  --color-pixel-pink: ${pixel.pink};`,
+    `  --color-pixel-yellow: ${pixel.yellow};`,
+    `  --color-pixel-red: ${pixel.red};`,
+    `  --color-success: ${status.success};`,
+    `  --color-warning: ${status.warning};`,
+    `  --color-error: ${status.error};`,
+    `  --color-info: ${status.info};`,
+    `  --color-successBg: ${status.successBg};`,
+    `  --color-warningBg: ${status.warningBg};`,
+    `  --color-errorBg: ${status.errorBg};`,
+    `  --color-infoBg: ${status.infoBg};`,
+    `  --color-surface-default: var(--color-sky-mid);`,
+    `  --color-surface-raised: var(--color-sky-high);`,
+    `  --color-text-primary: var(--color-cloud);`,
+    `  --color-text-secondary: var(--color-cloud-dim);`,
+    `  --color-text-dim: var(--color-text-secondary);`,  // legacy alias
+    `  --color-border-default: ${accent.muted};`,
+  ];
 
-  for (const [name, value] of Object.entries(colors)) {
-    lines.push(`  --color-${name}: ${value};`);
-  }
-  for (const [name, value] of Object.entries(space)) {
-    lines.push(`  --space-${name}: ${value};`);
-  }
-  for (const [name, value] of Object.entries(radius)) {
-    lines.push(`  --radius-${name}: ${value};`);
-  }
-  for (const [key, val] of Object.entries(font.size)) {
-    lines.push(`  --font-size-${key}: ${val};`);
-  }
+  for (const [k, v] of Object.entries(space)) lines.push(`  --space-${k}: ${v};`);
+  for (const [k, v] of Object.entries(radius)) lines.push(`  --radius-${k}: ${v};`);
+  for (const [k, v] of Object.entries(font.size)) lines.push(`  --font-size-${k}: ${v};`);
   lines.push(`  --font-mono: ${font.mono};`);
   lines.push(`  --font-sans: ${font.sans};`);
+  lines.push("}");
 
   return lines.join("\n");
-}
-
-// Print CSS custom properties when run directly:
-//   npx tsx lib/design-tokens.ts
-if (require.main === module || process.env.GENERATE_CSS) {
-  console.log(cssCustomProperties());
 }

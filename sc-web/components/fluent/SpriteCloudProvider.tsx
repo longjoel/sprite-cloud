@@ -5,49 +5,49 @@ import {
   webDarkTheme,
   type Theme,
 } from "@fluentui/react-components";
+import { tokens } from "@/lib/design-tokens";
 
-// ── Sprite Cloud custom theme — extends Fluent's webDarkTheme ───────
-// Metro-inspired: sharp corners, tight spacing, one accent color.
+// ── Sprite Cloud custom theme — consumes canonical design tokens ────
 
 const spriteCloudTheme: Theme = {
   ...webDarkTheme,
 
-  // Sharp corners (Metro = no rounded corners)
-  borderRadiusNone: "0",
-  borderRadiusSmall: "2px",
-  borderRadiusMedium: "2px",
-  borderRadiusLarge: "2px",
-  borderRadiusXLarge: "2px",
+  // Sharp corners (Metro)
+  borderRadiusNone: tokens.radius.none,
+  borderRadiusSmall: tokens.radius.sm,
+  borderRadiusMedium: tokens.radius.sm,
+  borderRadiusLarge: tokens.radius.sm,
+  borderRadiusXLarge: tokens.radius.sm,
 
   // Tighter spacing
-  spacingHorizontalNone: "0",
-  spacingHorizontalXXS: "2px",
-  spacingHorizontalXS: "4px",
-  spacingHorizontalSNudge: "6px",
-  spacingHorizontalS: "8px",
+  spacingHorizontalNone: tokens.space[0],
+  spacingHorizontalXXS: tokens.space[1],
+  spacingHorizontalXS: tokens.space[2],
+  spacingHorizontalSNudge: tokens.space[3],
+  spacingHorizontalS: tokens.space[4],
   spacingHorizontalMNudge: "10px",
-  spacingHorizontalM: "12px",
-  spacingHorizontalL: "16px",
+  spacingHorizontalM: tokens.space[5],
+  spacingHorizontalL: tokens.space[6],
   spacingHorizontalXL: "20px",
-  spacingHorizontalXXL: "24px",
-  spacingHorizontalXXXL: "32px",
+  spacingHorizontalXXL: tokens.space[7],
+  spacingHorizontalXXXL: tokens.space[8],
 
-  // Accent color — sky blue
-  colorBrandForeground1: "#38bdf8",
-  colorBrandForeground2: "#7dd3fc",
-  colorBrandBackground: "#0c4a6e",
-  colorBrandBackgroundHover: "#075985",
-  colorBrandBackgroundPressed: "#082f49",
+  // Brand — sky blue
+  colorBrandForeground1: tokens.fluent.brandForeground1,
+  colorBrandForeground2: tokens.fluent.brandForeground2,
+  colorBrandBackground: tokens.fluent.brandBackground,
+  colorBrandBackgroundHover: tokens.fluent.brandBackgroundHover,
+  colorBrandBackgroundPressed: tokens.fluent.brandBackgroundPressed,
 
-  // Neutral palette stays dark
-  colorNeutralForeground1: "#e5e7eb",
-  colorNeutralForeground2: "#d1d5db",
-  colorNeutralForeground3: "#9ca3b8",
-  colorNeutralForegroundDisabled: "#4b5563",
-  colorNeutralBackground1: "#0a0e1a",
-  colorNeutralBackground2: "#111827",
-  colorNeutralBackground3: "#1a2236",
-  colorNeutralBackground4: "#1f2937",
+  // Neutral palette
+  colorNeutralForeground1: tokens.fluent.neutralForeground1,
+  colorNeutralForeground2: tokens.fluent.neutralForeground2,
+  colorNeutralForeground3: tokens.fluent.neutralForeground3,
+  colorNeutralForegroundDisabled: tokens.fluent.neutralForegroundDisabled,
+  colorNeutralBackground1: tokens.fluent.neutralBackground1,
+  colorNeutralBackground2: tokens.fluent.neutralBackground2,
+  colorNeutralBackground3: tokens.fluent.neutralBackground3,
+  colorNeutralBackground4: tokens.fluent.neutralBackground4,
 };
 
 export default function SpriteCloudProvider({
