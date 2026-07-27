@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { serverMembers, sessions } from "@/lib/db/schema";
+import { verifyBearerToken } from "@/lib/server-auth";
 import { and, eq, desc } from "drizzle-orm";
 import { randomBytes } from "crypto";
 
@@ -13,10 +14,13 @@ import { randomBytes } from "crypto";
 
 export async function POST(request: NextRequest) {
   const userSession = await auth();
-  if (!userSession?.user?.id) {
-    return NextResponse.json({ error: "sign in required" }, { status: 401 });
+  const userId = userSession?.user?.id;
+  const bearerServer = userId
+    ? null
+    : await verifyBearerToken(request.headers.get("authorization"));
+  if (!userId && !bearerServer) {
+    return NextResponse.json({ error: "sign in or server bearer required" }, { status: 401 });
   }
-  const userId = userSession.user.id;
 
   let body: {
     session_id?: string;
@@ -65,26 +69,38 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "session ended" }, { status: 410 });
   }
 
-  // Auth: the user must either own the session or be a member of the server
-  if (existing.userId !== userId) {
-    const serverId = existing.serverId;
-    if (!serverId) {
-      return NextResponse.json({ error: "session has no server" }, { status: 500 });
+  // LAN proxy: only the exact owning sc-server may rotate this session's
+  // invitation capability. Browser users retain owner/member authorization.
+  if (bearerServer) {
+    if (!existing.serverId || bearerServer.id !== existing.serverId) {
+      return NextResponse.json({ error: "server does not own session" }, { status: 403 });
     }
-    // Check server membership
-    const [member] = await db
-      .select({ id: serverMembers.id })
-      .from(serverMembers)
-      .where(
-        and(
-          eq(serverMembers.serverId, serverId),
-          eq(serverMembers.userId, userId),
-        ),
-      )
-      .limit(1);
+  } else {
+    // The initial authorization gate guarantees this branch has a browser user,
+    // but keep the narrowing explicit for both TypeScript and future edits.
+    if (!userId) {
+      return NextResponse.json({ error: "sign in required" }, { status: 401 });
+    }
+    if (existing.userId !== userId) {
+      const serverId = existing.serverId;
+      if (!serverId) {
+        return NextResponse.json({ error: "session has no server" }, { status: 500 });
+      }
+      // Check server membership
+      const [member] = await db
+        .select({ id: serverMembers.id })
+        .from(serverMembers)
+        .where(
+          and(
+            eq(serverMembers.serverId, serverId),
+            eq(serverMembers.userId, userId),
+          ),
+        )
+        .limit(1);
 
-    if (!member) {
-      return NextResponse.json({ error: "not your session" }, { status: 403 });
+      if (!member) {
+        return NextResponse.json({ error: "not your session" }, { status: 403 });
+      }
     }
   }
 

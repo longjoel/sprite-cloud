@@ -1648,6 +1648,56 @@ describe("POST /api/room/share", () => {
     expect(resp.status).toBe(410);
     expect(mockDb.update).not.toHaveBeenCalled();
   });
+
+  it("allows the exact owning sc-server bearer to rotate a LAN room capability", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{
+      id: "sess-lan",
+      userId: "user-1",
+      serverId: "server-1",
+      status: "playing",
+    }]));
+    let updateSet: Record<string, unknown> | undefined;
+    mockDb.update.mockReturnValueOnce({
+      set: vi.fn((value: Record<string, unknown>) => {
+        updateSet = value;
+        return { where: vi.fn(() => Promise.resolve(undefined)) };
+      }),
+    });
+
+    const { POST } = await import("@/app/api/room/share/route");
+    const req = mkReq("http://localhost/api/room/share", {
+      ...jsonBody({ session_id: "sess-lan" }),
+      headers: { ...jsonBody({}).headers, ...authHeader() },
+    });
+
+    const resp = await POST(req);
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.room_token).toMatch(/^[a-f0-9]{32}$/);
+    expect(updateSet).toMatchObject({ roomToken: body.room_token });
+  });
+
+  it("rejects a sc-server bearer for another server's session", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockVerifyBearerToken.mockResolvedValueOnce({ id: "server-2", userId: "user-2" });
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{
+      id: "sess-lan",
+      userId: "user-1",
+      serverId: "server-1",
+      status: "playing",
+    }]));
+
+    const { POST } = await import("@/app/api/room/share/route");
+    const req = mkReq("http://localhost/api/room/share", {
+      ...jsonBody({ session_id: "sess-lan" }),
+      headers: { ...jsonBody({}).headers, ...authHeader() },
+    });
+
+    const resp = await POST(req);
+    expect(resp.status).toBe(403);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
 });
 
 // ── /api/server/result ─────────────────────────────────────────────────
