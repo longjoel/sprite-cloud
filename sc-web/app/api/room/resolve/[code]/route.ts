@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { sessions, shortCodes, serverMembers, servers } from "@/lib/db/schema";
+import { sessions, shortCodes } from "@/lib/db/schema";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { verifyBearerToken } from "@/lib/server-auth";
 
 // ── GET /api/room/resolve/:code — resolve a short code to game params
 //
-// Auth-aware:
-//   Host (authenticated server member) → host_token for reconnection or restart
-//   Guest (unauthenticated)            → room_token for guest join (no auth needed)
+// Capability-aware:
+//   Owning sc-server bearer → host_token for LAN reconnection or restart
+//   Every browser visitor   → room_token for guest join (no auth needed)
 
 export async function GET(
   request: NextRequest,
@@ -44,29 +43,11 @@ export async function GET(
   const bearerServer = forceGuest
     ? null
     : await verifyBearerToken(request.headers.get("authorization"));
-  let isHost = bearerServer?.id === entry.serverId;
-
-  // Fall back to auth session check when this is not the owning sc-server.
-  if (!isHost && !forceGuest) {
-    const session = await auth();
-    if (session?.user?.id) {
-      const [membership] = await db
-        .select({ role: serverMembers.role })
-        .from(serverMembers)
-        .innerJoin(servers, eq(servers.id, serverMembers.serverId))
-        .where(
-          and(
-            eq(serverMembers.serverId, entry.serverId),
-            eq(serverMembers.userId, session.user.id),
-          ),
-        )
-        .limit(1);
-      isHost = !!membership;
-    }
-  }
+  const isHost = bearerServer?.id === entry.serverId;
 
   if (isHost) {
-    // Authenticated server member → host_token for reconnection or fresh start
+    // Host authority belongs only to the paired server bearer. A browser
+    // session or server membership must never upgrade an invite into host access.
     return NextResponse.json({
       game_id: entry.gameId,
       host_token: entry.hostToken,

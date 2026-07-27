@@ -1369,9 +1369,32 @@ describe("GET /api/room/resolve/[code]", () => {
     expect(mockVerifyBearerToken).toHaveBeenCalledWith("Bearer scsk_test_api_key_12345");
   });
 
+  it("resolves signed-in server members as guests without exposing host authority", async () => {
+    mockVerifyBearerToken.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        gameId: "local_0123456789abcdef0123456789abcdef",
+        hostToken: "host-secret",
+        serverId: "server-1",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{
+        role: "member",
+        roomToken: "room-private",
+        status: "playing",
+      }]));
+    const { GET } = await import("@/app/api/room/resolve/[code]/route");
+    const req = mkReq("http://localhost/api/room/resolve/ABC123");
+
+    const resp = await GET(req, { params: Promise.resolve({ code: "ABC123" }) });
+    const body = await resp.json();
+
+    expect(resp.status).toBe(200);
+    expect(body.room_token).toBe("room-private");
+    expect(body.host_token).toBeUndefined();
+  });
+
   it("does not accept a host capability supplied in the URL query", async () => {
     mockVerifyBearerToken.mockResolvedValueOnce(null);
-    mockAuth.mockResolvedValueOnce(null);
     mockDb.select
       .mockReturnValueOnce(mockQueryBuilder([{
         gameId: "local_0123456789abcdef0123456789abcdef",
