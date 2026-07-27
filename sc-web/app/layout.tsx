@@ -2,7 +2,7 @@ import "@/app/globals.css";
 import "@/components/fluent/tiles.css";
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
-import SpriteCloudProvider from "@/components/fluent/SpriteCloudProvider";
+import MaterialThemeProvider from "@/components/MaterialThemeProvider";
 import { SessionProvider } from "next-auth/react";
 
 export const viewport: Viewport = {
@@ -45,9 +45,9 @@ export default function RootLayout({
       </head>
       <body>
         <SessionProvider>
-          <SpriteCloudProvider>
+          <MaterialThemeProvider>
             {children}
-          </SpriteCloudProvider>
+          </MaterialThemeProvider>
         </SessionProvider>
         <script
           dangerouslySetInnerHTML={{
