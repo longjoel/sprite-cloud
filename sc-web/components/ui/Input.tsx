@@ -1,42 +1,39 @@
 "use client";
 
-import type { InputHTMLAttributes } from "react";
+import { TextField as MuiTextField, type TextFieldProps as MuiTextFieldProps } from "@mui/material";
 
-interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
+interface InputProps extends Omit<MuiTextFieldProps, "variant"> {
   label?: string;
 }
 
-export default function Input({ label, style, ...rest }: InputProps) {
+export default function Input({ label, sx, ...rest }: InputProps) {
   return (
-    <div style={{ marginBottom: "var(--space-5)" }}>
-      {label && (
-        <label
-          style={{
-            display: "block",
-            fontSize: "var(--font-size-sm)",
+    <MuiTextField
+      label={label}
+      variant="outlined"
+      fullWidth
+      slotProps={{
+        input: {
+          sx: {
             fontFamily: "var(--font-mono)",
-            color: "var(--color-text-secondary)",
-            marginBottom: "var(--space-2)",
-          }}
-        >
-          {label}
-        </label>
-      )}
-      <input
-        style={{
-          width: "100%",
-          padding: "var(--space-3) var(--space-4)",
-          background: "var(--color-bg-deep)",
-          border: "1px solid var(--color-border-default)",
+            fontSize: "var(--font-size-base)",
+          },
+        },
+        inputLabel: {
+          sx: {
+            fontFamily: "var(--font-mono)",
+            fontSize: "var(--font-size-sm)",
+          },
+        },
+      }}
+      sx={{
+        "& .MuiOutlinedInput-root": {
           borderRadius: "2px",
-          color: "var(--color-text-primary)",
-          fontFamily: "var(--font-mono)",
-          fontSize: "var(--font-size-base)",
-          outline: "none",
-          ...style,
-        }}
-        {...rest}
-      />
-    </div>
+          "& fieldset": { borderColor: "var(--color-border-default)" },
+        },
+        ...(typeof sx === "function" ? {} : sx),
+      }}
+      {...rest}
+    />
   );
 }

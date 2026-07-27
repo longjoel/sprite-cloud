@@ -2,18 +2,17 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
+import { Box, Button, TextField, Typography, InputAdornment, IconButton } from "@mui/material";
+import { Visibility, VisibilityOff } from "@mui/icons-material";
 
 // ── Setup wizard — first-run admin account creation ───────────────────
 
-export default function SetupClient({
-  initialCode,
-}: {
-  initialCode: string | null;
-}) {
+export default function SetupClient({ initialCode }: { initialCode: string | null }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [code, setCode] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [code, setCode] = useState(initialCode ?? "");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -25,12 +24,10 @@ export default function SetupClient({
       setError("Password must be at least 4 characters");
       return;
     }
-
     if (!code.trim()) {
       setError("Setup code is required — it was printed to the server console on startup");
       return;
     }
-
     setLoading(true);
     try {
       const res = await fetch("/api/auth/setup", {
@@ -44,7 +41,6 @@ export default function SetupClient({
         setLoading(false);
         return;
       }
-
       await signIn("credentials", { email, password, redirect: false });
       window.location.href = "/";
     } catch {
@@ -54,142 +50,64 @@ export default function SetupClient({
   }
 
   return (
-    <div style={styles.page}>
-      <div style={styles.card}>
-        <h1 style={styles.title}>Sprite Cloud</h1>
-        <p style={styles.subtitle}>First-run setup</p>
+    <Box sx={s.page}>
+      <Box sx={s.card}>
+        <Typography variant="h6" align="center" sx={{ fontFamily: "var(--font-mono)", mb: 0.5 }}>
+          Sprite Cloud
+        </Typography>
+        <Typography variant="body2" align="center" color="text.secondary" sx={{ mb: 2.5 }}>
+          First-run setup
+        </Typography>
 
-        <form onSubmit={handleSubmit} style={styles.form}>
-          <input
-            type="text"
-            placeholder="Display name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            style={styles.input}
-            required
-            autoComplete="name"
-          />
-          <input
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            style={styles.input}
-            required
-            autoComplete="email"
-          />
-          <input
-            type="password"
-            placeholder="Password (min 4 chars)"
+        <Box component="form" onSubmit={handleSubmit} sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <TextField label="Display name" value={name} onChange={(e) => setName(e.target.value)} required autoComplete="name" fullWidth />
+          <TextField type="email" label="Email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" fullWidth />
+          <TextField
+            type={showPassword ? "text" : "password"}
+            label="Password (min 4 chars)"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            style={styles.input}
             required
-            minLength={4}
             autoComplete="new-password"
+            fullWidth
+            slotProps={{
+              input: {
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton onClick={() => setShowPassword(!showPassword)} edge="end" size="small">
+                      {showPassword ? <VisibilityOff fontSize="inherit" /> : <Visibility fontSize="inherit" />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              },
+            }}
           />
-          <input
-            type="text"
-            placeholder="Setup code (from server logs)"
+          <TextField
+            label="Setup code (from server logs)"
             value={code}
             onChange={(e) => setCode(e.target.value)}
-            style={{
-              ...styles.input,
-              fontFamily: "var(--font-mono)",
-              letterSpacing: "2px",
-            }}
             required
             autoComplete="off"
+            fullWidth
+            sx={{ "& input": { fontFamily: "var(--font-mono)", letterSpacing: 2 } }}
           />
 
-          {error && <p style={styles.error}>{error}</p>}
+          {error && <Typography color="error" variant="body2" align="center">{error}</Typography>}
 
-          <button type="submit" style={styles.button} disabled={loading}>
+          <Button type="submit" variant="contained" disabled={loading} fullWidth sx={{ fontFamily: "var(--font-mono)" }}>
             {loading ? "…" : "Create Admin Account"}
-          </button>
-        </form>
+          </Button>
+        </Box>
 
-        <p style={styles.hint}>
+        <Typography variant="caption" align="center" color="text.secondary" sx={{ mt: 2, display: "block" }}>
           The setup code is printed in the server console logs on first startup.
-        </p>
-      </div>
-    </div>
+        </Typography>
+      </Box>
+    </Box>
   );
 }
 
-// ── Metro styles (dark cloud palette) ─────────────────────────────────
-
-const styles: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: "100vh",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    background: "var(--color-sky-deep)",
-    padding: "16px",
-  },
-  card: {
-    width: "100%",
-    maxWidth: "360px",
-    background: "var(--color-surface-default)",
-    border: "1px solid var(--color-border-default)",
-    borderRadius: "2px",
-    padding: "32px 24px",
-  },
-  title: {
-    color: "var(--color-text-primary)",
-    fontSize: "20px",
-    fontWeight: 700,
-    textAlign: "center",
-    marginBottom: "4px",
-    fontFamily: "var(--font-mono)",
-  },
-  subtitle: {
-    color: "var(--color-text-secondary)",
-    fontSize: "13px",
-    textAlign: "center",
-    marginBottom: "20px",
-    fontFamily: "var(--font-sans)",
-  },
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px",
-  },
-  input: {
-    padding: "10px 12px",
-    background: "var(--color-bg-deep)",
-    border: "1px solid var(--color-border-default)",
-    borderRadius: "2px",
-    color: "var(--color-text-primary)",
-    fontSize: "13px",
-    fontFamily: "var(--font-sans)",
-    outline: "none",
-  },
-  button: {
-    padding: "10px 0",
-    background: "var(--color-accent)",
-    color: "var(--color-sky-deep)",
-    border: "none",
-    borderRadius: "2px",
-    fontSize: "14px",
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: "var(--font-sans)",
-    marginTop: "4px",
-  },
-  error: {
-    color: "var(--color-error)",
-    fontSize: "12px",
-    textAlign: "center",
-  },
-  hint: {
-    color: "var(--color-text-secondary)",
-    fontSize: "11px",
-    textAlign: "center",
-    marginTop: "16px",
-    fontFamily: "var(--font-sans)",
-    lineHeight: "1.6",
-    opacity: 0.6,
-  },
+const s = {
+  page: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", p: 2 },
+  card: { width: "100%", maxWidth: 360, p: 4, border: "1px solid var(--color-border-default)", borderRadius: "2px" },
 };
