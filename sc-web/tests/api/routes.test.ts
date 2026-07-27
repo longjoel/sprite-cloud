@@ -643,6 +643,28 @@ describe("POST /api/server/command", () => {
     expect(mockDb.insert).toHaveBeenCalledWith(launchEvents);
   });
 
+  it("rejects start_game from a viewer (non-admin) member", async () => {
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{ role: "viewer" }]));
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      ...jsonBodyWithCsrf({ server_id: "server-1", type: "start_game", payload: { game_id: "local_0123456789abcdef0123456789abcdef" } }),
+    });
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(403);
+    expect(await resp.json()).toMatchObject({ error: "host authority required" });
+  });
+
+  it("rejects stop_game from a viewer (non-admin) member", async () => {
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{ role: "viewer" }]));
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      ...jsonBodyWithCsrf({ server_id: "server-1", type: "stop_game", payload: { game_id: "local_0123456789abcdef0123456789abcdef" } }),
+    });
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(403);
+    expect(await resp.json()).toMatchObject({ error: "host authority required" });
+  });
+
   it("queues a server-local opaque game without querying legacy game files", async () => {
     const gameId = "local_0123456789abcdef0123456789abcdef";
     mockDb.select
