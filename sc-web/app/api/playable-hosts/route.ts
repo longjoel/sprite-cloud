@@ -26,8 +26,11 @@ function metadataRecord(metadata: unknown): Record<string, unknown> {
 }
 
 function lanSummary(metadata: unknown): LanSummary | null {
-  const lan = metadataRecord(metadata).lan as LanSummary | undefined;
+  const lan = metadataRecord(metadata).lan as (LanSummary & { lan_player_enabled?: boolean }) | undefined;
   if (!lan || typeof lan !== "object") return null;
+  // Respect explicit server-side disable — a relay-only server publishes
+  // stale URL/interface metadata, but sc-web must treat it as LAN-unavailable.
+  if (lan.lan_player_enabled === false) return null;
   return {
     player_port: typeof lan.player_port === "number" ? lan.player_port : undefined,
     player_urls: Array.isArray(lan.player_urls) ? lan.player_urls.filter((url): url is string => typeof url === "string") : [],
