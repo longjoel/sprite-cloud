@@ -14,22 +14,6 @@ import { touchStateToStandardButtons } from "./input-mapping.js";
 // crypto.randomUUID() is secure-context-only (HTTPS / localhost).
 // On plain HTTP we fall back to crypto.getRandomValues → Math.random.
 
-function isPrivateIP(host) {
-  // .local mDNS names are always LAN
-  if (host.endsWith(".local")) return true;
-  // Check if an IP address is in a private/LAN range.
-  // Returns false for hostnames (not IPs), true for private IPs.
-  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (!ipv4) return false;
-  const b1 = parseInt(ipv4[1], 10), b2 = parseInt(ipv4[2], 10);
-  return (
-    b1 === 10 ||                                    // 10.0.0.0/8
-    b1 === 127 ||                                   // 127.0.0.0/8 loopback
-    (b1 === 172 && b2 >= 16 && b2 <= 31) ||         // 172.16.0.0/12
-    (b1 === 192 && b2 === 168)                      // 192.168.0.0/16
-  );
-}
-
 function randomUUID() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -125,8 +109,7 @@ async function startGame(serverId, gameId, corePath, hostToken, callbacks, sdpOf
     try {
       const q = new URLSearchParams(window.location.search);
       const isLanOrigin = window.location.protocol === "http:"
-        && window.location.port === "8787"
-        && isPrivateIP(window.location.hostname);
+        && window.location.port === "8787";
       if (q.get("route") === "lan" || isLanOrigin) {
         payload.lan = true;
       }
