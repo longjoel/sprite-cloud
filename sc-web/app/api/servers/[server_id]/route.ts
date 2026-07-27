@@ -4,11 +4,12 @@ import { db } from "@/lib/db";
 import {
   servers,
   serverMembers,
-
+  launchEvents,
+  peerTokens,
   commands,
   sessions,
 } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 
 // ── PATCH /api/servers/[server_id] — rename server (admin only) ──────
 
@@ -94,6 +95,21 @@ export async function DELETE(
 
   // Cascade delete: children first, then the server itself
   // Order matters — FK constraints would block out-of-order deletes
+
+  // peerTokens ──► sessions, so find session IDs for this server first
+  const serverSessionRows = await db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(eq(sessions.serverId, server_id));
+
+  const sessionIds = serverSessionRows.map((r) => r.id);
+  if (sessionIds.length > 0) {
+    await db.delete(peerTokens).where(inArray(peerTokens.sessionId, sessionIds));
+  }
+
+  // launchEvents ──► sessions, commands, servers
+  await db.delete(launchEvents).where(eq(launchEvents.serverId, server_id));
+
   await db.delete(sessions).where(eq(sessions.serverId, server_id));
   await db.delete(commands).where(eq(commands.serverId, server_id));
 
