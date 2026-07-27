@@ -185,7 +185,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
 
   const [allGames, setAllGames] = useState<Game[]>([]);
   const [allTotal, setAllTotal] = useState(0);
-  const [allLoading, setAllLoading] = useState(false);
+  const [allLoading, setAllLoading] = useState(true); // start loading — suppresses stale handoff flash
   const [fetchError, setFetchError] = useState(false);
   const hasServers = serverIds.length > 0 || allGames.some((game) => Boolean(game.serverId));
   const needsLanHandoff = session !== null && lanLibraries.length > 0;
