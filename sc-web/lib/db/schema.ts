@@ -200,9 +200,9 @@ export const peerTokens = pgTable(
 
 // ── Short codes (URL-shortener for player reconnection links) ──────────
 //
-// When a host connects, we generate a 6-char code that encodes their
-// game_id, host_token, and server_id. The host can then refresh the
-// short URL (/p/AGFDOY) to reconnect without exposing tokens in query params.
+// Host launches and private room invitations use 16-char (80-bit) codes.
+// The legacy host_token column stores either the UUID-shaped host capability
+// or the rotating 32-hex room capability; the resolver keeps their roles apart.
 
 export const shortCodes = pgTable("short_codes", {
   code: text("code").primaryKey(),

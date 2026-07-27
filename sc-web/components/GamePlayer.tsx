@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useInterval } from "@/lib/poll";
 import { Button, Toast } from "@/components/ui";
 import { csrfHeaders } from "@/components/library-utils";
-import { randomUuid } from "@/lib/browser/random-uuid";
+
 import { QRCodeSVG } from "qrcode.react";
 import RemapPanel from "./GamePlayerRemapPanel";
 import OptionsOverlay from "./OptionsOverlay";
@@ -598,7 +598,7 @@ export default function GamePlayer({
           headers: csrfHeaders(),
           body: JSON.stringify({
             game_id: gameId,
-            host_token: hostToken || randomUuid(),
+            room_token: data.room_token,
             server_id: serverId,
           }),
         });
@@ -609,7 +609,7 @@ export default function GamePlayer({
       } catch { /* best-effort */ }
       finally { setShareRequested(false); }
     })();
-  }, [shareRequested, connected, gameId, serverId, hostToken, roomToken, shortCode, shortCodeProp]);
+  }, [shareRequested, connected, gameId, serverId, roomToken, shortCode, shortCodeProp]);
 
   // Guest/LAN room entry points carry explicit room context. Ordinary solo
   // launches keep disc-room controls out of the primary options hierarchy.

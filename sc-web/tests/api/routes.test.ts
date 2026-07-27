@@ -716,6 +716,27 @@ describe("POST /api/server/command", () => {
     expect(body.sdp_answer).toBe("v=0\r\nanswer");
   });
 
+  it("rejects a private room capability used as a LAN host token", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", jsonBody({
+      server_id: "server-1",
+      type: "start_game",
+      payload: {
+        game_id: "local_0123456789abcdef0123456789abcdef",
+        host_token: "a".repeat(32),
+        lan: true,
+      },
+    }));
+
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(403);
+    expect(await resp.json()).toMatchObject({
+      error: "room capability cannot authorize host actions",
+    });
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
   it("does not auto-inject lan=true from request IP heuristics", async () => {
     const prevLanIps = process.env.GV_SERVER_LAN_IPS;
     process.env.GV_SERVER_LAN_IPS = "192.0.2.1";
@@ -867,6 +888,37 @@ describe("POST /api/room/shorten", () => {
 
     expect(resp.status).toBe(201);
     expect(mockVerifyBearerToken).toHaveBeenCalled();
+  });
+
+  it("binds private invite codes to the active room capability with 80 bits of entropy", async () => {
+    const roomToken = "a".repeat(32);
+    let inserted: Record<string, unknown> | undefined;
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "member" }]))
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "session-1",
+        roomToken,
+        status: "playing",
+      }]));
+    mockDb.insert.mockReturnValueOnce({
+      values: vi.fn((value: Record<string, unknown>) => {
+        inserted = value;
+        return Promise.resolve();
+      }),
+    });
+    const { POST } = await import("@/app/api/room/shorten/route");
+    const resp = await POST(mkReq("http://localhost/api/room/shorten", {
+      ...jsonBody({
+        game_id: "local_0123456789abcdef0123456789abcdef",
+        room_token: roomToken,
+        server_id: "server-1",
+      }),
+    }));
+    const responseBody = await resp.json();
+
+    expect(resp.status).toBe(201);
+    expect(responseBody.code).toMatch(/^[A-HJ-NP-Z2-9]{16}$/);
+    expect(inserted).toMatchObject({ hostToken: roomToken });
   });
 });
 
@@ -1369,7 +1421,32 @@ describe("GET /api/room/resolve/[code]", () => {
     expect(mockVerifyBearerToken).toHaveBeenCalledWith("Bearer scsk_test_api_key_12345");
   });
 
-  it("resolves signed-in server members as guests without exposing host authority", async () => {
+  it("resolves private invite codes as guests even for an owning server bearer", async () => {
+    const roomToken = "a".repeat(32);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        gameId: "local_0123456789abcdef0123456789abcdef",
+        hostToken: roomToken,
+        serverId: "server-1",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{
+        roomToken,
+        status: "playing",
+      }]));
+    const { GET } = await import("@/app/api/room/resolve/[code]/route");
+    const req = mkReq("http://localhost/api/room/resolve/ABCDEFGHIJKLMNOP", {
+      headers: authHeader(),
+    });
+
+    const resp = await GET(req, { params: Promise.resolve({ code: "ABCDEFGHIJKLMNOP" }) });
+    const body = await resp.json();
+
+    expect(resp.status).toBe(200);
+    expect(body.room_token).toBe(roomToken);
+    expect(body.host_token).toBeUndefined();
+  });
+
+  it("returns host launch authority to an explicit server admin", async () => {
     mockVerifyBearerToken.mockResolvedValueOnce(null);
     mockDb.select
       .mockReturnValueOnce(mockQueryBuilder([{
@@ -1377,15 +1454,34 @@ describe("GET /api/room/resolve/[code]", () => {
         hostToken: "host-secret",
         serverId: "server-1",
       }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "admin" }]));
+    const { GET } = await import("@/app/api/room/resolve/[code]/route");
+    const req = mkReq("http://localhost/api/room/resolve/ABCDEFGHIJKLMNOP");
+
+    const resp = await GET(req, { params: Promise.resolve({ code: "ABCDEFGHIJKLMNOP" }) });
+    const body = await resp.json();
+
+    expect(resp.status).toBe(200);
+    expect(body.host_token).toBe("host-secret");
+  });
+
+  it("downgrades ordinary server members with host launch codes to guests", async () => {
+    mockVerifyBearerToken.mockResolvedValueOnce(null);
+    mockDb.select
       .mockReturnValueOnce(mockQueryBuilder([{
-        role: "member",
+        gameId: "local_0123456789abcdef0123456789abcdef",
+        hostToken: "host-secret",
+        serverId: "server-1",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "member" }]))
+      .mockReturnValueOnce(mockQueryBuilder([{
         roomToken: "room-private",
         status: "playing",
       }]));
     const { GET } = await import("@/app/api/room/resolve/[code]/route");
-    const req = mkReq("http://localhost/api/room/resolve/ABC123");
+    const req = mkReq("http://localhost/api/room/resolve/ABCDEFGHIJKLMNOP");
 
-    const resp = await GET(req, { params: Promise.resolve({ code: "ABC123" }) });
+    const resp = await GET(req, { params: Promise.resolve({ code: "ABCDEFGHIJKLMNOP" }) });
     const body = await resp.json();
 
     expect(resp.status).toBe(200);
