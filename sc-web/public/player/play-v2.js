@@ -90,7 +90,7 @@ function guestClientId() {
 
 const RECONNECT_DELAY_MS = 3_000;
 const MAX_RECONNECT_ATTEMPTS = 5;
-const GAME_START_POLL_MS = 100;
+const GAME_START_POLL_MS = 500;
 const GAME_START_TIMEOUT_MS = 60_000;
 
 // ── startGame helper ────────────────────────────────────────────────
@@ -179,6 +179,11 @@ async function startGame(serverId, gameId, corePath, hostToken, callbacks, sdpOf
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ server_id: serverId, worker_token: workerToken }),
     });
+    if (resp.status === 429) {
+      const retryAfter = parseInt(resp.headers.get("Retry-After") || "5", 10);
+      await new Promise((r) => setTimeout(r, Math.min(retryAfter * 1000, 15_000)));
+      continue;
+    }
     if (!resp.ok) {
       throw new Error(`Notify poll failed: HTTP ${resp.status}`);
     }
