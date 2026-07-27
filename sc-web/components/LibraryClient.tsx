@@ -231,7 +231,6 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
   }, []);
 
   const loadAllGames = useCallback(async (reset: boolean, searchTerm: string, current: Game[], total: number) => {
-    if (allLoading) return;
     const offset = reset ? 0 : current.length;
     if (!reset && offset >= total && total > 0) return;
     setAllLoading(true);
@@ -249,7 +248,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
     } finally {
       setAllLoading(false);
     }
-  }, [allLoading, fetchPage]);
+  }, [fetchPage]);
 
   const loadFavorites = useCallback(async (reset: boolean, searchTerm: string, current: Game[], total: number) => {
     if (favLoading && !reset) return;
