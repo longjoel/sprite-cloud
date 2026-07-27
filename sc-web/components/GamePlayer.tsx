@@ -167,6 +167,35 @@ export default function GamePlayer({
 
   const [showInputs, setShowInputs] = useState(true); // controller input overlay
 
+  // ── Gamepad detection ──────────────────────────────────────────────
+
+  const [gamepadConnected, setGamepadConnected] = useState(false);
+
+  useEffect(() => {
+    if (!connected) {
+      setGamepadConnected(false);
+      return;
+    }
+    const poll = () => {
+      const pads = navigator.getGamepads?.() ?? [];
+      const connected = [...pads].some((p) => p?.connected);
+      setGamepadConnected(connected);
+    };
+    poll();
+    const interval = setInterval(poll, 2000);
+    return () => clearInterval(interval);
+  }, [connected]);
+
+  // Auto-hide touch controls when a physical gamepad is connected
+  useEffect(() => {
+    if (gamepadConnected && touchGamepadVisible) {
+      const tg = window.__scTouchGamepad;
+      tg?.hide();
+      setTouchGamepadVisible(false);
+      try { localStorage.setItem('gv:touch-visible', '0'); } catch {}
+    }
+  }, [gamepadConnected]);
+
   const [pipeline, setPipeline] = useState<Record<string, StepState>>(
     () => mergePipeline(defaultPipeline(), initialPipeline),
   );
@@ -301,6 +330,12 @@ export default function GamePlayer({
                 setConnected(true);
                 wakeControls();
                 onConnected?.();
+                // Lock orientation for gameplay on mobile
+                try {
+                  if ("orientation" in screen && (screen.orientation as any)?.lock) {
+                    (screen.orientation as any).lock("landscape").catch(() => {});
+                  }
+                } catch { /* not supported */ }
               }
               if (state === "error") {
                 const activeStep = PIPELINE_STEPS.find(
@@ -318,12 +353,14 @@ export default function GamePlayer({
               setStatsData(stats as Record<string, any>);
             },
             onSaveResult(index: number, ok: boolean, error?: string) {
+              console.log(`[sc] saveState result: ok=${ok} index=${index} error=${error || "none"}`);
               showToast(
                 ok ? `Saved (#${index})` : `Save failed — ${error || "unknown"}`,
                 ok,
               );
             },
             onLoadResult(ok: boolean, error?: string) {
+              console.log(`[sc] loadState result: ok=${ok} error=${error || "none"}`);
               showToast(ok ? "Loaded" : `Load failed — ${error || "unknown"}`, ok);
             },
             onListSaves(_entries: any[], _nextIndex: number) {},
@@ -492,6 +529,47 @@ export default function GamePlayer({
     }
   };
 
+  // ── Wake lock — keep screen on during active streaming ─────────────
+
+  const wakeLockRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!connected) {
+      wakeLockRef.current?.release?.().catch(() => {});
+      wakeLockRef.current = null;
+      return;
+    }
+    const requestWakeLock = async () => {
+      try {
+        if ("wakeLock" in navigator) {
+          wakeLockRef.current = await (navigator as any).wakeLock.request("screen");
+          wakeLockRef.current?.addEventListener?.("release", () => {
+            wakeLockRef.current = null;
+          });
+        }
+      } catch { /* not supported or denied */ }
+    };
+    requestWakeLock();
+    return () => {
+      wakeLockRef.current?.release?.().catch(() => {});
+      wakeLockRef.current = null;
+    };
+  }, [connected]);
+
+  // Re-acquire wake lock on visibility restore
+  useEffect(() => {
+    const onVisible = () => {
+      if (connected && !wakeLockRef.current) {
+        (navigator as any).wakeLock
+          ?.request?.("screen")
+          ?.then((sentinel: any) => { wakeLockRef.current = sentinel; })
+          ?.catch(() => {});
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [connected]);
+
   // ── Save stack ────────────────────────────────────────────────────
 
   const [saveEntries, setSaveEntries] = useState<any[]>([]);
@@ -500,20 +578,30 @@ export default function GamePlayer({
     const scPlay = window.scPlay;
     if (!scPlay || !playerRef.current) {
       showToast("Not connected", false);
+      console.warn("[sc] saveState: not connected (no scPlay or playerRef)");
       return;
     }
+    console.log("[sc] saveState: sending save_state command");
     const ok = scPlay.saveState(playerRef.current);
-    if (!ok) showToast("Not connected", false);
+    if (!ok) {
+      console.warn("[sc] saveState: sendCommand returned false (DC not open)");
+      showToast("Not connected", false);
+    }
   };
 
   const handleLoad = () => {
     const scPlay = window.scPlay;
     if (!scPlay || !playerRef.current) {
       showToast("Not connected", false);
+      console.warn("[sc] loadState: not connected (no scPlay or playerRef)");
       return;
     }
+    console.log("[sc] loadState: sending load_state command");
     const ok = scPlay.loadState(playerRef.current);
-    if (!ok) showToast("Not connected", false);
+    if (!ok) {
+      console.warn("[sc] loadState: sendCommand returned false (DC not open)");
+      showToast("Not connected", false);
+    }
   };
 
   const handleLoadAt = (index: number) => {
@@ -661,6 +749,13 @@ export default function GamePlayer({
             <span className={styles.audioLabelLong}>{audioMuted ? "Unmute audio" : "Mute audio"}</span>
             <span className={styles.audioLabelCompact}>Audio</span>
           </Button>
+          <span
+            className={styles.gamepadIndicator}
+            title={gamepadConnected ? "Controller connected" : "No controller detected"}
+            aria-label={gamepadConnected ? "Controller connected" : "No controller detected"}
+          >
+            {gamepadConnected ? "🎮" : "🎮⃠"}
+          </span>
           <button
             ref={optionsTriggerRef}
             className={`${styles.topBarBtn}`}

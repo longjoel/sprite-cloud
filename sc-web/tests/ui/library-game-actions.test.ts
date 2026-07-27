@@ -37,25 +37,23 @@ describe("library presentation chrome", () => {
     expect(librarySource).not.toContain("librarySurfaceHeader");
   });
 
-  it("uses initial skeletons and a subtle infinite-load sentinel", () => {
+  it("uses initial skeletons in metro groups during loading", () => {
     expect(librarySource).not.toContain(">Loading...</");
-    expect(librarySource).toContain("library-skeleton-grid");
-    expect(librarySource).toContain("library-load-sentinel");
+    expect(librarySource).toContain("metro-canvas");
+    expect(librarySource).toContain("library-skeleton-tile");
   });
 });
 
-describe("classic table row actions", () => {
-  it("provides a labelled mobile overflow menu with labelled action rows", () => {
-    expect(librarySource).toContain('className="library-row-overflow"');
-    expect(librarySource).toContain('className="library-row-overflow-actions"');
-    expect(librarySource).toContain("More actions for ${game.name}");
-    expect(librarySource).toContain("Add ${game.name} to favorites");
-    expect(librarySource).toContain("Pin ${game.name}");
-    expect(librarySource).toContain("Rename ${game.name}");
+describe("metro group layout", () => {
+  it("renders groups in a horizontally scrollable canvas", () => {
+    expect(librarySource).toContain("metro-canvas");
+    expect(librarySource).toContain("TileGroup");
   });
 
-  it("expands mobile row actions in document flow instead of clipping them in the table scroller", () => {
-    expect(tileStyles).toMatch(/@media \(max-width:640px\)[\s\S]*\.library-row-overflow-actions\s*\{[^}]*position:\s*static/);
+  it("shows mobile overflow actions inline using GameTile built-in overflow", () => {
+    // On mobile (<640px), the tile's overflow menu (.game-tile-overflow) becomes visible
+    expect(tileStyles).toContain("@media (max-width:640px)");
+    expect(tileStyles).toContain(".game-tile-overflow");
   });
 });
 

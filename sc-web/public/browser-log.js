@@ -125,6 +125,27 @@
     } catch {
       safeReferrer = undefined;
     }
+
+    // Detect client kind: pwa > desktop (Tauri) > mobile (Capacitor) > web
+    let clientKind = "web";
+    if (window.matchMedia("(display-mode: standalone)").matches) {
+      clientKind = "pwa";
+    }
+    if (typeof window.__TAURI__ !== "undefined" || window.__TAURI_INTERNALS__) {
+      clientKind = "desktop";
+    }
+    if (typeof window.Capacitor !== "undefined") {
+      clientKind = "mobile";
+    }
+
+    // Read app version (set by server-rendered meta or env)
+    const versionMeta = document.querySelector('meta[name="app-version"]');
+    const clientVersion = versionMeta?.getAttribute("content") || undefined;
+
+    // Platform/OS detection
+    const platform = nav.platform || undefined;
+    const vendor = nav.vendor || undefined;
+
     return {
       href: clampString(`${location.origin}${safePath}${safeQuery.size ? `?${safeQuery}` : ""}`, 500),
       path: clampString(safePath, 200),
@@ -138,6 +159,10 @@
       online: nav.onLine,
       visibilityState: document.visibilityState,
       referrer: clampString(safeReferrer || "", 300) || undefined,
+      clientKind,
+      clientVersion,
+      platform,
+      vendor,
       connection: connection
         ? {
             effectiveType: clampString(connection.effectiveType, 32),

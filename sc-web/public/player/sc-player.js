@@ -951,6 +951,7 @@ export class ScPlayer {
         }
         break;
       case "save_result":
+        console.log(`[sc-player] DC received save_result: ok=${msg.ok} index=${msg.index} error=${msg.error || "none"}`);
         if (this.onSaveResult) {
           try {
             this.onSaveResult({ index: msg.index, ok: msg.ok, error: msg.error });
@@ -958,6 +959,7 @@ export class ScPlayer {
         }
         break;
       case "load_result":
+        console.log(`[sc-player] DC received load_result: ok=${msg.ok} error=${msg.error || "none"}`);
         if (this.onLoadResult) {
           try {
             this.onLoadResult({ ok: msg.ok, error: msg.error });

@@ -1989,6 +1989,40 @@ describe("GET /api/playable-hosts", () => {
     expect(body.hosts[0].lan.health_urls).toEqual(["http://192.0.2.50:8787/health"]);
   });
 
+  it("disables LAN routing when the host reports relay-only mode", async () => {
+    mockDb.select.mockReturnValue(
+      mockQueryBuilder([
+        {
+          serverId: "server-relay-only",
+          serverName: "Public VPS",
+          lastSeenAt: new Date(),
+          metadata: {
+            interfaces: [{ name: "eth0", address: "72.60.27.9" }],
+            ice: { turn_configured: true },
+            lan: {
+              lan_player_enabled: false,
+              player_port: 8787,
+              player_urls: ["http://72.60.27.9:8787/"],
+              health_urls: ["http://72.60.27.9:8787/health"],
+            },
+          },
+          gameFileId: "gf-relay-only",
+        },
+      ]),
+    );
+
+    const { GET } = await import("@/app/api/playable-hosts/route");
+    const req = mkReq(
+      "http://localhost/api/playable-hosts?game_id=local_0123456789abcdef0123456789abcdef&server_id=server-relay-only",
+      { headers: { "x-forwarded-for": "192.168.86.50" } },
+    );
+    const resp = await GET(req);
+    const body = await resp.json();
+
+    expect(body.hosts[0].capabilities).toEqual({ lan: false, stun: true, turn: true });
+    expect(body.hosts[0].lan).toBeNull();
+  });
+
   it("returns all-false capabilities when metadata is missing", async () => {
     mockDb.select.mockReturnValue(
       mockQueryBuilder([
@@ -2017,7 +2051,7 @@ describe("GET /api/client/bootstrap", () => {
     expect(body.servers).toEqual([]);
     expect(body.library).toBeNull();
     expect(body.deepLinks.hostPattern).toBe("/p/:code");
-    expect(body.features.xmb).toBe(true);
+    expect(body.features.pwa).toBe(true);
   });
 
   it("returns auth + server memberships without cloud library metadata", async () => {

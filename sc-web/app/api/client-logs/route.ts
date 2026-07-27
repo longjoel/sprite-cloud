@@ -98,6 +98,16 @@ export async function POST(req: NextRequest) {
         eventContext: context,
         args,
         detail,
+        // Client identity fields for Grafana dashboard
+        clientKind: typeof topContext === "object" && topContext !== null
+          ? (topContext as Record<string, unknown>).clientKind
+          : undefined,
+        clientVersion: typeof topContext === "object" && topContext !== null
+          ? (topContext as Record<string, unknown>).clientVersion
+          : undefined,
+        clientPlatform: typeof topContext === "object" && topContext !== null
+          ? (topContext as Record<string, unknown>).platform
+          : undefined,
       }));
       accepted += 1;
     }

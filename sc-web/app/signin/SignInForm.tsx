@@ -23,7 +23,7 @@ export default function SignInForm() {
       if (result?.error) {
         setError("Invalid email or password");
       } else {
-        window.location.href = "/xmb";
+        window.location.href = "/";
       }
     } catch {
       setError("Something went wrong");
@@ -51,7 +51,7 @@ export default function SignInForm() {
         setError(data.error || "Sign-up failed");
       } else {
         await signIn("credentials", { email, password, redirect: false });
-        window.location.href = "/xmb";
+        window.location.href = "/";
       }
     } catch {
       setError("Something went wrong");

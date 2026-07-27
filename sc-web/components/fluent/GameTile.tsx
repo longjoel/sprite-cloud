@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import { Card, Badge } from "@fluentui/react-components";
 import { Star20Regular, Star20Filled, Edit20Regular, Pin20Regular, Pin20Filled, MoreHorizontal20Regular, Desktop20Regular } from "@fluentui/react-icons";
 import { getPlatformColor } from "@/lib/platformColors";
+import { getBoxartUrl } from "@/lib/covers/thumbnail-urls";
 
 interface TileGame {
   id: string;
@@ -31,6 +32,10 @@ const sizeClassMap = { square: "tile-square", wide: "tile-wide", large: "tile-la
 export default function GameTile({ game, size = "square", isFavorite = false, isPinned = false, onPlay, onToggleFavorite, onTogglePin, onEdit, onChooseHost, launching = false }: GameTileProps) {
   const nameRef = useRef<HTMLSpanElement>(null);
   const [overflows, setOverflows] = useState(false);
+  const [imgError, setImgError] = useState(false);
+
+  const coverUrl = getBoxartUrl(game.name, game.platform);
+  const platformColor = getPlatformColor(game.platform);
 
   useEffect(() => {
     const element = nameRef.current;
@@ -70,7 +75,21 @@ export default function GameTile({ game, size = "square", isFavorite = false, is
   );
 
   return (
-    <Card focusMode="off" className={`game-tile ${sizeClassMap[size]} ${isFavorite ? "is-favorite" : ""} ${isPinned ? "is-pinned" : ""}`.trim()} appearance="filled-alternative" style={{ userSelect: "none", background: getPlatformColor(game.platform) }}>
+    <Card
+      focusMode="off"
+      className={`game-tile ${sizeClassMap[size]} ${isFavorite ? "is-favorite" : ""} ${isPinned ? "is-pinned" : ""} ${coverUrl && !imgError ? "has-cover" : ""}`.trim()}
+      appearance="filled-alternative"
+      style={{ userSelect: "none", background: platformColor }}
+    >
+      {coverUrl && !imgError && (
+        <img
+          src={coverUrl}
+          alt=""
+          className="game-tile-cover"
+          loading="lazy"
+          onError={() => setImgError(true)}
+        />
+      )}
       <button disabled={launching} className="game-tile-play-target" aria-label={`Play ${game.name}`} onClick={() => onPlay(game)}>
         {launching && <span>Launching…</span>}
       </button>

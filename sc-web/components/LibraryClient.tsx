@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
+import TileGroup from "@/components/fluent/TileGroup";
 import AppHeader from "@/components/fluent/AppHeader";
 import LibraryToolbar from "@/components/LibraryToolbar";
 import { Star20Filled, Star20Regular, Pin20Filled, Pin20Regular, Edit20Regular, Desktop20Regular } from "@fluentui/react-icons";
@@ -589,6 +590,54 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session }:
     [sortedGames, tab],
   );
 
+  // ── Metro groups ────────────────────────────────────────────────
+
+  const metroGroups = useMemo(() => {
+    const platformGames = new Map<string, Game[]>();
+    for (const game of mergeLibraryPages(allGames, []) as Game[]) {
+      const platform = game.platform || "Other";
+      const list = platformGames.get(platform) || [];
+      list.push(game);
+      platformGames.set(platform, list);
+    }
+
+    const groups: { label: string; games: Game[] }[] = [];
+
+    // Pins (curated by user)
+    if (pinnedGames.length > 0) {
+      groups.push({ label: "Pinned", games: pinnedGames });
+    }
+
+    // Favorites
+    const favs = (allGames as Game[]).filter((g) => favoriteIds.has(g.id));
+    if (favs.length > 0) {
+      groups.push({ label: "Favorites", games: favs });
+    }
+
+    // Recently Played
+    if (recentGames.length > 0) {
+      groups.push({ label: "Recently Played", games: recentGames.slice(0, 50) });
+    }
+
+    // Platform groups (alphabetical)
+    const sortedPlatforms = [...platformGames.keys()].sort();
+    for (const platform of sortedPlatforms) {
+      const games = platformGames.get(platform)!;
+      // Filter by search + platform filter
+      const filtered = selectedPlatforms.size > 0
+        ? games.filter((g) => selectedPlatforms.has(g.platform))
+        : games;
+      const searched = search
+        ? filtered.filter((g) => g.name.toLowerCase().includes(search.toLowerCase()))
+        : filtered;
+      if (searched.length > 0) {
+        groups.push({ label: platform, games: searched });
+      }
+    }
+
+    return groups;
+  }, [allGames, pinnedGames, recentGames, favoriteIds, search, selectedPlatforms]);
+
   // ── Render helpers ──────────────────────────────────────────────
 
   const gameActions: GameActionModel = {
@@ -675,12 +724,11 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session }:
   // ── Render ──────────────────────────────────────────────────────
 
   return (
-    <main style={styles.main}>
+    <main className="metro-viewport">
       <AppHeader
         userName={session?.user?.name || session?.user?.email || undefined}
         links={[
           ...(session ? [{ label: "Dashboard", href: "/dashboard" }] : []),
-          { label: "XMB", href: "/xmb" },
           ...(session
             ? [{ label: "Sign out", href: "/api/auth/signout" }]
             : [{ label: "Sign in", href: "/api/auth/signin" }]),
@@ -691,124 +739,104 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session }:
         <div style={styles.banner}>Sign in to play games on your server.</div>
       )}
 
-      <section style={styles.section}>
-        <h2 style={{ ...styles.h2, marginBottom: "var(--space-4)" }}>Library</h2>
-
-        {needsLanHandoff && allGames.length === 0 && !allLoading && (
-          <div style={styles.lanHandoff}>
-            <strong>Your games stay on sc-server</strong>
-            <span>No games synced yet. Open the library on your LAN server, or upgrade sc-server to sync.</span>
-            <div style={styles.lanHandoffLinks}>
-              {lanLibraries.map((library) => (
-                <a key={library.serverId} href={library.url} style={styles.lanHandoffLink}>
-                  {`Open ${library.name} library`}
-                </a>
-              ))}
-            </div>
+      {needsLanHandoff && allGames.length === 0 && !allLoading && (
+        <div style={styles.lanHandoff}>
+          <strong>Your games stay on sc-server</strong>
+          <span>No games synced yet. Open the library on your LAN server, or upgrade sc-server to sync.</span>
+          <div style={styles.lanHandoffLinks}>
+            {lanLibraries.map((library) => (
+              <a key={library.serverId} href={library.url} style={styles.lanHandoffLink}>
+                {`Open ${library.name} library`}
+              </a>
+            ))}
           </div>
-        )}
+        </div>
+      )}
 
-        <LibraryToolbar
-          activeSection={tab}
-          counts={{ all: allTotal, favorites: favTotal, recent: recentTotal, pins: pinnedGames.length }}
-          search={searchInput}
-          platforms={uniquePlatforms}
-          platformCounts={platformCounts}
-          selectedPlatforms={selectedPlatforms}
-          viewMode={viewMode}
-          onSectionChange={setTab}
-          onSearchChange={setSearchInput}
-          onPlatformToggle={(platform) => setSelectedPlatforms((previous) => {
-            const next = new Set(previous);
-            if (next.has(platform)) next.delete(platform); else next.add(platform);
-            return next;
-          })}
-          onClearPlatforms={() => setSelectedPlatforms(new Set())}
-          onViewModeChange={setViewMode}
-        />
+      {/* Search + platform filter bar (compact overlay) */}
+      <LibraryToolbar
+        activeSection={tab}
+        counts={{ all: allTotal, favorites: favTotal, recent: recentTotal, pins: pinnedGames.length }}
+        search={searchInput}
+        platforms={uniquePlatforms}
+        platformCounts={platformCounts}
+        selectedPlatforms={selectedPlatforms}
+        viewMode={viewMode}
+        onSectionChange={setTab}
+        onSearchChange={setSearchInput}
+        onPlatformToggle={(platform) => setSelectedPlatforms((previous) => {
+          const next = new Set(previous);
+          if (next.has(platform)) next.delete(platform); else next.add(platform);
+          return next;
+        })}
+        onClearPlatforms={() => setSelectedPlatforms(new Set())}
+        onViewModeChange={setViewMode}
+      />
 
-
-        {/* Game grid / table */}
-        {currentLoading && currentGames.length === 0 ? (
-          viewMode === "grid" ? (
-            <div className="library-skeleton-grid" aria-label="Loading games">
-              {Array.from({ length: 8 }, (_, index) => <div key={index} className="library-skeleton-tile" />)}
+      {/* Metro tile groups — horizontal scroll */}
+      {allLoading && allGames.length === 0 ? (
+        <div className="metro-canvas" aria-label="Loading games">
+          {Array.from({ length: 3 }, (_, i) => (
+            <div key={i} className="tile-group" style={{ minWidth: 320 }}>
+              <div className="tile-group-header" style={{ height: 32, background: "rgba(255,255,255,.03)", borderRadius: 4, width: 120 }} />
+              <div className="tile-group-grid">
+                {Array.from({ length: 4 }, (_, j) => (
+                  <div key={j} className="library-skeleton-tile" />
+                ))}
+              </div>
             </div>
-          ) : (
-            <div aria-label="Loading games">
-              {Array.from({ length: 8 }, (_, index) => <div key={index} className="library-skeleton-row" />)}
-            </div>
-          )
-        ) : sortedGames.length === 0 ? (
+          ))}
+        </div>
+      ) : metroGroups.length === 0 ? (
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <p style={styles.empty}>
             {needsLanHandoff && allGames.length === 0
-              ? "No games synced from your servers. Upgrade sc-server on your LAN host to v0.11.3."
+              ? "No games synced from your servers. Upgrade sc-server on your LAN host."
               : selectedPlatforms.size > 0
               ? "No games match the selected platforms."
-              : tab === "all" ? "No games found." : tab === "favorites" ? "No favorites yet." : tab === "pins" ? "No pinned games yet." : "No recent plays."}
+              : "No games found."}
           </p>
-        ) : viewMode === "grid" ? (
-          <>
-            {tab === "recent" ? recentGroups.map((group) => (
-              <section key={group.date} style={styles.recentGroup}>
-                <h3 style={styles.recentDate}>{formatRecentGroupLabel(group.date)}</h3>
-                <div className="game-tile-grid">
-                  {group.games.map((game) => (
-                    <div key={libraryGameKey(game)}>
-                      {renderGameCard(game)}
-                      <div style={styles.recentAge}>{formatRelativeAge(game.playedAt)}</div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )) : (
-              <div className="game-tile-grid">
-                {sortedGames.map((game) => renderGameCard(game))}
-              </div>
-            )}
-          </>
-        ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              fontSize: "var(--font-size-sm)",
-              fontFamily: "var(--font-mono)",
-            }}>
-              <thead>
-                <tr style={{
-                  borderBottom: "2px solid var(--color-sky-high)",
-                  color: "var(--color-cloud-dim)",
-                  fontSize: "var(--font-size-xs)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                }}>
-                  <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600 }}>Name</th>
-                  <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600 }}>Platform</th>
-                  <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Players</th>
-                  {tab === "recent" && <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600 }}>Last played</th>}
-                  <th style={{ textAlign: "right", padding: "10px 14px", fontWeight: 600 }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tab === "recent" ? recentGroups.flatMap((group, groupIndex) => [
-                  <tr key={`date-${group.date}`}>
-                    <th scope="rowgroup" colSpan={5} style={styles.recentTableDate}>{formatRecentGroupLabel(group.date)}</th>
-                  </tr>,
-                  ...group.games.map((game, index) => renderGameRow(
-                    game,
-                    recentGroups.slice(0, groupIndex).reduce((count, previous) => count + previous.games.length, 0) + index,
-                  )),
-                ]) : sortedGames.map((game, i) => renderGameRow(game, i))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {hasMore && currentGames.length > 0 && (
-          <div ref={sentinelRef} className={`library-load-sentinel${currentLoading ? " is-loading" : ""}`} aria-hidden="true" />
-        )}
-      </section>
+        </div>
+      ) : (
+        <div className="metro-canvas">
+          {metroGroups.map((group) => (
+            <TileGroup key={group.label} label={group.label}>
+              {group.games.map((game) => (
+                <GameTile
+                  key={libraryGameKey(game)}
+                  game={{
+                    id: game.id,
+                    serverId: (game as Game).serverId ?? null,
+                    name: game.name,
+                    platform: game.platform,
+                    maxPlayers: (game as Game).maxPlayers ?? 1,
+                  }}
+                  isFavorite={favoriteIds.has(game.id)}
+                  isPinned={pinnedIds.has(game.id)}
+                  launching={launchingGame === libraryGameKey(game)}
+                  onPlay={(g) => gameActions.onPlay(g)}
+                  onToggleFavorite={
+                    gameActions.canFavorite && gameActions.onToggleFavorite
+                      ? (id, e) => gameActions.onToggleFavorite!(id, e)
+                      : undefined
+                  }
+                  onTogglePin={
+                    gameActions.canPin && gameActions.onTogglePin
+                      ? (id, e) => gameActions.onTogglePin!(id, e)
+                      : undefined
+                  }
+                  onEdit={gameActions.canRename && gameActions.onRename
+                    ? (g) => gameActions.onRename!(g)
+                    : undefined}
+                  onChooseHost={gameActions.onChooseHost
+                    ? (g) => gameActions.onChooseHost!(g)
+                    : undefined}
+                />
+              ))}
+            </TileGroup>
+          ))}
+        </div>
+      )}
 
       {/* ── Host picker ──────────────────────────────────────────── */}
       <Modal open={hostPickerGame !== null} onClose={closeHostPicker} title="Choose host">

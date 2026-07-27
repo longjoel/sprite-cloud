@@ -36,6 +36,7 @@ export default function RootLayout({
       <head>
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
         <link rel="manifest" href="/manifest.json" />
+        <meta name="app-version" content={process.env.NEXT_PUBLIC_APP_VERSION || "0.0.0"} />
         <Script src="/browser-log.js" strategy="beforeInteractive" />
         <script
           dangerouslySetInnerHTML={{

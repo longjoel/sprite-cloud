@@ -469,10 +469,12 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
   };
 
   player.onSaveResult = ({ index, ok, error }) => {
+    console.log(`[sc-player] onSaveResult: ok=${ok} index=${index} error=${error || "none"}`);
     callbacks.onSaveResult?.(index, ok, error);
   };
 
   player.onLoadResult = ({ ok, error }) => {
+    console.log(`[sc-player] onLoadResult: ok=${ok} error=${error || "none"}`);
     callbacks.onLoadResult?.(ok, error);
   };
 
@@ -495,12 +497,17 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
  * Send a JSON command over the player's DataChannel.
  */
 function sendCommand(player, cmd) {
-  if (!player._dc || player._dc.readyState !== "open") return false;
+  if (!player._dc || player._dc.readyState !== "open") {
+    console.warn("[sc-player] sendCommand: DC not open, readyState=", player._dc?.readyState, "cmd=", cmd.cmd);
+    return false;
+  }
   try {
-    player._dc.send(JSON.stringify(cmd));
+    const json = JSON.stringify(cmd);
+    player._dc.send(json);
+    console.log("[sc-player] sendCommand: sent", cmd.cmd, json.length, "bytes");
     return true;
   } catch (e) {
-    console.warn("[gv] sendCommand failed:", e?.message || e);
+    console.warn("[sc-player] sendCommand failed:", e?.message || e);
     return false;
   }
 }

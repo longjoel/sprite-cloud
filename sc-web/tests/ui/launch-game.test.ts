@@ -11,17 +11,6 @@ describe("launch-game utility", () => {
       const { buildPlayerPath } = await import("@/lib/ui/launch-game");
       expect(buildPlayerPath("abc123")).toBe("/p/abc123");
     });
-
-    it("appends shell=xmb query param when shell is specified", async () => {
-      const { buildPlayerPath } = await import("@/lib/ui/launch-game");
-      expect(buildPlayerPath("abc123", "xmb")).toBe("/p/abc123?shell=xmb");
-    });
-
-    it("does not append shell param when shell is empty or undefined", async () => {
-      const { buildPlayerPath } = await import("@/lib/ui/launch-game");
-      expect(buildPlayerPath("abc123", "")).toBe("/p/abc123");
-      expect(buildPlayerPath("abc123", undefined)).toBe("/p/abc123");
-    });
   });
 
   describe("createLaunchShortCode", () => {

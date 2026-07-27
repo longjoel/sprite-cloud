@@ -1,5 +1,5 @@
 // Shared launch lifecycle utilities.
-// Used by XMB, classic library, and any future launcher to create short
+// Used by the classic library and any future launcher to create short
 // codes and build player URLs in one canonical place.
 import { csrfHeaders } from "@/components/library-utils";
 import { randomUuid } from "@/lib/browser/random-uuid";
@@ -46,12 +46,7 @@ export async function createLaunchShortCode(
 
 /**
  * Build the canonical player path for a given short code.
- * Optionally append a shell parameter (e.g. "xmb") so the player page
- * knows which shell to return to on close / back.
  */
-export function buildPlayerPath(code: string, shell?: string): string {
-  if (shell) {
-    return `/p/${code}?shell=${encodeURIComponent(shell)}`;
-  }
+export function buildPlayerPath(code: string): string {
   return `/p/${code}`;
 }

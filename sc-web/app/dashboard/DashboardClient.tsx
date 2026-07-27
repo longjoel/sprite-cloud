@@ -459,6 +459,13 @@ export default function DashboardClient({ memberships }: Props) {
           </div>
         </section>
       )}
+
+      <footer style={S.versionFooter}>
+        <span style={S.versionText}>
+          sc-web {process.env.NEXT_PUBLIC_APP_VERSION || "0.2.0"}
+          {process.env.GV_WEB_GIT_SHA ? ` (${process.env.GV_WEB_GIT_SHA.slice(0, 7)})` : ""}
+        </span>
+      </footer>
     </>
   );
 }
@@ -788,5 +795,16 @@ const S = {
     padding: "var(--space-5)",
     background: "rgba(10,14,26,0.45)",
     border: "1px solid rgba(56,189,248,0.12)",
+  },
+  versionFooter: {
+    marginTop: "var(--space-8)",
+    paddingTop: "var(--space-5)",
+    borderTop: "1px solid var(--color-sky-high)",
+    textAlign: "center" as const,
+  },
+  versionText: {
+    color: "var(--color-cloud-dim)",
+    fontSize: "var(--font-size-xs)",
+    fontFamily: "var(--font-mono)",
   },
 } satisfies Record<string, React.CSSProperties | Record<string, React.CSSProperties>>;

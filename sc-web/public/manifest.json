@@ -2,7 +2,7 @@
   "name": "Sprite Cloud",
   "short_name": "SpriteCloud",
   "description": "Cloud retro gaming — stream your library",
-  "start_url": "/xmb",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",

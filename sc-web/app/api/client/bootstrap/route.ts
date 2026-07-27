@@ -21,7 +21,6 @@ export async function GET() {
 
   const features = {
     pwa: true,
-    xmb: true,
     guestPlay: true,
     multiController: true,
   };

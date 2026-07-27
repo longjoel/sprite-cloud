@@ -25,7 +25,23 @@ export interface LaunchHost {
 export function canUseLanPlayer(
   probe: { reachable: boolean; reason?: string },
 ): boolean {
-  return probe.reachable || probe.reason === "mixed_content_blocked";
+  if (probe.reachable) return true;
+  // mixed_content_blocked happens when an HTTPS page tries to reach an HTTP
+  // LAN URL. On actual LAN this is a positive signal (the LAN host is there
+  // but the browser blocks the mixed-content probe). On cellular / remote
+  // networks the probe would also be mixed-content-blocked — we cannot
+  // distinguish the two cases from JS alone. The server-side playable-hosts
+  // API already strips LAN URLs for non-private-IP clients, so when this
+  // function is reached with mixed_content_blocked, the client is on a
+  // private IP and the redirect to HTTP LAN is safe.
+  if (probe.reason === "mixed_content_blocked") {
+    // In SSR (no window) or HTTPS pages: treat as positive LAN signal.
+    // The server-side API already strips LAN URLs for non-private-IP clients.
+    if (typeof window === "undefined") return true;
+    if (window.location.protocol === "https:") return true;
+    return false;
+  }
+  return false;
 }
 
 /** Returns a host only when normal Play has an unambiguous healthy target. */

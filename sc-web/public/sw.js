@@ -1,8 +1,8 @@
-// Sprite Cloud PWA service worker — caches the XMB shell + cover art.
+// Sprite Cloud PWA service worker — caches the shell + cover art.
 const CACHE = "sprite-cloud-v1";
 
-// Shell assets — pre-cached on install for instant offline XMB
-const SHELL = ["/xmb", "/manifest.json"];
+// Shell assets — pre-cached on install for instant offline shell
+const SHELL = ["/", "/manifest.json"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -46,7 +46,7 @@ self.addEventListener("fetch", (event) => {
   }
 
   // Network-first for API + dynamic content, cache fallback for shell
-  if (url.pathname === "/xmb" || url.pathname.startsWith("/_next/")) {
+  if (url.pathname === "/" || url.pathname.startsWith("/_next/")) {
     event.respondWith(
       fetch(request)
         .then((resp) => {

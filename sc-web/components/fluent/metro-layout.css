@@ -1,0 +1,70 @@
+/* ── Metro horizontal-scroll tile groups ─────────────────────────── */
+
+.metro-viewport {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--color-sky-deep, #0a0e1a);
+}
+
+.metro-canvas {
+  flex: 1;
+  display: flex;
+  gap: 40px;
+  padding: 24px 40px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.15) transparent;
+}
+
+.metro-canvas::-webkit-scrollbar { height: 6px; }
+.metro-canvas::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 3px; }
+
+/* ── Tile group ──────────────────────────────────────────────────── */
+
+.tile-group {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 320px;
+  max-width: 640px;
+}
+
+.tile-group-header {
+  margin: 0;
+  font-family: var(--font-display, "Segoe UI", system-ui, sans-serif);
+  font-size: 28px;
+  font-weight: 200;
+  letter-spacing: 0.02em;
+  color: var(--color-cloud, #e8ecf1);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.tile-group-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  width: 100%;
+}
+
+/* Wide tiles span full group width */
+.tile-group-grid .tile-wide { grid-column: span 2; }
+.tile-group-grid .tile-large { grid-column: span 2; grid-row: span 2; }
+
+/* ── Responsive ──────────────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .metro-canvas {
+    gap: 24px;
+    padding: 16px 20px;
+  }
+  .tile-group { min-width: 280px; max-width: 480px; }
+  .tile-group-header { font-size: 22px; }
+  .tile-group-grid { gap: 8px; }
+}

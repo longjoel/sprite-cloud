@@ -8,13 +8,7 @@ const playerPageSource = readFileSync(
   "utf8",
 );
 
-describe("/p/[code] player page (Task 13 — shell=xmb)", () => {
-  it("detects shell=xmb and sets homeUrl to /xmb for Back navigation", () => {
-    // When shell=xmb is present, the home URL should go back to XMB
-    expect(playerPageSource).toContain("shell");
-    expect(playerPageSource).toContain("/xmb");
-  });
-
+describe("/p/[code] player page", () => {
   it("preserves LAN proxy pass-through with route=lan", () => {
     // LAN route detection must still work independently of shell param
     expect(playerPageSource).toContain('"route"');
