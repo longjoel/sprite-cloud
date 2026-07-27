@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["sc-server", "sc-core", "libretro-runner", "sc-desktop"]
+members = ["sc-server", "sc-core", "libretro-runner"]
 
 # Patch webrtc-rs crates from fork (UDPMux ufrag fix — PR: fix/udp-mux-ufrag)
 [patch.crates-io]
