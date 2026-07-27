@@ -596,8 +596,8 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
     isFavorite: (gameId: string) => favoriteIds.has(gameId),
     isPinned: (gameId: string) => pinnedIds.has(gameId),
     onPlay: handlePlay,
-    onToggleFavorite: handleToggleFavorite,
-    onTogglePin: handleTogglePin,
+    onToggleFavorite: undefined, // hidden pending #586
+    onTogglePin: undefined,      // hidden pending #586
     onRename: startRename,
     onChooseHost: hasServers ? chooseHost : undefined,
   };
