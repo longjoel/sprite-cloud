@@ -424,6 +424,7 @@ pub(super) async fn handle_stop_game(
     tracing::info!("[POLL] stop_game game={game_id}");
 
     let target_session_id = cmd.payload.get("session_id").and_then(|v| v.as_str());
+    let mut stopped = false;
     if let Some(target_session_id) = target_session_id {
         let matches_current = sessions
             .get(game_id)
@@ -433,21 +434,26 @@ pub(super) async fn handle_stop_game(
             && let Some(session) = sessions.remove(game_id)
         {
             session.cancel.cancel();
+            stopped = true;
         } else if sessions.contains_key(game_id) {
             tracing::warn!("[POLL] ignoring stale stop for a superseded game session");
+        } else {
+            tracing::info!("[POLL] stop_game for already-ended session {game_id}, skipping notify");
         }
     } else {
         tracing::warn!("[POLL] stop_game command missing exact cloud session id");
     }
-    let _ = client
-        .notify_stop(
-            &cmd.id,
-            &cmd.lease_token,
-            game_id,
-            target_session_id,
-        )
-        .await
-        .map_err(|e| tracing::warn!("[POLL] notify_stop failed for {}: {:#}", game_id, e));
+    if stopped {
+        let _ = client
+            .notify_stop(
+                &cmd.id,
+                &cmd.lease_token,
+                game_id,
+                target_session_id,
+            )
+            .await
+            .map_err(|e| tracing::warn!("[POLL] notify_stop failed for {}: {:#}", game_id, e));
+    }
 }
 
 pub(super) async fn handle_sdp_offer(
