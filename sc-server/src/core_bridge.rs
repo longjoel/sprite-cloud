@@ -144,14 +144,30 @@ fn ensure_extracted_rom(rom_path: &str, game_id: &str) -> String {
 // ── Core download (unchanged) ──────────────────────────────────────
 
 fn resolve_system_dir() -> String {
-    std::env::var("GV_SYSTEM_DIR").unwrap_or_else(|_| "/tmp".into())
+    if let Ok(dir) = std::env::var("GV_SYSTEM_DIR") {
+        let dir = dir.trim().to_string();
+        if !dir.is_empty() {
+            return dir;
+        }
+    }
+    CONFIGURED_SYSTEM_DIR
+        .get()
+        .cloned()
+        .unwrap_or_else(|| "/tmp".into())
 }
 
 static CONFIGURED_CORES_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+static CONFIGURED_SYSTEM_DIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 pub fn configure_cores_dir(path: &str) {
     if !path.trim().is_empty() {
         let _ = CONFIGURED_CORES_DIR.set(PathBuf::from(path));
+    }
+}
+
+pub fn configure_system_dir(path: &str) {
+    if !path.trim().is_empty() {
+        let _ = CONFIGURED_SYSTEM_DIR.set(path.to_string());
     }
 }
 

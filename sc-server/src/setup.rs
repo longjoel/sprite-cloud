@@ -82,10 +82,32 @@ pub async fn run() -> Result<()> {
     };
     println!("  ✓ Cores: {}", cores_dir);
     println!();
+
+    // ── 3. System directory (BIOS files) ────────────────────────────
+    let default_system = dirs::data_local_dir()
+        .context("no local data directory")?
+        .join("sprite-cloud").join("system");
+    println!("  Some cores need BIOS/system files (e.g. disksys.rom for NES FDS).");
+    print!("  System/BIOS directory [{}]: ", default_system.display());
+    stdout.flush()?;
+    let mut system_dir = String::new();
+    reader.read_line(&mut system_dir)?;
+    let system_dir = system_dir.trim().to_string();
+    let system_dir = if system_dir.is_empty() {
+        let d = default_system.to_string_lossy().to_string();
+        std::fs::create_dir_all(&d).context("create system dir")?;
+        d
+    } else {
+        std::fs::create_dir_all(&system_dir).context("create system dir")?;
+        system_dir
+    };
+    println!("  ✓ System dir: {}", system_dir);
+
+    println!();
     println!("  Connect your server after setup:");
     println!("    {}/dashboard", sc_web_url.trim_end_matches('/'));
 
-    // ── 3. NAT check ─────────────────────────────────────────────
+    // ── 4. NAT check ─────────────────────────────────────────────
     println!();
     println!("  Checking network...");
     let detection = match nat::detect(&[
@@ -125,7 +147,7 @@ pub async fn run() -> Result<()> {
         println!("  → You'll need a TURN server for remote/mobile players.");
     }
 
-    // ── 4. ICE policy ────────────────────────────────────────────
+    // ── 5. ICE policy ────────────────────────────────────────────
     print!("  ICE transport policy [{}]: ", ice_policy);
     stdout.flush()?;
     let mut policy = String::new();
@@ -138,7 +160,7 @@ pub async fn run() -> Result<()> {
     };
     println!("  ✓ ICE policy: {}", ice_policy);
 
-    // ── 5. STUN server ───────────────────────────────────────────
+    // ── 6. STUN server ───────────────────────────────────────────
     let default_stun = "stun:stun.l.google.com:19302";
     print!("  STUN server [{}]: ", default_stun);
     stdout.flush()?;
@@ -152,7 +174,7 @@ pub async fn run() -> Result<()> {
     };
     println!("  ✓ STUN: {}", stun_url);
 
-    // ── 6. Save config ───────────────────────────────────────────
+    // ── 7. Save config ───────────────────────────────────────────
     let cfg = config::Config {
         sc_web: config::ScWeb { url: sc_web_url },
         auth: existing
@@ -170,6 +192,7 @@ pub async fn run() -> Result<()> {
             })
         },
         cores: Some(config::Cores { dir: cores_dir }),
+        system: Some(config::System { dir: system_dir }),
         ice: Some(config::Ice {
             stun_url,
             policy: ice_policy,
