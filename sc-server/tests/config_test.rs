@@ -12,6 +12,7 @@ fn save_and_load_roundtrip() {
         },
         rom: None,
         cores: None,
+        system: None,
         ice: None,
     };
 
