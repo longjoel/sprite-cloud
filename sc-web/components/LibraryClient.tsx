@@ -596,8 +596,8 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
   // ── Render helpers ──────────────────────────────────────────────
 
   const gameActions: GameActionModel = {
-    canFavorite: true,
-    canPin: true,
+    canFavorite: false, // hidden pending #586
+    canPin: false,      // hidden pending #586
     canRename: true,
     isFavorite: (gameId: string) => favoriteIds.has(gameId),
     isPinned: (gameId: string) => pinnedIds.has(gameId),
