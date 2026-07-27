@@ -16,14 +16,6 @@ interface Step {
   link?: { label: string; href: string };
 }
 
-interface LandingPageProps {
-  publicWatchPreview?: {
-    gameName: string;
-    platform: string;
-    href: string;
-    status: "spawning" | "ready" | "connected" | "playing";
-  } | null;
-}
 
 const STEPS: Step[] = [
   {
@@ -45,7 +37,7 @@ const STEPS: Step[] = [
   },
 ];
 
-export default function LandingPage({ publicWatchPreview }: LandingPageProps) {
+export default function LandingPage() {
   const [cookieDismissed, setCookieDismissed] = useState(false);
 
   const scrollToGuide = (e: React.MouseEvent) => {
@@ -77,38 +69,13 @@ export default function LandingPage({ publicWatchPreview }: LandingPageProps) {
             monthly fees. Just your ROMs, your server, your games.
           </p>
           <div style={s.ctaRow}>
-            <Link href={publicWatchPreview?.href || "/watch"} style={s.ctaPrimary}>
-              {publicWatchPreview ? "Watch Live" : "Try Public Demo"}
-            </Link>
-            <a href="#guide" onClick={scrollToGuide} style={s.ctaSecondary}>
-              How It Works
+            <a href="#guide" onClick={scrollToGuide} style={s.ctaPrimary}>
+              Get Started
             </a>
-            <Link href="/signin" style={s.ctaSecondaryMuted}>
+            <Link href="/signin" style={s.ctaSecondary}>
               Sign In
             </Link>
           </div>
-          {publicWatchPreview ? (
-            <div style={s.liveCard}>
-              <div style={s.liveKicker}>Live now</div>
-              <div style={s.liveTitle}>{publicWatchPreview.gameName}</div>
-              <div style={s.liveMetaRow}>
-                <span style={s.liveMetaPill}>{publicWatchPreview.platform}</span>
-                <span style={s.liveMetaPill}>{publicWatchPreview.status}</span>
-                <span style={{ ...s.liveMetaPill, ...s.liveMetaPillAccent }}>No account required</span>
-              </div>
-              <p style={s.liveBody}>
-                Jump straight into a real active session. Watch first, then sign in later if you want your own library and server.
-              </p>
-            </div>
-          ) : (
-            <div style={s.liveCardMuted}>
-              <div style={s.liveKicker}>Public path</div>
-              <div style={s.liveTitle}>Open a real session without an account.</div>
-              <p style={s.liveBody}>
-                The watch link is permanent. If no live demo is running, we’ll tell you and keep sign-in available as the fallback.
-              </p>
-            </div>
-          )}
         </div>
         <div style={s.heroVisual}>
           <div style={s.visualStack}>
@@ -169,12 +136,9 @@ export default function LandingPage({ publicWatchPreview }: LandingPageProps) {
       <section style={s.bottomCta}>
         <h2 style={s.bottomTitle}>Want your own library?</h2>
         <p style={s.bottomSub}>
-          Watch first. When you want your own server, create an account and pair sc-server.
+          Create an account, pair your server, and stream your own library.
         </p>
         <div style={{ display: "flex", gap: 14, justifyContent: "center" }}>
-          <Link href={publicWatchPreview?.href || "/watch"} style={s.ctaSecondary}>
-            Watch / Try
-          </Link>
           <Link href="/signin" style={s.ctaPrimary}>
             Create Account
           </Link>
@@ -332,60 +296,6 @@ const s: Record<string, React.CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-  },
-  liveCard: {
-    marginTop: "24px",
-    padding: "16px 18px",
-    background: "rgba(56,189,248,0.08)",
-    border: "1px solid rgba(56,189,248,0.18)",
-    maxWidth: 460,
-  },
-  liveCardMuted: {
-    marginTop: "24px",
-    padding: "16px 18px",
-    background: "rgba(17,24,39,0.55)",
-    border: "1px solid rgba(56,189,248,0.12)",
-    maxWidth: 460,
-  },
-  liveKicker: {
-    color: "var(--color-accent)",
-    fontSize: "var(--font-size-xs)",
-    textTransform: "uppercase",
-    letterSpacing: "0.08em",
-    marginBottom: "8px",
-  },
-  liveTitle: {
-    color: "var(--color-cloud)",
-    fontSize: "var(--font-size-lg)",
-    fontWeight: 700,
-  },
-  liveMetaRow: {
-    display: "flex",
-    gap: "8px",
-    flexWrap: "wrap",
-    marginTop: "10px",
-  },
-  liveMetaPill: {
-    display: "inline-flex",
-    alignItems: "center",
-    padding: "2px 8px",
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(10,14,26,0.5)",
-    color: "var(--color-cloud-dim)",
-    fontSize: "var(--font-size-xs)",
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
-  },
-  liveMetaPillAccent: {
-    color: "var(--color-accent)",
-    border: "1px solid rgba(56,189,248,0.24)",
-    background: "rgba(56,189,248,0.12)",
-  },
-  liveBody: {
-    margin: "12px 0 0",
-    color: "var(--color-cloud-dim)",
-    lineHeight: 1.6,
-    fontSize: "var(--font-size-sm)",
   },
   visualStack: {
     display: "flex",
