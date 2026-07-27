@@ -128,7 +128,7 @@ describe("GameTile actions", () => {
     expect(choose.tagName).toBe("BUTTON");
     expect(play.disabled).toBe(true);
     expect(choose.disabled).toBe(true);
-    expect(play.textContent).toContain("Launching");
+    expect(tile.querySelector(".MuiCircularProgress-root")).not.toBeNull();
   });
 
   it("uses a recognizable Fluent desktop icon and a visible desktop label", () => {

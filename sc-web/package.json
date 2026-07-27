@@ -14,9 +14,11 @@
     "cleanup:once": "tsx scripts/cleanup.ts"
   },
   "dependencies": {
-    "@fluentui/react-components": "^9.74.3",
-    "@fluentui/react-icons": "^2.0.331",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
     "@fluentui/tokens": "1.0.0-alpha.23",
+    "@mui/icons-material": "^9.2.0",
+    "@mui/material": "^9.2.0",
     "bcryptjs": "^3.0.3",
     "drizzle-orm": "^0.45.2",
     "next": "^15.0.0",

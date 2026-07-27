@@ -6,7 +6,7 @@ import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
 import AppHeader from "@/components/fluent/AppHeader";
 import LibraryToolbar from "@/components/LibraryToolbar";
-import { Star20Filled, Star20Regular, Pin20Filled, Pin20Regular, Edit20Regular, Desktop20Regular } from "@fluentui/react-icons";
+import { Star, StarBorder, PushPin, PushPinOutlined, Edit, DesktopWindows } from "@mui/icons-material";
 import { buildLanPlayerLaunchUrl, canUseLanPlayer, chooseLaunchHost, createLaunchRequestGate, formatLaunchError } from "@/lib/lan/launch";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
 import { createAllLibraryPageParams, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, createPlayableHostsParams, filterLibraryGames, formatRecentGroupLabel, formatRelativeAge, groupRecentGamesByLocalDate, libraryGameKey, mergeLibraryPages, mergeRecentLibraryPages, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
@@ -649,17 +649,17 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
       <td style={{ padding: "8px 14px", textAlign: "right" }}>
         <div className="library-row-actions">
           <div className="library-row-secondary-actions">
-            {gameActions.canFavorite && gameActions.onToggleFavorite && <button aria-label={gameActions.isFavorite(game.id) ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`} onClick={(e) => gameActions.onToggleFavorite?.(game.id, e)}>{gameActions.isFavorite(game.id) ? <Star20Filled /> : <Star20Regular />}</button>}
-            {gameActions.canPin && gameActions.onTogglePin && <button aria-label={gameActions.isPinned(game.id) ? `Unpin ${game.name}` : `Pin ${game.name}`} onClick={(e) => gameActions.onTogglePin?.(game.id, e)}>{gameActions.isPinned(game.id) ? <Pin20Filled /> : <Pin20Regular />}</button>}
-            {gameActions.canRename && gameActions.onRename && <button aria-label={`Rename ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onRename?.(game); }}><Edit20Regular /></button>}
+            {gameActions.canFavorite && gameActions.onToggleFavorite && <button aria-label={gameActions.isFavorite(game.id) ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`} onClick={(e) => gameActions.onToggleFavorite?.(game.id, e)}>{gameActions.isFavorite(game.id) ? <Star fontSize="inherit" /> : <StarBorder fontSize="inherit" />}</button>}
+            {gameActions.canPin && gameActions.onTogglePin && <button aria-label={gameActions.isPinned(game.id) ? `Unpin ${game.name}` : `Pin ${game.name}`} onClick={(e) => gameActions.onTogglePin?.(game.id, e)}>{gameActions.isPinned(game.id) ? <PushPin fontSize="inherit" /> : <PushPinOutlined fontSize="inherit" />}</button>}
+            {gameActions.canRename && gameActions.onRename && <button aria-label={`Rename ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onRename?.(game); }}><Edit fontSize="inherit" /></button>}
           </div>
           {(gameActions.canFavorite || gameActions.canPin || gameActions.canRename || gameActions.onChooseHost) && <details className="library-row-overflow">
               <summary aria-label={`More actions for ${game.name}`}><span aria-hidden="true">⋯</span></summary>
               <div className="library-row-overflow-actions">
-                {gameActions.canFavorite && gameActions.onToggleFavorite && <button aria-label={gameActions.isFavorite(game.id) ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`} onClick={(e) => gameActions.onToggleFavorite?.(game.id, e)}>{gameActions.isFavorite(game.id) ? <Star20Filled /> : <Star20Regular />}<span>{gameActions.isFavorite(game.id) ? "Remove favorite" : "Add favorite"}</span></button>}
-                {gameActions.canPin && gameActions.onTogglePin && <button aria-label={gameActions.isPinned(game.id) ? `Unpin ${game.name}` : `Pin ${game.name}`} onClick={(e) => gameActions.onTogglePin?.(game.id, e)}>{gameActions.isPinned(game.id) ? <Pin20Filled /> : <Pin20Regular />}<span>{gameActions.isPinned(game.id) ? "Unpin" : "Pin"}</span></button>}
-                {gameActions.canRename && gameActions.onRename && <button aria-label={`Rename ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onRename?.(game); }}><Edit20Regular /><span>Rename</span></button>}
-                {gameActions.onChooseHost && <button disabled={launchingGame === libraryGameKey(game)} aria-label={`Choose host for ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onChooseHost?.(game); }}><Desktop20Regular /><span>Choose host…</span></button>}
+                {gameActions.canFavorite && gameActions.onToggleFavorite && <button aria-label={gameActions.isFavorite(game.id) ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`} onClick={(e) => gameActions.onToggleFavorite?.(game.id, e)}>{gameActions.isFavorite(game.id) ? <Star fontSize="inherit" /> : <StarBorder fontSize="inherit" />}<span>{gameActions.isFavorite(game.id) ? "Remove favorite" : "Add favorite"}</span></button>}
+                {gameActions.canPin && gameActions.onTogglePin && <button aria-label={gameActions.isPinned(game.id) ? `Unpin ${game.name}` : `Pin ${game.name}`} onClick={(e) => gameActions.onTogglePin?.(game.id, e)}>{gameActions.isPinned(game.id) ? <PushPin fontSize="inherit" /> : <PushPinOutlined fontSize="inherit" />}<span>{gameActions.isPinned(game.id) ? "Unpin" : "Pin"}</span></button>}
+                {gameActions.canRename && gameActions.onRename && <button aria-label={`Rename ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onRename?.(game); }}><Edit fontSize="inherit" /><span>Rename</span></button>}
+                {gameActions.onChooseHost && <button disabled={launchingGame === libraryGameKey(game)} aria-label={`Choose host for ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onChooseHost?.(game); }}><DesktopWindows fontSize="inherit" /><span>Choose host…</span></button>}
               </div>
             </details>}
           <Button disabled={!hasServers || launchingGame === libraryGameKey(game)} variant="primary" size="sm" aria-label={`Play ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onPlay(game); }}>
