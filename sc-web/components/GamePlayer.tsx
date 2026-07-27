@@ -11,6 +11,7 @@ import { QRCodeSVG } from "qrcode.react";
 import RemapPanel from "./GamePlayerRemapPanel";
 import OptionsOverlay from "./OptionsOverlay";
 import ControllerLayoutPanel from "./ControllerLayoutPanel";
+import type { PlayerCapabilities } from "@/lib/capabilities";
 import {
   blockPlayerPanels,
   closePlayerPanel,
@@ -108,6 +109,8 @@ interface GamePlayerProps {
   hostToken?: string;       // pre-existing host token for reconnection
   joinToken?: string;       // pre-existing room token for guest join
   shortCode?: string;       // pre-existing short code (LAN proxy pass-through)
+  capabilities?: PlayerCapabilities;  // role-based capabilities from resolve/join
+  seat?: number;            // guest seat number (1-based for player display)
   onClose?: () => void;
   onConnected?: () => void; // fired when WebRTC connects
   onFatalError?: (msg: string) => void; // fired on connection failure — page can show error screen
@@ -127,6 +130,8 @@ export default function GamePlayer({
   hostToken,
   joinToken: joinTokenProp,
   shortCode: shortCodeProp,
+  capabilities,
+  seat,
   onClose,
   onConnected,
   onFatalError,
@@ -689,6 +694,8 @@ export default function GamePlayer({
           onOpenRoom={roomControlsRelevant ? () => openPanel("room") : undefined}
           onQrCode={hostToken ? handleQrCode : undefined}
           onStats={() => openPanel("stats")}
+          capabilities={capabilities}
+          seat={seat}
         />
       )}
 

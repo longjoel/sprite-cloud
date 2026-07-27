@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import OptionsOverlay from "@/components/OptionsOverlay";
+import { hostCapabilities } from "@/lib/capabilities";
 
 const playerSource = readFileSync("components/GamePlayer.tsx", "utf8");
 const playerCss = readFileSync("components/GamePlayer.module.css", "utf8");
@@ -101,6 +102,7 @@ describe("player option hierarchy", () => {
           onOpenRoom={withRoom ? actions.room : undefined}
           onQrCode={actions.share}
           onStats={actions.stats}
+          capabilities={hostCapabilities()}
         />,
       );
     });
