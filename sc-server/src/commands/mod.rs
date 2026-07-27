@@ -38,6 +38,7 @@ fn apply_pairing(
         },
         rom: None,
         cores: None,
+        system: None,
         ice: None,
     });
     cfg.sc_web.url = sc_web_url.to_string();
@@ -109,6 +110,9 @@ pub(crate) async fn cmd_start(
     let mut cfg = config::load().context("load config (run 'sc-server pair' first)")?;
     if let Some(cores) = cfg.cores.as_ref() {
         core_bridge::configure_cores_dir(&cores.dir);
+    }
+    if let Some(system) = cfg.system.as_ref() {
+        core_bridge::configure_system_dir(&system.dir);
     }
     let library_preferences = crate::player_server::open_library_preferences()
         .context("load local library preferences")?;
@@ -373,6 +377,9 @@ async fn cmd_start_standalone(no_lan_player: bool) -> Result<()> {
     if let Some(cores) = cfg.as_ref().and_then(|config| config.cores.as_ref()) {
         core_bridge::configure_cores_dir(&cores.dir);
     }
+    if let Some(system) = cfg.as_ref().and_then(|config| config.system.as_ref()) {
+        core_bridge::configure_system_dir(&system.dir);
+    }
     let rom_roots = config::effective_rom_roots(cfg.as_ref());
 
     if rom_roots.is_empty() {
@@ -472,6 +479,7 @@ mod tests {
             cores: Some(config::Cores {
                 dir: "/games/cores".into(),
             }),
+            system: None,
             ice: Some(config::Ice {
                 stun_url: "stun:example.test:3478".into(),
                 policy: "all".into(),

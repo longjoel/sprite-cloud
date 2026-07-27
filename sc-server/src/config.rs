@@ -14,6 +14,8 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cores: Option<Cores>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<System>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ice: Option<Ice>,
 }
 
@@ -42,6 +44,12 @@ pub struct Rom {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Cores {
     /// Directory containing libretro cores (.so files).
+    pub dir: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct System {
+    /// Directory for BIOS / system files required by libretro cores.
     pub dir: String,
 }
 
@@ -127,6 +135,20 @@ pub fn effective_rom_roots(config: Option<&Config>) -> Vec<String> {
     select_rom_roots(csv_env("GV_ROM_ROOTS"), config)
 }
 
+/// Return system directory using an explicit runtime override first, then persisted config.
+pub fn effective_system_dir(config: Option<&Config>) -> String {
+    if let Ok(dir) = std::env::var("GV_SYSTEM_DIR") {
+        let dir = dir.trim().to_string();
+        if !dir.is_empty() {
+            return dir;
+        }
+    }
+    config
+        .and_then(|cfg| cfg.system.as_ref())
+        .map(|s| s.dir.clone())
+        .unwrap_or_else(|| "/tmp".into())
+}
+
 fn select_rom_roots(env_roots: Vec<String>, config: Option<&Config>) -> Vec<String> {
     if !env_roots.is_empty() {
         return env_roots;
@@ -155,6 +177,7 @@ mod tests {
                 roots: roots.iter().map(|root| (*root).to_string()).collect(),
             }),
             cores: None,
+            system: None,
             ice: None,
         }
     }
