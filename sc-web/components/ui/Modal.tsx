@@ -1,5 +1,8 @@
 "use client";
 
+import { Dialog, DialogTitle, DialogContent, IconButton, type DialogProps } from "@mui/material";
+import { Close } from "@mui/icons-material";
+
 interface ModalProps {
   open: boolean;
   onClose: () => void;
@@ -18,74 +21,41 @@ export default function Modal({
   backdropClose = true,
   width = 400,
 }: ModalProps) {
-  if (!open) return null;
+  const handleClose: DialogProps["onClose"] = (_event, reason) => {
+    if (!backdropClose && reason === "backdropClick") return;
+    onClose();
+  };
 
   return (
-    <>
-      <div
-        onClick={backdropClose ? onClose : undefined}
-        style={{
-          position: "fixed",
-          inset: 0,
-          background: "rgba(0,0,0,0.65)",
-          zIndex: 90,
-        }}
-      />
-      <div
-        style={{
-          position: "fixed",
-          top: "50%",
-          left: "50%",
-          transform: "translate(-50%, -50%)",
-          background: "var(--color-surface-default)",
-          border: "1px solid var(--color-border-default)",
-          borderRadius: "2px",
-          padding: "var(--space-7) var(--space-8)",
-          zIndex: 95,
-          minWidth: 320,
-          maxWidth: width,
-          maxHeight: "80vh",
-          overflowY: "auto",
-        }}
-      >
-        {title && (
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: "var(--space-6)",
-            }}
+    <Dialog
+      open={open}
+      onClose={handleClose}
+      aria-labelledby={title ? "modal-title" : undefined}
+      slotProps={{
+        paper: {
+          sx: {
+            minWidth: 320,
+            maxWidth: width,
+            borderRadius: "2px",
+            border: "1px solid var(--color-border-default)",
+          },
+        },
+      }}
+    >
+      {title && (
+        <DialogTitle id="modal-title" sx={{ fontFamily: "var(--font-mono)", pr: 6 }}>
+          {title}
+          <IconButton
+            aria-label="Close dialog"
+            onClick={onClose}
+            size="small"
+            sx={{ position: "absolute", right: 12, top: 12 }}
           >
-            <h3
-              style={{
-                margin: 0,
-                fontSize: "var(--font-size-lg)",
-                fontFamily: "var(--font-mono)",
-                color: "var(--color-text-primary)",
-              }}
-            >
-              {title}
-            </h3>
-            <button
-              onClick={onClose}
-              style={{
-                background: "none",
-                border: "none",
-                color: "var(--color-text-secondary)",
-                cursor: "pointer",
-                fontSize: "var(--font-size-lg)",
-                fontFamily: "var(--font-mono)",
-                padding: 0,
-                lineHeight: 1,
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        )}
-        {children}
-      </div>
-    </>
+            <Close fontSize="inherit" />
+          </IconButton>
+        </DialogTitle>
+      )}
+      <DialogContent>{children}</DialogContent>
+    </Dialog>
   );
 }
