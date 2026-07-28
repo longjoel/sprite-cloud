@@ -7,10 +7,10 @@ import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
 import AppHeader from "@/components/fluent/AppHeader";
 import LibraryToolbar from "@/components/LibraryToolbar";
-import { Star, StarBorder, PushPin, PushPinOutlined, Edit, DesktopWindows } from "@mui/icons-material";
+import { Star, StarBorder, Edit, DesktopWindows } from "@mui/icons-material";
 import { buildLanPlayerLaunchUrl, canUseLanPlayer, chooseLaunchHost, createLaunchRequestGate, formatLaunchError } from "@/lib/lan/launch";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
-import { createAllLibraryPageParams, createLatestRequestGate, createLibraryFilters, createLibraryPageParams, createPlayableHostsParams, filterLibraryGames, formatRecentGroupLabel, formatRelativeAge, groupRecentGamesByLocalDate, libraryGameKey, mergeLibraryPages, mergeRecentLibraryPages, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
+import { createLatestRequestGate, createLibraryFilters, createLibraryPageParams, createPlayableHostsParams, filterLibraryGames, formatRecentGroupLabel, formatRelativeAge, groupRecentGamesByLocalDate, isSavedGameFavorite, libraryGameKey, mergeLibraryPages, mergeRecentLibraryPages, migrateLegacyPinsToFavorites, toggleSavedGameFavorite, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
 import type { LanLibraryLink } from "@/lib/lan/library-handoff";
 import { randomUuid } from "@/lib/browser/random-uuid";
 
@@ -27,13 +27,13 @@ interface Game {
 
 interface GameActionModel {
   canFavorite: boolean;
-  canPin: boolean;
+
   canRename: boolean;
-  isFavorite: (gameId: string) => boolean;
-  isPinned: (gameId: string) => boolean;
+  isFavorite: (game: Game) => boolean;
+
   onPlay: (game: Game) => void;
-  onToggleFavorite?: (gameId: string, e: React.MouseEvent) => void;
-  onTogglePin?: (gameId: string, e: React.MouseEvent) => void;
+  onToggleFavorite?: (game: Game, e: React.MouseEvent) => void;
+
   onRename?: (game: Game) => void;
   onChooseHost?: (game: Game) => void;
 }
@@ -65,7 +65,7 @@ interface LibraryClientProps {
 }
 
 const PAGE_SIZE = 100;
-const MAX_PINS = 20;
+
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -118,13 +118,6 @@ function loadFavorites(): Set<string> {
 function saveFavorites(ids: Set<string>) {
   localStorage.setItem(LS_FAVORITES, JSON.stringify([...ids]));
 }
-function loadPins(): Set<string> {
-  try { return new Set(JSON.parse(localStorage.getItem(LS_PINS) || "[]")); }
-  catch { return new Set(); }
-}
-function savePins(ids: Set<string>) {
-  localStorage.setItem(LS_PINS, JSON.stringify([...ids]));
-}
 function loadRenames(): Record<string, string> {
   try { return JSON.parse(localStorage.getItem(LS_RENAMES) || "{}"); }
   catch { return {}; }
@@ -173,26 +166,27 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
   const hasServers = serverIds.length > 0 || allGames.some((game) => Boolean(game.serverId));
   const needsLanHandoff = session !== null && lanLibraries.length > 0;
 
-  const [favGames, setFavGames] = useState<Game[]>([]);
-  const [favTotal, setFavTotal] = useState(0);
-  const [favLoading, setFavLoading] = useState(false);
 
   const [recentGames, setRecentGames] = useState<Game[]>([]);
   const [recentTotal, setRecentTotal] = useState(0);
   const [recentLoading, setRecentLoading] = useState(false);
-  const favoritesRequests = useRef(createLatestRequestGate());
   const recentRequests = useRef(createLatestRequestGate());
 
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
-  const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
-  const [pinnedGames, setPinnedGames] = useState<Game[]>([]);
-  const [pinsLoading, setPinsLoading] = useState(false);
+
 
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  // Suppressed pending #586 — favorites/pins backend not yet implemented.
+  // Favorites are intentionally browser-local, including on paired LAN pages;
+  // server-provided preference fields belong to the standalone sc-server UI.
+  // Fold browser-local legacy pins into Favorites once without losing data.
   useEffect(() => {
-    return;
+    try {
+      setFavoriteIds(migrateLegacyPinsToFavorites(localStorage, LS_FAVORITES, LS_PINS));
+    } catch (error) {
+      console.warn("Could not migrate legacy pins to Favorites; legacy data was retained", error);
+      setFavoriteIds(loadFavorites());
+    }
   }, []);
 
 
@@ -219,7 +213,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
     setAllLoading(true);
     try {
       const primaryPlatform = selectedPlatforms.size === 1 ? [...selectedPlatforms][0] : undefined;
-      const data = await fetchPage("/api/games", createAllLibraryPageParams(PAGE_SIZE, offset, searchTerm, primaryPlatform));
+      const data = await fetchPage("/api/games", createLibraryPageParams(PAGE_SIZE, offset, searchTerm, primaryPlatform));
       setAllGames(reset ? data.games : mergeLibraryPages(current, data.games));
       setAllTotal(data.total);
       setFetchError(false);
@@ -243,26 +237,6 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
     }
   }, [fetchPage]);
 
-  const loadFavorites = useCallback(async (reset: boolean, searchTerm: string, current: Game[], total: number) => {
-    if (favLoading && !reset) return;
-    const offset = reset ? 0 : current.length;
-    if (!reset && offset >= total && total > 0) return;
-    const generation = reset ? favoritesRequests.current.beginReset() : favoritesRequests.current.current();
-    setFavLoading(true);
-    try {
-      const data = await fetchPage("/api/favorites", createLibraryPageParams(PAGE_SIZE, offset, searchTerm));
-      if (!favoritesRequests.current.isCurrent(generation)) return;
-      setFavGames(reset ? data.games : [...current, ...data.games]);
-      setFavTotal(data.total);
-    } catch {
-      if (reset && favoritesRequests.current.isCurrent(generation)) {
-        setFavGames([]);
-        setFavTotal(0);
-      }
-    } finally {
-      if (favoritesRequests.current.isCurrent(generation)) setFavLoading(false);
-    }
-  }, [favLoading, fetchPage]);
 
   const loadRecent = useCallback(async (reset: boolean, searchTerm: string, current: Game[], total: number) => {
     if (recentLoading && !reset) return;
@@ -291,7 +265,6 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
 
   useEffect(() => {
     if (needsLanHandoff) return;
-    if (tab === "favorites") loadFavorites(true, search, [], 0);
     if (tab === "recent") loadRecent(true, search, [], 0);
   }, [tab, search, needsLanHandoff]);
 
@@ -305,8 +278,8 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
         if (entries[0].isIntersecting) {
           if (tab === "all" && allGames.length < allTotal) {
             loadAllGames(false, search, allGames, allTotal);
-          } else if (tab === "favorites" && favGames.length < favTotal) {
-            loadFavorites(false, search, favGames, favTotal);
+          } else if (tab === "favorites" && allGames.length < allTotal) {
+            loadAllGames(false, search, allGames, allTotal);
           } else if (tab === "recent" && recentGames.length < recentTotal) {
             loadRecent(false, search, recentGames, recentTotal);
           }
@@ -316,7 +289,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
     );
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [tab, allGames.length, allTotal, favGames.length, favTotal, recentGames.length, recentTotal, search]);
+  }, [tab, allGames.length, allTotal, recentGames.length, recentTotal, search]);
 
   // ── Play handler ─────────────────────────────────────────────────
 
@@ -501,9 +474,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const update = (list: Game[]) => list.map((g) => g.id === gameId ? { ...g, name: trimmed } : g);
       setAllGames(update);
-      setFavGames(update);
       setRecentGames(update);
-      setPinnedGames(update);
       cancelRename();
     } catch { setEditSaving(false); }
   }, [editName, allGamesRef, cancelRename]);
@@ -515,41 +486,28 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
 
   // ── Favorite toggle ─────────────────────────────────────────────
 
-  const handleToggleFavorite = useCallback((gameId: string, e: React.MouseEvent) => {
+  const handleToggleFavorite = useCallback((game: Game, e: React.MouseEvent) => {
     e.stopPropagation();
     setFavoriteIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(gameId)) next.delete(gameId); else next.add(gameId);
+      const next = toggleSavedGameFavorite(prev, game);
       saveFavorites(next);
       return next;
     });
   }, []);
 
-  // ── Pin toggle ──────────────────────────────────────────────────
-
-  const handleTogglePin = useCallback((gameId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setPinnedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(gameId)) next.delete(gameId); else next.add(gameId);
-      if (next.size > MAX_PINS) return prev;
-      savePins(next);
-      return next;
-    });
-  }, []);
 
   // ── Current tab's game list ─────────────────────────────────────
 
-  const currentGames = tab === "all" ? allGames : tab === "pins" ? pinnedGames : tab === "favorites" ? favGames : recentGames;
-  const currentTotal = tab === "all" ? allTotal : tab === "pins" ? pinnedGames.length : tab === "favorites" ? favTotal : recentTotal;
-  const currentLoading = tab === "all" ? allLoading : tab === "pins" ? pinsLoading : tab === "favorites" ? favLoading : recentLoading;
-  const hasMore = tab !== "pins" && currentGames.length < currentTotal;
+  const currentGames = tab === "recent" ? recentGames : allGames;
+  const currentTotal = tab === "recent" ? recentTotal : allTotal;
+  const currentLoading = tab === "recent" ? recentLoading : allLoading;
+  const hasMore = currentGames.length < currentTotal;
 
   const sortedGames = useMemo(() => {
     const normalized: LibraryGame[] = currentGames.map((game, index) => ({
       ...game,
-      favorite: tab === "favorites" || favoriteIds.has(game.id),
-      pinned: pinnedIds.has(game.id),
+      favorite: isSavedGameFavorite(favoriteIds, game),
+
       recentRank: tab === "recent" ? index : null,
       serverId: game.serverId ?? null,
       coverUrl: null,
@@ -557,7 +515,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
     const filtered = filterLibraryGames(normalized, createLibraryFilters(tab, search, selectedPlatforms));
     const byId = new Map(currentGames.map((game) => [libraryGameKey(game), game]));
     return filtered.map((game) => byId.get(libraryGameKey(game))!);
-  }, [currentGames, favoriteIds, pinnedIds, search, selectedPlatforms, tab]);
+  }, [currentGames, favoriteIds, search, selectedPlatforms, tab]);
   const recentGroups = useMemo(
     () => tab === "recent"
       ? groupRecentGamesByLocalDate(sortedGames)
@@ -568,14 +526,12 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
   // ── Render helpers ──────────────────────────────────────────────
 
   const gameActions: GameActionModel = {
-    canFavorite: false, // hidden pending #586
-    canPin: false,      // hidden pending #586
+    canFavorite: true,
     canRename: true,
-    isFavorite: (gameId: string) => favoriteIds.has(gameId),
-    isPinned: (gameId: string) => pinnedIds.has(gameId),
+    isFavorite: (game: Game) => isSavedGameFavorite(favoriteIds, game),
+
     onPlay: handlePlay,
-    onToggleFavorite: undefined, // hidden pending #586
-    onTogglePin: undefined,      // hidden pending #586
+    onToggleFavorite: handleToggleFavorite,
     onRename: startRename,
     onChooseHost: hasServers ? chooseHost : undefined,
   };
@@ -586,11 +542,11 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
       key={libraryGameKey(game)}
       game={game}
       size="square"
-      isFavorite={gameActions.isFavorite(game.id)}
-      isPinned={gameActions.isPinned(game.id)}
+      isFavorite={gameActions.isFavorite(game)}
+
       onPlay={gameActions.onPlay}
       onToggleFavorite={gameActions.onToggleFavorite}
-      onTogglePin={gameActions.onTogglePin}
+
       onEdit={gameActions.onRename}
       onChooseHost={gameActions.onChooseHost}
       launching={launchingGame === libraryGameKey(game)}
@@ -627,15 +583,16 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
       <td style={{ padding: "8px 14px", textAlign: "right" }}>
         <div className="library-row-actions">
           <div className="library-row-secondary-actions">
-            {gameActions.canFavorite && gameActions.onToggleFavorite && <button aria-label={gameActions.isFavorite(game.id) ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`} onClick={(e) => gameActions.onToggleFavorite?.(game.id, e)}>{gameActions.isFavorite(game.id) ? <Star fontSize="inherit" /> : <StarBorder fontSize="inherit" />}</button>}
-            {gameActions.canPin && gameActions.onTogglePin && <button aria-label={gameActions.isPinned(game.id) ? `Unpin ${game.name}` : `Pin ${game.name}`} onClick={(e) => gameActions.onTogglePin?.(game.id, e)}>{gameActions.isPinned(game.id) ? <PushPin fontSize="inherit" /> : <PushPinOutlined fontSize="inherit" />}</button>}
+            {gameActions.canFavorite && gameActions.onToggleFavorite && <button aria-label={gameActions.isFavorite(game) ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`} onClick={(e) => gameActions.onToggleFavorite?.(game, e)}>{gameActions.isFavorite(game) ? <Star fontSize="inherit" /> : <StarBorder fontSize="inherit" />}</button>}
+
             {gameActions.canRename && gameActions.onRename && <button aria-label={`Rename ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onRename?.(game); }}><Edit fontSize="inherit" /></button>}
+            {gameActions.onChooseHost && <button disabled={launchingGame === libraryGameKey(game)} aria-label={`Choose host for ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onChooseHost?.(game); }}><DesktopWindows fontSize="inherit" /></button>}
           </div>
-          {(gameActions.canFavorite || gameActions.canPin || gameActions.canRename || gameActions.onChooseHost) && <details className="library-row-overflow">
+          {(gameActions.canFavorite || gameActions.canRename || gameActions.onChooseHost) && <details className="library-row-overflow">
               <summary aria-label={`More actions for ${game.name}`}><span aria-hidden="true">⋯</span></summary>
               <div className="library-row-overflow-actions">
-                {gameActions.canFavorite && gameActions.onToggleFavorite && <button aria-label={gameActions.isFavorite(game.id) ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`} onClick={(e) => gameActions.onToggleFavorite?.(game.id, e)}>{gameActions.isFavorite(game.id) ? <Star fontSize="inherit" /> : <StarBorder fontSize="inherit" />}<span>{gameActions.isFavorite(game.id) ? "Remove favorite" : "Add favorite"}</span></button>}
-                {gameActions.canPin && gameActions.onTogglePin && <button aria-label={gameActions.isPinned(game.id) ? `Unpin ${game.name}` : `Pin ${game.name}`} onClick={(e) => gameActions.onTogglePin?.(game.id, e)}>{gameActions.isPinned(game.id) ? <PushPin fontSize="inherit" /> : <PushPinOutlined fontSize="inherit" />}<span>{gameActions.isPinned(game.id) ? "Unpin" : "Pin"}</span></button>}
+                {gameActions.canFavorite && gameActions.onToggleFavorite && <button aria-label={gameActions.isFavorite(game) ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`} onClick={(e) => gameActions.onToggleFavorite?.(game, e)}>{gameActions.isFavorite(game) ? <Star fontSize="inherit" /> : <StarBorder fontSize="inherit" />}<span>{gameActions.isFavorite(game) ? "Remove favorite" : "Add favorite"}</span></button>}
+
                 {gameActions.canRename && gameActions.onRename && <button aria-label={`Rename ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onRename?.(game); }}><Edit fontSize="inherit" /><span>Rename</span></button>}
                 {gameActions.onChooseHost && <button disabled={launchingGame === libraryGameKey(game)} aria-label={`Choose host for ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onChooseHost?.(game); }}><DesktopWindows fontSize="inherit" /><span>Choose host…</span></button>}
               </div>
@@ -694,7 +651,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
 
         <LibraryToolbar
           activeSection={tab}
-          counts={{ all: allTotal, favorites: favoriteIds.size, recent: recentTotal, pins: pinnedIds.size }}
+          counts={{ all: allTotal, favorites: favoriteIds.size, recent: recentTotal }}
           search={searchInput}
           platforms={serverPlatforms.map((p) => p.name)}
           platformCounts={Object.fromEntries(serverPlatforms.map((p) => [p.name, p.count]))}
@@ -729,7 +686,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
               ? "No games synced from your servers. Upgrade sc-server on your LAN host to v0.11.3."
               : selectedPlatforms.size > 0
               ? "No games match the selected platforms."
-              : tab === "all" ? "No games found." : tab === "favorites" ? "No favorites yet." : tab === "pins" ? "No pinned games yet." : "No recent plays."}
+              : tab === "all" ? "No games found." : tab === "favorites" ? "No favorites yet." : "No recent plays."}
           </p>
         ) : effectiveViewMode === "grid" ? (
           <>

@@ -45,12 +45,25 @@ describe("library presentation chrome", () => {
 });
 
 describe("classic table row actions", () => {
+  it("keys Favorite state by server and game in the main library", () => {
+    expect(librarySource).toContain("isSavedGameFavorite(favoriteIds, game)");
+    expect(librarySource).toContain("toggleSavedGameFavorite(prev, game)");
+    expect(librarySource).not.toContain("favoriteIds.has(game.id)");
+  });
+
+  it("shows Choose Host alongside Favorite and Rename on desktop", () => {
+    const desktopActions = librarySource.match(/className="library-row-secondary-actions">([\s\S]*?)<\/div>/)?.[1];
+    expect(desktopActions).toContain("Add ${game.name} to favorites");
+    expect(desktopActions).toContain("Rename ${game.name}");
+    expect(desktopActions).toContain("Choose host for ${game.name}");
+  });
+
   it("provides a labelled mobile overflow menu with labelled action rows", () => {
     expect(librarySource).toContain('className="library-row-overflow"');
     expect(librarySource).toContain('className="library-row-overflow-actions"');
     expect(librarySource).toContain("More actions for ${game.name}");
     expect(librarySource).toContain("Add ${game.name} to favorites");
-    expect(librarySource).toContain("Pin ${game.name}");
+    expect(librarySource).not.toContain("Pin ${game.name}");
     expect(librarySource).toContain("Rename ${game.name}");
   });
 
@@ -75,15 +88,15 @@ describe("GameTile actions", () => {
     const html = renderToStaticMarkup(createElement(GameTile, {
       game,
       isFavorite: true,
-      isPinned: false,
+
       onPlay: vi.fn(),
       onToggleFavorite: vi.fn(),
-      onTogglePin: vi.fn(),
+
       onEdit: vi.fn(),
     }));
     expect(html).toContain('aria-label="Play Super Test"');
     expect(html).toContain('aria-label="Remove Super Test from favorites"');
-    expect(html).toContain('aria-label="Pin Super Test"');
+    expect(html).not.toContain('aria-label="Pin Super Test"');
     expect(html).toContain('aria-label="Rename Super Test"');
     expect(html).toContain('aria-label="More actions for Super Test"');
   });
@@ -106,17 +119,25 @@ describe("GameTile actions", () => {
     const tile = renderTile({ onPlay, onToggleFavorite });
     act(() => (tile.querySelector('.game-tile-secondary-actions [aria-label="Add Super Test to favorites"]') as HTMLButtonElement).click());
     expect(onToggleFavorite).toHaveBeenCalledOnce();
-    expect(onToggleFavorite).toHaveBeenCalledWith("game-1", expect.anything());
+    expect(onToggleFavorite).toHaveBeenCalledWith(game, expect.anything());
     expect(onPlay).not.toHaveBeenCalled();
   });
 
   it("uses keyboard-focusable native controls for the mobile menu and its actions", () => {
-    const tile = renderTile({ onToggleFavorite: vi.fn(), onTogglePin: vi.fn(), onEdit: vi.fn() });
+    const tile = renderTile({ onToggleFavorite: vi.fn(), onEdit: vi.fn() });
     const menuTrigger = tile.querySelector('[aria-label="More actions for Super Test"]');
     const menuActions = [...tile.querySelectorAll(".game-tile-overflow-actions button")];
     expect(menuTrigger?.tagName).toBe("SUMMARY");
-    expect(menuActions).toHaveLength(3);
+    expect(menuActions).toHaveLength(2);
     expect(menuActions.every((action) => action.tagName === "BUTTON" && !(action as HTMLButtonElement).disabled)).toBe(true);
+  });
+
+  it("uses the same visible action names in the mobile tile menu", () => {
+    const tile = renderTile({ onToggleFavorite: vi.fn(), onEdit: vi.fn(), onChooseHost: vi.fn() });
+    const mobileActions = tile.querySelector(".game-tile-overflow-actions")?.textContent;
+    expect(mobileActions).toContain("Add Favorite");
+    expect(mobileActions).toContain("Rename");
+    expect(mobileActions).toContain("Choose Host");
   });
 
   it("disables Play and host selection during launch without removing native controls", () => {
@@ -135,7 +156,7 @@ describe("GameTile actions", () => {
     const tile = renderTile({ onChooseHost: vi.fn() });
     const choose = tile.querySelector('.game-tile-secondary-actions [aria-label="Choose host for Super Test"]') as HTMLButtonElement;
     expect(choose.querySelector("svg")).not.toBeNull();
-    expect(choose.textContent).toContain("Host");
+    expect(choose.textContent).toContain("Choose Host");
     expect(choose.textContent).not.toContain("⌁");
   });
 });

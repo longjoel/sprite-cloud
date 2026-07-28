@@ -5,34 +5,27 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-pub const MAX_PINS: usize = 20;
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct LibraryPreferences {
     pub version: u32,
     pub favorites: BTreeSet<String>,
-    pub pins: Vec<String>,
+    #[serde(rename = "pins", default, skip_serializing)]
+    legacy_pins: Vec<String>,
     pub names: BTreeMap<String, String>,
     pub recent: BTreeMap<String, String>,
 }
 
 impl LibraryPreferences {
-    fn normalize(&mut self) {
-        if self.version == 0 {
-            self.version = 1;
-        }
-        self.pins.truncate(MAX_PINS);
-        let mut seen = BTreeSet::new();
-        self.pins.retain(|id| seen.insert(id.clone()));
+    fn normalize(&mut self) -> bool {
+        let changed = self.version < 2 || !self.legacy_pins.is_empty();
+        self.version = 2;
+        self.favorites.extend(self.legacy_pins.drain(..));
+        changed
     }
 
     pub fn is_favorite(&self, game_id: &str) -> bool {
         self.favorites.contains(game_id)
-    }
-
-    pub fn is_pinned(&self, game_id: &str) -> bool {
-        self.pins.iter().any(|id| id == game_id)
     }
 
     pub fn display_name<'a>(&'a self, game_id: &str, fallback: &'a str) -> &'a str {
@@ -57,7 +50,10 @@ impl LibraryStateStore {
         } else {
             LibraryPreferences::default()
         };
-        state.normalize();
+        let migrated = state.normalize();
+        if migrated && path.exists() {
+            write_preferences(&path, &state)?;
+        }
         Ok(Self { path, state })
     }
 
@@ -72,20 +68,6 @@ impl LibraryStateStore {
                 true
             } else {
                 false
-            }
-        })
-    }
-
-    pub fn toggle_pin(&mut self, game_id: &str) -> io::Result<Result<bool, &'static str>> {
-        self.mutate(|state| {
-            if let Some(index) = state.pins.iter().position(|id| id == game_id) {
-                state.pins.remove(index);
-                Ok(false)
-            } else if state.pins.len() >= MAX_PINS {
-                Err("pin limit reached")
-            } else {
-                state.pins.push(game_id.to_string());
-                Ok(true)
             }
         })
     }
@@ -167,7 +149,6 @@ mod tests {
         let mut store = LibraryStateStore::load(path.clone()).unwrap();
 
         assert!(store.toggle_favorite("local_a").unwrap());
-        assert_eq!(store.toggle_pin("local_a").unwrap(), Ok(true));
         store.rename("local_a", "My Game").unwrap();
         store
             .record_played("local_a", "2026-07-23T22:00:00Z")
@@ -175,7 +156,6 @@ mod tests {
 
         let reloaded = LibraryStateStore::load(path).unwrap().snapshot();
         assert!(reloaded.is_favorite("local_a"));
-        assert!(reloaded.is_pinned("local_a"));
         assert_eq!(reloaded.names.get("local_a").unwrap(), "My Game");
         assert_eq!(
             reloaded.recent.get("local_a").unwrap(),
@@ -184,23 +164,23 @@ mod tests {
     }
 
     #[test]
-    fn pin_limit_is_enforced_without_losing_existing_pins() {
+    fn legacy_pins_migrate_to_favorites_and_are_removed_from_disk() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("library-state.json");
-        let mut store = LibraryStateStore::load(path).unwrap();
-        for index in 0..MAX_PINS {
-            assert_eq!(
-                store.toggle_pin(&format!("local_{index:032x}")).unwrap(),
-                Ok(true)
-            );
-        }
+        std::fs::write(
+            &path,
+            r#"{"version":1,"favorites":["local_a"],"pins":["local_a","local_b"],"names":{},"recent":{}}"#,
+        )
+        .unwrap();
 
+        let snapshot = LibraryStateStore::load(path.clone()).unwrap().snapshot();
         assert_eq!(
-            store
-                .toggle_pin("local_ffffffffffffffffffffffffffffffff")
-                .unwrap(),
-            Err("pin limit reached")
+            snapshot.favorites,
+            BTreeSet::from(["local_a".to_string(), "local_b".to_string()])
         );
-        assert_eq!(store.snapshot().pins.len(), MAX_PINS);
+        let persisted: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert!(persisted.get("pins").is_none());
+        assert_eq!(persisted["version"], 2);
     }
 }

@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState } from "react";
 import { Card as MuiCard, CardActionArea, Chip, IconButton, CircularProgress, Button } from "@mui/material";
-import { Star, StarBorder, Edit, PushPin, PushPinOutlined, MoreHoriz, DesktopWindows } from "@mui/icons-material";
+import { Star, StarBorder, Edit, MoreHoriz, DesktopWindows } from "@mui/icons-material";
 import { getPlatformColor } from "@/lib/platformColors";
 
 interface TileGame {
@@ -17,10 +17,10 @@ interface GameTileProps {
   game: TileGame;
   size?: "square" | "wide" | "large";
   isFavorite?: boolean;
-  isPinned?: boolean;
+
   onPlay: (game: TileGame) => void;
-  onToggleFavorite?: (gameId: string, e: React.MouseEvent) => void;
-  onTogglePin?: (gameId: string, e: React.MouseEvent) => void;
+  onToggleFavorite?: (game: TileGame, e: React.MouseEvent) => void;
+
   onEdit?: (game: TileGame) => void;
   onChooseHost?: (game: TileGame) => void;
   launching?: boolean;
@@ -28,7 +28,7 @@ interface GameTileProps {
 
 const sizeClassMap = { square: "tile-square", wide: "tile-wide", large: "tile-large" } as const;
 
-export default function GameTile({ game, size = "square", isFavorite = false, isPinned = false, onPlay, onToggleFavorite, onTogglePin, onEdit, onChooseHost, launching = false }: GameTileProps) {
+export default function GameTile({ game, size = "square", isFavorite = false, onPlay, onToggleFavorite, onEdit, onChooseHost, launching = false }: GameTileProps) {
   const nameRef = useRef<HTMLSpanElement>(null);
   const [overflows, setOverflows] = useState(false);
 
@@ -43,24 +43,32 @@ export default function GameTile({ game, size = "square", isFavorite = false, is
   };
 
   const favLabel = isFavorite ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`;
-  const pinLabel = isPinned ? `Unpin ${game.name}` : `Pin ${game.name}`;
+
 
   const actionButtons = (mobile = false) => (
     <div className={mobile ? "game-tile-overflow-actions" : "game-tile-secondary-actions"}>
       {onToggleFavorite && (
-        <IconButton size="small" aria-label={favLabel} onClick={stop((event) => onToggleFavorite(game.id, event))}>
-          {isFavorite ? <Star fontSize="inherit" /> : <StarBorder fontSize="inherit" />}
-        </IconButton>
+        mobile ? (
+          <Button size="small" aria-label={favLabel} onClick={stop((event) => onToggleFavorite(game, event))} startIcon={isFavorite ? <Star fontSize="inherit" /> : <StarBorder fontSize="inherit" />}>
+            {isFavorite ? "Remove Favorite" : "Add Favorite"}
+          </Button>
+        ) : (
+          <IconButton size="small" aria-label={favLabel} onClick={stop((event) => onToggleFavorite(game, event))}>
+            {isFavorite ? <Star fontSize="inherit" /> : <StarBorder fontSize="inherit" />}
+          </IconButton>
+        )
       )}
-      {onTogglePin && (
-        <IconButton size="small" aria-label={pinLabel} onClick={stop((event) => onTogglePin(game.id, event))}>
-          {isPinned ? <PushPin fontSize="inherit" /> : <PushPinOutlined fontSize="inherit" />}
-        </IconButton>
-      )}
+
       {onEdit && (
-        <IconButton size="small" aria-label={`Rename ${game.name}`} onClick={stop(() => onEdit(game))}>
-          <Edit fontSize="inherit" />
-        </IconButton>
+        mobile ? (
+          <Button size="small" aria-label={`Rename ${game.name}`} onClick={stop(() => onEdit(game))} startIcon={<Edit fontSize="inherit" />}>
+            Rename
+          </Button>
+        ) : (
+          <IconButton size="small" aria-label={`Rename ${game.name}`} onClick={stop(() => onEdit(game))}>
+            <Edit fontSize="inherit" />
+          </IconButton>
+        )
       )}
       {onChooseHost && (
         <Button
@@ -71,7 +79,7 @@ export default function GameTile({ game, size = "square", isFavorite = false, is
           startIcon={<DesktopWindows fontSize="inherit" />}
           sx={{ fontSize: 11, minWidth: 0 }}
         >
-          Host
+          Choose Host
         </Button>
       )}
     </div>
@@ -79,7 +87,7 @@ export default function GameTile({ game, size = "square", isFavorite = false, is
 
   return (
     <MuiCard
-      className={`game-tile ${sizeClassMap[size]} ${isFavorite ? "is-favorite" : ""} ${isPinned ? "is-pinned" : ""}`.trim()}
+      className={`game-tile ${sizeClassMap[size]} ${isFavorite ? "is-favorite" : ""}`.trim()}
       role="group"
       sx={{ userSelect: "none", background: getPlatformColor(game.platform), position: "relative" }}
     >

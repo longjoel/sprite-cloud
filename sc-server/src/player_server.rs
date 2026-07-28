@@ -98,7 +98,10 @@ fn app_router() -> Router<Arc<AppState>> {
         // below handles only cloud/auth/signaling routes that remain in sc-web.
         .route("/api/games", get(list_games))
         .route("/api/favorites", get(list_favorites).post(toggle_favorite))
-        .route("/api/pins", get(list_pins).post(toggle_pin))
+        .route(
+            "/api/pins",
+            any(|| async { axum::http::StatusCode::NOT_FOUND }),
+        )
         .route("/api/recent-plays", get(list_recent_plays))
         .route("/api/games/:id", get(get_game).put(rename_game))
         .route("/api/playable-hosts", get(playable_hosts))
@@ -417,7 +420,6 @@ struct GameEntry {
     #[serde(rename = "maxPlayers")]
     max_players: u8,
     favorite: bool,
-    pinned: bool,
     #[serde(rename = "playedAt", skip_serializing_if = "Option::is_none")]
     played_at: Option<String>,
 }
@@ -427,10 +429,6 @@ struct GameListQuery {
     limit: Option<usize>,
     offset: Option<usize>,
     search: Option<String>,
-    #[serde(default)]
-    pins_first: bool,
-    #[serde(default)]
-    ids_only: bool,
 }
 
 async fn list_games(
@@ -456,13 +454,7 @@ async fn list_games(
         })
         .map(|game| game_entry(game, &state, &preferences))
         .collect();
-    entries.sort_by(|left, right| {
-        query
-            .pins_first
-            .then(|| right.pinned.cmp(&left.pinned))
-            .filter(|ordering| !ordering.is_eq())
-            .unwrap_or_else(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
-    });
+    entries.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
 
     let total = entries.len();
     let offset = query.offset.unwrap_or(0).min(total);
@@ -497,7 +489,6 @@ fn game_entry(
         server_id: state.server_id.clone(),
         max_players: 1,
         favorite: preferences.is_favorite(&game.id),
-        pinned: preferences.is_pinned(&game.id),
         played_at: preferences.recent.get(&game.id).cloned(),
     }
 }
@@ -626,45 +617,6 @@ async fn toggle_favorite(
         .toggle_favorite(&request.game_id)
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(serde_json::json!({ "favorited": favorited })))
-}
-
-async fn list_pins(
-    Query(query): Query<GameListQuery>,
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<serde_json::Value>, axum::http::StatusCode> {
-    let preferences = state.preferences.lock().await.snapshot();
-    if query.ids_only {
-        return Ok(Json(serde_json::json!({ "ids": preferences.pins })));
-    }
-    let entries = preference_entries(&state, |game| game.pinned).await;
-    let by_id: std::collections::HashMap<_, _> = entries
-        .into_iter()
-        .map(|entry| (entry.id.clone(), entry))
-        .collect();
-    let ordered: Vec<_> = preferences
-        .pins
-        .iter()
-        .filter_map(|id| by_id.get(id))
-        .collect();
-    Ok(Json(serde_json::json!({ "games": ordered })))
-}
-
-async fn toggle_pin(
-    State(state): State<Arc<AppState>>,
-    Json(request): Json<GamePreferenceRequest>,
-) -> Result<Json<serde_json::Value>, axum::http::StatusCode> {
-    if !local_game_exists(&state, &request.game_id).await {
-        return Err(axum::http::StatusCode::NOT_FOUND);
-    }
-    let mut preferences = state.preferences.lock().await;
-    let pinned = preferences
-        .toggle_pin(&request.game_id)
-        .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?
-        .map_err(|_| axum::http::StatusCode::BAD_REQUEST)?;
-    let pin_count = preferences.snapshot().pins.len();
-    Ok(Json(
-        serde_json::json!({ "pinned": pinned, "pinCount": pin_count }),
-    ))
 }
 
 async fn list_recent_plays(
@@ -969,7 +921,7 @@ async fn library_page(
     let count = games.len();
 
     // Group by platform while retaining the opaque local game id for launch.
-    let mut platforms: std::collections::BTreeMap<String, Vec<(String, String, bool, bool)>> =
+    let mut platforms: std::collections::BTreeMap<String, Vec<(String, String, bool)>> =
         std::collections::BTreeMap::new();
     for game in games.iter() {
         let platform = game
@@ -983,7 +935,6 @@ async fn library_page(
                 .display_name(&game.id, &local_game_name(game))
                 .to_string(),
             preferences.is_favorite(&game.id),
-            preferences.is_pinned(&game.id),
         ));
     }
 
@@ -993,14 +944,17 @@ async fn library_page(
             "<details open><summary><strong>{}</strong> <span class=\"count\">({})</span></summary><ul>",
             html_escape(platform), entries.len()
         ));
-        for (game_id, name, favorite, pinned) in entries {
+        for (game_id, name, favorite) in entries {
             platform_sections.push_str(&format!(
-                "<li><span>{}</span><button class=\"pref\" data-game-id=\"{}\" onclick=\"togglePreference('/api/favorites',this.dataset.gameId)\">{}</button><button class=\"pref\" data-game-id=\"{}\" onclick=\"togglePreference('/api/pins',this.dataset.gameId)\">{}</button><button class=\"pref\" data-game-id=\"{}\" data-name=\"{}\" onclick=\"renameGame(this.dataset.gameId,this.dataset.name)\">Rename</button><button class=\"play\" data-game-id=\"{}\" onclick=\"launchGame(this.dataset.gameId)\">Play</button></li>",
+                "<li><span>{}</span><button class=\"pref\" aria-label=\"{}\" data-game-id=\"{}\" onclick=\"togglePreference('/api/favorites',this.dataset.gameId)\">{}</button><button class=\"pref\" data-game-id=\"{}\" data-name=\"{}\" onclick=\"renameGame(this.dataset.gameId,this.dataset.name)\">Rename</button><button class=\"play\" data-game-id=\"{}\" onclick=\"launchGame(this.dataset.gameId)\">Play</button></li>",
                 html_escape(name),
+                html_escape(&if *favorite {
+                    format!("Remove {name} from favorites")
+                } else {
+                    format!("Add {name} to favorites")
+                }),
                 html_escape(game_id),
-                if *favorite { "★" } else { "☆" },
-                html_escape(game_id),
-                if *pinned { "Pinned" } else { "Pin" },
+                if *favorite { "Remove Favorite" } else { "Add Favorite" },
                 html_escape(game_id),
                 html_escape(name),
                 html_escape(game_id)
@@ -1384,12 +1338,21 @@ mod tests {
             sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             preferences,
         });
-        let app = app_router().with_state(state);
+        let app = app_router().with_state(state.clone());
 
-        for (path, body) in [
-            ("/api/favorites", serde_json::json!({ "gameId": game_id })),
-            ("/api/pins", serde_json::json!({ "gameId": game_id })),
-        ] {
+        let retired_pins = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/pins")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(retired_pins.status(), StatusCode::NOT_FOUND);
+
+        for (path, body) in [("/api/favorites", serde_json::json!({ "gameId": game_id }))] {
             let response = app
                 .clone()
                 .oneshot(
@@ -1404,6 +1367,11 @@ mod tests {
                 .unwrap();
             assert_eq!(response.status(), StatusCode::OK);
         }
+
+        let page = library_page(State(state.clone())).await.unwrap().0;
+        assert!(page.contains("Remove Favorite"));
+        assert!(page.contains("aria-label=\"Remove "));
+        assert!(page.contains(" from favorites\""));
 
         let response = app
             .clone()
@@ -1423,7 +1391,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri("/api/games?pins_first=true")
+                    .uri("/api/games")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -1437,7 +1405,7 @@ mod tests {
         let game = &body["games"][0];
         assert_eq!(game["name"], "Super Mario World");
         assert_eq!(game["favorite"], true);
-        assert_eq!(game["pinned"], true);
+        assert!(game.get("pinned").is_none());
         assert!(game["playedAt"].as_str().unwrap().ends_with('Z'));
 
         let response = app

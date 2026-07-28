@@ -28,9 +28,11 @@ Browser ──HTTP──▶ sc-server:8787 (LAN player proxy) ──HTTPS──�
 - Instead, a one-shot `host_token` is embedded in the URL fragment
 - sc-web validates: `host_token` matches a short-code row → resolves server owner
 - No session cookies, no CSRF tokens, no user identity on this path
-- Server-wide library preferences (favorites, pins, display names, and recent
-  history) use the same trusted-LAN boundary as the local library listing.
-  They are intentionally shared by everyone using that `sc-server`.
+- Standalone `sc-server` library preferences (favorites, display names, and
+  recent history) use the same trusted-LAN boundary as the local library
+  listing and are shared by everyone using that standalone server. The paired
+  sc-web library intentionally keeps Favorites browser-local; it does not
+  import or overwrite them from the standalone preference store.
 - The `host_token` is a `crypto.randomUUID()` — 122 bits of entropy, single-use
 
 ### 3. Standalone LAN mode (trusted network)
