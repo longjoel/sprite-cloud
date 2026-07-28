@@ -2,6 +2,8 @@
 
 Self-hosted retro game library and browser streaming.
 
+**[sprite-cloud.com](https://sprite-cloud.com)** — sign in, pair a server, and stream your library.
+
 Sprite Cloud has three roles:
 
 | Role | Runs where | What it does |
