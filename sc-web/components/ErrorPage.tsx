@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useId } from "react";
 
 interface ErrorPageAction {
   label: string;
@@ -13,6 +14,12 @@ interface ErrorPageProps {
   title: string;
   message: string;
   action?: ErrorPageAction;
+}
+
+/** Generate a short diagnostic ID from the error context. */
+function diagnosticId(code: number): string {
+  const ts = Date.now().toString(36).slice(-4);
+  return `ERR-${code}-${ts}`;
 }
 
 const actionStyle: React.CSSProperties = {
@@ -31,6 +38,8 @@ const actionStyle: React.CSSProperties = {
 };
 
 export function ErrorPage({ code, title, message, action }: ErrorPageProps) {
+  const diagId = diagnosticId(code);
+
   return (
     <div
       style={{
@@ -75,12 +84,25 @@ export function ErrorPage({ code, title, message, action }: ErrorPageProps) {
         style={{
           fontSize: "var(--font-size-sm, 12px)",
           color: "var(--color-text-secondary)",
-          maxWidth: 360,
+          maxWidth: 420,
           lineHeight: 1.6,
-          marginBottom: "2em",
+          marginBottom: "1.5em",
         }}
       >
         {message}
+      </div>
+
+      {/* Diagnostic ID — for support, not user-facing */}
+      <div
+        style={{
+          fontSize: "10px",
+          color: "var(--color-cloud-dim)",
+          opacity: 0.4,
+          marginBottom: "2em",
+          fontFamily: "var(--font-mono)",
+        }}
+      >
+        {diagId}
       </div>
 
       {action?.onClick ? (
