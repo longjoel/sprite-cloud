@@ -10,14 +10,25 @@ import { and, eq, ilike, sql, inArray } from "drizzle-orm";
 // Scoped to servers the authenticated user is a member of.
 //
 // Query params:
-//   limit      — rows per page (default 100, max 200)
-//   offset     — 0-based offset (default 0)
-//   search     — case-insensitive name filter (ILIKE %term%)
-//   pins_first — ignored (pins are server-local; use the LAN library for pin ordering)
+//   limit    — rows per page (default 100, max 200)
+//   offset   — 0-based offset (default 0)
+//   search   — case-insensitive name filter (ILIKE %term%)
+//   platform — optional platform filter (exact match)
 //
-// Response: { games: GameEntry[], total: number }
-//
-// GameEntry: { id, name, platform, serverId, maxPlayers }
+// Response:
+// {
+//   games:      GameEntry[],
+//   total:      number,       // total matching games for pagination
+//   platforms:  { name: string, count: number }[],  // full catalog facets
+// }
+
+interface GameEntry {
+  id: string;
+  name: string;
+  platform: string;
+  serverId: string;
+  maxPlayers: number;
+}
 
 export async function GET(request: NextRequest) {
   const session = await auth();
@@ -29,8 +40,8 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "100"), 1), 200);
   const offset = Math.max(parseInt(url.searchParams.get("offset") || "0"), 0);
   const search = (url.searchParams.get("search") || "").trim();
+  const platform = (url.searchParams.get("platform") || "").trim();
 
-  // Resolve user's server memberships
   const memberships = await db
     .select({ serverId: serverMembers.serverId })
     .from(serverMembers)
@@ -38,22 +49,37 @@ export async function GET(request: NextRequest) {
 
   const serverIds = memberships.map((m) => m.serverId);
   if (serverIds.length === 0) {
-    return NextResponse.json({ games: [], total: 0 });
+    return NextResponse.json({ games: [], total: 0, platforms: [] });
   }
 
-  // Build conditions
-  const conditions = [inArray(serverGames.serverId, serverIds)];
-  if (search) {
-    conditions.push(ilike(serverGames.name, `%${search}%`));
-  }
+  const baseWhere = and(inArray(serverGames.serverId, serverIds));
 
-  // Count total
-  const [{ count }] = await db
+  // Platform facets: count across all unfiltered games (obeys search only)
+  const facetWhere = and(
+    baseWhere,
+    ...(search ? [ilike(serverGames.name, `%${search}%`)] : []),
+  );
+  const platformRows = await db
+    .select({
+      name: serverGames.platform,
+      count: sql<number>`count(*)`,
+    })
+    .from(serverGames)
+    .where(facetWhere)
+    .groupBy(serverGames.platform)
+    .orderBy(serverGames.platform);
+
+  // Build page filter (search + platform)
+  const pageConditions = [baseWhere];
+  if (search) pageConditions.push(ilike(serverGames.name, `%${search}%`));
+  if (platform) pageConditions.push(eq(serverGames.platform, platform));
+  const pageWhere = and(...pageConditions);
+
+  const [{ count: total }] = await db
     .select({ count: sql<number>`count(*)` })
     .from(serverGames)
-    .where(and(...conditions));
+    .where(pageWhere);
 
-  // Fetch page
   const rows = await db
     .select({
       id: serverGames.gameId,
@@ -63,18 +89,14 @@ export async function GET(request: NextRequest) {
       maxPlayers: serverGames.maxPlayers,
     })
     .from(serverGames)
-    .where(and(...conditions))
+    .where(pageWhere)
     .orderBy(serverGames.name)
     .limit(limit)
     .offset(offset);
 
-  const games = rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    platform: r.platform,
-    serverId: r.serverId,
-    maxPlayers: r.maxPlayers,
-  }));
-
-  return NextResponse.json({ games, total: Number(count) });
+  return NextResponse.json({
+    games: rows.map((r) => ({ id: r.id, name: r.name, platform: r.platform, serverId: r.serverId, maxPlayers: r.maxPlayers })),
+    total: Number(total),
+    platforms: platformRows.map((r) => ({ name: r.name, count: Number(r.count) })),
+  });
 }

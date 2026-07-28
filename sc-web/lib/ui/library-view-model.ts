@@ -67,16 +67,18 @@ export function createLibraryFilters(
   return { section, search, platforms };
 }
 
-export function createLibraryPageParams(pageSize: number, offset: number, search: string): Record<string, string> {
-  return {
+export function createLibraryPageParams(pageSize: number, offset: number, search: string, platform?: string): Record<string, string> {
+  const params: Record<string, string> = {
     limit: String(pageSize),
     offset: String(offset),
     search: search.trim(),
   };
+  if (platform) params.platform = platform;
+  return params;
 }
 
-export function createAllLibraryPageParams(pageSize: number, offset: number, search: string): Record<string, string> {
-  return { ...createLibraryPageParams(pageSize, offset, search), pins_first: "true" };
+export function createAllLibraryPageParams(pageSize: number, offset: number, search: string, platform?: string): Record<string, string> {
+  return { ...createLibraryPageParams(pageSize, offset, search, platform), pins_first: "true" };
 }
 
 export function mergeLibraryPages<T extends { id: string; serverId?: string | null }>(current: readonly T[], next: readonly T[]): T[] {
