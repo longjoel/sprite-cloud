@@ -47,6 +47,30 @@ jobs:
             ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new \
               <vps-user>@<vps-host> 'gunzip | docker load'
 
+      - name: Apply additive schema migrations
+        run: |
+          set -euo pipefail
+          for migration in \
+            sc-web/drizzle/0017_add_server_games.sql \
+            sc-web/drizzle/0018_add_invite_codes.sql \
+          ; do
+            if [ ! -f "$migration" ]; then
+              echo "  skip (not present): $migration"
+              continue
+            fi
+            echo "  applying before web restart: $migration"
+            scp -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new \
+              "$migration" <vps-user>@<vps-host>:/tmp/migration.sql
+            ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> "
+              cd $VPS_DEPLOY_DIR
+              PG_USER=\$(docker compose exec -T postgres printenv POSTGRES_USER)
+              PG_DB=\$(docker compose exec -T postgres printenv POSTGRES_DB)
+              docker compose exec -T postgres psql -U \"\$PG_USER\" -d \"\$PG_DB\" -v ON_ERROR_STOP=1 < /tmp/migration.sql
+              rm -f /tmp/migration.sql
+            "
+            echo "  ✓ $migration"
+          done
+
       - name: Restart sc-web on VPS
         run: |
           ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> '
@@ -68,29 +92,6 @@ jobs:
           done
           echo "✗ Health check failed after 6 attempts"
           exit 1
-
-      - name: Apply schema migrations
-        run: |
-          set -euo pipefail
-          for migration in \
-            sc-web/drizzle/0017_add_server_games.sql \
-          ; do
-            if [ ! -f "$migration" ]; then
-              echo "  skip (not present): $migration"
-              continue
-            fi
-            echo "  applying: $migration"
-            scp -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new \
-              "$migration" <vps-user>@<vps-host>:/tmp/migration.sql
-            ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> "
-              cd $VPS_DEPLOY_DIR
-              PG_USER=\$(docker compose exec -T postgres printenv POSTGRES_USER)
-              PG_DB=\$(docker compose exec -T postgres printenv POSTGRES_DB)
-              docker compose exec -T postgres psql -U \"\$PG_USER\" -d \"\$PG_DB\" -v ON_ERROR_STOP=1 < /tmp/migration.sql
-              rm -f /tmp/migration.sql
-            "
-            echo "  ✓ $migration"
-          done
 
       - name: Back up Postgres and apply Phase 4c migration
         if: github.event_name == 'workflow_dispatch' && inputs.apply_phase4c_migration

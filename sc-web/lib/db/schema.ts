@@ -1,4 +1,5 @@
-import { jsonb, pgTable, text, timestamp, unique, uuid, integer, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { check, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid, integer, index } from "drizzle-orm/pg-core";
 
 // ── Users (created via OAuth) ────────────────────────────────────────
 
@@ -65,6 +66,57 @@ export const serverMembers = pgTable(
       table.serverId,
       table.userId,
     ),
+  }),
+);
+
+// ── Enrollment invite codes (server-admin managed capabilities) ────────
+
+export const inviteCodes = pgTable(
+  "invite_codes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    codeHash: text("code_hash").notNull().unique(),
+    codePrefix: text("code_prefix").notNull(),
+    kind: text("kind").notNull().default("server"),
+    serverId: uuid("server_id")
+      .references(() => servers.id, { onDelete: "cascade" }),
+    createdBy: uuid("created_by")
+      .references(() => users.id),
+    maxRedemptions: integer("max_redemptions").notNull().default(1),
+    redemptionCount: integer("redemption_count").notNull().default(0),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    serverCreatedIdx: index("idx_invite_codes_server_created").on(table.serverId, table.createdAt),
+    oneBootstrapIdx: uniqueIndex("idx_invite_codes_one_bootstrap")
+      .on(table.kind)
+      .where(sql`${table.kind} = 'bootstrap'`),
+    maxPositive: check("invite_codes_max_positive", sql`${table.maxRedemptions} > 0`),
+    redemptionNonnegative: check("invite_codes_redemption_nonnegative", sql`${table.redemptionCount} >= 0`),
+    redemptionWithinMax: check("invite_codes_redemption_within_max", sql`${table.redemptionCount} <= ${table.maxRedemptions}`),
+    resourceShape: check(
+      "invite_codes_resource_shape",
+      sql`(${table.kind} = 'server' AND ${table.serverId} IS NOT NULL AND ${table.createdBy} IS NOT NULL) OR (${table.kind} = 'bootstrap' AND ${table.serverId} IS NULL AND ${table.createdBy} IS NULL AND ${table.maxRedemptions} = 1)`,
+    ),
+  }),
+);
+
+export const inviteRedemptions = pgTable(
+  "invite_redemptions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    inviteCodeId: uuid("invite_code_id")
+      .references(() => inviteCodes.id, { onDelete: "cascade" })
+      .notNull(),
+    userId: uuid("user_id")
+      .references(() => users.id)
+      .notNull(),
+    redeemedAt: timestamp("redeemed_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    inviteUserUnique: unique("invite_redemptions_invite_user").on(table.inviteCodeId, table.userId),
   }),
 );
 

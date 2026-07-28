@@ -159,6 +159,23 @@ function resetAllMocks() {
 
 beforeEach(resetAllMocks);
 
+// ── /api/auth/signup ───────────────────────────────────────────────────
+
+describe("POST /api/auth/signup", () => {
+  it("fails closed because enrollment requires an invite code", async () => {
+    const { POST } = await import("@/app/api/auth/signup/route");
+    const resp = await POST(mkReq("http://localhost/api/auth/signup", {
+      ...jsonBody({ email: "new@example.com", password: "password" }),
+    }));
+
+    expect(resp.status).toBe(410);
+    expect(await resp.json()).toEqual({
+      error: "Open enrollment is disabled. Use an invitation link.",
+    });
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+});
+
 // ── /api/auth/pair/generate ────────────────────────────────────────────
 
 describe("POST /api/auth/pair/generate", () => {

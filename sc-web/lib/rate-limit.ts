@@ -13,6 +13,8 @@
 
 interface WindowEntry {
   timestamps: number[];
+  /** Longest window ever used for this key; cleanup must retain that history. */
+  retentionMs: number;
 }
 
 const store = new Map<string, WindowEntry>();
@@ -22,7 +24,7 @@ if (typeof setInterval !== "undefined") {
   setInterval(() => {
     const now = Date.now();
     for (const [key, entry] of store) {
-      entry.timestamps = entry.timestamps.filter((ts) => now - ts < 60_000);
+      entry.timestamps = entry.timestamps.filter((ts) => now - ts < entry.retentionMs);
       if (entry.timestamps.length === 0) store.delete(key);
     }
   }, 60_000).unref?.();
@@ -59,21 +61,26 @@ export function checkRateLimit(
 
   let entry = store.get(key);
   if (!entry) {
-    entry = { timestamps: [] };
+    entry = { timestamps: [], retentionMs: windowMs };
     store.set(key, entry);
+  } else {
+    entry.retentionMs = Math.max(entry.retentionMs, windowMs);
   }
 
-  // Prune expired timestamps
-  entry.timestamps = entry.timestamps.filter((ts) => ts > cutoff);
+  // Keep enough history for the longest window associated with this key,
+  // while counting only timestamps active in the current check's window.
+  entry.timestamps = entry.timestamps.filter((ts) => ts > now - entry.retentionMs);
+  const activeTimestamps = entry.timestamps.filter((ts) => ts > cutoff);
 
-  const count = entry.timestamps.length;
+  const count = activeTimestamps.length;
   const allowed = count < maxRequests;
 
   if (allowed) {
     entry.timestamps.push(now);
+    activeTimestamps.push(now);
   }
 
-  const oldest = entry.timestamps.length > 0 ? entry.timestamps[0] : now;
+  const oldest = activeTimestamps.length > 0 ? activeTimestamps[0] : now;
   const reset = oldest + windowMs;
   const retryAfter = Math.max(1, Math.ceil((reset - now) / 1000));
 
