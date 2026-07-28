@@ -2,11 +2,10 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
-import { Box, Button, Tabs, Tab, TextField, Typography, InputAdornment, IconButton } from "@mui/material";
+import { Box, Button, TextField, Typography, InputAdornment, IconButton } from "@mui/material";
 import { Visibility, VisibilityOff } from "@mui/icons-material";
 
 export default function SignInForm() {
-  const [tab, setTab] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -31,34 +30,6 @@ export default function SignInForm() {
     }
   }
 
-  async function handleSignUp(e: React.FormEvent) {
-    e.preventDefault();
-    setError("");
-    if (password.length < 4) {
-      setError("Password must be at least 4 characters");
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await fetch("/api/auth/signup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Sign-up failed");
-      } else {
-        await signIn("credentials", { email, password, redirect: false });
-        window.location.href = "/";
-      }
-    } catch {
-      setError("Something went wrong");
-    } finally {
-      setLoading(false);
-    }
-  }
-
   return (
     <Box sx={s.page}>
       <Box sx={s.card}>
@@ -66,17 +37,7 @@ export default function SignInForm() {
           Sprite Cloud
         </Typography>
 
-        <Tabs
-          value={tab}
-          onChange={(_, v) => { setTab(v); setError(""); }}
-          sx={{ mb: 2.5 }}
-          variant="fullWidth"
-        >
-          <Tab value="signin" label="Sign In" />
-          <Tab value="signup" label="Sign Up" />
-        </Tabs>
-
-        <Box component="form" onSubmit={tab === "signin" ? handleSignIn : handleSignUp} sx={s.form}>
+        <Box component="form" onSubmit={handleSignIn} sx={s.form}>
           <TextField
             type="email"
             label="Email"
@@ -92,7 +53,7 @@ export default function SignInForm() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            autoComplete={tab === "signin" ? "current-password" : "new-password"}
+            autoComplete="current-password"
             fullWidth
             slotProps={{
               input: {
@@ -109,8 +70,8 @@ export default function SignInForm() {
 
           {error && <Typography color="error" variant="body2" align="center">{error}</Typography>}
 
-          <Button type="submit" variant="contained" disabled={loading} fullWidth sx={{ fontFamily: "var(--font-mono)", mt: 0.5 }}>
-            {loading ? "…" : tab === "signin" ? "Sign In" : "Create Account"}
+          <Button type="submit" variant="contained" disabled={loading} fullWidth sx={{ fontFamily: "var(--font-mono)" }}>
+            {loading ? "…" : "Sign In"}
           </Button>
         </Box>
       </Box>

@@ -5,6 +5,7 @@ import { eq, sql } from "drizzle-orm";
 import LandingPage from "@/components/LandingPage";
 import LibraryClient from "@/components/LibraryClient";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { verifyBearerToken } from "@/lib/server-auth";
 import { extractLanLibraryLinks } from "@/lib/lan/library-handoff";
 
@@ -28,7 +29,7 @@ export default async function Home() {
       .select({ count: sql<number>`count(*)` })
       .from(users);
     if (Number(row?.count ?? 0) === 0) {
-      // No users yet — let /setup handle itself via its own redirect
+      redirect("/setup");
     }
     // Show the landing page for unauthenticated visitors
     return <LandingPage />;
