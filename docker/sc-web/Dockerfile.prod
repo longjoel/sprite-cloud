@@ -2,11 +2,11 @@ FROM node:22-slim AS deps
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-COPY pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY sc-web/package.json sc-web/
-RUN corepack enable && corepack prepare pnpm@latest --activate && \
-    pnpm install --frozen-lockfile --ignore-scripts || pnpm install --no-frozen-lockfile
-RUN pnpm rebuild esbuild sharp 2>/dev/null || true
+RUN corepack enable && corepack prepare pnpm@10.4.1 --activate && \
+    pnpm install --frozen-lockfile --ignore-scripts
+RUN pnpm rebuild esbuild sharp
 
 FROM node:22-slim AS builder
 ARG GV_WEB_GIT_SHA=unknown
@@ -42,7 +42,8 @@ COPY --from=builder /app/sc-web/lib/db/schema.ts ./sc-web/lib/db/
 # Install the schema CLI in an isolated package so npm does not resolve the
 # copied application's development dependency graph.
 WORKDIR /app/schema-tools
-RUN npm init -y 2>/dev/null && npm install drizzle-kit@0.31.10 postgres@3.4.9
+COPY docker/sc-web/schema-tools/package*.json ./
+RUN npm ci --ignore-scripts && npm rebuild esbuild
 WORKDIR /app
 
 # Copy production entrypoint

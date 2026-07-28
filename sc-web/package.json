@@ -22,8 +22,8 @@
     "@mui/material": "^9.2.0",
     "bcryptjs": "^3.0.3",
     "drizzle-orm": "^0.45.2",
-    "next": "^15.0.0",
-    "next-auth": "5.0.0-beta.31",
+    "next": "15.5.21",
+    "next-auth": "5.0.0-beta.32",
     "postgres": "^3.4.9",
     "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
@@ -42,11 +42,5 @@
     "jsdom": "^29.1.1",
     "typescript": "^5.7.0",
     "vitest": "^4.1.8"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "sharp"
-    ]
   }
 }

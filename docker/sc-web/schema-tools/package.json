@@ -1,0 +1,13 @@
+{
+  "name": "sprite-cloud-schema-tools",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "drizzle-kit": "0.31.10",
+    "drizzle-orm": "0.45.2",
+    "postgres": "3.4.9"
+  },
+  "overrides": {
+    "esbuild": "0.25.12"
+  }
+}
