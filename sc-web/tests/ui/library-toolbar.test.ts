@@ -9,7 +9,7 @@ import LibraryToolbar from "@/components/LibraryToolbar";
 
 const baseProps = {
   activeSection: "all" as const,
-  counts: { all: 12, favorites: 3, recent: 4, pins: 2 },
+  counts: { all: 12, favorites: 3, recent: 4 },
   search: "mario",
   platforms: ["NES", "SNES"],
   platformCounts: { NES: 7, SNES: 5 },
@@ -48,12 +48,12 @@ afterEach(() => {
 
 describe("LibraryToolbar", () => {
   it("renders every section as a first-class accessible tab and preserves the search value", () => {
-    const html = renderToStaticMarkup(createElement(LibraryToolbar, { ...baseProps, activeSection: "pins" }));
+    const html = renderToStaticMarkup(createElement(LibraryToolbar, { ...baseProps, activeSection: "favorites" }));
     expect(html).toContain('aria-label="Library sections"');
     expect(html).toContain("All (12)");
     expect(html).toContain("Favorites (3)");
     expect(html).toContain("Recently Played (4)");
-    expect(html).toContain("Pinned (2)");
+    expect(html).not.toContain("Pinned");
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain('value="mario"');
   });
@@ -75,7 +75,7 @@ describe("LibraryToolbar", () => {
 
   it("opens the filter, toggles a system, removes a chip, and clears", () => {
     render({ ...baseProps, selectedPlatforms: new Set(["NES"]) });
-    click('[aria-label="Filter by system"]');
+    click('[aria-label="Filter by platform"]');
     expect(container!.querySelector('[role="menu"]')).not.toBeNull();
     click('input[type="checkbox"]');
     click('[aria-label="Remove NES filter"]');
@@ -85,14 +85,14 @@ describe("LibraryToolbar", () => {
     expect(baseProps.onClearPlatforms).toHaveBeenCalledOnce();
   });
 
-  it("closes the systems popup on Escape", () => {
+  it("closes the platforms popup on Escape", () => {
     render();
-    click('[aria-label="Filter by system"]');
+    click('[aria-label="Filter by platform"]');
     expect(container!.querySelector('[role="menu"]')).not.toBeNull();
     const checkbox = container!.querySelector('input[type="checkbox"]') as HTMLInputElement;
     checkbox.focus();
     act(() => checkbox.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(container!.querySelector('[role="menu"]')).toBeNull();
-    expect(document.activeElement).toBe(container!.querySelector('[aria-label="Filter by system"]'));
+    expect(document.activeElement).toBe(container!.querySelector('[aria-label="Filter by platform"]'));
   });
 });

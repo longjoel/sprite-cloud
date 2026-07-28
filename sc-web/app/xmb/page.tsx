@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import XmbSettings, { hasXmbSettingsAccess, type XmbServer } from "@/components/xmb/XmbSettings";
-import { LIBRARY_SECTIONS, filterLibraryGames, getEmptyStateMessage, libraryGameKey, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
+import { LIBRARY_SECTIONS, filterLibraryGames, getEmptyStateMessage, isSavedGameFavorite, libraryGameKey, mergeLegacySavedGameIds, migrateLegacyPinsToFavorites, type LibraryGame, type LibrarySection } from "@/lib/ui/library-view-model";
 import { loadXmbAuthenticatedData } from "@/lib/ui/xmb-authenticated-load";
 import {
   activateXmbNavigation,
@@ -37,9 +37,6 @@ interface RawGame {
   server_id?: string | null;
   coverUrl?: string | null;
   cover_url?: string | null;
-  favorite?: boolean;
-  favorited?: boolean;
-  pinned?: boolean;
   playedAt?: string;
 }
 
@@ -55,11 +52,14 @@ const CATEGORY_PRESENTATION: Record<XmbNavigationId, { label: string; icon: stri
   classic: { label: "Classic", icon: "🏠" },
 };
 
+const LS_FAVORITES = "sc_favorites";
+const LS_PINS = "sc_pins";
+
 const sectionLabel = (section: LibrarySection) => LIBRARY_SECTIONS.find(({ id }) => id === section)!.label;
 const SUB_CATEGORIES: SubCategory[] = [
   { id: "favorites", label: sectionLabel("favorites"), section: "favorites" },
   { id: "recent", label: sectionLabel("recent"), section: "recent" },
-  { id: "pins", label: sectionLabel("pins"), section: "pins" },
+
   { id: "all", label: sectionLabel("all"), section: "all" },
   { id: "nes", label: "NES", section: "all", platforms: ["NES"] },
   { id: "snes", label: "SNES", section: "all", platforms: ["SNES"] },
@@ -82,11 +82,12 @@ export default function XmbPage() {
   const [focusedSub, setFocusedSub] = useState(0);
   const [focusedGame, setFocusedGame] = useState(0);
   const [games, setGames] = useState<Game[]>([]);
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [bootstrap, setBootstrap] = useState<{
     servers: XmbServer[];
-    library: { totalGames: number; pinnedCount: number } | null;
+    library: null;
     ice: { stunConfigured: boolean; turnConfigured: boolean; transportPolicy: string };
   } | null>(null);
 
@@ -98,6 +99,14 @@ export default function XmbPage() {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const gameListRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    try {
+      setFavoriteIds(migrateLegacyPinsToFavorites(localStorage, LS_FAVORITES, LS_PINS));
+    } catch {
+      setFavoriteIds(mergeLegacySavedGameIds(new Set(), localStorage.getItem(LS_FAVORITES)));
+    }
+  }, []);
 
   // Cloud visitors still sign in; LAN-proxied clients prove locality through
   // sc-server's exact health route and can use the server-owned library.
@@ -178,7 +187,7 @@ export default function XmbPage() {
     const controller = new AbortController();
     (async () => {
       try {
-        const query = search ? `?search=${encodeURIComponent(search)}&limit=200&pins_first=true` : "?limit=200&pins_first=true";
+        const query = search ? `?search=${encodeURIComponent(search)}&limit=200` : "?limit=200";
         const res = await fetch(`/api/games${query}`, { signal: controller.signal });
         if (!res.ok) return;
         const data = await res.json();
@@ -187,8 +196,6 @@ export default function XmbPage() {
           name: game.name,
           platform: game.platform,
           maxPlayers: game.maxPlayers,
-          favorite: Boolean(game.favorite ?? game.favorited),
-          pinned: Boolean(game.pinned),
           recentRank: null,
           playedAt: game.playedAt,
           serverId: game.serverId ?? game.server_id ?? null,
@@ -214,7 +221,7 @@ export default function XmbPage() {
     return () => controller.abort();
   }, [status]);
 
-  // ── Server-owned games already include favorite, pin, and recent state ──
+  // Recent state comes from sc-server; Favorites remain browser-local.
   const sub = SUB_CATEGORIES[focusedSub];
 
   const mergedGames: Game[] = (() => {
@@ -226,6 +233,7 @@ export default function XmbPage() {
     );
     return games.map((game) => ({
       ...game,
+      favorite: isSavedGameFavorite(favoriteIds, game),
       recentRank: localRecentRanks.get(libraryGameKey(game)) ?? null,
     }));
   })();

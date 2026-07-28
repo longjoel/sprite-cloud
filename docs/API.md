@@ -113,10 +113,7 @@ Command payloads are JSON objects with a `type`, `server_id`, and type-specific 
   "servers": [
     { "id": "server-uuid", "name": "Bazzite", "gameCount": 24 }
   ],
-  "library": {
-    "totalGames": 24,
-    "pinnedCount": 2
-  },
+  "library": null,
   "ice": {
     "stunConfigured": true,
     "turnConfigured": false,

@@ -1,7 +1,7 @@
 /* Metro game collection */
 .game-tile-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; padding:0; }
 .game-tile { position:relative; min-height:160px; overflow:hidden; border:1px solid transparent; box-shadow:inset 0 0 0 1px rgba(255,255,255,.02); transition:border-color .15s,transform .1s,box-shadow .15s; }
-.game-tile.is-pinned,.game-tile.is-favorite { box-shadow:inset 0 0 0 1px rgba(56,189,248,.2); }
+.game-tile.is-favorite { box-shadow:inset 0 0 0 1px rgba(56,189,248,.2); }
 .game-tile:hover,.game-tile:focus-within { border-color:var(--color-accent); }
 .game-tile:hover { transform:scale(1.02); }
 .game-tile:active { transform:scale(.98); }

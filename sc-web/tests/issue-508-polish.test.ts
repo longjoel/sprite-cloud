@@ -13,7 +13,7 @@ describe("#508 polish regressions", () => {
     const source = read("app/signin/page.tsx");
     expect(source).not.toContain('"use client"');
     expect(source).toMatch(/auth\(/);
-    expect(source).toMatch(/redirect\("\/xmb"\)/);
+    expect(source).toMatch(/redirect\("\/"\)/);
   });
 
   it("adds loading boundaries for app, dashboard, settings, and server settings", () => {

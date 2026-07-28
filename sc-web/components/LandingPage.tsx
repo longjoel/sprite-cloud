@@ -26,7 +26,7 @@ const STEPS: Step[] = [
   {
     num: 2,
     title: "Create an account",
-    desc: "Sign in with an email and password. This gives you a personal library, favorites, pins, and access to your game servers.",
+    desc: "Sign in with an email and password. This gives you a personal library, favorites, and access to your game servers.",
     link: { label: "Sign In →", href: "/signin" },
   },
   {

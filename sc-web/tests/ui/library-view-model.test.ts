@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   LIBRARY_SECTIONS,
-  createAllLibraryPageParams,
+
   createLibraryFilters,
   createLibraryPageParams,
   createLatestRequestGate,
@@ -11,21 +11,25 @@ import {
   formatRelativeAge,
   getEmptyStateMessage,
   groupRecentGamesByLocalDate,
+  isSavedGameFavorite,
   isServerLocalGame,
   libraryGameKey,
   mergeLibraryPages,
+  mergeLegacySavedGameIds,
   mergeRecentLibraryPages,
+  migrateLegacyPinsToFavorites,
   normalizeRecentGameIds,
   normalizeRecentGameIdsWithTimestamps,
+  toggleSavedGameFavorite,
 
   type LibraryGame,
 } from "@/lib/ui/library-view-model";
 
 const games: LibraryGame[] = [
-  { id: "alpha", name: "Alpha Quest", platform: "NES", favorite: false, pinned: false, recentRank: null, serverId: "one", coverUrl: null },
-  { id: "beta", name: "Beta Racing", platform: "SNES", favorite: true, pinned: true, recentRank: 2, serverId: "one", coverUrl: "/beta.png" },
-  { id: "gamma", name: "Gamma World", platform: "NES", favorite: true, pinned: false, recentRank: 1, serverId: "two", coverUrl: null },
-  { id: "delta", name: "Delta Force", platform: "Genesis", favorite: false, pinned: true, recentRank: null, serverId: "two", coverUrl: null },
+  { id: "alpha", name: "Alpha Quest", platform: "NES", favorite: false, recentRank: null, serverId: "one", coverUrl: null },
+  { id: "beta", name: "Beta Racing", platform: "SNES", favorite: true, recentRank: 2, serverId: "one", coverUrl: "/beta.png" },
+  { id: "gamma", name: "Gamma World", platform: "NES", favorite: true, recentRank: 1, serverId: "two", coverUrl: null },
+  { id: "delta", name: "Delta Force", platform: "Genesis", favorite: false, recentRank: null, serverId: "two", coverUrl: null },
 ];
 
 const ids = (result: LibraryGame[]) => result.map((game) => game.id);
@@ -38,19 +42,19 @@ describe("library view model", () => {
 
 
   it("defines every library section in canonical order", () => {
-    expect(LIBRARY_SECTIONS.map(({ id }) => id)).toEqual(["all", "favorites", "recent", "pins"]);
+    expect(LIBRARY_SECTIONS.map(({ id }) => id)).toEqual(["all", "favorites", "recent"]);
   });
 
   it.each([
-    ["all", ["beta", "delta", "alpha", "gamma"]],
+    ["all", ["alpha", "beta", "gamma", "delta"]],
     ["favorites", ["beta", "gamma"]],
     ["recent", ["gamma", "beta"]],
-    ["pins", ["beta", "delta"]],
+
   ] as const)("filters the %s section", (section, expected) => {
     expect(ids(filterLibraryGames(games, { section }))).toEqual(expected);
   });
 
-  it.each(["all", "favorites", "recent", "pins"] as const)("applies search in the %s section", (section) => {
+  it.each(["all", "favorites", "recent"] as const)("applies search in the %s section", (section) => {
     expect(ids(filterLibraryGames(games, { section, search: "beta" }))).toEqual(["beta"]);
   });
 
@@ -58,13 +62,54 @@ describe("library view model", () => {
     expect(ids(filterLibraryGames(games, { section: "all", platforms: new Set(["NES"]) }))).toEqual(["alpha", "gamma"]);
   });
 
-  it("keeps original order stable within pinned and unpinned groups", () => {
+  it("keeps the server's original order in All", () => {
     const reordered = [games[3], games[2], games[1], games[0]];
-    expect(ids(filterLibraryGames(reordered, { section: "all" }))).toEqual(["delta", "beta", "gamma", "alpha"]);
+    expect(ids(filterLibraryGames(reordered, { section: "all" }))).toEqual(["delta", "gamma", "beta", "alpha"]);
   });
 
-  it("preserves API order in Favorites instead of promoting pinned games", () => {
+  it("preserves API order in Favorites", () => {
     expect(ids(filterLibraryGames([games[2], games[1]], { section: "favorites" }))).toEqual(["gamma", "beta"]);
+  });
+
+  it("migrates valid legacy pins into Favorites without duplicates", () => {
+    expect([...mergeLegacySavedGameIds(new Set(["alpha"]), '["alpha","beta",42]')]).toEqual(["alpha", "beta"]);
+    expect([...mergeLegacySavedGameIds(new Set(["alpha"]), "not json")]).toEqual(["alpha"]);
+  });
+
+  it("keeps legacy pins when persisting migrated Favorites fails", () => {
+    let pinsRemoved = false;
+    const storage = {
+      getItem: (key: string) => key === "favorites" ? '["alpha"]' : '["beta"]',
+      setItem: () => { throw new Error("storage denied"); },
+      removeItem: () => { pinsRemoved = true; },
+    };
+
+    expect(() => migrateLegacyPinsToFavorites(storage, "favorites", "pins")).toThrow("storage denied");
+    expect(pinsRemoved).toBe(false);
+  });
+
+  it("removes legacy pins only after Favorites are persisted", () => {
+    const calls: string[] = [];
+    const storage = {
+      getItem: (key: string) => key === "favorites" ? '["alpha"]' : '["beta"]',
+      setItem: (_key: string, value: string) => calls.push(`set:${value}`),
+      removeItem: (key: string) => calls.push(`remove:${key}`),
+    };
+
+    expect([...migrateLegacyPinsToFavorites(storage, "favorites", "pins")]).toEqual(["alpha", "beta"]);
+    expect(calls).toEqual(['set:["alpha","beta"]', "remove:pins"]);
+  });
+
+  it("does not rewrite Favorites after legacy pins have already been removed", () => {
+    const calls: string[] = [];
+    const storage = {
+      getItem: (key: string) => key === "favorites" ? '["alpha"]' : null,
+      setItem: () => calls.push("set"),
+      removeItem: () => calls.push("remove"),
+    };
+
+    expect([...migrateLegacyPinsToFavorites(storage, "favorites", "pins")]).toEqual(["alpha"]);
+    expect(calls).toEqual([]);
   });
 
   it.each(["all", "favorites", "recent"] as const)("forwards search from the %s consumer adapter", (section) => {
@@ -156,14 +201,6 @@ describe("library view model", () => {
     });
   });
 
-  it("keeps every all-library page in pins-first offset semantics", () => {
-    expect(createAllLibraryPageParams(100, 0, " mario ")).toEqual({
-      limit: "100", offset: "0", search: "mario", pins_first: "true",
-    });
-    expect(createAllLibraryPageParams(100, 100, " mario ")).toEqual({
-      limit: "100", offset: "100", search: "mario", pins_first: "true",
-    });
-  });
 
   it("namespaces playable-host lookup for server-owned games", () => {
     expect(createPlayableHostsParams({ id: "local_abc", serverId: "server-a" })).toEqual({
@@ -184,10 +221,31 @@ describe("library view model", () => {
     ]);
   });
 
-  it("does not count repeated pins as appended rows or skip the next offset", () => {
+  it("keeps Favorites independent for matching game IDs on different servers", () => {
+    const first = { ...games[0], id: "local_same", serverId: "server-a" };
+    const second = { ...games[0], id: "local_same", serverId: "server-b" };
+    const favorites = toggleSavedGameFavorite(new Set(), first);
+
+    expect(isSavedGameFavorite(favorites, first)).toBe(true);
+    expect(isSavedGameFavorite(favorites, second)).toBe(false);
+    expect([...favorites]).toEqual(["server-a:local_same"]);
+  });
+
+  it("recognizes and safely clears legacy bare-ID Favorites", () => {
+    const first = { ...games[0], id: "local_same", serverId: "server-a" };
+    const second = { ...games[0], id: "local_same", serverId: "server-b" };
+    const legacyFavorites = new Set(["local_same"]);
+
+    expect(isSavedGameFavorite(legacyFavorites, first)).toBe(true);
+    expect(isSavedGameFavorite(legacyFavorites, second)).toBe(true);
+    expect([...toggleSavedGameFavorite(legacyFavorites, first)]).toEqual([]);
+    expect([...toggleSavedGameFavorite(new Set(["local_same", "server-a:local_same"]), first)]).toEqual([]);
+  });
+
+  it("does not count repeated games as appended rows or skip the next offset", () => {
     const merged = mergeLibraryPages([games[1], games[0], games[2]], [games[1], games[3]]);
     expect(ids(merged)).toEqual(["beta", "alpha", "gamma", "delta"]);
-    expect(createAllLibraryPageParams(3, merged.length, "").offset).toBe("4");
+    expect(createLibraryPageParams(3, merged.length, "").offset).toBe("4");
   });
 
   it("accepts only the latest reset response when searches resolve out of order", () => {
@@ -212,12 +270,12 @@ describe("library view model", () => {
 });
 
 describe("canonical library labels", () => {
-  it("uses text labels for Favorites, Recently Played, and Pinned sections", () => {
+  it("uses text labels for the three distinct library sections", () => {
     expect(LIBRARY_SECTIONS.map(({ id, label }) => [id, label])).toEqual([
       ["all", "All"],
       ["favorites", "Favorites"],
       ["recent", "Recently Played"],
-      ["pins", "Pinned"],
+
     ]);
   });
 });
@@ -227,7 +285,7 @@ describe("empty state messages", () => {
     expect(getEmptyStateMessage("all")).toBe("No games found");
     expect(getEmptyStateMessage("favorites")).toBe("No favorites yet");
     expect(getEmptyStateMessage("recent")).toBe("No recent plays");
-    expect(getEmptyStateMessage("pins")).toBe("Nothing pinned yet");
+
   });
 });
 
