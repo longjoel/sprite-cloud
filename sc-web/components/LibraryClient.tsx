@@ -167,7 +167,8 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
 
   const [allGames, setAllGames] = useState<Game[]>([]);
   const [allTotal, setAllTotal] = useState(0);
-  const [allLoading, setAllLoading] = useState(true); // start loading — suppresses stale handoff flash
+  const [allLoading, setAllLoading] = useState(true);
+  const [serverPlatforms, setServerPlatforms] = useState<{ name: string; count: number }[]>([]); // start loading — suppresses stale handoff flash
   const [fetchError, setFetchError] = useState(false);
   const hasServers = serverIds.length > 0 || allGames.some((game) => Boolean(game.serverId));
   const needsLanHandoff = session !== null && lanLibraries.length > 0;
@@ -217,10 +218,13 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
     if (!reset && offset >= total && total > 0) return;
     setAllLoading(true);
     try {
-      const data = await fetchPage("/api/games", createAllLibraryPageParams(PAGE_SIZE, offset, searchTerm));
+      const primaryPlatform = selectedPlatforms.size === 1 ? [...selectedPlatforms][0] : undefined;
+      const data = await fetchPage("/api/games", createAllLibraryPageParams(PAGE_SIZE, offset, searchTerm, primaryPlatform));
       setAllGames(reset ? data.games : mergeLibraryPages(current, data.games));
       setAllTotal(data.total);
       setFetchError(false);
+      // Use server-returned platform facets as the canonical list
+      if (data.platforms) setServerPlatforms(data.platforms);
       // Apply any locally stored renames to freshly loaded games
       if (reset) {
         const renames = loadRenames();
@@ -541,14 +545,6 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
   const currentLoading = tab === "all" ? allLoading : tab === "pins" ? pinsLoading : tab === "favorites" ? favLoading : recentLoading;
   const hasMore = tab !== "pins" && currentGames.length < currentTotal;
 
-  const platformSource = mergeLibraryPages(allGames, pinnedGames);
-  const uniquePlatforms = [...new Set(platformSource.map((g) => g.platform))].sort();
-  const platformCounts = useMemo(() => {
-    const m: Record<string, number> = {};
-    for (const g of platformSource) m[g.platform] = (m[g.platform] || 0) + 1;
-    return m;
-  }, [allGames, pinnedGames]);
-
   const sortedGames = useMemo(() => {
     const normalized: LibraryGame[] = currentGames.map((game, index) => ({
       ...game,
@@ -698,10 +694,10 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
 
         <LibraryToolbar
           activeSection={tab}
-          counts={{ all: allTotal, favorites: favTotal, recent: recentTotal, pins: pinnedGames.length }}
+          counts={{ all: allTotal, favorites: favoriteIds.size, recent: recentTotal, pins: pinnedIds.size }}
           search={searchInput}
-          platforms={uniquePlatforms}
-          platformCounts={platformCounts}
+          platforms={serverPlatforms.map((p) => p.name)}
+          platformCounts={Object.fromEntries(serverPlatforms.map((p) => [p.name, p.count]))}
           selectedPlatforms={selectedPlatforms}
           viewMode={viewMode}
           onSectionChange={setTab}

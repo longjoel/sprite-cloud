@@ -65,15 +65,15 @@ export default function LibraryToolbar({
 
         <div className={styles.filter} ref={filterRef}>
           <button ref={filterButtonRef} type="button" className={styles.systemButton} data-active={selectedPlatforms.size > 0}
-            aria-label="Filter by system" aria-haspopup="menu" aria-expanded={menuOpen} aria-controls="library-system-menu"
+            aria-label="Filter by platform" aria-haspopup="menu" aria-expanded={menuOpen} aria-controls="library-system-menu"
             onClick={() => setMenuOpen((open) => !open)}>
-            <span className={styles.longLabel}>{selectedPlatforms.size ? `Systems (${selectedPlatforms.size})` : "All Systems"}</span>
+            <span className={styles.longLabel}>{selectedPlatforms.size ? `Platforms (${selectedPlatforms.size})` : "All Platforms"}</span>
             <span aria-hidden="true"> {menuOpen ? "▲" : "▼"}</span>
           </button>
           {menuOpen && (
             <div id="library-system-menu" className={styles.menu} role="menu" aria-label="Systems">
               <button type="button" className={styles.option} onClick={() => { onClearPlatforms(); setMenuOpen(false); }}>
-                All Systems <span className={styles.optionCount}>({counts.all})</span>
+                All Platforms <span className={styles.optionCount}>({counts.all})</span>
               </button>
               {platforms.map((platform) => (
                 <label className={styles.option} key={platform}>
