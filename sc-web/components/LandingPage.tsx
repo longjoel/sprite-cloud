@@ -21,8 +21,8 @@ const STEPS: Step[] = [
   {
     num: 1,
     title: "Make an account",
-    desc: "Sign up with an email and password. This gives you a personal library, favorites, pins, and access to your game servers.",
-    link: { label: "Sign Up →", href: "/signin" },
+    desc: "Create an account with an email and password. This gives you a personal library, favorites, pins, and access to your game servers.",
+    link: { label: "Sign In →", href: "/signin" },
   },
   {
     num: 2,
@@ -140,9 +140,6 @@ export default function LandingPage() {
         </p>
         <div style={{ display: "flex", gap: 14, justifyContent: "center" }}>
           <Link href="/signin" style={s.ctaPrimary}>
-            Create Account
-          </Link>
-          <Link href="/signin" style={s.ctaSecondaryMuted}>
             Sign In
           </Link>
         </div>
