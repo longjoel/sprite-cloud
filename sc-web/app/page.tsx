@@ -21,7 +21,7 @@ export default async function Home() {
   const isLanProxy = lanServer !== null;
 
   // First-run: if no users exist, show setup
-  if (!session) {
+  if (!session?.user?.id) {
     if (isLanProxy) {
       return <LibraryClient serverIds={[]} session={null} isLanProxy />;
     }
@@ -36,17 +36,13 @@ export default async function Home() {
   }
 
   // Authenticated: find all servers the user is a member of
-  let serverIds: string[] = [];
-  let lanLibraries = [] as ReturnType<typeof extractLanLibraryLinks>;
-  if (session?.user?.id) {
-    const memberships = await db
-      .select({ serverId: servers.id, name: servers.name, metadata: servers.metadata })
-      .from(serverMembers)
-      .innerJoin(servers, eq(serverMembers.serverId, servers.id))
-      .where(eq(serverMembers.userId, session.user.id));
-    serverIds = memberships.map((m) => m.serverId);
-    lanLibraries = extractLanLibraryLinks(memberships);
-  }
+  const memberships = await db
+    .select({ serverId: servers.id, name: servers.name, metadata: servers.metadata })
+    .from(serverMembers)
+    .innerJoin(servers, eq(serverMembers.serverId, servers.id))
+    .where(eq(serverMembers.userId, session.user.id));
+  const serverIds = memberships.map((m) => m.serverId);
+  const lanLibraries = extractLanLibraryLinks(memberships);
 
   return (
     <LibraryClient

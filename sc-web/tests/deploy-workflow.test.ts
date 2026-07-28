@@ -36,6 +36,17 @@ const rootReadme = readFileSync("../README.md", "utf8");
 const quickstart = readFileSync("../QUICKSTART.md", "utf8");
 
 describe("production deploy workflow", () => {
+  it("installs with the checked-in workspace policy and pinned package manager", () => {
+    const packagePolicy = productionDockerfile.indexOf("COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./");
+    const install = productionDockerfile.indexOf("pnpm install");
+
+    expect(packagePolicy).toBeGreaterThan(-1);
+    expect(productionDockerfile).toContain("corepack prepare pnpm@10.4.1 --activate");
+    expect(productionDockerfile).not.toContain("|| pnpm install --no-frozen-lockfile");
+    expect(productionDockerfile).not.toContain("|| true");
+    expect(install).toBeGreaterThan(packagePolicy);
+  });
+
   it("uses the installed nondefault VPS key for every SSH transport", () => {
     expect(workflow).toContain("name: vps-key");
     expect(workflow).not.toMatch(/\bssh -o StrictHostKeyChecking/);
@@ -207,14 +218,18 @@ server_id = ""`);
     expect(ciDockerfile).toContain("COPY sc-web-standalone/sc-web/.next/static/ ./sc-web/.next/static/");
     expect(ciDockerfile).toContain("COPY sc-web/public/ ./sc-web/public/");
     expect(ciDockerfile).not.toContain("COPY sc-web/.next/static/");
-    expect(ciDockerfile).toContain("npm install drizzle-kit@0.31.10 postgres@3.4.9");
+    expect(ciDockerfile).toContain("COPY docker/sc-web/schema-tools/package*.json ./");
+    expect(ciDockerfile).toContain("npm ci --ignore-scripts");
+    expect(ciDockerfile).not.toContain("npm install");
     expect(ciDockerfile).toContain("COPY sc-web/drizzle.config.ts ./sc-web/");
     expect(ciDockerfile).toContain("COPY sc-web/lib/db/schema.ts ./sc-web/lib/db/");
   });
 
   it("isolates the production schema CLI from the application package graph", () => {
     expect(productionDockerfile).toContain("WORKDIR /app/schema-tools");
-    expect(productionDockerfile).toContain("npm install drizzle-kit@0.31.10 postgres@3.4.9");
+    expect(productionDockerfile).toContain("COPY docker/sc-web/schema-tools/package*.json ./");
+    expect(productionDockerfile).toContain("npm ci --ignore-scripts");
+    expect(productionDockerfile).not.toContain("npm init");
     expect(productionDockerfile).not.toContain("WORKDIR /app/sc-web\nRUN npm init");
     expect(productionEntrypoint).toContain("export NODE_PATH=/app/schema-tools/node_modules");
     expect(productionEntrypoint).toContain("/app/schema-tools/node_modules/.bin/drizzle-kit");
