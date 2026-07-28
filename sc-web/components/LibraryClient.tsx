@@ -656,6 +656,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
       <AppHeader
         userName={session?.user?.name || session?.user?.email || undefined}
         links={[
+          { label: "Home", href: "/" },
           ...(session ? [{ label: "Dashboard", href: "/dashboard" }] : []),
           { label: "XMB", href: "/xmb" },
           ...(session
