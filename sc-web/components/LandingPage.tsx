@@ -5,8 +5,8 @@ import Link from "next/link";
 
 // ── LandingPage — public hero + setup guide for unauthenticated visitors
 
-const CLOUD_ACCENT = "#38bdf8"; // sky-blue
-const STEP_COLORS = [CLOUD_ACCENT, "#a78bfa", "#34d399", "#fbbf24"];
+const CLOUD_ACCENT = "#38bdf8";
+const STEP_COLORS = [CLOUD_ACCENT, "#a78bfa", "#34d399"];
 
 interface Step {
   num: number;
@@ -16,25 +16,33 @@ interface Step {
   link?: { label: string; href: string };
 }
 
-
 const STEPS: Step[] = [
   {
     num: 1,
-    title: "Make an account",
-    desc: "Create an account with an email and password. This gives you a personal library, favorites, pins, and access to your game servers.",
-    link: { label: "Sign In →", href: "/signin" },
-  },
-  {
-    num: 2,
     title: "Install the server",
     desc: "Run this one-liner on your gaming machine (Linux, Bazzite, Steam Deck, Raspberry Pi):",
     code: "curl -fsSL https://sprite-cloud.com/install.sh | bash",
   },
   {
+    num: 2,
+    title: "Create an account",
+    desc: "Sign in with an email and password. This gives you a personal library, favorites, pins, and access to your game servers.",
+    link: { label: "Sign In →", href: "/signin" },
+  },
+  {
     num: 3,
     title: "Pair and play",
-    desc: "Sign in, go to your dashboard, generate a pairing code. Run sc-server pair <code> on your machine to link it to your account. Point it at your ROM directory, open your library, and start streaming.",
+    desc: "Go to your dashboard, generate a pairing code. Run sc-server pair <code> on your machine to link it to your account. Point it at your ROM directory, open your library, and start streaming.",
   },
+];
+
+const FEATURES = [
+  { icon: "🎮", title: "Your library", desc: "Browse and search your full retro game collection from any device." },
+  { icon: "📺", title: "Browser streaming", desc: "No apps, no plugins. Your games stream directly to any modern browser." },
+  { icon: "🔒", title: "Self-hosted", desc: "Your ROMs, your hardware, your rules. No cloud subscription, no monthly fees." },
+  { icon: "👥", title: "Multiplayer ready", desc: "Share a link and play together. Multiple players can join your game session." },
+  { icon: "📱", title: "Any device", desc: "Desktop, phone, tablet — the responsive player adapts to any screen." },
+  { icon: "🎛️", title: "Touch gamepad", desc: "On-screen touch controls for phones and tablets. No controller required." },
 ];
 
 export default function LandingPage() {
@@ -50,9 +58,10 @@ export default function LandingPage() {
       {/* ── Nav bar ─────────────────────────────────────────────────── */}
       <nav style={s.nav}>
         <span style={s.logo}>Sprite Cloud</span>
-        <Link href="/signin" style={s.navLink}>
-          Sign In →
-        </Link>
+        <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+          <a href="#features" onClick={scrollToGuide} style={s.navLink}>Features</a>
+          <Link href="/signin" style={s.navLink}>Sign In →</Link>
+        </div>
       </nav>
 
       {/* ── Hero ────────────────────────────────────────────────────── */}
@@ -99,32 +108,35 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ── Features ────────────────────────────────────────────────── */}
+      <section id="features" style={s.features}>
+        <h2 style={s.featuresH2}>What you get</h2>
+        <div style={s.featuresGrid}>
+          {FEATURES.map((f) => (
+            <div key={f.title} style={s.featureCard}>
+              <span style={s.featureIcon}>{f.icon}</span>
+              <h3 style={s.featureTitle}>{f.title}</h3>
+              <p style={s.featureDesc}>{f.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* ── Setup Guide ─────────────────────────────────────────────── */}
       <section id="guide" style={s.guide}>
         <h2 style={s.guideH2}>How to set up Sprite Cloud</h2>
         <div style={s.stepsList}>
           {STEPS.map((step) => (
             <div key={step.num} style={s.stepRow}>
-              {/* Step number badge */}
-              <div
-                style={{
-                  ...s.stepBadge,
-                  background: STEP_COLORS[step.num - 1],
-                }}
-              >
+              <div style={{ ...s.stepBadge, background: STEP_COLORS[step.num - 1] }}>
                 {step.num}
               </div>
-              {/* Step content */}
               <div style={s.stepContent}>
                 <h3 style={s.stepTitle}>{step.title}</h3>
                 <p style={s.stepDesc}>{step.desc}</p>
-                {step.code && (
-                  <pre style={s.stepCode}>{step.code}</pre>
-                )}
+                {step.code && <pre style={s.stepCode}>{step.code}</pre>}
                 {step.link && (
-                  <Link href={step.link.href} style={s.stepLink}>
-                    {step.link.label}
-                  </Link>
+                  <Link href={step.link.href} style={s.stepLink}>{step.link.label}</Link>
                 )}
               </div>
             </div>
@@ -134,14 +146,10 @@ export default function LandingPage() {
 
       {/* ── Bottom CTA ──────────────────────────────────────────────── */}
       <section style={s.bottomCta}>
-        <h2 style={s.bottomTitle}>Want your own library?</h2>
-        <p style={s.bottomSub}>
-          Create an account, pair your server, and stream your own library.
-        </p>
+        <h2 style={s.bottomTitle}>Ready to play?</h2>
+        <p style={s.bottomSub}>Create an account, pair your server, and stream your own library.</p>
         <div style={{ display: "flex", gap: 14, justifyContent: "center" }}>
-          <Link href="/signin" style={s.ctaPrimary}>
-            Sign In
-          </Link>
+          <Link href="/signin" style={s.ctaPrimary}>Sign In</Link>
         </div>
       </section>
 
@@ -156,19 +164,17 @@ export default function LandingPage() {
           <span style={s.footerDot}>·</span>
           <a href="https://github.com/longjoel/sprite-cloud/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" style={s.footerLink}>License</a>
           <span style={s.footerDot}>·</span>
-          <a href="https://github.com/longjoel/sprite-cloud" target="_blank" rel="noopener noreferrer" style={s.footerLink}>Source</a>
+          <a href="https://github.com/longjoel/sprite-cloud" target="_blank" rel="noopener noreferrer" style={s.footerLink}>GitHub</a>
         </div>
       </footer>
 
-      {/* ── Cookie consent banner ──────────────────────────────────── */}
+      {/* ── Cookie consent ──────────────────────────────────────────── */}
       {!cookieDismissed && (
         <div style={s.cookieBanner}>
           <span style={s.cookieText}>
             This site uses a session cookie for authentication. No tracking, no ads, no third-party cookies.
           </span>
-          <button onClick={() => setCookieDismissed(true)} style={s.cookieBtn}>
-            OK
-          </button>
+          <button onClick={() => setCookieDismissed(true)} style={s.cookieBtn}>OK</button>
         </div>
       )}
     </main>
@@ -187,306 +193,115 @@ const s: Record<string, React.CSSProperties> = {
     flexDirection: "column",
     scrollBehavior: "smooth",
   },
-
   // Nav
   nav: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "14px 32px",
-    borderBottom: "2px solid rgba(56,189,248,0.12)",
+    display: "flex", justifyContent: "space-between", alignItems: "center",
+    padding: "14px 32px", borderBottom: "2px solid rgba(56,189,248,0.12)",
   },
   logo: {
-    fontSize: "var(--font-size-lg)",
-    fontWeight: 700,
-    color: "var(--color-accent)",
-    textTransform: "uppercase",
-    letterSpacing: "0.05em",
+    fontSize: "var(--font-size-lg)", fontWeight: 700, color: "var(--color-accent)",
+    textTransform: "uppercase", letterSpacing: "0.05em",
   },
   navLink: {
-    color: "var(--color-cloud-dim)",
-    fontSize: "var(--font-size-sm)",
-    textDecoration: "none",
-    padding: "6px 16px",
-    border: "1px solid rgba(56,189,248,0.2)",
-    borderRadius: 2,
+    color: "var(--color-cloud-dim)", fontSize: "var(--font-size-sm)", textDecoration: "none",
+    padding: "6px 16px", border: "1px solid rgba(56,189,248,0.2)", borderRadius: 2,
     transition: "all 0.15s",
   },
-
   // Hero
   hero: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "64px",
-    padding: "80px 32px",
-    maxWidth: "1100px",
-    margin: "0 auto",
-    width: "100%",
-    flexWrap: "wrap" as const,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    gap: 64, padding: "80px 32px", maxWidth: 1100, margin: "0 auto",
+    width: "100%", flexWrap: "wrap",
   },
-  heroInner: {
-    flex: "1 1 400px",
-    maxWidth: "540px",
-  },
-  title: {
-    fontSize: "clamp(36px, 6vw, 56px)",
-    fontWeight: 800,
-    lineHeight: 1.08,
-    margin: 0,
-    letterSpacing: "-0.02em",
-  },
-  subtitle: {
-    fontSize: "var(--font-size-md)",
-    color: "var(--color-cloud-dim)",
-    lineHeight: 1.65,
-    marginTop: "24px",
-    maxWidth: "460px",
-  },
-  ctaRow: {
-    display: "flex",
-    gap: "14px",
-    marginTop: "36px",
-  },
+  heroInner: { flex: "1 1 400px", maxWidth: 540 },
+  title: { fontSize: "clamp(36px, 6vw, 56px)", fontWeight: 800, lineHeight: 1.08, margin: 0, letterSpacing: "-0.02em" },
+  subtitle: { fontSize: "var(--font-size-md)", color: "var(--color-cloud-dim)", lineHeight: 1.65, marginTop: 24, maxWidth: 460 },
+  ctaRow: { display: "flex", gap: 14, marginTop: 36 },
   ctaPrimary: {
-    padding: "12px 32px",
-    background: "var(--color-accent)",
-    color: "var(--color-sky-deep)",
-    fontSize: "var(--font-size-md)",
-    fontWeight: 700,
-    border: "none",
-    borderRadius: 2,
-    cursor: "pointer",
-    textDecoration: "none",
-    textTransform: "uppercase" as const,
-    letterSpacing: "0.05em",
-    fontFamily: "var(--font-mono)",
+    padding: "12px 32px", background: "var(--color-accent)", color: "var(--color-sky-deep)",
+    fontSize: "var(--font-size-md)", fontWeight: 700, border: "none", borderRadius: 2,
+    cursor: "pointer", textDecoration: "none", textTransform: "uppercase", letterSpacing: "0.05em",
   },
   ctaSecondary: {
-    padding: "12px 32px",
-    background: "transparent",
-    color: "var(--color-accent)",
-    fontSize: "var(--font-size-md)",
-    fontWeight: 600,
-    border: "1px solid rgba(56,189,248,0.3)",
-    borderRadius: 2,
-    cursor: "pointer",
-    textDecoration: "none",
-    fontFamily: "var(--font-mono)",
+    padding: "12px 32px", background: "transparent", color: "var(--color-accent)",
+    fontSize: "var(--font-size-md)", fontWeight: 600, border: "1px solid rgba(56,189,248,0.3)",
+    borderRadius: 2, cursor: "pointer", textDecoration: "none",
   },
-  ctaSecondaryMuted: {
-    padding: "12px 24px",
-    background: "transparent",
-    color: "var(--color-cloud-dim)",
-    fontSize: "var(--font-size-md)",
-    fontWeight: 600,
-    border: "1px solid rgba(156,163,184,0.2)",
-    borderRadius: 2,
-    cursor: "pointer",
-    textDecoration: "none",
-    fontFamily: "var(--font-mono)",
-  },
-
-  // Hero visual
-  heroVisual: {
-    flex: "0 0 260px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  heroVisual: { flex: "0 0 260px", display: "flex", alignItems: "center", justifyContent: "center" },
   visualStack: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "6px",
-    padding: "40px 20px",
-    background: "rgba(17,24,39,0.6)",
-    border: "1px solid rgba(56,189,248,0.1)",
-    borderRadius: 4,
+    display: "flex", flexDirection: "column", gap: 6, padding: "40px 20px",
+    background: "rgba(17,24,39,0.6)", border: "1px solid rgba(56,189,248,0.1)", borderRadius: 4,
   },
-
+  // Features
+  features: { maxWidth: 1000, margin: "0 auto", padding: "80px 32px", width: "100%" },
+  featuresH2: { fontSize: "var(--font-size-xl)", fontWeight: 700, textAlign: "center", margin: "0 0 48px" },
+  featuresGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 },
+  featureCard: {
+    padding: 24, border: "1px solid rgba(56,189,248,0.08)", borderRadius: 2,
+    background: "rgba(17,24,39,0.4)",
+  },
+  featureIcon: { fontSize: 28, display: "block", marginBottom: 12 },
+  featureTitle: { margin: "0 0 6px", fontSize: "var(--font-size-md)", fontWeight: 700, color: "var(--color-cloud)" },
+  featureDesc: { margin: 0, fontSize: "var(--font-size-sm)", color: "var(--color-cloud-dim)", lineHeight: 1.6 },
   // Guide
-  guide: {
-    maxWidth: "800px",
-    margin: "0 auto",
-    padding: "80px 32px",
-    width: "100%",
-  },
-  guideH2: {
-    fontSize: "var(--font-size-xl)",
-    fontWeight: 700,
-    margin: "0 0 48px",
-    color: "var(--color-cloud)",
-    textAlign: "center" as const,
-  },
-  stepsList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "0",
-  },
-  stepRow: {
-    display: "flex",
-    gap: "24px",
-    padding: "28px 0",
-    borderBottom: "1px solid rgba(56,189,248,0.08)",
-  },
+  guide: { maxWidth: 800, margin: "0 auto", padding: "80px 32px", width: "100%" },
+  guideH2: { fontSize: "var(--font-size-xl)", fontWeight: 700, margin: "0 0 48px", textAlign: "center" },
+  stepsList: { display: "flex", flexDirection: "column", gap: 0 },
+  stepRow: { display: "flex", gap: 24, padding: "28px 0", borderBottom: "1px solid rgba(56,189,248,0.08)" },
   stepBadge: {
-    flex: "0 0 44px",
-    width: "44px",
-    height: "44px",
-    borderRadius: 2,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "var(--font-size-lg)",
-    fontWeight: 800,
-    color: "var(--color-sky-deep)",
-    fontFamily: "var(--font-mono)",
+    flex: "0 0 44px", width: 44, height: 44, borderRadius: 2,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    fontSize: "var(--font-size-lg)", fontWeight: 800, color: "var(--color-sky-deep)",
   },
-  stepContent: {
-    flex: 1,
-    minWidth: 0,
-  },
-  stepTitle: {
-    fontSize: "var(--font-size-md)",
-    fontWeight: 700,
-    margin: "0 0 6px",
-    color: "var(--color-cloud)",
-  },
-  stepDesc: {
-    fontSize: "var(--font-size-sm)",
-    color: "var(--color-cloud-dim)",
-    lineHeight: 1.65,
-    margin: 0,
-  },
+  stepContent: { flex: 1, minWidth: 0 },
+  stepTitle: { fontSize: "var(--font-size-md)", fontWeight: 700, margin: "0 0 6px", color: "var(--color-cloud)" },
+  stepDesc: { fontSize: "var(--font-size-sm)", color: "var(--color-cloud-dim)", lineHeight: 1.65, margin: 0 },
   stepCode: {
-    marginTop: "12px",
-    padding: "10px 14px",
-    background: "rgba(17,24,39,0.6)",
-    border: "1px solid var(--color-sky-high)",
-    borderRadius: 2,
-    fontSize: "var(--font-size-xs)",
-    color: "var(--color-accent)",
-    overflowX: "auto" as const,
-    whiteSpace: "pre-wrap" as const,
-    wordBreak: "break-all" as const,
-    fontFamily: "var(--font-mono)",
+    marginTop: 12, padding: "10px 14px", background: "rgba(17,24,39,0.6)",
+    border: "1px solid var(--color-sky-high)", borderRadius: 2,
+    fontSize: "var(--font-size-xs)", color: "var(--color-accent)",
+    overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all",
   },
   stepLink: {
-    display: "inline-block",
-    marginTop: "12px",
-    padding: "8px 20px",
-    background: "var(--color-sky-high)",
-    color: "var(--color-accent)",
-    fontSize: "var(--font-size-sm)",
-    fontWeight: 600,
-    textDecoration: "none",
-    borderRadius: 2,
-    fontFamily: "var(--font-mono)",
-    textTransform: "uppercase" as const,
-    letterSpacing: "0.05em",
+    display: "inline-block", marginTop: 12, padding: "8px 20px",
+    background: "var(--color-sky-high)", color: "var(--color-accent)",
+    fontSize: "var(--font-size-sm)", fontWeight: 600, textDecoration: "none",
+    borderRadius: 2, textTransform: "uppercase", letterSpacing: "0.05em",
   },
-
   // Bottom CTA
   bottomCta: {
-    textAlign: "center" as const,
-    padding: "80px 32px",
+    textAlign: "center", padding: "80px 32px",
     borderTop: "1px solid rgba(56,189,248,0.08)",
     borderBottom: "1px solid rgba(56,189,248,0.08)",
     background: "rgba(17,24,39,0.4)",
   },
-  bottomTitle: {
-    fontSize: "var(--font-size-xl)",
-    fontWeight: 700,
-    margin: 0,
-    color: "var(--color-cloud)",
-  },
-  bottomSub: {
-    fontSize: "var(--font-size-md)",
-    color: "var(--color-cloud-dim)",
-    marginTop: "8px",
-  },
-
+  bottomTitle: { fontSize: "var(--font-size-xl)", fontWeight: 700, margin: 0 },
+  bottomSub: { fontSize: "var(--font-size-md)", color: "var(--color-cloud-dim)", marginTop: 8 },
   // Footer
   footer: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    padding: "24px 32px 80px",
-    marginTop: "auto",
-    gap: "24px",
-    flexWrap: "wrap" as const,
+    display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+    padding: "24px 32px 80px", marginTop: "auto", gap: 24, flexWrap: "wrap",
   },
-  footerCol: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "4px",
-  },
+  footerCol: { display: "flex", flexDirection: "column", gap: 4 },
   footerText: {
-    fontSize: "var(--font-size-xs)",
-    color: "var(--color-accent)",
-    textTransform: "uppercase" as const,
-    letterSpacing: "0.05em",
-    fontWeight: 700,
+    fontSize: "var(--font-size-xs)", color: "var(--color-accent)",
+    textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700,
   },
-  footerDim: {
-    fontSize: "var(--font-size-xs)",
-    color: "var(--color-cloud-dim)",
-    opacity: 0.5,
-  },
-  footerLinks: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    flexWrap: "wrap" as const,
-  },
-  footerDot: {
-    color: "var(--color-cloud-dim)",
-    opacity: 0.25,
-    fontSize: "var(--font-size-xs)",
-  },
-  footerLink: {
-    fontSize: "var(--font-size-xs)",
-    color: "var(--color-cloud-dim)",
-    textDecoration: "none",
-    opacity: 0.6,
-    transition: "opacity 0.15s",
-  },
-
-  // Cookie consent banner
+  footerDim: { fontSize: "var(--font-size-xs)", color: "var(--color-cloud-dim)", opacity: 0.5 },
+  footerLinks: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
+  footerLink: { fontSize: "var(--font-size-xs)", color: "var(--color-cloud-dim)", textDecoration: "none", opacity: 0.6, transition: "opacity 0.15s" },
+  footerDot: { color: "var(--color-cloud-dim)", opacity: 0.25, fontSize: "var(--font-size-xs)" },
+  // Cookie
   cookieBanner: {
-    position: "fixed",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "16px",
-    padding: "12px 24px",
-    background: "var(--color-sky-mid)",
-    borderTop: "1px solid var(--color-sky-high)",
-    zIndex: 100,
-    fontFamily: "var(--font-mono)",
-    flexWrap: "wrap" as const,
+    position: "fixed", bottom: 0, left: 0, right: 0,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    gap: 16, padding: "12px 24px", background: "var(--color-sky-mid)",
+    borderTop: "1px solid var(--color-sky-high)", zIndex: 100, flexWrap: "wrap",
   },
-  cookieText: {
-    fontSize: "var(--font-size-xs)",
-    color: "var(--color-cloud-dim)",
-    lineHeight: 1.5,
-    maxWidth: "600px",
-  },
+  cookieText: { fontSize: "var(--font-size-xs)", color: "var(--color-cloud-dim)", lineHeight: 1.5, maxWidth: 600 },
   cookieBtn: {
-    padding: "6px 20px",
-    background: "var(--color-accent)",
-    color: "var(--color-sky-deep)",
-    border: "none",
-    borderRadius: 2,
-    fontSize: "var(--font-size-xs)",
-    fontWeight: 700,
-    cursor: "pointer",
-    fontFamily: "var(--font-mono)",
-    textTransform: "uppercase" as const,
-    letterSpacing: "0.05em",
-    whiteSpace: "nowrap" as const,
+    padding: "6px 20px", background: "var(--color-accent)", color: "var(--color-sky-deep)",
+    border: "none", borderRadius: 2, fontSize: "var(--font-size-xs)", fontWeight: 700,
+    cursor: "pointer", fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap",
   },
 };
