@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { useMediaQuery, useTheme } from "@mui/material";
 import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
 import AppHeader from "@/components/fluent/AppHeader";
@@ -136,6 +137,8 @@ function saveRenames(renames: Record<string, string>) {
 
 export default function LibraryClient({ serverIds, lanLibraries = [], session, isLanProxy = false }: LibraryClientProps) {
   const router = useRouter();
+  const theme = useTheme();
+  const isNarrow = useMediaQuery(theme.breakpoints.down("sm"));
 
   const [hostPickerGame, setHostPickerGame] = useState<Game | null>(null);
   const [playableHosts, setPlayableHosts] = useState<PlayableHost[]>([]);
@@ -649,7 +652,8 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
     </tr>
   );
 
-  // ── Render ──────────────────────────────────────────────────────
+  // Auto-switch to cards on mobile — table requires horizontal scroll at narrow widths
+  const effectiveViewMode = isNarrow ? "grid" : viewMode;
 
   return (
     <main style={styles.main}>
@@ -714,7 +718,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
 
         {/* Game grid / table */}
         {currentLoading && currentGames.length === 0 ? (
-          viewMode === "grid" ? (
+          effectiveViewMode === "grid" ? (
             <div className="library-skeleton-grid" aria-label="Loading games">
               {Array.from({ length: 8 }, (_, index) => <div key={index} className="library-skeleton-tile" />)}
             </div>
@@ -731,7 +735,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
               ? "No games match the selected platforms."
               : tab === "all" ? "No games found." : tab === "favorites" ? "No favorites yet." : tab === "pins" ? "No pinned games yet." : "No recent plays."}
           </p>
-        ) : viewMode === "grid" ? (
+        ) : effectiveViewMode === "grid" ? (
           <>
             {tab === "recent" ? recentGroups.map((group) => (
               <section key={group.date} style={styles.recentGroup}>
@@ -745,11 +749,26 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
                   ))}
                 </div>
               </section>
-            )) : (
-              <div className="game-tile-grid">
-                {sortedGames.map((game) => renderGameCard(game))}
-              </div>
-            )}
+            )) : (() => {
+              // Group games by platform for collapsible sections
+              const groups = new Map<string, Game[]>();
+              for (const g of sortedGames) {
+                const list = groups.get(g.platform) || [];
+                list.push(g);
+                groups.set(g.platform, list);
+              }
+              return [...groups.entries()].map(([platform, games]) => (
+                <details key={platform} open style={{ marginBottom: 16 }}>
+                  <summary style={styles.platformSummary}>
+                    <span>{platform}</span>
+                    <span style={styles.platformCount}>{games.length}</span>
+                  </summary>
+                  <div className="game-tile-grid" style={{ marginTop: 12 }}>
+                    {games.map((game) => renderGameCard(game))}
+                  </div>
+                </details>
+              ));
+            })()}
           </>
         ) : (
           <div style={{ overflowX: "auto" }}>
@@ -931,6 +950,26 @@ const styles: Record<string, React.CSSProperties> = {
     marginTop: "var(--space-2)",
     color: "var(--color-cloud-dim)",
     fontSize: "var(--font-size-xs)",
+  },
+  platformSummary: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "8px 4px",
+    cursor: "pointer",
+    color: "var(--color-cloud)",
+    fontSize: "var(--font-size-md)",
+    fontFamily: "var(--font-mono)",
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+    borderBottom: "1px solid var(--color-border-default)",
+    listStyle: "none",
+  },
+  platformCount: {
+    color: "var(--color-cloud-dim)",
+    fontSize: "var(--font-size-sm)",
+    fontWeight: 400,
   },
   recentTableDate: {
     padding: "12px 14px",
