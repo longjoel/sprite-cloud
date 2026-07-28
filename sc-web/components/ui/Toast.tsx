@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Snackbar, Alert, type AlertColor } from "@mui/material";
 
 interface ToastProps {
   /** Duration in ms before auto-dismiss. 0 = persistent. */
@@ -17,40 +17,33 @@ export default function Toast({
   variant = "success",
   children,
 }: ToastProps) {
-  const [visible, setVisible] = useState(true);
-
-  useEffect(() => {
-    if (duration <= 0) return;
-    const t = setTimeout(() => {
-      setVisible(false);
-      onDone?.();
-    }, duration);
-    return () => clearTimeout(t);
-  }, [duration, onDone]);
-
-  if (!visible) return null;
-
-  const borderColor =
-    variant === "success" ? "var(--color-success)" : "var(--color-error)";
+  const severity: AlertColor = variant;
+  // success = polite (role=status), error = assertive (role=alert)
+  const role = variant === "success" ? "status" : "alert";
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        top: "var(--space-9)",
-        left: "50%",
-        transform: "translateX(-50%)",
-        background: "var(--color-mahogany)",
-        border: `1px solid ${borderColor}`,
-        borderRadius: "var(--radius-md)",
-        padding: "var(--space-4) var(--space-7)",
-        fontSize: "var(--font-size-base)",
-        fontFamily: "var(--font-mono)",
-        color: "var(--color-cream)",
-        zIndex: 100,
+    <Snackbar
+      open
+      autoHideDuration={duration || null}
+      onClose={(_event, reason) => {
+        if (reason === "clickaway") return;
+        onDone?.();
       }}
+      anchorOrigin={{ vertical: "top", horizontal: "center" }}
+      sx={{ top: 64 }}
     >
-      {children}
-    </div>
+      <Alert
+        severity={severity}
+        role={role}
+        variant="outlined"
+        onClose={onDone}
+        sx={{
+          fontFamily: "var(--font-mono)",
+          borderRadius: "2px",
+        }}
+      >
+        {children}
+      </Alert>
+    </Snackbar>
   );
 }
