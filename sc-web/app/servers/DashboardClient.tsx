@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui";
 import ServerPanel from "./ServerPanel";
+import InviteManager from "./InviteManager";
 import DevTools from "./DevTools";
 import { serverStatus, timeAgo, csrfHeaders } from "./dashboard-utils";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
@@ -396,6 +397,7 @@ export default function DashboardClient({ memberships }: Props) {
                                 </p>
                               </div>
                               <ServerPanel serverId={s.id} />
+                              <InviteManager serverId={s.id} canManage={s.role === "admin"} />
                             </div>
                           </td>
                         </tr>

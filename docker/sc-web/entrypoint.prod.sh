@@ -25,8 +25,8 @@ else
 fi
 
 # ── Pre-flight: setup code generation ──────────────────────────────────
-# If the users table is empty, generate a one-time setup code so the deployer
-# can create the first admin account via /setup.
+# If the users table is empty, generate the raw capability that instrumentation
+# imports into invite_codes as the one-use bootstrap invitation.
 
 SETUP_CODE_FILE="/tmp/sc-setup-code"
 
@@ -43,20 +43,20 @@ else
   ")
 
   if [ "$user_count" = "0" ]; then
-    echo "[sc-web] zero users detected — generating setup code..."
-    SETUP_CODE=$(node -e "console.log(require('crypto').randomBytes(8).toString('hex'))")
-    echo "$SETUP_CODE" > "$SETUP_CODE_FILE"
-    printf '\n╔══════════════════════════════════════════════╗\n'
-    printf '║         Sprite Cloud — First Run             ║\n'
-    printf '╠══════════════════════════════════════════════╣\n'
+    echo "[sc-web] zero users detected — generating bootstrap invitation capability..."
+    SETUP_CODE=$(node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))")
+    umask 077
+    printf '%s\n' "$SETUP_CODE" > "$SETUP_CODE_FILE"
+    printf '\n╔════════════════════════════════════════════════════════════════╗\n'
+    printf '║              Sprite Cloud — First Run                          ║\n'
+    printf '╠════════════════════════════════════════════════════════════════╣\n'
     SETUP_URL="${AUTH_URL:-${NEXTAUTH_URL:-}}"
-    printf "║  Setup code: %-30s ║\n" "$SETUP_CODE"
     if [ -n "$SETUP_URL" ]; then
-      printf "║  Visit %-33s ║\n" "${SETUP_URL%/}/setup"
+      printf '║  Visit %s\n' "${SETUP_URL%/}/invite/$SETUP_CODE"
     else
-      printf '║  Visit /setup on your gateway URL        ║\n'
+      printf '║  Visit /invite/%s on your gateway URL\n' "$SETUP_CODE"
     fi
-    printf '╚══════════════════════════════════════════════╝\n\n'
+    printf '╚════════════════════════════════════════════════════════════════╝\n\n'
   elif [ "$user_count" -gt 0 ] 2>/dev/null; then
     echo "[sc-web] users exist — cleaning stale setup code"
     rm -f "$SETUP_CODE_FILE"
