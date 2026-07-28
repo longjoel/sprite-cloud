@@ -1,4 +1,4 @@
-export type LibrarySection = "all" | "favorites" | "recent" | "pins";
+export type LibrarySection = "all" | "favorites" | "recent";
 
 export interface LibrarySectionMetadata {
   id: LibrarySection;
@@ -9,7 +9,7 @@ export const LIBRARY_SECTIONS: readonly LibrarySectionMetadata[] = [
   { id: "all", label: "All" },
   { id: "favorites", label: "Favorites" },
   { id: "recent", label: "Recently Played" },
-  { id: "pins", label: "Pinned" },
+
 ];
 
 export interface LibraryGame {
@@ -17,7 +17,7 @@ export interface LibraryGame {
   name: string;
   platform: string;
   favorite: boolean;
-  pinned: boolean;
+
   recentRank: number | null;
   serverId: string | null;
   coverUrl: string | null;
@@ -25,6 +25,30 @@ export interface LibraryGame {
 
 export function libraryGameKey(game: { id: string; serverId?: string | null }): string {
   return `${game.serverId ?? "legacy"}:${game.id}`;
+}
+
+export function isSavedGameFavorite(
+  favorites: ReadonlySet<string>,
+  game: { id: string; serverId?: string | null },
+): boolean {
+  return favorites.has(libraryGameKey(game)) || favorites.has(game.id);
+}
+
+export function toggleSavedGameFavorite(
+  favorites: ReadonlySet<string>,
+  game: { id: string; serverId?: string | null },
+): Set<string> {
+  const next = new Set(favorites);
+  const key = libraryGameKey(game);
+  // Bare IDs are legacy entries. Preserve their original cross-server meaning
+  // until the user toggles one, then clear both legacy and namespaced forms.
+  if (next.has(game.id) || next.has(key)) {
+    next.delete(game.id);
+    next.delete(key);
+    return next;
+  }
+  next.add(key);
+  return next;
 }
 
 export function isServerLocalGame(game: { id: string }): boolean {
@@ -77,13 +101,43 @@ export function createLibraryPageParams(pageSize: number, offset: number, search
   return params;
 }
 
-export function createAllLibraryPageParams(pageSize: number, offset: number, search: string, platform?: string): Record<string, string> {
-  return { ...createLibraryPageParams(pageSize, offset, search, platform), pins_first: "true" };
-}
 
 export function mergeLibraryPages<T extends { id: string; serverId?: string | null }>(current: readonly T[], next: readonly T[]): T[] {
   const seen = new Set(current.map(libraryGameKey));
   return [...current, ...next.filter((game) => !seen.has(libraryGameKey(game)))];
+}
+
+export function mergeLegacySavedGameIds(favorites: ReadonlySet<string>, rawLegacyPins: string | null): Set<string> {
+  const merged = new Set(favorites);
+  try {
+    const pins = JSON.parse(rawLegacyPins || "[]") as unknown;
+    if (Array.isArray(pins)) {
+      for (const id of pins) if (typeof id === "string") merged.add(id);
+    }
+  } catch {
+    // Invalid legacy data should not discard valid Favorites.
+  }
+  return merged;
+}
+
+export interface SavedGameStorage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+}
+
+export function migrateLegacyPinsToFavorites(
+  storage: SavedGameStorage,
+  favoritesKey: string,
+  pinsKey: string,
+): Set<string> {
+  const favorites = mergeLegacySavedGameIds(new Set(), storage.getItem(favoritesKey));
+  const legacyPins = storage.getItem(pinsKey);
+  if (legacyPins === null) return favorites;
+  const merged = mergeLegacySavedGameIds(favorites, legacyPins);
+  storage.setItem(favoritesKey, JSON.stringify([...merged]));
+  storage.removeItem(pinsKey);
+  return merged;
 }
 
 export interface RecentGameLike { id: string; serverId?: string | null; playedAt?: string | null; }
@@ -194,7 +248,7 @@ const EMPTY_STATE_MESSAGES: Record<LibrarySection, string> = {
   all: "No games found",
   favorites: "No favorites yet",
   recent: "No recent plays",
-  pins: "Nothing pinned yet",
+
 };
 
 export function getEmptyStateMessage(section: LibrarySection): string {
@@ -213,7 +267,7 @@ export function filterLibraryGames(games: readonly LibraryGame[], filters: Libra
   const filtered = games.filter((game) => {
     if (filters.section === "favorites" && !game.favorite) return false;
     if (filters.section === "recent" && game.recentRank === null) return false;
-    if (filters.section === "pins" && !game.pinned) return false;
+
     if (search && !game.name.toLocaleLowerCase().includes(search)) return false;
     return includesPlatform(filters.platforms, game.platform);
   });
@@ -225,10 +279,5 @@ export function filterLibraryGames(games: readonly LibraryGame[], filters: Libra
       .map(({ game }) => game);
   }
 
-  if (filters.section === "favorites") return filtered;
-
-  return filtered
-    .map((game, index) => ({ game, index }))
-    .sort((a, b) => Number(b.game.pinned) - Number(a.game.pinned) || a.index - b.index)
-    .map(({ game }) => game);
+  return filtered;
 }
