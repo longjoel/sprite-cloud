@@ -60,6 +60,8 @@ export async function resetTestDb(): Promise<void> {
   await db.delete(schema.peerTokens);
   await db.delete(schema.sessions);
   await db.delete(schema.commands);
+  await db.delete(schema.inviteRedemptions);
+  await db.delete(schema.inviteCodes);
   await db.delete(schema.serverMembers);
   await db.delete(schema.pairingCodes);
   await db.delete(schema.servers);

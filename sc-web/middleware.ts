@@ -51,6 +51,7 @@ export const config = {
     "/xmb",
     "/signin",
     "/setup",
+    "/invite/:path*",
     "/unauthorized",
     "/forbidden",
   ],

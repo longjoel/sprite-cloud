@@ -208,7 +208,8 @@ server_id = ""`);
     expect(browserLogger).not.toContain("href: clampString(location.href");
     expect(browserLogger).not.toContain('roomToken: clampString(searchParams.get("join")');
     expect(browserLogger).toContain('out[key] = "[REDACTED]"');
-    expect(browserLogger).toContain('location.pathname.replace(/^\\/r\\/[^/]+/, "/r/[redacted]")');
+    expect(browserLogger).toContain('.replace(/^\\/r\\/[^/]+/, "/r/[redacted]")');
+    expect(browserLogger).toContain('.replace(/^\\/invite\\/[^/]+/, "/invite/[redacted]")');
   });
 
   it("stages Next static assets inside the nonignored CI Docker context", () => {

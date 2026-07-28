@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { applyRateLimit } from "../lib/rate-limit";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("API rate-limit isolation", () => {
   it("does not let notify polling exhaust the command bucket for the same client IP", () => {
@@ -18,5 +22,25 @@ describe("API rate-limit isolation", () => {
     }
 
     expect(applyRateLimit(commandRequest, 30)).toBeNull();
+  });
+
+  it("retains long-window attempts across the one-minute cleanup tick", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-28T12:00:00Z"));
+    vi.resetModules();
+    const { checkRateLimit } = await import("../lib/rate-limit");
+    const key = "invite-redemption:198.51.100.99";
+    const windowMs = 15 * 60_000;
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      expect(checkRateLimit(key, 10, windowMs).allowed).toBe(true);
+    }
+    expect(checkRateLimit(key, 10, windowMs)).toMatchObject({ allowed: false, retryAfter: 900 });
+
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(checkRateLimit(key, 10, windowMs)).toMatchObject({ allowed: false, retryAfter: 839 });
+
+    await vi.advanceTimersByTimeAsync(839_001);
+    expect(checkRateLimit(key, 10, windowMs).allowed).toBe(true);
   });
 });
