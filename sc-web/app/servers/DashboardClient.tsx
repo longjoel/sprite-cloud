@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
 import { Button } from "@/components/ui";
 import ServerPanel from "./ServerPanel";
 import InviteManager from "./InviteManager";
@@ -54,6 +55,7 @@ export default function DashboardClient({ memberships }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [pairingError, setPairingError] = useState<string | null>(null);
+  const [inviteTarget, setInviteTarget] = useState<Membership | null>(null);
   const [showDevTools, setShowDevTools] = useState(false);
   const [metadataByServer, setMetadataByServer] = useState<Record<string, ServerMetadataSummary>>({});
   const [lanProbeByServer, setLanProbeByServer] = useState<Record<string, LanProbeResult>>({});
@@ -298,8 +300,8 @@ export default function DashboardClient({ memberships }: Props) {
                   const metadata = metadataByServer[s.id];
 
                   return (
-                    <>
-                      <tr key={s.id} style={isOpen ? S.rowExpanded : undefined}>
+                    <Fragment key={s.id}>
+                      <tr style={isOpen ? S.rowExpanded : undefined}>
                         <td style={S.tdStatus}>
                           <div style={S.statusStack}>
                             <span
@@ -337,11 +339,12 @@ export default function DashboardClient({ memberships }: Props) {
                                 </form>
                               ) : (
                                 <span
-                                  style={S.editableName}
-                                  onClick={() =>
-                                    startRename(s.id, s.name)
-                                  }
-                                  title="Click to rename"
+                                 style={{
+                                   ...S.editableName,
+                                   ...(s.role === "admin" ? {} : S.readOnlyName),
+                                 }}
+                                 onClick={s.role === "admin" ? () => startRename(s.id, s.name) : undefined}
+                                 title={s.role === "admin" ? "Click to rename" : undefined}
                                 >
                                   {s.name || s.id.slice(0, 8)}
                                 </span>
@@ -367,6 +370,16 @@ export default function DashboardClient({ memberships }: Props) {
                         <td style={S.tdActions}>
                           <div style={S.actionRow}>
                             <Button
+                              variant="primary"
+                              size="sm"
+                              disabled={s.role !== "admin"}
+                              aria-label={`Invite users to ${s.name || s.id.slice(0, 8)}`}
+                              title={s.role === "admin" ? `Invite users to ${s.name || s.id.slice(0, 8)}` : "Only server administrators can send invitations"}
+                              onClick={() => setInviteTarget(s)}
+                            >
+                              Invite user
+                            </Button>
+                            <Button
                               variant="secondary"
                               size="sm"
                               onClick={() => toggle(s.id)}
@@ -376,6 +389,8 @@ export default function DashboardClient({ memberships }: Props) {
                             <Button
                               variant="destructive"
                               size="sm"
+                             disabled={s.role !== "admin"}
+                             title={s.role === "admin" ? "Remove server" : "Only server administrators can remove servers"}
                               onClick={() => {
                                 setDeleting(s.id);
                                 setDeleteConfirm("");
@@ -397,12 +412,11 @@ export default function DashboardClient({ memberships }: Props) {
                                 </p>
                               </div>
                               <ServerPanel serverId={s.id} />
-                              <InviteManager serverId={s.id} canManage={s.role === "admin"} />
                             </div>
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -410,6 +424,26 @@ export default function DashboardClient({ memberships }: Props) {
           </div>
         )}
       </section>
+
+      <Dialog
+        open={inviteTarget !== null}
+        onClose={() => setInviteTarget(null)}
+        maxWidth="md"
+        fullWidth
+        aria-labelledby="invite-dialog-title"
+      >
+        <DialogTitle id="invite-dialog-title">
+          Invite users to {inviteTarget?.name || inviteTarget?.id.slice(0, 8)}
+        </DialogTitle>
+        <DialogContent dividers>
+          {inviteTarget && (
+            <InviteManager serverId={inviteTarget.id} canManage={inviteTarget.role === "admin"} />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button variant="secondary" onClick={() => setInviteTarget(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
       {deleting && (
         <section style={S.section}>
@@ -613,6 +647,10 @@ const S = {
     color: "var(--color-cloud)",
     fontWeight: 600,
     fontSize: "var(--font-size-lg)",
+  },
+  readOnlyName: {
+    cursor: "default",
+    borderBottom: "none",
   },
   serverId: {
     fontSize: "var(--font-size-xs)",

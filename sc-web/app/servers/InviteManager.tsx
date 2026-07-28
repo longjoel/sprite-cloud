@@ -93,9 +93,9 @@ export default function InviteManager({ serverId, canManage }: { serverId: strin
   }
 
   return (
-    <Box sx={{ mt: 4, pt: 3, borderTop: "1px solid var(--color-sky-high)" }}>
+    <Box sx={{ pt: 1 }}>
       <Typography variant="h6" sx={{ fontFamily: "var(--font-mono)", color: "var(--color-accent)" }}>
-        Enrollment invitations
+        Create invitation
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         {canManage
@@ -147,6 +147,9 @@ export default function InviteManager({ serverId, canManage }: { serverId: strin
       )}
 
       {error && <Typography color="error" sx={{ mt: 2 }}>{error}</Typography>}
+      <Typography variant="h6" sx={{ mt: 3, fontFamily: "var(--font-mono)" }}>
+        Invitation history
+      </Typography>
       {loading ? (
         <Typography color="text.secondary" sx={{ mt: 3 }}>Loading invitations…</Typography>
       ) : (
