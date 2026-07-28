@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { serverMembers, servers } from "@/lib/db/schema";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import AppHeader from "@/components/fluent/AppHeader";
 import DashboardClient from "@/app/servers/DashboardClient";
@@ -13,20 +13,16 @@ export default async function DashboardPage() {
   const session = await auth();
   if (!session?.user?.id) redirect("/api/auth/signin");
 
-  const adminServers = await db
+  const memberships = await db
     .select({
       id: servers.id,
       name: servers.name,
       lastSeenAt: servers.lastSeenAt,
+      role: serverMembers.role,
     })
     .from(serverMembers)
     .innerJoin(servers, eq(serverMembers.serverId, servers.id))
-    .where(
-      and(
-        eq(serverMembers.userId, session.user.id),
-        eq(serverMembers.role, "admin"),
-      ),
-    );
+    .where(eq(serverMembers.userId, session.user.id));
 
 
   return (
@@ -43,29 +39,28 @@ export default async function DashboardPage() {
         <p style={S.kicker}>Dashboard</p>
         <h1 style={S.title}>Your servers</h1>
         <p style={S.subtitle}>
-          Pair, rename, inspect, and remove the sc-server instances you
-          administer. This page is intentionally server-first.
+          Access the sc-server instances shared with you. Administrators can
+          pair, rename, invite members, inspect, and remove servers here.
         </p>
       </section>
 
-      {adminServers.length === 0 ? (
+      {memberships.length === 0 ? (
         <section style={S.section}>
           <div style={S.card}>
             <p style={S.empty}>
-              No servers with admin access yet. Pair a sc-server and become its
-              admin to manage it here.
+              No servers yet. Pair a sc-server or ask an administrator for an
+              invitation.
             </p>
             <PairingPrompt />
           </div>
         </section>
       ) : (
         <DashboardClient
-          memberships={adminServers.map((srv) => ({
+          memberships={memberships.map((srv) => ({
             id: srv.id,
             name: srv.name || srv.id.slice(0, 8),
             lastSeenAt: srv.lastSeenAt?.toISOString() ?? null,
-            role: "admin",
-
+            role: srv.role,
           }))}
         />
       )}
