@@ -6,7 +6,6 @@ import { Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material
 import { Button } from "@/components/ui";
 import ServerPanel from "./ServerPanel";
 import InviteManager from "./InviteManager";
-import DevTools from "./DevTools";
 import { serverStatus, timeAgo, csrfHeaders } from "./dashboard-utils";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
 
@@ -15,33 +14,31 @@ import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
 interface Membership {
   id: string;
   name: string;
-
   lastSeenAt: string | null;
   role: string;
 }
 
 interface ServerMetadataSummary {
   version?: string;
-  public_ip?: string;
-
   lan?: {
     player_port?: number;
     player_urls?: string[];
     health_urls?: string[];
     lan_player_enabled?: boolean;
   };
-  ice?: {
-    turn_configured?: boolean;
-    transport_policy?: string;
-  };
-  runtime?: {
-    pc_pool_size?: number;
-  };
 }
 
 interface Props {
   memberships: Membership[];
 }
+
+// ── Status priority mapping ────────────────────────────────────────────
+
+const statusPriority: Record<string, number> = {
+  offline: 0,
+  stale: 1,
+  online: 2,
+};
 
 // ── Component ──────────────────────────────────────────────────────────
 
@@ -56,7 +53,6 @@ export default function DashboardClient({ memberships }: Props) {
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [pairingError, setPairingError] = useState<string | null>(null);
   const [inviteTarget, setInviteTarget] = useState<Membership | null>(null);
-  const [showDevTools, setShowDevTools] = useState(false);
   const [metadataByServer, setMetadataByServer] = useState<Record<string, ServerMetadataSummary>>({});
   const [lanProbeByServer, setLanProbeByServer] = useState<Record<string, LanProbeResult>>({});
 
@@ -187,7 +183,6 @@ export default function DashboardClient({ memberships }: Props) {
     const lanProbe = lanProbeByServer[serverId];
     const pills: Array<{ label: string; tone?: "info" | "success" | "warning" | "muted" }> = [];
 
-
     if (metadata?.version) {
       pills.push({ label: `server ${metadata.version}`, tone: "info" });
     }
@@ -202,21 +197,6 @@ export default function DashboardClient({ memberships }: Props) {
         pills.push({ label: "LAN fallback", tone: "warning" });
       }
     }
-    if (metadata?.public_ip) {
-      pills.push({ label: metadata.public_ip, tone: "info" });
-    }
-    if (metadata?.ice) {
-      pills.push({
-        label: metadata.ice.turn_configured ? "TURN ready" : "TURN missing",
-        tone: metadata.ice.turn_configured ? "success" : "warning",
-      });
-      if (metadata.ice.transport_policy) {
-        pills.push({ label: `ICE ${metadata.ice.transport_policy}`, tone: "muted" });
-      }
-    }
-    if (metadata?.runtime?.pc_pool_size !== undefined) {
-      pills.push({ label: `pool ${metadata.runtime.pc_pool_size}`, tone: "muted" });
-    }
 
     return (
       <div style={S.pillRow}>
@@ -229,8 +209,25 @@ export default function DashboardClient({ memberships }: Props) {
     );
   }
 
+  // Sort memberships by status priority: offline → stale → online
+  const sorted = [...memberships].sort((a, b) => {
+    const sa = serverStatus(a.lastSeenAt).label;
+    const sb = serverStatus(b.lastSeenAt).label;
+    return (statusPriority[sa] ?? 99) - (statusPriority[sb] ?? 99);
+  });
+
   return (
     <>
+      <style>{`
+        @media (max-width: 767px) {
+          .sc-dashboard-table { display: none !important; }
+          .sc-dashboard-cards { display: block !important; }
+        }
+        @media (min-width: 768px) {
+          .sc-dashboard-table { display: block !important; }
+          .sc-dashboard-cards { display: none !important; }
+        }
+      `}</style>
       {error && <div style={S.error}>{error}</div>}
 
       <section style={S.section}>
@@ -238,7 +235,7 @@ export default function DashboardClient({ memberships }: Props) {
           <div>
             <h2 style={S.h2}>Servers</h2>
             <p style={S.sectionSub}>
-              Status, identity, routing, and ROM roots live here. Expand a row only when you need deeper controls.
+              Status, health, and pairing. Expand a server for administrator details.
             </p>
           </div>
           <div style={S.inlineTools}>
@@ -248,13 +245,6 @@ export default function DashboardClient({ memberships }: Props) {
               onClick={generatePairingCode}
             >
               Generate pairing code
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowDevTools(!showDevTools)}
-            >
-              {showDevTools ? "Hide dev tools" : "Dev tools"}
             </Button>
           </div>
         </div>
@@ -278,152 +268,255 @@ export default function DashboardClient({ memberships }: Props) {
           <div style={S.pairingError}>Error: {pairingError}</div>
         )}
 
-        {memberships.length === 0 ? (
+        {sorted.length === 0 ? (
           <p style={S.empty}>
             No servers. Pair a sc-server first.
           </p>
         ) : (
-          <div style={S.tableCard}>
-            <table style={S.table}>
-              <thead>
-                <tr>
-                  <th style={S.thStatus}>Status</th>
-                  <th style={S.thServer}>Server</th>
-                  <th style={S.thSeen}>Last seen</th>
-                  <th style={S.thActions}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {memberships.map((s) => {
-                  const status = serverStatus(s.lastSeenAt);
-                  const isOpen = expanded.has(s.id);
-                  const metadata = metadataByServer[s.id];
+          <>
+            {/* ── Desktop: table ─────────────────────────────────────────── */}
+            <div style={S.desktopOnly} className="sc-dashboard-table">
+              <div style={S.tableCard}>
+                <table style={S.table}>
+                  <thead>
+                    <tr>
+                      <th style={S.thStatus}>Status</th>
+                      <th style={S.thServer}>Server</th>
+                      <th style={S.thSeen}>Last seen</th>
+                      <th style={S.thActions}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sorted.map((s) => {
+                      const status = serverStatus(s.lastSeenAt);
+                      const isOpen = expanded.has(s.id);
 
-                  return (
-                    <Fragment key={s.id}>
-                      <tr style={isOpen ? S.rowExpanded : undefined}>
-                        <td style={S.tdStatus}>
-                          <div style={S.statusStack}>
-                            <span
-                              style={{
-                                ...S.statusDot,
-                                background: status.color,
-                              }}
-                            />
-                            <span style={S.statusLabel}>{status.label}</span>
-                          </div>
-                        </td>
-                        <td style={S.tdServer}>
-                          <div style={S.serverCell}>
-                            <div style={S.serverTitleRow}>
-                              {editing === s.id ? (
-                                <form
-                                  onSubmit={(e) => {
-                                    e.preventDefault();
-                                    doRename(s.id);
-                                  }}
-                                  style={S.inlineForm}
-                                >
-                                  <input
-                                    style={S.inlineInput}
-                                    value={editName}
-                                    onChange={(e) =>
-                                      setEditName(e.target.value)
-                                    }
-                                    autoFocus
-                                    onBlur={() => setEditing(null)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Escape") setEditing(null);
-                                    }}
-                                  />
-                                </form>
-                              ) : (
+                      return (
+                        <Fragment key={s.id}>
+                          <tr style={isOpen ? S.rowExpanded : undefined}>
+                            <td style={S.tdStatus}>
+                              <div style={S.statusStack}>
                                 <span
-                                 style={{
-                                   ...S.editableName,
-                                   ...(s.role === "admin" ? {} : S.readOnlyName),
-                                 }}
-                                 onClick={s.role === "admin" ? () => startRename(s.id, s.name) : undefined}
-                                 title={s.role === "admin" ? "Click to rename" : undefined}
-                                >
-                                  {s.name || s.id.slice(0, 8)}
-                                </span>
-                              )}
-                              <code style={S.serverId}>{s.id.slice(0, 8)}</code>
-                            </div>
-                            {renderSummaryPills(s.id)}
-                            {metadata?.public_ip && (
-                              <p style={S.serverNote}>
-                                Public route: <code style={S.inlineCode}>{metadata.public_ip}</code>
-                              </p>
-                            )}
-                          </div>
-                        </td>
-                        <td style={S.tdSeen}>
-                          <div style={S.seenStack}>
-                            <span>{timeAgo(s.lastSeenAt)}</span>
-                            <span style={S.seenSub}>
-                              {s.lastSeenAt ? new Date(s.lastSeenAt).toLocaleString() : "No heartbeat yet"}
-                            </span>
-                          </div>
-                        </td>
-                        <td style={S.tdActions}>
-                          <div style={S.actionRow}>
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              disabled={s.role !== "admin"}
-                              aria-label={`Invite users to ${s.name || s.id.slice(0, 8)}`}
-                              title={s.role === "admin" ? `Invite users to ${s.name || s.id.slice(0, 8)}` : "Only server administrators can send invitations"}
-                              onClick={() => setInviteTarget(s)}
-                            >
-                              Invite user
-                            </Button>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              disabled={s.role !== "admin"}
-                              title={s.role === "admin" ? "Inspect server details" : "Only server administrators can inspect server details"}
-                              onClick={() => toggle(s.id)}
-                            >
-                              {isOpen ? "Hide details" : "Details"}
-                            </Button>
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                             disabled={s.role !== "admin"}
-                             title={s.role === "admin" ? "Remove server" : "Only server administrators can remove servers"}
-                              onClick={() => {
-                                setDeleting(s.id);
-                                setDeleteConfirm("");
-                              }}
-                            >
-                              Remove
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                      {isOpen && s.role === "admin" && (
-                        <tr key={`${s.id}-panel`}>
-                          <td colSpan={4} style={S.panelCell}>
-                            <div style={S.panelShell}>
-                              <div style={S.panelIntro}>
-                                <h3 style={S.panelTitle}>Server details</h3>
-                                <p style={S.panelText}>
-                                  Inspect connection/runtime metadata and adjust core overrides for {s.name || s.id.slice(0, 8)}.
-                                </p>
+                                  style={{
+                                    ...S.statusDot,
+                                    background: status.color,
+                                  }}
+                                />
+                                <span style={S.statusLabel}>{status.label}</span>
                               </div>
-                              <ServerPanel serverId={s.id} />
-                            </div>
-                          </td>
-                        </tr>
+                            </td>
+                            <td style={S.tdServer}>
+                              <div style={S.serverCell}>
+                                <div style={S.serverTitleRow}>
+                                  {editing === s.id ? (
+                                    <form
+                                      onSubmit={(e) => {
+                                        e.preventDefault();
+                                        doRename(s.id);
+                                      }}
+                                      style={S.inlineForm}
+                                    >
+                                      <input
+                                        style={S.inlineInput}
+                                        value={editName}
+                                        onChange={(e) => setEditName(e.target.value)}
+                                        autoFocus
+                                        onBlur={() => setEditing(null)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Escape") setEditing(null);
+                                        }}
+                                        aria-label={`Rename ${s.name || s.id.slice(0, 8)}`}
+                                      />
+                                    </form>
+                                  ) : s.role === "admin" ? (
+                                    <button
+                                      style={S.renameBtn}
+                                      onClick={() => startRename(s.id, s.name)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter" || e.key === " ") {
+                                          e.preventDefault();
+                                          startRename(s.id, s.name);
+                                        }
+                                      }}
+                                      title="Click to rename"
+                                      aria-label={`Rename ${s.name || s.id.slice(0, 8)}`}
+                                    >
+                                      {s.name || s.id.slice(0, 8)}
+                                    </button>
+                                  ) : (
+                                    <span style={S.readOnlyName}>
+                                      {s.name || s.id.slice(0, 8)}
+                                    </span>
+                                  )}
+                                  <code style={S.serverId}>{s.id.slice(0, 8)}</code>
+                                </div>
+                                {renderSummaryPills(s.id)}
+                              </div>
+                            </td>
+                            <td style={S.tdSeen}>
+                              <div style={S.seenStack}>
+                                <span>{timeAgo(s.lastSeenAt)}</span>
+                                <span style={S.seenSub}>
+                                  {s.lastSeenAt ? new Date(s.lastSeenAt).toLocaleString() : "No heartbeat yet"}
+                                </span>
+                              </div>
+                            </td>
+                            <td style={S.tdActions}>
+                              <div style={S.actionRow}>
+                                <Button
+                                  variant="primary"
+                                  size="sm"
+                                  disabled={s.role !== "admin"}
+                                  aria-label={`Invite users to ${s.name || s.id.slice(0, 8)}`}
+                                  title={s.role === "admin" ? `Invite users to ${s.name || s.id.slice(0, 8)}` : "Only server administrators can send invitations"}
+                                  onClick={() => setInviteTarget(s)}
+                                >
+                                  Invite user
+                                </Button>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  disabled={s.role !== "admin"}
+                                  title={s.role === "admin" ? "Inspect server details" : "Only server administrators can inspect server details"}
+                                  onClick={() => toggle(s.id)}
+                                >
+                                  {isOpen ? "Hide details" : "Details"}
+                                </Button>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  disabled={s.role !== "admin"}
+                                  title={s.role === "admin" ? "Remove server" : "Only server administrators can remove servers"}
+                                  onClick={() => {
+                                    setDeleting(s.id);
+                                    setDeleteConfirm("");
+                                  }}
+                                >
+                                  Remove
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                          {isOpen && s.role === "admin" && (
+                            <tr key={`${s.id}-panel`}>
+                              <td colSpan={4} style={S.panelCell}>
+                                <div style={S.panelShell}>
+                                  <div style={S.panelIntro}>
+                                    <h3 style={S.panelTitle}>Server details</h3>
+                                    <p style={S.panelText}>
+                                      Transport, runtime, and core overrides for {s.name || s.id.slice(0, 8)}.
+                                    </p>
+                                  </div>
+                                  <ServerPanel serverId={s.id} />
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* ── Mobile: cards ──────────────────────────────────────────── */}
+            <div style={S.mobileOnly} className="sc-dashboard-cards">
+              {sorted.map((s) => {
+                const status = serverStatus(s.lastSeenAt);
+                const isOpen = expanded.has(s.id);
+
+                return (
+                  <div key={s.id} style={S.card}>
+                    <div style={S.cardHeader}>
+                      <div style={S.statusStack}>
+                        <span style={{ ...S.statusDot, background: status.color }} />
+                        <span style={S.statusLabel}>{status.label}</span>
+                      </div>
+                      <span style={S.seenSub}>
+                        {s.lastSeenAt ? timeAgo(s.lastSeenAt) : "No heartbeat"}
+                      </span>
+                    </div>
+
+                    <div style={S.cardTitleRow}>
+                      {editing === s.id ? (
+                        <form
+                          onSubmit={(e) => { e.preventDefault(); doRename(s.id); }}
+                          style={S.inlineForm}
+                        >
+                          <input
+                            style={{ ...S.inlineInput, width: "100%" }}
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            autoFocus
+                            onBlur={() => setEditing(null)}
+                            onKeyDown={(e) => { if (e.key === "Escape") setEditing(null); }}
+                            aria-label={`Rename ${s.name || s.id.slice(0, 8)}`}
+                          />
+                        </form>
+                      ) : s.role === "admin" ? (
+                        <button
+                          style={S.renameBtn}
+                          onClick={() => startRename(s.id, s.name)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              startRename(s.id, s.name);
+                            }
+                          }}
+                          title="Click to rename"
+                          aria-label={`Rename ${s.name || s.id.slice(0, 8)}`}
+                        >
+                          {s.name || s.id.slice(0, 8)}
+                        </button>
+                      ) : (
+                        <span style={S.readOnlyName}>{s.name || s.id.slice(0, 8)}</span>
                       )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                    </div>
+
+                    {renderSummaryPills(s.id)}
+
+                    <div style={S.cardActions}>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        disabled={s.role !== "admin"}
+                        onClick={() => setInviteTarget(s)}
+                      >
+                        Invite user
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={s.role !== "admin"}
+                        onClick={() => toggle(s.id)}
+                      >
+                        {isOpen ? "Hide details" : "Details"}
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        disabled={s.role !== "admin"}
+                        onClick={() => { setDeleting(s.id); setDeleteConfirm(""); }}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+
+                    {isOpen && s.role === "admin" && (
+                      <div style={S.cardPanel}>
+                        <h3 style={S.panelTitle}>Server details</h3>
+                        <p style={S.panelText}>
+                          Transport, runtime, and core overrides for {s.name || s.id.slice(0, 8)}.
+                        </p>
+                        <ServerPanel serverId={s.id} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </section>
 
@@ -460,9 +553,7 @@ export default function DashboardClient({ memberships }: Props) {
               <input
                 style={S.confirmInput}
                 value={deleteConfirm}
-                onChange={(e) =>
-                  setDeleteConfirm(e.target.value)
-                }
+                onChange={(e) => setDeleteConfirm(e.target.value)}
                 placeholder='Type "DELETE"'
                 autoFocus
                 onKeyDown={(e) => {
@@ -470,30 +561,13 @@ export default function DashboardClient({ memberships }: Props) {
                   if (e.key === "Escape") setDeleting(null);
                 }}
               />
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => doDelete(deleting)}
-              >
+              <Button variant="destructive" size="sm" onClick={() => doDelete(deleting)}>
                 Confirm
               </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setDeleting(null)}
-              >
+              <Button variant="secondary" size="sm" onClick={() => setDeleting(null)}>
                 Cancel
               </Button>
             </div>
-          </div>
-        </section>
-      )}
-
-      {showDevTools && (
-        <section style={S.section}>
-          <div style={S.devToolsCard}>
-            <h2 style={S.h2}>Dev tools</h2>
-            <DevTools show={showDevTools} onClose={() => setShowDevTools(false)} />
           </div>
         </section>
       )}
@@ -511,13 +585,13 @@ const S = {
     alignItems: "flex-start",
     gap: "var(--space-5)",
     marginBottom: "var(--space-5)",
-    flexWrap: "wrap",
+    flexWrap: "wrap" as const,
   },
   inlineTools: {
     display: "flex",
     gap: "var(--space-3)",
     alignItems: "center",
-    flexWrap: "wrap",
+    flexWrap: "wrap" as const,
   },
   h2: {
     margin: 0,
@@ -532,11 +606,6 @@ const S = {
     fontSize: "var(--font-size-base)",
     lineHeight: 1.5,
   },
-  tableCard: {
-    border: "1px solid var(--color-sky-high)",
-    background: "var(--color-sky-mid)",
-    overflow: "hidden",
-  },
   empty: {
     fontSize: "var(--font-size-base)",
     color: "var(--color-muted)",
@@ -550,6 +619,17 @@ const S = {
     marginBottom: "var(--space-6)",
     fontSize: "var(--font-size-base)",
     color: "var(--color-error)",
+  },
+
+  // ── Responsive wrappers ──────────────────────────────────────────
+  desktopOnly: { display: "block" },
+  mobileOnly: { display: "none" },
+
+  // ── Table (desktop) ──────────────────────────────────────────────
+  tableCard: {
+    border: "1px solid var(--color-sky-high)",
+    background: "var(--color-sky-mid)",
+    overflow: "hidden",
   },
   table: { width: "100%", borderCollapse: "collapse" as const },
   thStatus: {
@@ -587,9 +667,7 @@ const S = {
     fontFamily: "var(--font-mono)",
     width: "180px",
   },
-  rowExpanded: {
-    background: "rgba(56,189,248,0.04)",
-  },
+  rowExpanded: { background: "rgba(56,189,248,0.04)" },
   tdStatus: {
     padding: "var(--space-4) var(--space-5)",
     borderBottom: "1px solid var(--color-sky-high)",
@@ -614,6 +692,37 @@ const S = {
     fontSize: "var(--font-size-base)",
     verticalAlign: "top" as const,
   },
+
+  // ── Cards (mobile) ───────────────────────────────────────────────
+  card: {
+    border: "1px solid var(--color-sky-high)",
+    background: "var(--color-sky-mid)",
+    padding: "var(--space-4)",
+    marginBottom: "var(--space-4)",
+  },
+  cardHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "var(--space-3)",
+  },
+  cardTitleRow: {
+    marginBottom: "var(--space-2)",
+  },
+  cardActions: {
+    display: "flex",
+    gap: "var(--space-3)",
+    flexWrap: "wrap" as const,
+    marginTop: "var(--space-3)",
+  },
+  cardPanel: {
+    marginTop: "var(--space-4)",
+    padding: "var(--space-4)",
+    background: "rgba(10,14,26,0.75)",
+    borderTop: "1px solid rgba(56,189,248,0.12)",
+  },
+
+  // ── Shared elements ──────────────────────────────────────────────
   statusStack: {
     display: "flex",
     alignItems: "center",
@@ -643,16 +752,22 @@ const S = {
     gap: "var(--space-3)",
     flexWrap: "wrap" as const,
   },
-  editableName: {
+  renameBtn: {
     cursor: "pointer",
+    border: "none",
     borderBottom: "1px dashed var(--color-sky-high)",
+    background: "none",
     color: "var(--color-cloud)",
     fontWeight: 600,
     fontSize: "var(--font-size-lg)",
+    fontFamily: "var(--font-mono)",
+    padding: 0,
+    textAlign: "left" as const,
   },
   readOnlyName: {
-    cursor: "default",
-    borderBottom: "none",
+    color: "var(--color-cloud)",
+    fontWeight: 600,
+    fontSize: "var(--font-size-lg)",
   },
   serverId: {
     fontSize: "var(--font-size-xs)",
@@ -697,15 +812,6 @@ const S = {
       background: "rgba(148,163,184,0.08)",
       border: "1px solid rgba(148,163,184,0.18)",
     },
-  },
-  serverNote: {
-    margin: 0,
-    color: "var(--color-cloud-dim)",
-    fontSize: "var(--font-size-sm)",
-  },
-  inlineCode: {
-    color: "var(--color-info)",
-    fontFamily: "var(--font-mono)",
   },
   seenStack: {
     display: "flex",
@@ -826,9 +932,4 @@ const S = {
     fontSize: "var(--font-size-sm)",
     color: "var(--color-error)",
   },
-  devToolsCard: {
-    padding: "var(--space-5)",
-    background: "rgba(10,14,26,0.45)",
-    border: "1px solid rgba(56,189,248,0.12)",
-  },
-} satisfies Record<string, React.CSSProperties | Record<string, React.CSSProperties>>;
+};
