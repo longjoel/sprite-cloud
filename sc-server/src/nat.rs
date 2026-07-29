@@ -6,8 +6,6 @@ use tokio::net::UdpSocket;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NatType {
     Open,
-    FullCone,
-    RestrictedCone,
     PortRestrictedCone,
     Symmetric,
     Unknown,
@@ -17,8 +15,6 @@ impl NatType {
     pub fn description(&self) -> &'static str {
         match self {
             NatType::Open => "Open — no NAT, direct connections always work",
-            NatType::FullCone => "Full Cone NAT — any peer can reach you",
-            NatType::RestrictedCone => "Restricted Cone NAT — STUN works fine",
             NatType::PortRestrictedCone => {
                 "Port-Restricted Cone NAT — STUN works, common for home routers"
             }
@@ -93,9 +89,7 @@ pub async fn detect(stun_servers: &[&str]) -> Result<NatDetection> {
                 let nat = if let Some(second) = stun_servers.get(1) {
                     match stun_mapped_addr(&socket, second).await {
                         Ok(mapped2) => {
-                            if mapped.port() != mapped2.port()
-                                || mapped.ip() != mapped2.ip()
-                            {
+                            if mapped.port() != mapped2.port() || mapped.ip() != mapped2.ip() {
                                 NatType::Symmetric
                             } else {
                                 NatType::PortRestrictedCone
@@ -109,10 +103,7 @@ pub async fn detect(stun_servers: &[&str]) -> Result<NatDetection> {
                 (mapped, nat)
             }
         }
-        Err(_) => (
-            SocketAddr::from(([0, 0, 0, 0], 0)),
-            NatType::Unknown,
-        ),
+        Err(_) => (SocketAddr::from(([0, 0, 0, 0], 0)), NatType::Unknown),
     };
 
     Ok(NatDetection {
@@ -131,9 +122,7 @@ pub struct NatDetection {
 
 fn is_public_ip(ip: &std::net::IpAddr) -> bool {
     match ip {
-        std::net::IpAddr::V4(v4) => {
-            !v4.is_private() && !v4.is_loopback() && !v4.is_link_local()
-        }
+        std::net::IpAddr::V4(v4) => !v4.is_private() && !v4.is_loopback() && !v4.is_link_local(),
         std::net::IpAddr::V6(v6) => !v6.is_loopback(),
     }
 }

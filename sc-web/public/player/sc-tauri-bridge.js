@@ -113,8 +113,6 @@
   });
 
   // ── Replace navigator.getGamepads ───────────────────────────────────
-  var originalGetGamepads = navigator.getGamepads;
-
   /**
    * Replacement for navigator.getGamepads that returns native gamepad
    * state when running in Tauri; falls back to browser gamepads otherwise.

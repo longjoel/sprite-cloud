@@ -19,6 +19,8 @@ describe("server invitation action", () => {
   let root: ReturnType<typeof createRoot> | null = null;
 
   beforeEach(() => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
+      .IS_REACT_ACT_ENVIRONMENT = true;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       const body =
@@ -50,8 +52,12 @@ describe("server invitation action", () => {
     const inviteBtns = Array.from(table.querySelectorAll<HTMLButtonElement>("button"))
       .filter((btn) => btn.textContent === "Invite user");
     expect(inviteBtns).toHaveLength(2);
-    expect(inviteBtns[0].getAttribute("aria-label")).toBe("Invite users to Living Room");
-    expect(inviteBtns[1].getAttribute("aria-label")).toContain("Invite users to Basement");
+    expect(inviteBtns.map((btn) => btn.getAttribute("aria-label"))).toEqual(
+      expect.arrayContaining([
+        "Invite users to Living Room",
+        "Invite users to Basement",
+      ]),
+    );
 
     const removeBtns = Array.from(table.querySelectorAll<HTMLButtonElement>("button"))
       .filter((btn) => btn.textContent === "Remove");

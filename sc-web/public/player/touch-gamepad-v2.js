@@ -907,7 +907,7 @@ var __touchGamepadBundle = (() => {
       ctx.fillRect(c.x - size / 2, c.y - size / 2, size, size);
     }
   }
-  function handleStart(gp, t, cw, self) {
+  function handleStart(gp, t) {
     const rect = gp._canvas.getBoundingClientRect();
     const n = {
       x: (t.clientX - rect.left) / (rect.width || 1),
@@ -1108,7 +1108,7 @@ var __touchGamepadBundle = (() => {
     target.setPointerCapture?.(e.pointerId);
     const sample = pointerSample(e, target);
     this._activePointers.set(e.pointerId, sample);
-    handleStart(this, sample, this._canvas?.width || 1, this);
+    handleStart(this, sample);
     this._emitState();
     if (!this._editMode) this._scheduleRender();
   };

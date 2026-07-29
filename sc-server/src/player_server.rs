@@ -199,10 +199,7 @@ async fn proxy_server_authenticated(
     proxy_to_sc_web(&state, req, &target).await
 }
 
-fn attach_server_bearer(
-    state: &AppState,
-    req: &mut Request,
-) -> Result<(), axum::http::StatusCode> {
+fn attach_server_bearer(state: &AppState, req: &mut Request) -> Result<(), axum::http::StatusCode> {
     let api_key = state
         .server_api_key
         .as_ref()
@@ -268,23 +265,23 @@ async fn proxy_to_sc_web(
             continue;
         }
         // Strip Secure flag and __Secure- prefix from Set-Cookie — the LAN proxy serves over HTTP
-        if key == "set-cookie" {
-            if let Ok(val) = v.to_str() {
-                let sanitized = val
-                    .split(';')
-                    .map(|p| p.trim())
-                    .filter(|p| !p.eq_ignore_ascii_case("secure"))
-                    .collect::<Vec<_>>()
-                    .join("; ");
-                // Strip __Secure- and __Host- prefixes (browsers reject over HTTP)
-                let sanitized = sanitized
-                    .replacen("__Secure-", "", 1)
-                    .replacen("__Host-", "", 1);
-                response
-                    .headers_mut()
-                    .insert(k.clone(), sanitized.parse().unwrap_or_else(|_| v.clone()));
-                continue;
-            }
+        if key == "set-cookie"
+            && let Ok(val) = v.to_str()
+        {
+            let sanitized = val
+                .split(';')
+                .map(|p| p.trim())
+                .filter(|p| !p.eq_ignore_ascii_case("secure"))
+                .collect::<Vec<_>>()
+                .join("; ");
+            // Strip __Secure- and __Host- prefixes (browsers reject over HTTP)
+            let sanitized = sanitized
+                .replacen("__Secure-", "", 1)
+                .replacen("__Host-", "", 1);
+            response
+                .headers_mut()
+                .insert(k.clone(), sanitized.parse().unwrap_or_else(|_| v.clone()));
+            continue;
         }
         response.headers_mut().insert(k.clone(), v.clone());
     }
@@ -308,6 +305,9 @@ pub(crate) fn open_library_preferences() -> std::io::Result<SharedLibraryState> 
         .map(|store| Arc::new(tokio::sync::Mutex::new(store)))
 }
 
+// These values are assembled from pairing, runtime configuration, and the
+// scanned library. Keeping them explicit makes the security boundary visible.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn serve(
     bind: SocketAddr,
     sc_web: String,
@@ -454,7 +454,7 @@ async fn list_games(
         })
         .map(|game| game_entry(game, &state, &preferences))
         .collect();
-    entries.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    entries.sort_by_key(|entry| entry.name.to_lowercase());
 
     let total = entries.len();
     let offset = query.offset.unwrap_or(0).min(total);
@@ -589,7 +589,7 @@ async fn list_favorites(
         game.favorite && (search.is_empty() || game.name.to_lowercase().contains(&search))
     })
     .await;
-    entries.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    entries.sort_by_key(|entry| entry.name.to_lowercase());
     let total = entries.len();
     let offset = query.offset.unwrap_or(0).min(total);
     let limit = query.limit.unwrap_or(100).clamp(1, 200);
@@ -1310,8 +1310,6 @@ mod tests {
                 relative_path: "snes/super-mario-world.sfc".to_string(),
                 file_name: "super-mario-world.sfc".to_string(),
                 file_size: 524_288,
-                sha256: None,
-                crc: None,
                 platform: Some("snes".to_string()),
             },
         );
@@ -1430,8 +1428,6 @@ mod tests {
             relative_path: "snes/Super Mario World.sfc".to_string(),
             file_name: "Super Mario World.sfc".to_string(),
             file_size: 512,
-            sha256: None,
-            crc: None,
             platform: Some("snes".to_string()),
         };
         let first = LocalGame::new("/roms-a", discovered.clone());
@@ -1453,8 +1449,6 @@ mod tests {
                 relative_path: "../private/secret.sfc".to_string(),
                 file_name: "secret.sfc".to_string(),
                 file_size: 1,
-                sha256: None,
-                crc: None,
                 platform: Some("snes".to_string()),
             },
         );
@@ -1579,8 +1573,6 @@ mod tests {
                 relative_path: "snes/super-mario-world.sfc".to_string(),
                 file_name: "super-mario-world.sfc".to_string(),
                 file_size: 524_288,
-                sha256: None,
-                crc: None,
                 platform: Some("snes".to_string()),
             },
         );
@@ -1630,7 +1622,9 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri(format!("/api/playable-hosts?game_id={expected_id}&server_id=server-vault"))
+                    .uri(format!(
+                        "/api/playable-hosts?game_id={expected_id}&server_id=server-vault"
+                    ))
                     .header("host", "192.168.86.128:8787")
                     .body(Body::empty())
                     .unwrap(),

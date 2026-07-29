@@ -1,7 +1,6 @@
 mod commands;
 mod config;
 mod core_bridge;
-mod dat;
 mod encoder_probe;
 mod gst_audio;
 mod gst_video;
@@ -94,7 +93,11 @@ async fn main() -> Result<()> {
         Command::Upgrade => upgrade::run().await,
         Command::Scan { upload } => scan_cmd::run(upload).await,
         Command::Pair { code, sc_web_url } => commands::cmd_pair(&code, &sc_web_url).await,
-        Command::Start { sc_web_url, no_lan_player, standalone } => commands::cmd_start(sc_web_url, no_lan_player, standalone).await,
+        Command::Start {
+            sc_web_url,
+            no_lan_player,
+            standalone,
+        } => commands::cmd_start(sc_web_url, no_lan_player, standalone).await,
     }
 }
 
