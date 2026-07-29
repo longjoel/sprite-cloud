@@ -213,6 +213,7 @@ pub async fn run() -> Result<()> {
     Ok(())
 }
 
+#[allow(clippy::collapsible_if)]
 fn guess_rom_dir() -> String {
     // Common ROM root paths — check these first
     let candidates = [
