@@ -37,7 +37,21 @@
   padding: max(var(--space-4), env(safe-area-inset-top, 0px)) max(var(--space-6), env(safe-area-inset-right, 0px)) var(--space-4) max(var(--space-6), env(safe-area-inset-left, 0px));
   background: rgba(0,0,0,0.6);
   z-index: 12;
-  transition: opacity 0.3s;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+/* Controls visible state — JS adds this class on wake */
+.topBar.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Pin chrome while any child has keyboard focus */
+.topBar:focus-within {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .gameTitle {
@@ -321,4 +335,11 @@
 @keyframes pipelinePulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stepDotActive {
+    animation: none;
+    opacity: 1;
+  }
 }

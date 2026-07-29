@@ -255,7 +255,7 @@ server_id = ""`);
     expect(existsSync("app/watch/page.tsx")).toBe(false);
     expect(existsSync("lib/public-watch.ts")).toBe(false);
     expect(existsSync("components/PublicRoomPlayer.tsx")).toBe(false);
-    expect(existsSync("components/RoomInvitePlayer.tsx")).toBe(true);
+    expect(existsSync("components/PlayerShell.tsx")).toBe(true);
     expect(homePage).not.toContain("public-watch");
     expect(landingPage).not.toContain("/watch");
     expect(landingPage).not.toMatch(/Watch Live|Try Public Demo|Watch \/ Try/);

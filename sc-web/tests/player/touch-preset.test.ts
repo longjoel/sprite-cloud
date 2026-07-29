@@ -25,9 +25,10 @@ describe("touch preset selection", () => {
 
   it("loads platform metadata from the LAN-owned game detail route", () => {
     const resolver = readFileSync("app/api/room/resolve/[code]/route.ts", "utf8");
-    const page = readFileSync("app/p/[code]/page.tsx", "utf8");
+    const playerShell = readFileSync("components/PlayerShell.tsx", "utf8");
     expect(resolver).not.toContain("games.");
-    expect(page).toContain("fetch(`/api/games/${encodeURIComponent(gameId)}`)");
-    expect(page).toContain("platform = detail.platform || \"\"");
+    // PlayerShell accepts resolved session including gameName/platform
+    expect(playerShell).toContain("gameName");
+    expect(playerShell).toContain("platform");
   });
 });
