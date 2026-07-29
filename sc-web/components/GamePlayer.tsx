@@ -584,6 +584,11 @@ export default function GamePlayer({
     showToast("Restarting…", true);
   }, [sendDC, showToast]);
 
+  const handleEject = useCallback(() => {
+    sendDC({ cmd: "disk_eject" });
+    showToast("Disk ejected", true);
+  }, [sendDC, showToast]);
+
   // ── Share ─────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -629,9 +634,10 @@ export default function GamePlayer({
     })();
   }, [shareRequested, connected, gameId, serverId, hostToken, roomToken, inviteCode]);
 
-  // Guest/LAN room entry points carry explicit room context. Ordinary solo
-  // launches keep disc-room controls out of the primary options hierarchy.
-  const roomControlsRelevant = Boolean(sessionId || joinToken || shortCodeProp);
+  // Multiplayer panel only shows when the session has an explicit room join
+  // capability (joinToken) or an active roomToken — not for ordinary solo
+  // LAN play via short code.
+  const roomControlsRelevant = Boolean(joinToken || roomToken);
 
   // ── Render ────────────────────────────────────────────────────────
 
@@ -698,12 +704,16 @@ export default function GamePlayer({
           onOpenController={() => openPanel("controller")}
           onRestart={handleRestart}
           onOpenSaves={() => { openPanel("saves"); handleListSaves(); }}
+          onEject={handleEject}
           onOpenKeys={() => openPanel("keys")}
           onOpenRoom={roomControlsRelevant ? () => openPanel("room") : undefined}
           onQrCode={hostToken ? handleQrCode : undefined}
           onStats={() => openPanel("stats")}
           capabilities={capabilities}
           seat={seat}
+          roomRelevant={roomControlsRelevant}
+          audioMuted={audioMuted}
+          onToggleAudio={() => setAudioMuted((v) => !v)}
         />
       )}
 
@@ -896,18 +906,6 @@ export default function GamePlayer({
               <Button variant="ghost" onClick={closePanel}>✕ Close</Button>
             </div>
             <div className={styles.roomGrid}>
-              <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "reset" }); showToast("Reset", true); }}>
-                ↺ Reset
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "disk_eject" }); showToast("Disk ejected", true); }}>
-                💿 Eject
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => { sendDC({ cmd: "disk_insert", index: 0 }); showToast("Disk 0 inserted", true); }}>
-                💿 Insert 0
-              </Button>
-              <Button variant="secondary" size="sm" onClick={toggleTouchGamepad}>
-                {touchGamepadVisible ? "🎮 Hide Pad" : "🎮 Show Pad"}
-              </Button>
               {inviteCode && (
                 <Button
                   variant="secondary"
@@ -923,6 +921,11 @@ export default function GamePlayer({
                 >
                   🔗 Share Link
                 </Button>
+              )}
+              {!inviteCode && (
+                <p style={{ color: "var(--color-muted)", fontSize: "var(--font-size-sm)", margin: 0 }}>
+                  Share via the Options → Multiplayer → Share / QR menu.
+                </p>
               )}
             </div>
           </div>
