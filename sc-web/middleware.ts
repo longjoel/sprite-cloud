@@ -48,7 +48,6 @@ export const config = {
     "/player/:path*",
     "/api/:path*",
     "/p/:path*",
-    "/xmb",
     "/signin",
     "/setup",
     "/invite/:path*",
