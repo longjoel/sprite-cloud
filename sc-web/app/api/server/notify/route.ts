@@ -226,6 +226,41 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "command not found" }, { status: 404 });
   }
   const commandPayload = (cmd.payload || {}) as Record<string, unknown>;
+
+  // ── ROM transfer branch: no sessions, no game_id ──────────────────
+  if (cmd.type === "rom_transfer") {
+    if (!body.lease_token) {
+      return NextResponse.json({ error: "lease_token required" }, { status: 400 });
+    }
+    const transferId = commandPayload.transfer_id;
+    if (typeof transferId !== "string" || !transferId) {
+      return NextResponse.json({ error: "invalid transfer command" }, { status: 409 });
+    }
+
+    if (body.sdp_answer) {
+      await db.transaction(async (tx) => {
+        await tx
+          .update(commands)
+          .set({ sdpAnswer: body.sdp_answer })
+          .where(and(eq(commands.id, body.command_id), eq(commands.serverId, server.id)));
+        const [lease] = await tx
+          .update(commands)
+          .set({ status: STATUS_COMPLETED, completedAt: new Date(), lastError: null })
+          .where(and(
+            eq(commands.id, body.command_id),
+            eq(commands.serverId, server.id),
+            eq(commands.status, STATUS_LEASED),
+            eq(commands.leaseToken, body.lease_token),
+          ))
+          .returning({ id: commands.id });
+        if (!lease) throw new NotifyConflict("lease");
+      });
+    }
+
+    return NextResponse.json({ ok: true, transfer_id: transferId });
+  }
+
+  // ── Game session branch (existing path) ───────────────────────────
   if (commandPayload.game_id !== body.game_id) {
     return NextResponse.json({ error: "command does not match game" }, { status: 409 });
   }

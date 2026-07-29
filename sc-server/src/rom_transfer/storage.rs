@@ -297,6 +297,16 @@ impl StagedUpload {
         let hash = hex::encode(self.hasher.clone().finalize());
 
         // Atomic rename
+        // Refuse overwrite: if destination appeared between staging and commit, fail
+        if self.final_path.exists() {
+            let _ = self.remove_partial();
+            return Err(StorageError::Conflict(self.final_path.clone()));
+        }
+        // Refuse overwrite: if destination appeared between staging and commit, fail
+        if self.final_path.exists() {
+            let _ = self.remove_partial();
+            return Err(StorageError::Conflict(self.final_path.clone()));
+        }
         std::fs::rename(&self.partial_path, &self.final_path)?;
 
         // Fsync the directory to ensure the rename is durable
@@ -351,6 +361,16 @@ impl StagedUpload {
         }
 
         // Atomic rename
+        // Refuse overwrite: if destination appeared between staging and commit, fail
+        if self.final_path.exists() {
+            let _ = self.remove_partial();
+            return Err(StorageError::Conflict(self.final_path.clone()));
+        }
+        // Refuse overwrite: if destination appeared between staging and commit, fail
+        if self.final_path.exists() {
+            let _ = self.remove_partial();
+            return Err(StorageError::Conflict(self.final_path.clone()));
+        }
         std::fs::rename(&self.partial_path, &self.final_path)?;
 
         // Fsync the directory

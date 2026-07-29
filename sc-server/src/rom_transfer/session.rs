@@ -76,6 +76,7 @@ pub struct TransferProtocol {
     sink: Mutex<Option<Box<dyn TransferSink>>>,
     responder: Arc<dyn Responder>,
     bytes_received: Mutex<u64>,
+    on_commit: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl TransferProtocol {
@@ -83,6 +84,7 @@ impl TransferProtocol {
         capability_hash: String,
         sink: Box<dyn TransferSink>,
         responder: Arc<dyn Responder>,
+        on_commit: Option<Arc<dyn Fn() + Send + Sync>>,
     ) -> Self {
         Self {
             capability_hash,
@@ -90,6 +92,7 @@ impl TransferProtocol {
             sink: Mutex::new(Some(sink)),
             responder,
             bytes_received: Mutex::new(0),
+            on_commit,
         }
     }
 
@@ -189,6 +192,9 @@ impl TransferProtocol {
         match result {
             Ok((hash, size)) => {
                 self.responder.send(&TransferMessage::TransferOk { hash, size, game_id: None }).await;
+                if let Some(ref cb) = self.on_commit {
+                    cb();
+                }
             }
             Err(e) => {
                 self.responder.send(&TransferMessage::TransferError { reason: format!("commit error: {e}") }).await;
@@ -276,7 +282,7 @@ impl TransferSession {
                         return;
                     }
                 };
-                let protocol = Arc::new(TransferProtocol::new(cap_hash, sink, responder));
+                let protocol = Arc::new(TransferProtocol::new(cap_hash, sink, responder, None));
 
                 dc.set_buffered_amount_low_threshold(MAX_BUFFERED_AMOUNT).await;
 
@@ -504,7 +510,7 @@ mod tests {
         hex::encode(Sha256::digest(secret.as_bytes()))
     }
     fn build_protocol(hash: &str, responder: Arc<FakeResponder>) -> TransferProtocol {
-        TransferProtocol::new(hash.to_string(), Box::new(FakeSink::new()), responder)
+        TransferProtocol::new(hash.to_string(), Box::new(FakeSink::new()), responder, None)
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -564,7 +570,7 @@ mod tests {
         let hash = cap_hash("secret");
         let responder = Arc::new(FakeResponder::new());
         let sink = FakeSink::new();
-        let proto = TransferProtocol::new(hash, Box::new(sink), Arc::clone(&responder) as Arc<dyn Responder>);
+        let proto = TransferProtocol::new(hash, Box::new(sink), Arc::clone(&responder) as Arc<dyn Responder>, None);
         proto.handle_message(b"binary junk").await;
         assert_eq!(proto.state().await, ProtocolState::AwaitingAuth);
     }
