@@ -33,11 +33,17 @@ interface OptionsOverlayProps {
   onRestart: () => void;
   onOpenSaves: () => void;
   onOpenKeys: () => void;
+  onEject?: () => void;
   onOpenRoom?: () => void;
   onQrCode?: () => void;
   onStats: () => void;
   capabilities?: PlayerCapabilities;
   seat?: number;
+  /** Whether multiplayer room controls are relevant for this session */
+  roomRelevant?: boolean;
+  /** Audio mute state + toggle for Display & Audio group */
+  audioMuted?: boolean;
+  onToggleAudio?: () => void;
   triggerRef?: RefObject<HTMLButtonElement | null>;
   triggerDisabled?: boolean;
 }
@@ -56,11 +62,15 @@ export default function OptionsOverlay({
   onRestart,
   onOpenSaves,
   onOpenKeys,
+  onEject,
   onOpenRoom,
   onQrCode,
   onStats,
   capabilities,
   seat,
+  roomRelevant = false,
+  audioMuted,
+  onToggleAudio,
   triggerRef,
   triggerDisabled = false,
 }: OptionsOverlayProps) {
@@ -79,22 +89,34 @@ export default function OptionsOverlay({
 
   const groups: ActionGroup[] = [
     {
-      id: "quick",
-      label: "Quick",
+      id: "game",
+      label: "Game",
       actions: [
         { id: "save", icon: "💾", label: "Save", action: onSave, disabled: !isHost },
         { id: "load", icon: "📂", label: "Load", action: onLoad, disabled: !isHost },
+        { id: "saves", icon: "▤", label: "Saves", action: onOpenSaves, disabled: !isHost },
         {
-          id: "fullscreen",
-          icon: isFullscreen ? "↙" : "⛶",
-          label: isFullscreen ? "Windowed" : "Fullscreen",
-          action: onFullscreen,
+          id: "restart",
+          icon: "↺",
+          label: "Restart",
+          action: onRestart,
+          danger: true,
+          disabled: !isHost,
         },
+        ...(onEject && isHost
+          ? [{
+              id: "eject" as const,
+              icon: "💿",
+              label: "Eject disk",
+              action: onEject,
+              danger: true,
+            }]
+          : []),
       ],
     },
     {
-      id: "input",
-      label: "Input",
+      id: "controls",
+      label: "Controls",
       actions: [
         {
           id: "controls",
@@ -107,31 +129,47 @@ export default function OptionsOverlay({
         { id: "keys", icon: "⌨", label: "Keys", action: onOpenKeys, disabled: isSpectator },
       ],
     },
+    ...(roomRelevant
+      ? [
+          {
+            id: "multiplayer" as const,
+            label: "Multiplayer",
+            actions: [
+              ...(onOpenRoom
+                ? [{ id: "room", icon: "👥", label: "Room", action: onOpenRoom }]
+                : []),
+              ...(onQrCode && isHost
+                ? [{ id: "share", icon: "⌁", label: "Share / QR", action: onQrCode }]
+                : []),
+            ],
+          },
+        ]
+      : []),
     {
-      id: "session",
-      label: "Session",
+      id: "display",
+      label: "Display & Audio",
       actions: [
-        { id: "saves", icon: "▤", label: "Saves", action: onOpenSaves, disabled: !isHost },
-        ...(onQrCode && isHost
-          ? [{ id: "share", icon: "⌁", label: "Share / QR", action: onQrCode }]
+        ...(onToggleAudio
+          ? [{
+              id: "mute",
+              icon: audioMuted ? "🔇" : "🔊",
+              label: audioMuted ? "Unmute" : "Mute",
+              action: onToggleAudio,
+            }]
           : []),
-        ...(onOpenRoom
-          ? [{ id: "room", icon: "👥", label: "Room controls", action: onOpenRoom }]
-          : []),
+        {
+          id: "fullscreen",
+          icon: isFullscreen ? "↙" : "⛶",
+          label: isFullscreen ? "Windowed" : "Fullscreen",
+          action: onFullscreen,
+        },
       ],
     },
     {
-      id: "diagnostics",
-      label: "Diagnostics",
+      id: "troubleshooting",
+      label: "Troubleshooting",
       actions: [
-        { id: "stats", icon: "▥", label: "Stats for Nerds", action: onStats, disabled: !isHost },
-      ],
-    },
-    {
-      id: "danger",
-      label: "Danger",
-      actions: [
-        { id: "restart", icon: "↺", label: "Restart", action: onRestart, danger: true, disabled: !isHost },
+        { id: "stats", icon: "▥", label: "Stats for Nerds", action: onStats },
       ],
     },
   ];
@@ -160,7 +198,7 @@ export default function OptionsOverlay({
           </div>
         )}
         {groups.map((group) => (
-          <section className={`${styles.group} ${group.id === "danger" ? styles.dangerGroup : ""}`} key={group.id}>
+          <section className={`${styles.group} ${group.id === "game" ? styles.dangerGroup : ""}`} key={group.id}>
             <h2 className={styles.groupTitle}>{group.label}</h2>
             <div className={styles.grid}>
               {group.actions.map((item) => (
