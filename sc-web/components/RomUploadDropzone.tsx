@@ -382,9 +382,10 @@ export default function RomUploadDropzone({
               >
                 <Dns sx={{ mr: 1.5, color: srv.status === "online" ? "#22c55e" : "#94a3b8" }} />
                 <ListItemText
-                  primary={srv.name}
-                  primaryTypographyProps={{ fontFamily: "monospace", color: "#cbd5e1" }}
-                />
+                  sx={{ "& .MuiListItemText-primary": { fontFamily: "monospace", color: "#cbd5e1" } }}
+                >
+                  {srv.name}
+                </ListItemText>
                 <Chip
                   label={srv.status}
                   size="small"
