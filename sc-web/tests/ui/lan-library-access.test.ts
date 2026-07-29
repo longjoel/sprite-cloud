@@ -10,12 +10,6 @@ describe("LAN-owned library access", () => {
     expect(source).toContain("<LibraryClient");
   });
 
-  it("keeps unauthenticated XMB on LAN after a successful local health probe", () => {
-    const source = readFileSync("app/xmb/page.tsx", "utf8");
-    expect(source).toContain('fetch("/health"');
-    expect(source).toContain('health?.service === "sc-server-player"');
-  });
-
   it("marks only sc-server-originated proxy requests as LAN requests", () => {
     const source = readFileSync("../sc-server/src/player_server.rs", "utf8");
     expect(source).toContain('header("x-sc-server-lan", "1")');

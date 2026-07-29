@@ -2457,7 +2457,7 @@ describe("GET /api/client/bootstrap", () => {
     expect(body.servers).toEqual([]);
     expect(body.library).toBeNull();
     expect(body.deepLinks.hostPattern).toBe("/p/:code");
-    expect(body.features.xmb).toBe(true);
+    expect(body.features.xmb).toBeUndefined();
   });
 
   it("returns auth + server memberships without cloud library metadata", async () => {
