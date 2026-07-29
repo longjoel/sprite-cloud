@@ -8,12 +8,6 @@
 //! All function pointer types in this module are `unsafe extern "C"`.
 //! Callers must ensure the function pointer is valid, the library is
 //! still loaded, and the ABI contract is followed.
-//!
-//! Many FFI constants and type aliases are declared for completeness
-//! but not yet used by the runner — silence dead-code warnings until
-//! they are wired into real callbacks and input mapping.
-
-#![allow(dead_code)]
 
 use std::ffi::{c_char, c_void};
 
@@ -71,7 +65,6 @@ pub type RetroSetControllerPortDevice = unsafe extern "C" fn(port: u32, device: 
 pub type RetroInit = unsafe extern "C" fn();
 pub type RetroDeinit = unsafe extern "C" fn();
 pub type RetroRun = unsafe extern "C" fn();
-pub type RetroReset = unsafe extern "C" fn();
 
 pub type RetroLoadGame = unsafe extern "C" fn(game: *const RetroGameInfo) -> bool;
 pub type RetroUnloadGame = unsafe extern "C" fn();
@@ -164,14 +157,6 @@ pub const RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: u32 = 10;
 pub const RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY: u32 = 9;
 /// Get the save directory path.
 pub const RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY: u32 = 31;
-/// Get a core variable value by key.
-pub const RETRO_ENVIRONMENT_GET_VARIABLE: u32 = 15;
-/// Set available core variables.
-pub const RETRO_ENVIRONMENT_SET_VARIABLES: u32 = 16;
-/// Check if any core variables have been updated.
-pub const RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE: u32 = 17;
-/// Get the preferred hardware render API.
-pub const RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: u32 = 69;
 /// Core declares it can run without a game loaded.
 pub const RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME: u32 = 18;
 
@@ -181,10 +166,6 @@ pub const RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME: u32 = 18;
 
 /// Standard joypad (RETRO_DEVICE_JOYPAD).
 pub const RETRO_DEVICE_JOYPAD: u32 = 1;
-/// Analog stick (RETRO_DEVICE_ANALOG).
-pub const RETRO_DEVICE_ANALOG: u32 = 5;
-/// Keyboard (RETRO_DEVICE_KEYBOARD).
-pub const RETRO_DEVICE_KEYBOARD: u32 = 3;
 
 // ---------------------------------------------------------------------------
 // Memory types
@@ -204,55 +185,5 @@ pub const RETRO_PIXEL_FORMAT_RGB565: u32 = 2;
 /// 16-bit 0RGB1555.
 pub const RETRO_PIXEL_FORMAT_0RGB1555: u32 = 0;
 
-// ---------------------------------------------------------------------------
-// Joypad button IDs (RETRO_DEVICE_ID_JOYPAD_*)
-// ---------------------------------------------------------------------------
-
-/// B button (index 0 in SNES layout).
-pub const RETRO_DEVICE_ID_JOYPAD_B: u32 = 0;
-/// Y button.
-pub const RETRO_DEVICE_ID_JOYPAD_Y: u32 = 1;
-/// Select button.
-pub const RETRO_DEVICE_ID_JOYPAD_SELECT: u32 = 2;
-/// Start button.
-pub const RETRO_DEVICE_ID_JOYPAD_START: u32 = 3;
-/// D-pad up.
-pub const RETRO_DEVICE_ID_JOYPAD_UP: u32 = 4;
-/// D-pad down.
-pub const RETRO_DEVICE_ID_JOYPAD_DOWN: u32 = 5;
-/// D-pad left.
-pub const RETRO_DEVICE_ID_JOYPAD_LEFT: u32 = 6;
-/// D-pad right.
-pub const RETRO_DEVICE_ID_JOYPAD_RIGHT: u32 = 7;
-/// A button.
-pub const RETRO_DEVICE_ID_JOYPAD_A: u32 = 8;
-/// X button.
-pub const RETRO_DEVICE_ID_JOYPAD_X: u32 = 9;
-/// Left shoulder.
-pub const RETRO_DEVICE_ID_JOYPAD_L: u32 = 10;
-/// Right shoulder.
-pub const RETRO_DEVICE_ID_JOYPAD_R: u32 = 11;
-/// Left trigger.
-pub const RETRO_DEVICE_ID_JOYPAD_L2: u32 = 12;
-/// Right trigger.
-pub const RETRO_DEVICE_ID_JOYPAD_R2: u32 = 13;
-/// Left stick button.
-pub const RETRO_DEVICE_ID_JOYPAD_L3: u32 = 14;
-/// Right stick button.
-pub const RETRO_DEVICE_ID_JOYPAD_R3: u32 = 15;
 /// Full 16-bit button mask (returns entire state as one value).
 pub const RETRO_DEVICE_ID_JOYPAD_MASK: u32 = 256;
-
-// ---------------------------------------------------------------------------
-// Analog axis indices (RETRO_DEVICE_INDEX_ANALOG_*)
-// ---------------------------------------------------------------------------
-
-/// Left analog stick.
-pub const RETRO_DEVICE_INDEX_ANALOG_LEFT: u32 = 0;
-/// Right analog stick.
-pub const RETRO_DEVICE_INDEX_ANALOG_RIGHT: u32 = 1;
-
-/// X axis.
-pub const RETRO_DEVICE_ID_ANALOG_X: u32 = 0;
-/// Y axis.
-pub const RETRO_DEVICE_ID_ANALOG_Y: u32 = 1;

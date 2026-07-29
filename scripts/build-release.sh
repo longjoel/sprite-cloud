@@ -11,7 +11,7 @@ require_cmd sha256sum
 
 log "building Rust release binaries for $GV_SHA"
 cd "$PROJECT_DIR"
-cargo build --release -p sc-server
+cargo build --release --locked -p sc-server -p sc-core
 
 log "building sc-web production bundle"
 cd "$PROJECT_DIR/sc-web"
@@ -19,7 +19,7 @@ pnpm install --frozen-lockfile
 pnpm build
 
 cd "$PROJECT_DIR"
-sha256sum target/release/sc-server > "$(checksums_path)"
+sha256sum target/release/sc-server target/release/sc-core > "$(checksums_path)"
 write_local_manifest ok
 
 echo "$GV_SHA" > "$RELEASE_DIR/RELEASE_COMMIT"

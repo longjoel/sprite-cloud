@@ -13,6 +13,7 @@ WEB_PORT="${GV_WEB_PORT:-3000}"
 LOG_DIR="${GV_LOG_DIR:-/dev/shm/sc-logs}"
 ROM_ROOTS="${GV_ROM_ROOTS:-/srv/storage/games/roms}"
 SERVER_BIN="${GV_SERVER_BIN:-/usr/local/bin/sc-server}"
+CORE_BIN="${GV_CORE_BIN:-/usr/local/bin/sc-core}"
 CORES_DIR="${GV_CORES_DIR:-/srv/storage/games/cores}"
 SAVE_DIR="${GV_SAVE_DIR:-/srv/storage/games/saves}"
 SYSTEM_DIR="${GV_SYSTEM_DIR:-/srv/storage/games/system}"
@@ -123,7 +124,12 @@ cmd_start() {
 
     if [ ! -f "$SERVER_BIN" ]; then
         err "sc-server binary not found: $SERVER_BIN"
-        err "Build: cargo build --release -p sc-server && cp target/release/sc-server $SERVER_BIN && chown $GV_USER:$GV_USER $SERVER_BIN"
+        err "Build both runtime binaries: $0 build"
+        exit 1
+    fi
+    if [ ! -f "$CORE_BIN" ]; then
+        err "sc-core binary not found: $CORE_BIN"
+        err "Build both runtime binaries: $0 build"
         exit 1
     fi
 
@@ -208,6 +214,7 @@ cmd_start() {
             GV_ROM_ROOTS="$ROM_ROOTS" \
             GV_SAVE_DIR="$SAVE_DIR" \
             GV_SYSTEM_DIR="$SYSTEM_DIR" \
+            GV_CORE_BIN="$CORE_BIN" \
             ALLOWED_ORIGIN="http://localhost:$WEB_PORT" \
             "$SERVER_BIN" start --sc-web-url "http://localhost:$WEB_PORT" \
             > "$LOG_DIR/sc-server.log" 2>&1 &
@@ -229,11 +236,12 @@ cmd_start() {
 cmd_build() {
     log "Building release binaries..."
     cd "$PROJECT_DIR"
-    cargo build --release -p sc-server
+    cargo build --release --locked -p sc-server -p sc-core
     cp target/release/sc-server "$SERVER_BIN"
-    chown "$GV_USER:$GV_USER" "$SERVER_BIN"
-    chmod 755 "$SERVER_BIN"
-    log "Installed to $SERVER_BIN"
+    cp target/release/sc-core "$CORE_BIN"
+    chown "$GV_USER:$GV_USER" "$SERVER_BIN" "$CORE_BIN"
+    chmod 755 "$SERVER_BIN" "$CORE_BIN"
+    log "Installed to $SERVER_BIN and $CORE_BIN"
 }
 
 # ── Pair (one-time setup) ───────────────────────────────────────────────

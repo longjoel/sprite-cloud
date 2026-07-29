@@ -1,12 +1,15 @@
-// Sprite Cloud PWA service worker — caches the XMB shell + cover art.
-const CACHE = "sprite-cloud-v1";
+// Sprite Cloud PWA service worker — caches only identity-independent static assets.
+const CACHE = "sprite-cloud-static-v3";
 
-// Shell assets — pre-cached on install for instant offline XMB
-const SHELL = ["/xmb", "/manifest.json"];
+const STATIC_ASSETS = [
+  "/manifest.json",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(SHELL).catch(() => {}))
+    caches.open(CACHE).then((cache) => cache.addAll(STATIC_ASSETS).catch(() => {}))
   );
   self.skipWaiting();
 });
@@ -14,7 +17,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+      Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))
     )
   );
   self.clients.claim();
@@ -24,43 +27,23 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Only intercept same-origin GET requests
   if (request.method !== "GET" || url.origin !== self.location.origin) return;
 
-  // Cache cover art (images from games API)
-  if (url.pathname.includes("/covers/") || url.pathname.includes("/cover")) {
-    event.respondWith(
-      caches.open(CACHE).then((cache) =>
-        cache.match(request).then((cached) => {
-          const network = fetch(request)
-            .then((resp) => {
-              if (resp.ok) cache.put(request, resp.clone());
-              return resp;
-            })
-            .catch(() => cached);
-          return cached || network;
-        })
-      )
-    );
-    return;
-  }
+  const isStaticAsset =
+    url.pathname.startsWith("/_next/static/") ||
+    STATIC_ASSETS.includes(url.pathname);
 
-  // Network-first for API + dynamic content, cache fallback for shell
-  if (url.pathname === "/xmb" || url.pathname.startsWith("/_next/")) {
-    event.respondWith(
-      fetch(request)
-        .then((resp) => {
-          const cloned = resp.clone();
-          caches.open(CACHE).then((cache) => cache.put(request, cloned));
-          return resp;
-        })
-        .catch(() => caches.match(request))
-    );
-    return;
-  }
+  // Never cache pages, RSC payloads, API responses, or user-specific cover art.
+  if (!isStaticAsset) return;
 
-  // Default: network-first
   event.respondWith(
-    fetch(request).catch(() => caches.match(request))
+    caches.open(CACHE).then(async (cache) => {
+      const cached = await cache.match(request);
+      if (cached) return cached;
+
+      const response = await fetch(request);
+      if (response.ok) await cache.put(request, response.clone());
+      return response;
+    })
   );
 });

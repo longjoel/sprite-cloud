@@ -3,22 +3,25 @@ set -eu
 
 echo "[sc-server] entrypoint starting..."
 
-# Verify required binary exists
-bin=/usr/local/bin/sc-server
-if [ ! -f "$bin" ]; then
-  echo "[sc-server] ERROR: $bin not found — build host binary first (./scripts/dev-start.sh build)"
-  exit 1
-fi
-if [ ! -x "$bin" ]; then
-  echo "[sc-server] ERROR: $bin is not executable"
-  exit 1
-fi
+# Verify the required runtime pair exists.
+for bin in /usr/local/bin/sc-server /usr/local/bin/sc-core; do
+  if [ ! -f "$bin" ]; then
+    echo "[sc-server] ERROR: $bin not found — build host binaries first (./scripts/dev-start.sh build)"
+    exit 1
+  fi
+  if [ ! -x "$bin" ]; then
+    echo "[sc-server] ERROR: $bin is not executable"
+    exit 1
+  fi
+done
 
 # Verify shared libs are available (fail early)
-if ! ldd /usr/local/bin/sc-server >/dev/null 2>&1; then
-  echo "[sc-server] WARNING: sc-server has unmet library dependencies:"
-  ldd /usr/local/bin/sc-server || true
-fi
+for bin in /usr/local/bin/sc-server /usr/local/bin/sc-core; do
+  if ! ldd "$bin" >/dev/null 2>&1; then
+    echo "[sc-server] WARNING: $bin has unmet library dependencies:"
+    ldd "$bin" || true
+  fi
+done
 
 # ── One-liner pairing mode ───────────────────────────────────────────
 # If GV_PAIR_CODE and GV_WEB_URL are set and no persistent config exists,

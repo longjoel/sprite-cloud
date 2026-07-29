@@ -1,6 +1,6 @@
 # ── Production sc-server image ────────────────────────────────────────
-# Expects the pre-built binary at ./sc-server in the build context.
-# CI places it there; docker-compose mounts it via volume instead.
+# Expects pre-built sc-server-bin and sc-core-bin files in the build context.
+# CI places them there; docker-compose mounts them via volumes instead.
 
 FROM ubuntu:24.04
 
@@ -14,7 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
-COPY sc-server /usr/local/bin/sc-server
+COPY sc-server-bin /usr/local/bin/sc-server
+COPY sc-core-bin /usr/local/bin/sc-core
 COPY docker/sc-server/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

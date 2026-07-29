@@ -8,4 +8,16 @@ describe("app/layout cleanup startup", () => {
     const source = readFileSync(layoutPath, "utf8");
     expect(source).not.toMatch(/import\s+["']@\/lib\/db\/cleanup["'];?/);
   });
+
+  it("keeps authenticated pages and API responses out of the service-worker cache", () => {
+    const workerPath = path.resolve(__dirname, "../public/sw.js");
+    const source = readFileSync(workerPath, "utf8");
+
+    expect(source).not.toContain('["/",');
+    expect(source).not.toContain('url.pathname === "/"');
+    expect(source).not.toContain('/covers/');
+    expect(source).not.toContain('url.pathname.startsWith("/api/")');
+    expect(source).toContain('url.pathname.startsWith("/_next/static/")');
+    expect(source).toContain("if (!isStaticAsset) return;");
+  });
 });

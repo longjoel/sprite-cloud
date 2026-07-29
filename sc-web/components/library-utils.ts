@@ -2,39 +2,6 @@
 
 import { randomUuid } from "@/lib/browser/random-uuid";
 
-export function getPreferredServer(gameId: string): string | null {
-  if (typeof document === "undefined") return null;
-  const match = document.cookie
-    .split(";")
-    .map((c) => c.trim())
-    .find((c) => c.startsWith(`sc_host_${gameId}=`));
-  if (!match) return null;
-  return decodeURIComponent(match.split("=").slice(1).join("="));
-}
-
-export function setPreferredServer(gameId: string, serverId: string) {
-  if (typeof document === "undefined") return;
-  document.cookie = `sc_host_${gameId}=${encodeURIComponent(serverId)}; Path=/; Max-Age=${365 * 24 * 3600}; SameSite=Lax`;
-}
-
-export function statusVariant(status: string) {
-  const map: Record<string, "success" | "warning" | "error"> = {
-    online: "success",
-    stale: "warning",
-    offline: "error",
-  };
-  return map[status] || "error";
-}
-
-export function capabilityVariant(capability: "lan" | "stun" | "turn") {
-  const map: Record<string, "success" | "info" | "warning"> = {
-    lan: "success",
-    stun: "info",
-    turn: "warning",
-  };
-  return map[capability] || "info";
-}
-
 export function csrfHeaders(): Record<string, string> {
   if (typeof document === "undefined") {
     return { "Content-Type": "application/json" };

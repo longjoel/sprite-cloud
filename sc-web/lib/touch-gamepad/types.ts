@@ -1,10 +1,10 @@
 // ── Touch Gamepad — type definitions ──────────────────────────────────────
 
-export interface FaceButtonDef {
+interface FaceButtonDef {
   label: string;
 }
 
-export interface SystemButtonDef {
+interface SystemButtonDef {
   label: string;
 }
 
@@ -44,22 +44,6 @@ export interface DragTarget {
   zone: string;
   index?: number;
   tag?: string;
-}
-
-export interface DragStart {
-  fingerId: number;
-  nx: number;
-  ny: number;
-  tx: number;
-  ty: number;
-  tw: number;
-  th: number;
-  mode: "resize" | "move";
-}
-
-export interface TouchNormPoint {
-  x: number;
-  y: number;
 }
 
 export type InputCallback = (state: {

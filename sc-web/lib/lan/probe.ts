@@ -1,4 +1,4 @@
-export type LanProbeReason =
+type LanProbeReason =
   | "no_urls"
   | "mixed_content_blocked"
   | "timeout"
@@ -6,7 +6,7 @@ export type LanProbeReason =
   | "http_error"
   | "invalid_response";
 
-export interface LanHealthPayload {
+interface LanHealthPayload {
   status?: string;
   service?: string;
   lan_player?: boolean;
@@ -17,7 +17,7 @@ export interface LanHealthPayload {
   bind?: string;
 }
 
-export interface LanProbeReachable {
+interface LanProbeReachable {
   reachable: true;
   url: string;
   latencyMs: number;
@@ -28,7 +28,7 @@ export interface LanProbeReachable {
   payload: LanHealthPayload;
 }
 
-export interface LanProbeUnreachable {
+interface LanProbeUnreachable {
   reachable: false;
   reason: LanProbeReason;
   url?: string;

@@ -32,7 +32,7 @@ body:
       options:
         - sc-web (gateway)
         - sc-server (host runtime)
-        - sc-player (browser client)
+        - Browser player
         - Installer/deployment
         - Documentation
         - Other

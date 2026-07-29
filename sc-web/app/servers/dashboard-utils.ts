@@ -1,11 +1,6 @@
 // ── Shared dashboard utilities (CSRF, time helpers, type guards) ──────
 
-import { pollUntil } from "@/lib/poll";
 import { randomUuid } from "@/lib/browser/random-uuid";
-
-// ── Type Guards ────────────────────────────────────────────────────────
-
-export const NUMERIC_UUID_RE = /^[0-9a-f-]{36}$/;
 
 // ── Time Helpers ───────────────────────────────────────────────────────
 
@@ -59,44 +54,4 @@ export function csrfHeaders(): Record<string, string> {
     "Content-Type": "application/json",
     "x-csrf-token": _csrfToken,
   };
-}
-
-// ── Server Command Helpers ────────────────────────────────────────────
-
-export async function enqueueCommand(
-  serverId: string,
-  type: string,
-  payload: Record<string, unknown>,
-): Promise<{ id: string }> {
-  const resp = await fetch("/api/server/command", {
-    method: "POST",
-    headers: csrfHeaders(),
-    body: JSON.stringify({ server_id: serverId, type, payload }),
-  });
-  if (!resp.ok) {
-    const err = await resp.json().catch(() => ({}));
-    throw new Error(err.error || `HTTP ${resp.status}`);
-  }
-  return resp.json();
-}
-
-export async function pollResult(
-  commandId: string,
-  maxTries = 30,
-): Promise<Record<string, unknown> | null> {
-  return pollUntil(
-    async () => {
-      const resp = await fetch(`/api/commands/${commandId}/result`);
-      if (resp.status === 404) return null;
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error || `HTTP ${resp.status}`);
-      }
-      const data = await resp.json();
-      return data.result !== null && data.result !== undefined
-        ? (data.result as Record<string, unknown>)
-        : null;
-    },
-    { intervalMs: 1000, maxAttempts: maxTries },
-  );
 }

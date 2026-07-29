@@ -1,11 +1,11 @@
-export interface MultiplayerScenarioEvidence {
+interface MultiplayerScenarioEvidence {
   connectionSuccess: string;
   transportRoute: string;
   connectTime: string;
   mediaAndDataChannel: string;
 }
 
-export interface MultiplayerScenarioLogGuidance {
+interface MultiplayerScenarioLogGuidance {
   browser: string[];
   scWeb: string[];
   scServer: string[];
