@@ -37,11 +37,6 @@ export type TransferPhase =
   | "committing"
   | "done";
 
-export interface TransferCallbacks {
-  onProgress?: (sent: number, total: number) => void;
-  onPhase?: (phase: TransferPhase) => void;
-}
-
 // ── Protocol messages (mirrors Rust TransferMessage) ───────────────────
 
 interface AuthOkMessage {

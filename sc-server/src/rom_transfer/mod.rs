@@ -4,5 +4,8 @@
 //! `.partial` file → atomic commit → library rescan.
 //! Downloads resolve opaque game IDs to canonical regular files.
 
+// Binary target sees some items as dead code (used only via library API).
+#![allow(dead_code)]
+
 pub mod session;
 pub mod storage;

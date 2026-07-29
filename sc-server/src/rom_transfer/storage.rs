@@ -91,7 +91,7 @@ pub fn validate_basename(raw: &str) -> Result<String, StorageError> {
         return Err(StorageError::InvalidBasename);
     }
 
-    let byte_len = trimmed.as_bytes().len();
+    let byte_len = trimmed.len();
     if byte_len > MAX_BASENAME_BYTES {
         return Err(StorageError::BasenameTooLong {
             max: MAX_BASENAME_BYTES,
@@ -114,12 +114,8 @@ pub fn validate_basename(raw: &str) -> Result<String, StorageError> {
 
 /// Check that a resolved path is a regular file strictly under a root.
 pub fn verify_under_root(path: &Path, root: &Path) -> Result<(), StorageError> {
-    let canonical = path
-        .canonicalize()
-        .map_err(|e| StorageError::Io(e))?;
-    let canonical_root = root
-        .canonicalize()
-        .map_err(|e| StorageError::Io(e))?;
+    let canonical = path.canonicalize().map_err(StorageError::Io)?;
+    let canonical_root = root.canonicalize().map_err(StorageError::Io)?;
 
     if !canonical.starts_with(&canonical_root) {
         return Err(StorageError::RootEscape(canonical));
@@ -288,14 +284,14 @@ impl StagedUpload {
         // Verify size
         let actual_meta = std::fs::metadata(&self.partial_path)?;
         let actual_size = actual_meta.len();
-        if let Some(declared) = declared_size {
-            if actual_size != declared {
-                let _ = self.remove_partial();
-                return Err(StorageError::SizeMismatch {
-                    declared,
-                    actual: actual_size,
-                });
-            }
+        if let Some(declared) = declared_size
+            && actual_size != declared
+        {
+            let _ = self.remove_partial();
+            return Err(StorageError::SizeMismatch {
+                declared,
+                actual: actual_size,
+            });
         }
 
         let hash = hex::encode(self.hasher.clone().finalize());
@@ -308,7 +304,6 @@ impl StagedUpload {
             #[cfg(unix)]
             {
                 if let Ok(dir) = std::fs::File::open(parent) {
-                    use std::os::unix::fs::FileExt;
                     let _ = dir.sync_all();
                 }
             }
@@ -345,14 +340,14 @@ impl StagedUpload {
 
         let actual_meta = std::fs::metadata(&self.partial_path)?;
         let actual_size = actual_meta.len();
-        if let Some(declared) = declared_size {
-            if actual_size != declared {
-                let _ = std::fs::remove_file(&self.partial_path);
-                return Err(StorageError::SizeMismatch {
-                    declared,
-                    actual: actual_size,
-                });
-            }
+        if let Some(declared) = declared_size
+            && actual_size != declared
+        {
+            let _ = std::fs::remove_file(&self.partial_path);
+            return Err(StorageError::SizeMismatch {
+                declared,
+                actual: actual_size,
+            });
         }
 
         // Atomic rename
@@ -363,7 +358,6 @@ impl StagedUpload {
             #[cfg(unix)]
             {
                 if let Ok(dir) = std::fs::File::open(parent) {
-                    use std::os::unix::fs::FileExt;
                     let _ = dir.sync_all();
                 }
             }
@@ -415,7 +409,7 @@ pub struct ResolvedGame {
 ///
 /// Verifies the resolved path is under a configured ROM root and is a
 /// regular file (not a symlink or device).
-pub fn resolve_download(
+pub(crate) fn resolve_download(
     game_id: &str,
     rom_roots: &[String],
     local_games: &[super::super::player_server::LocalGame],
@@ -429,7 +423,7 @@ pub fn resolve_download(
     let canonical_path = game
         .content_path
         .canonicalize()
-        .map_err(|e| StorageError::Io(e))?;
+        .map_err(StorageError::Io)?;
 
     let matched_root = rom_roots
         .iter()

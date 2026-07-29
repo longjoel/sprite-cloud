@@ -325,22 +325,22 @@ impl TransferSink for StagedUploadSink {
         // Need &self not &mut self for trait, but StagedUpload::write_chunk takes &mut
         // Use block_on to get the mutex guard
         let mut guard = self.upload.try_lock().map_err(|_| {
-            StorageError::Io(std::io::Error::new(std::io::ErrorKind::Other, "lock contention"))
+            StorageError::Io(std::io::Error::other("lock contention"))
         })?;
         guard.as_mut().ok_or_else(|| {
-            StorageError::Io(std::io::Error::new(std::io::ErrorKind::Other, "upload already consumed"))
+            StorageError::Io(std::io::Error::other("upload already consumed"))
         })?.write_chunk(data)
     }
 
     fn commit(self: Box<Self>, expected_size: Option<u64>) -> Result<(String, u64), StorageError> {
         self.upload.into_inner()
-            .ok_or_else(|| StorageError::Io(std::io::Error::new(std::io::ErrorKind::Other, "upload already consumed")))?
+            .ok_or_else(|| StorageError::Io(std::io::Error::other("upload already consumed")))?
             .commit(expected_size)
     }
 
     fn commit_with_expected_hash(self: Box<Self>, expected_size: Option<u64>, expected_hash: &str) -> Result<(String, u64), StorageError> {
         self.upload.into_inner()
-            .ok_or_else(|| StorageError::Io(std::io::Error::new(std::io::ErrorKind::Other, "upload already consumed")))?
+            .ok_or_else(|| StorageError::Io(std::io::Error::other("upload already consumed")))?
             .commit_with_expected_hash(expected_size, expected_hash)
     }
 
