@@ -37,11 +37,6 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
         <link rel="manifest" href="/manifest.json" />
         <Script src="/browser-log.js" strategy="beforeInteractive" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(function(regs){regs.forEach(function(r){r.unregister()})})}`,
-          }}
-        />
       </head>
       <body>
         <SessionProvider>

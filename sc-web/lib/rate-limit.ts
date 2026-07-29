@@ -156,25 +156,3 @@ export function applyRateLimit(
 
   return null; // allowed — caller adds headers to their own response
 }
-
-/**
- * Return X-RateLimit-* headers for the caller to attach to their response
- * after a successful rate-limit check.
- */
-export function rateLimitHeaders(request: Request, maxRequests: number, windowMs = 60_000, key?: string): Headers {
-  const effectiveKey = scopedRateLimitKey(request, key);
-  // We already consumed the request in the main handler — re-compute for headers.
-  // This is safe because the key was already counted; we just need the remaining count.
-  const entry = store.get(effectiveKey);
-  const count = entry?.timestamps.length ?? 0;
-  const remaining = Math.max(0, maxRequests - count);
-
-  const oldest = (entry?.timestamps?.[0]) ?? Date.now();
-  const reset = oldest + windowMs;
-
-  return new Headers({
-    "X-RateLimit-Limit": String(maxRequests),
-    "X-RateLimit-Remaining": String(remaining),
-    "X-RateLimit-Reset": String(Math.ceil(reset / 1000)),
-  });
-}

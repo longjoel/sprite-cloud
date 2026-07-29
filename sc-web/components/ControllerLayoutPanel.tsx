@@ -3,7 +3,7 @@
 import { useState } from "react";
 import styles from "./ControllerLayoutPanel.module.css";
 
-export interface ControllerLayoutApi {
+interface ControllerLayoutApi {
   getOpacity?: () => "low" | "medium" | "high" | "max";
   setOpacity: (opacity: "low" | "medium" | "high" | "max") => void;
   getSizePreset?: () => "compact" | "standard" | "large" | "custom";

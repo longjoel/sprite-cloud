@@ -25,7 +25,6 @@ services:
       # Shadow host node_modules with container's pre-installed deps (per workspace member)
       - sc-web-node-modules:/app/sc-web/node_modules
       - sc-web-node-modules-pnpm:/app/node_modules
-      - sc-player-node-modules:/app/sc-player/node_modules
     environment:
       NODE_ENV: development
       # sc-web env
@@ -56,6 +55,7 @@ services:
     volumes:
       # Host-built release binary
       - ./target/release/sc-server:/usr/local/bin/sc-server:ro
+      - ./target/release/sc-core:/usr/local/bin/sc-core:ro
       - ./test-data/cores:/cores:rw
       # Host config
       - /etc/sprite-cloud/config.toml:/etc/sprite-cloud/config.toml:ro
@@ -101,6 +101,5 @@ services:
 volumes:
   sc-web-node-modules:
   sc-web-node-modules-pnpm:
-  sc-player-node-modules:
   sc-server-saves:
   sc-server-system:

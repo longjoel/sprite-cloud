@@ -1,18 +1,20 @@
 # Release System
 
-Sprite Cloud release flow builds one host binary (`sc-server`) plus the `sc-web` production bundle/container.
+Sprite Cloud release flow builds the host runtime (`sc-server` and its `sc-core`
+child process) plus the `sc-web` production bundle/container.
 
 ## Artifacts
 
 | Artifact | Purpose |
 |---|---|
-| `scripts/build-release.sh` | Builds `sc-server` and `sc-web` production bundle |
-| `scripts/deploy-dev.sh` | Installs `sc-server`, writes release markers, restarts systemd |
+| `scripts/build-release.sh` | Builds `sc-server`, `sc-core`, and the `sc-web` production bundle |
+| `scripts/deploy-dev.sh` | Installs both Rust binaries, writes release markers, restarts systemd |
 | `scripts/deploy-sc-web.sh` | Deploys the built sc-web bundle into the running gateway container |
 | `scripts/smoke-test.sh` | Checks local/remote release markers and health endpoints |
 | `ops/` | Repo-tracked deployment templates |
 
-The host runtime ships as the single `sc-server` binary.
+The host runtime ships `sc-server` together with the `sc-core` child binary that
+runs libretro cores in an isolated process.
 
 ## Required deploy environment
 

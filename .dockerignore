@@ -8,7 +8,6 @@ sc-web/.next/
 # Dependencies (copied from builder stage)
 node_modules/
 sc-web/node_modules/
-sc-player/node_modules/
 
 # Git
 .git/

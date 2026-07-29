@@ -6,15 +6,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
 WORKDIR /app
 
 # Copy workspace root files (lock + workspace config)
-COPY pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
-# Copy package.json for each workspace member
+# Copy package.json for the web workspace member
 COPY sc-web/package.json sc-web/
-COPY sc-player/package.json sc-player/
 
-# Install deps for all workspace members
-RUN corepack enable && corepack prepare pnpm@latest --activate && \
-    pnpm install --frozen-lockfile --ignore-scripts || pnpm install --no-frozen-lockfile
+# Install the reproducible locked dependency graph
+RUN corepack enable && corepack prepare pnpm@10.4.1 --activate && \
+    pnpm install --frozen-lockfile --ignore-scripts
 
 # Accept build deps and rebuild
 RUN pnpm rebuild esbuild sharp 2>/dev/null || true

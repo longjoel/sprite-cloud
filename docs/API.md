@@ -121,7 +121,6 @@ Command payloads are JSON objects with a `type`, `server_id`, and type-specific 
   },
   "features": {
     "pwa": true,
-    "xmb": true,
     "guestPlay": true,
     "multiController": true
   },

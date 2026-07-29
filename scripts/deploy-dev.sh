@@ -29,8 +29,9 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
 fi
 
 cd "$PROJECT_DIR"
-log "installing release binary into $BIN_DIR"
+log "installing release binaries into $BIN_DIR"
 sudo install -m 755 target/release/sc-server "$BIN_DIR/sc-server"
+sudo install -m 755 target/release/sc-core "$BIN_DIR/sc-core"
 sudo mkdir -p "$RELEASE_STATE_DIR"
 printf '%s\n' "$GV_SHA" | sudo tee "$RELEASE_STATE_DIR/RELEASE_COMMIT" >/dev/null
 sudo cp "$(manifest_path)" "$RELEASE_STATE_DIR/RELEASE_MANIFEST.json"
@@ -43,6 +44,7 @@ fi
 
 log "checking sc-server binary"
 "$BIN_DIR/sc-server" --version >/dev/null 2>&1 || warn "sc-server --version check failed"
+[[ -x "$BIN_DIR/sc-core" ]] || fail "sc-core was not installed"
 
 if curl -fsS "$WEB_HEALTH_URL" >/dev/null 2>&1; then
   log "local web health OK: $WEB_HEALTH_URL"

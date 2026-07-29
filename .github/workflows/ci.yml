@@ -35,13 +35,16 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build Rust release binaries
-        run: cargo build --release -p sc-server
+        run: cargo build --release --locked -p sc-server -p sc-core
+
+      - name: Lint Rust workspace
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Test Rust crates
-        run: cargo test -p sc-server -p sc-core -p libretro-runner
+        run: cargo test --workspace --locked
 
       - name: Smoke test libretro-runner
-        run: cargo test -p libretro-runner --test smoke -- --test-threads=1
+        run: cargo test --locked -p libretro-runner --test smoke -- --test-threads=1
 
       # ── Docker: sc-server ────────────────────────────────────────
       - name: Set up Docker Buildx
@@ -64,8 +67,10 @@ jobs:
             type=sha,prefix=,format=short
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Place binary for Docker context
-        run: cp target/release/sc-server ./sc-server
+      - name: Place binaries for Docker context
+        run: |
+          cp target/release/sc-server ./sc-server-bin
+          cp target/release/sc-core ./sc-core-bin
 
       - name: Build and push sc-server
         uses: docker/build-push-action@v6
@@ -99,7 +104,24 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Lint sc-web
+        working-directory: sc-web
+        run: pnpm run lint
+
+      - name: Check sc-web dead code
+        working-directory: sc-web
+        run: pnpm run dead-code
+
+      - name: Test sc-web
+        working-directory: sc-web
+        run: pnpm test
+
+      - name: Type-check sc-web
+        working-directory: sc-web
+        run: pnpm exec tsc --noEmit
+
       - name: Build sc-web
+        working-directory: sc-web
         run: pnpm build
 
       # ── Docker: sc-web ──────────────────────────────────────────
