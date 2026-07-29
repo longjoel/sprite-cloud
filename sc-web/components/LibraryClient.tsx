@@ -615,7 +615,6 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
         links={[
           { label: "Home", href: "/" },
           ...(session ? [{ label: "Dashboard", href: "/servers" }] : []),
-          { label: "XMB", href: "/xmb" },
           ...(session
             ? [{ label: "Sign out", href: "/api/auth/signout" }]
             : isLanProxy ? [] : [{ label: "Sign in", href: "/api/auth/signin" }]),
