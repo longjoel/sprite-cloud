@@ -134,6 +134,10 @@ Important public deployment variables:
 
 Auth is DB-backed email/password. The first admin account is created through the setup wizard.
 
+## Community
+
+**[Join the Sprite Cloud Discord](https://discord.gg/zujXa48kyS)** — discussion, support, and development.
+
 ## License
 
 Sprite Cloud is licensed under the **GNU Affero General Public License v3.0 or later**. See [LICENSE](LICENSE).
