@@ -59,6 +59,7 @@ export async function POST(request: NextRequest) {
   }
 
   const server = await verifyBearerToken(request.headers.get("authorization"));
+  let createdBy: string | null = null;
   if (server) {
     if (server.id !== serverId) {
       return NextResponse.json({ error: "server token does not match server_id" }, { status: 403 });
@@ -79,6 +80,7 @@ export async function POST(request: NextRequest) {
     if (!membership) {
       return NextResponse.json({ error: "server not found or not authorized" }, { status: 403 });
     }
+    createdBy = session.user.id;
   }
 
   if (roomToken) {
@@ -102,7 +104,7 @@ export async function POST(request: NextRequest) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = randomCode();
     try {
-      await db.insert(shortCodes).values({ code, gameId, hostToken: capabilityToken, serverId });
+      await db.insert(shortCodes).values({ code, gameId, hostToken: capabilityToken, serverId, createdBy });
       return NextResponse.json({ code }, { status: 201 });
     } catch (err: unknown) {
       const dbError = err as { code?: string; message?: string };

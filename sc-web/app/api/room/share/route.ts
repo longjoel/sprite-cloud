@@ -8,7 +8,8 @@ import { randomBytes } from "crypto";
 
 // ── POST /api/room/share — share or rotate a room_token
 //
-// Authenticated. Any server member can share an active session.
+// Authenticated. A session owner, server admin, or owning sc-server bearer
+// may share an active session.
 // Body: { session_id?: string, game_id?: string, server_id?: string, max_seats?: number }
 // Returns: { room_token: string, max_seats: number }
 
@@ -70,7 +71,7 @@ export async function POST(request: NextRequest) {
   }
 
   // LAN proxy: only the exact owning sc-server may rotate this session's
-  // invitation capability. Browser users retain owner/member authorization.
+  // invitation capability. Browser users retain owner/admin authorization.
   if (bearerServer) {
     if (!existing.serverId || bearerServer.id !== existing.serverId) {
       return NextResponse.json({ error: "server does not own session" }, { status: 403 });
@@ -86,9 +87,10 @@ export async function POST(request: NextRequest) {
       if (!serverId) {
         return NextResponse.json({ error: "session has no server" }, { status: 500 });
       }
-      // Check server membership
+      // Administrators retain recovery/control authority over every session;
+      // ordinary members may rotate only their own session capability.
       const [member] = await db
-        .select({ id: serverMembers.id })
+        .select({ id: serverMembers.id, role: serverMembers.role })
         .from(serverMembers)
         .where(
           and(
@@ -98,7 +100,7 @@ export async function POST(request: NextRequest) {
         )
         .limit(1);
 
-      if (!member) {
+      if (member?.role !== "admin") {
         return NextResponse.json({ error: "not your session" }, { status: 403 });
       }
     }

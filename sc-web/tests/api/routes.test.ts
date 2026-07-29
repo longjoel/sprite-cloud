@@ -660,11 +660,70 @@ describe("POST /api/server/command", () => {
     expect(mockDb.insert).toHaveBeenCalledWith(launchEvents);
   });
 
-  it("rejects start_game from a viewer (non-admin) member", async () => {
-    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{ role: "viewer" }]));
+  it("queues start_game for an enrolled member who created the host launch code", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "member" }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ createdBy: "user-1" }]))
+      .mockReturnValueOnce(mockQueryBuilder([]))
+      .mockReturnValueOnce(mockQueryBuilder([]));
+
+    const { launchEvents, commands: commandsTable, sessions: sessionsTable, peerTokens: peerTokensTable } = await import("@/lib/db/schema");
+    const commandInsertBuilder = {
+      values: vi.fn().mockReturnThis(),
+      returning: vi.fn(() => Promise.resolve([{ id: "cmd-member" }])),
+    };
+    const sessionInsertBuilder = {
+      values: vi.fn().mockReturnThis(),
+      returning: vi.fn(() => Promise.resolve([{ id: "sess-member" }])),
+    };
+    const peerTokenInsertBuilder = {
+      values: vi.fn().mockReturnThis(),
+      returning: vi.fn(() => Promise.resolve([])),
+    };
+    mockDb.insert.mockImplementation((table: unknown) => {
+      if (table === commandsTable) return commandInsertBuilder;
+      if (table === launchEvents) return mockQueryBuilder([{ id: "launch-member" }]);
+      if (table === sessionsTable) return sessionInsertBuilder;
+      if (table === peerTokensTable) return peerTokenInsertBuilder;
+      return mockQueryBuilder([{ id: "fallback" }]);
+    });
+    mockDb.update.mockReturnValue({
+      set: vi.fn(() => ({ where: vi.fn(() => Promise.resolve(undefined)) })),
+    });
+
     const { POST } = await import("@/app/api/server/command/route");
     const req = mkReq("http://localhost/api/server/command", {
-      ...jsonBodyWithCsrf({ server_id: "server-1", type: "start_game", payload: { game_id: "local_0123456789abcdef0123456789abcdef" } }),
+      ...jsonBodyWithCsrf({
+        server_id: "server-1",
+        type: "start_game",
+        payload: {
+          game_id: "local_0123456789abcdef0123456789abcdef",
+          host_token: "member-host-token",
+        },
+      }),
+    });
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(201);
+    expect(sessionInsertBuilder.values).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "user-1",
+      hostToken: "member-host-token",
+    }));
+  });
+
+  it("rejects start_game when a member did not create the host launch code", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "member" }]))
+      .mockReturnValueOnce(mockQueryBuilder([]));
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      ...jsonBodyWithCsrf({
+        server_id: "server-1",
+        type: "start_game",
+        payload: {
+          game_id: "local_0123456789abcdef0123456789abcdef",
+          host_token: "another-members-token",
+        },
+      }),
     });
     const resp = await POST(req as any);
     expect(resp.status).toBe(403);
@@ -724,17 +783,18 @@ describe("POST /api/server/command", () => {
     }));
   });
 
-  it("allows LAN start_game with a matching short-code host token and no auth cookie", async () => {
+  it("attributes a LAN member launch to the member who created its short code", async () => {
     mockAuth.mockResolvedValueOnce(null);
     mockDb.select
-      .mockReturnValueOnce(mockQueryBuilder([{ code: "ABC123" }]))
-      .mockReturnValueOnce(mockQueryBuilder([{ userId: "user-1" }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ code: "ABC123", createdBy: "member-user" }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ userId: "member-user" }]))
       .mockReturnValueOnce(mockQueryBuilder([]));
 
-    const { launchEvents, commands: commandsTable, sessions: sessionsTable, peerTokens: peerTokensTable } = await import("@/lib/db/schema");
+    const { launchEvents, commands: commandsTable, sessions: sessionsTable, peerTokens: peerTokensTable, shortCodes: shortCodesTable } = await import("@/lib/db/schema");
+    const sessionValues = vi.fn().mockReturnThis();
     mockDb.insert.mockImplementation((table: unknown) => {
       if (table === commandsTable) return { values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([{ id: "cmd-lan" }])) };
-      if (table === sessionsTable) return { values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([{ id: "sess-lan" }])) };
+      if (table === sessionsTable) return { values: sessionValues, returning: vi.fn(() => Promise.resolve([{ id: "sess-lan" }])) };
       if (table === peerTokensTable) return { values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([])) };
       if (table === launchEvents) return mockQueryBuilder([{ id: "launch-lan" }]);
       return mockQueryBuilder([{ id: "fallback" }]);
@@ -753,6 +813,37 @@ describe("POST /api/server/command", () => {
     expect(resp.status).toBe(201);
     const body = await resp.json();
     expect(body.sdp_answer).toBe("v=0\r\nanswer");
+    expect(mockDb.select).toHaveBeenNthCalledWith(1, {
+      code: shortCodesTable.code,
+      createdBy: shortCodesTable.createdBy,
+    });
+    expect(sessionValues).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "member-user",
+    }));
+  });
+
+  it("fails closed for a fresh LAN start using a legacy code without a creator", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ code: "LEGACY", createdBy: null }]))
+      .mockReturnValueOnce(mockQueryBuilder([]));
+
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      ...jsonBody({
+        server_id: "server-1",
+        type: "start_game",
+        payload: {
+          game_id: "local_0123456789abcdef0123456789abcdef",
+          host_token: "legacy-host-token",
+          lan: true,
+        },
+      }),
+    });
+
+    const resp = await POST(req as any);
+
+    expect(resp.status).toBe(403);
   });
 
   it("rejects a private room capability used as a LAN host token", async () => {
@@ -1438,7 +1529,33 @@ describe("POST /api/server/notify/poll", () => {
   });
 });
 
-// ── /api/room/join ──────────────────────────────────────────────────────
+// ── /api/room/shorten + resolve ─────────────────────────────────────────
+
+describe("POST /api/room/shorten", () => {
+  it("binds a browser-created host launch code to the enrolled member", async () => {
+    mockVerifyBearerToken.mockResolvedValueOnce(null);
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{ role: "member" }]));
+    const values = vi.fn(() => Promise.resolve(undefined));
+    mockDb.insert.mockReturnValueOnce({ values });
+
+    const { POST } = await import("@/app/api/room/shorten/route");
+    const req = mkReq("http://localhost/api/room/shorten", {
+      ...jsonBodyWithCsrf({
+        game_id: "local_0123456789abcdef0123456789abcdef",
+        host_token: "member-host-token",
+        server_id: "server-1",
+      }),
+    });
+
+    const resp = await POST(req);
+    expect(resp.status).toBe(201);
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({
+      createdBy: "user-1",
+      hostToken: "member-host-token",
+      serverId: "server-1",
+    }));
+  });
+});
 
 describe("GET /api/room/resolve/[code]", () => {
   it("returns the host capability only to the owning sc-server bearer", async () => {
@@ -1504,13 +1621,35 @@ describe("GET /api/room/resolve/[code]", () => {
     expect(body.host_token).toBe("host-secret");
   });
 
-  it("downgrades ordinary server members with host launch codes to guests", async () => {
+  it("returns host launch authority to the enrolled member who created the code", async () => {
+    mockVerifyBearerToken.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        gameId: "local_0123456789abcdef0123456789abcdef",
+        hostToken: "member-host-secret",
+        serverId: "server-1",
+        createdBy: "user-1",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "member" }]));
+    const { GET } = await import("@/app/api/room/resolve/[code]/route");
+    const req = mkReq("http://localhost/api/room/resolve/ABCDEFGHIJKLMNOP");
+
+    const resp = await GET(req, { params: Promise.resolve({ code: "ABCDEFGHIJKLMNOP" }) });
+    const body = await resp.json();
+
+    expect(resp.status).toBe(200);
+    expect(body.host_token).toBe("member-host-secret");
+    expect(body.room_token).toBeUndefined();
+  });
+
+  it("does not grant one member host authority over another member's launch code", async () => {
     mockVerifyBearerToken.mockResolvedValueOnce(null);
     mockDb.select
       .mockReturnValueOnce(mockQueryBuilder([{
         gameId: "local_0123456789abcdef0123456789abcdef",
         hostToken: "host-secret",
         serverId: "server-1",
+        createdBy: "user-2",
       }]))
       .mockReturnValueOnce(mockQueryBuilder([{ role: "member" }]))
       .mockReturnValueOnce(mockQueryBuilder([{
@@ -1519,6 +1658,29 @@ describe("GET /api/room/resolve/[code]", () => {
       }]));
     const { GET } = await import("@/app/api/room/resolve/[code]/route");
     const req = mkReq("http://localhost/api/room/resolve/ABCDEFGHIJKLMNOP");
+
+    const resp = await GET(req, { params: Promise.resolve({ code: "ABCDEFGHIJKLMNOP" }) });
+    const body = await resp.json();
+
+    expect(resp.status).toBe(200);
+    expect(body.room_token).toBe("room-private");
+    expect(body.host_token).toBeUndefined();
+  });
+
+  it("forces the launch creator through the guest path when ?join is present", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        gameId: "local_0123456789abcdef0123456789abcdef",
+        hostToken: "member-host-secret",
+        serverId: "server-1",
+        createdBy: "user-1",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{
+        roomToken: "room-private",
+        status: "playing",
+      }]));
+    const { GET } = await import("@/app/api/room/resolve/[code]/route");
+    const req = mkReq("http://localhost/api/room/resolve/ABCDEFGHIJKLMNOP?join");
 
     const resp = await GET(req, { params: Promise.resolve({ code: "ABCDEFGHIJKLMNOP" }) });
     const body = await resp.json();
@@ -1686,6 +1848,48 @@ describe("POST /api/room/share", () => {
 
     expect(resp.status).toBe(410);
     expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unrelated enrolled member rotating another member's room capability", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "sess-other-member",
+        userId: "user-2",
+        serverId: "server-1",
+        status: "playing",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ id: "membership-1", role: "member" }]));
+
+    const { POST } = await import("@/app/api/room/share/route");
+    const req = mkReq("http://localhost/api/room/share", {
+      ...jsonBody({ session_id: "sess-other-member" }),
+    });
+
+    const resp = await POST(req);
+
+    expect(resp.status).toBe(403);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("allows an administrator to rotate a member-owned room capability", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "sess-member",
+        userId: "user-2",
+        serverId: "server-1",
+        status: "playing",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ id: "membership-1", role: "admin" }]));
+
+    const { POST } = await import("@/app/api/room/share/route");
+    const req = mkReq("http://localhost/api/room/share", {
+      ...jsonBody({ session_id: "sess-member" }),
+    });
+
+    const resp = await POST(req);
+
+    expect(resp.status).toBe(200);
+    expect(mockDb.update).toHaveBeenCalled();
   });
 
   it("allows the exact owning sc-server bearer to rotate a LAN room capability", async () => {
@@ -2279,5 +2483,48 @@ describe("GET /api/client/bootstrap", () => {
     expect(body.servers[0].lastSeenAt).toBe("2026-07-13T12:00:00.000Z");
     expect(body.library).toBeNull();
     expect(typeof body.ice.stunConfigured).toBe("boolean");
+  });
+});
+
+describe("PUT /api/servers/[server_id]/core-overrides", () => {
+  it("rejects an enrolled non-admin member", async () => {
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{ role: "member" }]));
+    const { PUT } = await import("@/app/api/servers/[server_id]/core-overrides/route");
+    const req = mkReq("http://localhost/api/servers/server-1/core-overrides", {
+      ...jsonBodyWithCsrf({ overrides: { SNES: "snes9x_libretro.so" } }),
+    });
+
+    const resp = await PUT(req, { params: Promise.resolve({ server_id: "server-1" }) });
+
+    expect(resp.status).toBe(403);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("requires csrf protection for an administrator mutation", async () => {
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{ role: "admin" }]));
+    const { PUT } = await import("@/app/api/servers/[server_id]/core-overrides/route");
+    const req = mkReq("http://localhost/api/servers/server-1/core-overrides", {
+      ...jsonBody({ overrides: { SNES: "snes9x_libretro.so" } }),
+    });
+
+    const resp = await PUT(req, { params: Promise.resolve({ server_id: "server-1" }) });
+
+    expect(resp.status).toBe(403);
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("accepts an administrator mutation with a valid csrf token", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "admin" }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ metadata: {} }]));
+    const { PUT } = await import("@/app/api/servers/[server_id]/core-overrides/route");
+    const req = mkReq("http://localhost/api/servers/server-1/core-overrides", {
+      ...jsonBodyWithCsrf({ overrides: { SNES: "snes9x_libretro.so" } }),
+    });
+
+    const resp = await PUT(req, { params: Promise.resolve({ server_id: "server-1" }) });
+
+    expect(resp.status).toBe(200);
+    expect(mockDb.update).toHaveBeenCalled();
   });
 });
