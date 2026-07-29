@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { StepState } from "./GamePlayerPipeline";
 
 // ── Bokeh particle canvas ──────────────────────────────────────────────
@@ -8,27 +8,33 @@ import type { StepState } from "./GamePlayerPipeline";
 // Renders a field of glowing circular particles (bokeh / circles of confusion)
 // that drift, pulse, and bloom as real pipeline stages complete.
 //
+// When the user prefers reduced motion, the canvas is replaced with a static
+// gradient that still communicates connection progress without continuous
+// animation.
+//
 // Props:
 //   pipeline  — current step states from GamePlayer
 //   resolving — true while the page is still resolving the short code
-//   fadeOut   — true when the overlay is fading out (particles dissipate)
+//   fadeOut   — true when the overlay is fading out
 
 interface Particle {
-  x: number;    // 0–1
-  y: number;    // 0–1
-  vx: number;   // drift velocity
+  x: number;
+  y: number;
+  vx: number;
   vy: number;
-  r: number;    // base radius
-  phase: number; // oscillation phase
-  hue: number;  // base hue in gold range
+  r: number;
+  phase: number;
+  hue: number;
   opacity: number;
-  spawnedAt: number; // step index that spawned this particle
+  spawnedAt: number;
 }
 
 const HUES = [195, 200, 205, 210, 190]; // sky blue → cyan → cool blue
 const MAX_PARTICLES = 120;
 const BASELINE_PARTICLES = 30;
 const BURST_PER_STEP = 18;
+
+const STEP_IDS = ["rtc", "core", "stream", "playing"];
 
 interface BokehLoadingProps {
   pipeline?: Record<string, StepState>;
@@ -50,15 +56,24 @@ export default function BokehLoading({
   const frameRef = useRef(0);
   const prevDoneRef = useRef(0);
   const fadeRef = useRef(0);
+  const [reducedMotion, setReducedMotion] = useState(false);
+
+  // Detect reduced-motion preference
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReducedMotion(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   // Count how many steps are "done"
-  const stepIds = ["ice", "server", "core", "encode", "sdp", "media", "connected"];
-  const doneCount = stepIds.reduce(
+  const doneCount = STEP_IDS.reduce(
     (n, id) => n + (pipeline[id] === "done" ? 1 : 0),
     resolving ? 0 : 0,
   );
-  const totalSteps = stepIds.length;
-  const progress = doneCount / totalSteps; // 0..1
+  const totalSteps = STEP_IDS.length;
+  const progress = doneCount / totalSteps;
 
   // ── Spawn particle ──────────────────────────────────────────────────
   const spawnParticle = (stepIndex: number): Particle => ({
@@ -75,21 +90,22 @@ export default function BokehLoading({
 
   // ── Burst spawn on step completion ──────────────────────────────────
   useEffect(() => {
+    if (reducedMotion) return;
     const particles = particlesRef.current;
     if (doneCount > prevDoneRef.current && particles.length < MAX_PARTICLES) {
       for (let i = 0; i < BURST_PER_STEP; i++) {
         particles.push(spawnParticle(doneCount));
       }
     }
-    // Fill baseline
     while (particles.length < BASELINE_PARTICLES) {
       particles.push(spawnParticle(0));
     }
     prevDoneRef.current = doneCount;
-  }, [doneCount]);
+  }, [doneCount, reducedMotion]);
 
-  // ── Animation loop ──────────────────────────────────────────────────
+  // ── Animation loop (skipped when reduced motion) ────────────────────
   useEffect(() => {
+    if (reducedMotion) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -123,7 +139,6 @@ export default function BokehLoading({
       const h = canvas.clientHeight;
       const particles = particlesRef.current;
 
-      // Fade in/out target opacity
       const targetFade = fadeOut ? 0 : 1;
       fadeRef.current += (targetFade - fadeRef.current) * 0.04;
 
@@ -132,18 +147,15 @@ export default function BokehLoading({
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
 
-        // Drift, with subtle mouse parallax
-        const parallax = (p.r * 0.008);
+        const parallax = p.r * 0.008;
         p.x += p.vx + (mouseX - 0.5) * 0.0002 * parallax;
         p.y += p.vy + (mouseY - 0.5) * 0.0002 * parallax;
 
-        // Wrap edges with padding
         if (p.x < -0.05) p.x = 1.05;
         if (p.x > 1.05) p.x = -0.05;
         if (p.y < -0.05) p.y = 1.05;
         if (p.y > 1.05) p.y = -0.05;
 
-        // Opacity: rise to target based on progress and age
         const baseOpacity = 0.08 + progress * 0.25;
         const pulse = 0.5 + 0.5 * Math.sin(t * 0.02 + p.phase);
         const targetOp = baseOpacity * pulse * (0.9 + Math.random() * 0.1);
@@ -151,7 +163,6 @@ export default function BokehLoading({
 
         const alpha = p.opacity * fadeRef.current;
         if (alpha < 0.003 && fadeOut) {
-          // Remove particles during fade-out
           particles.splice(i, 1);
           continue;
         }
@@ -162,7 +173,6 @@ export default function BokehLoading({
 
         if (radius < 1) continue;
 
-        // Layered glow: 3 passes from large/blurred to small/sharp
         for (let pass = 0; pass < 3; pass++) {
           const scale = 1 + pass * 1.8;
           const a = alpha * (3 - pass) * 0.18;
@@ -180,7 +190,6 @@ export default function BokehLoading({
         }
       }
 
-      // Keep baseline particles
       const activeCount = particles.length;
       const floorTarget = fadeOut ? 0 : BASELINE_PARTICLES;
       if (activeCount < floorTarget) {
@@ -199,7 +208,25 @@ export default function BokehLoading({
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("resize", resize);
     };
-  }, [progress, fadeOut, doneCount]);
+  }, [progress, fadeOut, doneCount, reducedMotion]);
+
+  // Static gradient for reduced-motion users
+  const containerStyle: React.CSSProperties = {
+    width: typeof width === "number" ? `${width}px` : width,
+    height: typeof height === "number" ? `${height}px` : height,
+    display: "block",
+    background: `radial-gradient(
+      ellipse at 50% ${40 + progress * 10}%,
+      rgba(56, 189, 248, ${0.06 + progress * 0.08}) 0%,
+      rgba(14, 165, 233, ${0.03 + progress * 0.04}) 40%,
+      transparent 70%
+    )`,
+    transition: "background 0.8s ease",
+  };
+
+  if (reducedMotion) {
+    return <div style={containerStyle} />;
+  }
 
   return (
     <canvas
