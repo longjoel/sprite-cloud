@@ -8,19 +8,16 @@ export interface PipelineStep {
 }
 
 export const PIPELINE_STEPS: PipelineStep[] = [
-  { id: "ice", label: "ICE" },
-  { id: "server", label: "Server" },
+  { id: "rtc", label: "RTC" },
   { id: "core", label: "Core" },
-  { id: "encode", label: "Encode" },
-  { id: "sdp", label: "SDP" },
-  { id: "media", label: "Media" },
-  { id: "connected", label: "Playing" },
+  { id: "stream", label: "Stream" },
+  { id: "playing", label: "Playing" },
 ];
 
 export function defaultPipeline(): Record<string, StepState> {
   const out: Record<string, StepState> = {};
   for (const s of PIPELINE_STEPS) {
-    out[s.id] = s.id === "ice" ? "active" : "pending";
+    out[s.id] = s.id === "rtc" ? "active" : "pending";
   }
   return out;
 }
@@ -31,6 +28,27 @@ export function mergePipeline(
 ): Record<string, StepState> {
   if (!overrides) return base;
   return { ...base, ...overrides };
+}
+
+// Legacy step IDs are mapped into the 4-phase pipeline so callers that
+// still advance individual sub-steps (ice, server, core, encode, sdp,
+// media, connected) update the right bucket.
+export function mapLegacyStep(legacyId: string): string {
+  switch (legacyId) {
+    case "ice":
+    case "server":
+      return "rtc";
+    case "core":
+    case "encode":
+      return "core";
+    case "sdp":
+    case "media":
+      return "stream";
+    case "connected":
+      return "playing";
+    default:
+      return legacyId;
+  }
 }
 
 // ── Route label → color ────────────────────────────────────────────────

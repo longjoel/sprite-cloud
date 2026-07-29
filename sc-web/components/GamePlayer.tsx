@@ -30,6 +30,7 @@ import {
   dotColor,
   dotChar,
   labelColor,
+  mapLegacyStep,
 } from "./GamePlayerPipeline";
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -170,9 +171,17 @@ export default function GamePlayer({
     } catch { return false; }
   });
 
-  const [pipeline, setPipeline] = useState<Record<string, StepState>>(
-    () => mergePipeline(defaultPipeline(), initialPipeline),
-  );
+  const [pipeline, setPipeline] = useState<Record<string, StepState>>(() => {
+    // Remap legacy initialPipeline keys (ice, server, connected, etc.) to
+    // the 4-phase bucket keys so callers don't need to know the mapping.
+    const remapped: Record<string, StepState> = {};
+    if (initialPipeline) {
+      for (const [k, v] of Object.entries(initialPipeline)) {
+        remapped[mapLegacyStep(k)] = v;
+      }
+    }
+    return mergePipeline(defaultPipeline(), remapped);
+  });
 
   const optionsTriggerRef = useRef<HTMLButtonElement>(null);
 
@@ -187,10 +196,11 @@ export default function GamePlayer({
   // ── Pipeline helpers ──────────────────────────────────────────────
 
   const advanceStep = useCallback((stepId: string) => {
+    const bucketId = mapLegacyStep(stepId);
     setPipeline((prev) => {
       const next: Record<string, StepState> = { ...prev };
-      next[stepId] = "done";
-      const idx = PIPELINE_STEPS.findIndex((s) => s.id === stepId);
+      next[bucketId] = "done";
+      const idx = PIPELINE_STEPS.findIndex((s) => s.id === bucketId);
       if (idx >= 0 && idx < PIPELINE_STEPS.length - 1) {
         const nextId = PIPELINE_STEPS[idx + 1].id;
         if (next[nextId] === "pending") next[nextId] = "active";
@@ -200,9 +210,10 @@ export default function GamePlayer({
   }, []);
 
   const failStep = useCallback((stepId: string) => {
+    const bucketId = mapLegacyStep(stepId);
     setPipeline((prev) => {
       const next: Record<string, StepState> = { ...prev };
-      next[stepId] = "failed";
+      next[bucketId] = "failed";
       return next;
     });
   }, []);
@@ -640,13 +651,10 @@ export default function GamePlayer({
         muted={audioMuted}
         className={styles.video}
       />
-      {/* Top bar */}
+      {/* Top bar — CSS-driven fade; :focus-within pins visibility */}
       <div
-        className={styles.topBar}
-        style={{
-          opacity: connected && controlsVisible ? 1 : 0,
-          pointerEvents: connected && controlsVisible ? "auto" : "none",
-        }}
+        className={`${styles.topBar}${connected && controlsVisible ? ` ${styles.visible}` : ""}`}
+        {...(connected && !controlsVisible ? { inert: "" as any } : {})}
       >
         <span className={styles.gameTitle}>{gameName || gameId}</span>
         <div className={styles.topBarActions}>
