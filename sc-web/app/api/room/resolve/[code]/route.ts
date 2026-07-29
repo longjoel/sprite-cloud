@@ -31,6 +31,7 @@ export async function GET(
       gameId: shortCodes.gameId,
       hostToken: shortCodes.hostToken,
       serverId: shortCodes.serverId,
+      createdBy: shortCodes.createdBy,
     })
     .from(shortCodes)
     .where(eq(shortCodes.code, code.toUpperCase()))
@@ -84,16 +85,16 @@ export async function GET(
         .where(and(
           eq(serverMembers.serverId, entry.serverId),
           eq(serverMembers.userId, browserSession.user.id),
-          eq(serverMembers.role, "admin"),
         ))
         .limit(1);
-      isHost = membership?.role === "admin";
+      isHost = membership?.role === "admin"
+        || (!!membership && entry.createdBy === browserSession.user.id);
     }
   }
 
   if (isHost) {
-    // Host authority belongs only to the paired server bearer or an explicit
-    // server admin. Ordinary members never upgrade into host access.
+    // Host authority belongs to the paired server bearer, an explicit server
+    // admin, or the enrolled member who minted this exact launch code.
     return NextResponse.json({
       game_id: entry.gameId,
       host_token: entry.hostToken,

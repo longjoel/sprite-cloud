@@ -4,6 +4,19 @@ import { db } from "@/lib/db";
 import { servers, serverMembers } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 
+function cookieValue(header: string | null, name: string): string | null {
+  for (const part of (header ?? "").split(";")) {
+    const [key, ...rest] = part.trim().split("=");
+    if (key === name) return decodeURIComponent(rest.join("="));
+  }
+  return null;
+}
+
+function validCsrf(request: NextRequest): boolean {
+  const header = request.headers.get("x-csrf-token");
+  return Boolean(header && header === cookieValue(request.headers.get("cookie"), "sc_csrf_token"));
+}
+
 // GET /api/servers/[server_id]/core-overrides — read current overrides
 export async function GET(
   _req: NextRequest,
@@ -16,9 +29,9 @@ export async function GET(
 
   const { server_id } = await params;
 
-  // Check membership
+  // Configuration and diagnostics remain administrator-only.
   const [member] = await db
-    .select()
+    .select({ role: serverMembers.role })
     .from(serverMembers)
     .where(
       and(
@@ -28,8 +41,8 @@ export async function GET(
     )
     .limit(1);
 
-  if (!member) {
-    return NextResponse.json({ error: "not a member" }, { status: 403 });
+  if (member?.role !== "admin") {
+    return NextResponse.json({ error: "administrator access required" }, { status: 403 });
   }
 
   const [server] = await db
@@ -56,9 +69,9 @@ export async function PUT(
 
   const { server_id } = await params;
 
-  // Check membership
+  // Configuration mutations remain administrator-only.
   const [member] = await db
-    .select()
+    .select({ role: serverMembers.role })
     .from(serverMembers)
     .where(
       and(
@@ -68,8 +81,11 @@ export async function PUT(
     )
     .limit(1);
 
-  if (!member) {
-    return NextResponse.json({ error: "not a member" }, { status: 403 });
+  if (member?.role !== "admin") {
+    return NextResponse.json({ error: "administrator access required" }, { status: 403 });
+  }
+  if (!validCsrf(req)) {
+    return NextResponse.json({ error: "invalid csrf token" }, { status: 403 });
   }
 
   let body: Record<string, unknown>;

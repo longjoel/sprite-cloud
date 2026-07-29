@@ -31,6 +31,51 @@ function canExecute(capabilities: PlayerCapabilities, commandType: string): bool
   }
 }
 
+async function resolveShortCodeHostUser(
+  serverId: string,
+  gameId: string,
+  hostToken: string,
+): Promise<string | null> {
+  const [shortCode] = await db
+    .select({ code: shortCodes.code, createdBy: shortCodes.createdBy })
+    .from(shortCodes)
+    .where(and(
+      eq(shortCodes.serverId, serverId),
+      eq(shortCodes.gameId, gameId),
+      eq(shortCodes.hostToken, hostToken),
+    ))
+    .limit(1);
+  if (!shortCode) return null;
+
+  if (shortCode.createdBy) {
+    const [member] = await db
+      .select({ userId: serverMembers.userId })
+      .from(serverMembers)
+      .where(and(
+        eq(serverMembers.serverId, serverId),
+        eq(serverMembers.userId, shortCode.createdBy),
+      ))
+      .limit(1);
+    return member?.userId ?? null;
+  }
+
+  // Creator-less legacy codes cannot establish a new user identity. They may
+  // recover only the owner of an already-active exact-token session so stop
+  // and reconnect remain safe; a fresh legacy start fails closed.
+  const [legacySession] = await db
+    .select({ userId: sessions.userId })
+    .from(sessions)
+    .where(and(
+      eq(sessions.serverId, serverId),
+      eq(sessions.gameId, gameId),
+      eq(sessions.hostToken, hostToken),
+      inArray(sessions.status, [...ACTIVE_SESSION_STATES]),
+    ))
+    .orderBy(desc(sessions.createdAt))
+    .limit(1);
+  return legacySession?.userId ?? null;
+}
+
 interface CommandBody {
   server_id: string;
   type: string;
@@ -167,56 +212,30 @@ export async function POST(request: NextRequest) {
     typeof lanStartPayload.host_token === "string" &&
     typeof lanStartPayload.game_id === "string"
   ) {
-    const [shortCode] = await db
-      .select({ code: shortCodes.code })
-      .from(shortCodes)
-      .where(
-        and(
-          eq(shortCodes.serverId, body.server_id),
-          eq(shortCodes.gameId, lanStartPayload.game_id),
-          eq(shortCodes.hostToken, lanStartPayload.host_token),
-        ),
-      )
-      .limit(1);
-    if (!shortCode) {
+    const ownerUserId = await resolveShortCodeHostUser(
+      body.server_id,
+      lanStartPayload.game_id,
+      lanStartPayload.host_token,
+    );
+    if (!ownerUserId) {
       return NextResponse.json({ error: "invalid LAN launch token" }, { status: 403 });
     }
-    const [owner] = await db
-      .select({ userId: serverMembers.userId })
-      .from(serverMembers)
-      .where(and(eq(serverMembers.serverId, body.server_id), eq(serverMembers.role, "admin")))
-      .limit(1);
-    if (!owner) {
-      return NextResponse.json({ error: "server owner not found" }, { status: 403 });
-    }
-    lanStartUserId = owner.userId;
+    lanStartUserId = ownerUserId;
     serverId = body.server_id;
   } else if (
     body.type === CMD_STOP_GAME
     && typeof lanStartPayload.host_token === "string"
     && typeof lanStartPayload.game_id === "string"
   ) {
-    const [shortCode] = await db
-      .select({ code: shortCodes.code })
-      .from(shortCodes)
-      .where(and(
-        eq(shortCodes.serverId, body.server_id),
-        eq(shortCodes.gameId, lanStartPayload.game_id),
-        eq(shortCodes.hostToken, lanStartPayload.host_token),
-      ))
-      .limit(1);
-    if (!shortCode) {
+    const ownerUserId = await resolveShortCodeHostUser(
+      body.server_id,
+      lanStartPayload.game_id,
+      lanStartPayload.host_token,
+    );
+    if (!ownerUserId) {
       return NextResponse.json({ error: "invalid LAN stop token" }, { status: 403 });
     }
-    const [owner] = await db
-      .select({ userId: serverMembers.userId })
-      .from(serverMembers)
-      .where(and(eq(serverMembers.serverId, body.server_id), eq(serverMembers.role, "admin")))
-      .limit(1);
-    if (!owner) {
-      return NextResponse.json({ error: "server owner not found" }, { status: 403 });
-    }
-    lanStartUserId = owner.userId;
+    lanStartUserId = ownerUserId;
     serverId = body.server_id;
   } else if (body.type === CMD_SDP_OFFER) {
     const sdpPayload = body.payload as Record<string, unknown> | undefined;
@@ -226,29 +245,14 @@ export async function POST(request: NextRequest) {
     console.log("[COMMAND] sdp_offer received — room_token:", !!roomToken, "peer_token:", !!peerToken, "host_token:", !!hostToken);
     const carriesGuestCapability = !!roomToken || !!peerToken;
     if (!carriesGuestCapability && hostToken && typeof sdpPayload?.game_id === "string") {
-      // LAN guest: verify host_token matches a valid short-code row
-      const [shortCode] = await db
-        .select({ code: shortCodes.code })
-        .from(shortCodes)
-        .where(
-          and(
-            eq(shortCodes.serverId, body.server_id),
-            eq(shortCodes.gameId, sdpPayload.game_id),
-            eq(shortCodes.hostToken, hostToken),
-          ),
-        )
-        .limit(1);
-      if (shortCode) {
-        // Guest auth successful — resolve server_id
-        const [owner] = await db
-          .select({ userId: serverMembers.userId })
-          .from(serverMembers)
-          .where(and(eq(serverMembers.serverId, body.server_id), eq(serverMembers.role, "admin")))
-          .limit(1);
-        if (owner) {
-          lanStartUserId = owner.userId;
-          serverId = body.server_id;
-        }
+      const ownerUserId = await resolveShortCodeHostUser(
+        body.server_id,
+        sdpPayload.game_id,
+        hostToken,
+      );
+      if (ownerUserId) {
+        lanStartUserId = ownerUserId;
+        serverId = body.server_id;
       }
     }
     if (carriesGuestCapability) {
@@ -345,10 +349,30 @@ export async function POST(request: NextRequest) {
         { status: 403 },
       );
     }
-    // start_game and stop_game require host capability (admin role).
-    // Server admins have host authority for all sessions on their server.
+    // Enrolled members may start only the launch represented by a short code
+    // they created. Other host commands remain admin-only until they prove
+    // ownership of an existing session below.
     if (membership.role !== "admin") {
-      return NextResponse.json({ error: "host authority required" }, { status: 403 });
+      if (
+        body.type !== CMD_START_GAME
+        || typeof payloadResult.payload.host_token !== "string"
+        || typeof payloadResult.payload.game_id !== "string"
+      ) {
+        return NextResponse.json({ error: "host authority required" }, { status: 403 });
+      }
+      const [ownedLaunch] = await db
+        .select({ createdBy: shortCodes.createdBy })
+        .from(shortCodes)
+        .where(and(
+          eq(shortCodes.serverId, body.server_id),
+          eq(shortCodes.gameId, payloadResult.payload.game_id),
+          eq(shortCodes.hostToken, payloadResult.payload.host_token),
+          eq(shortCodes.createdBy, session.user.id),
+        ))
+        .limit(1);
+      if (!ownedLaunch) {
+        return NextResponse.json({ error: "host authority required" }, { status: 403 });
+      }
     }
     serverId = body.server_id;
   }

@@ -261,5 +261,6 @@ export const shortCodes = pgTable("short_codes", {
   gameId: text("game_id").notNull(),
   hostToken: text("host_token").notNull(),
   serverId: text("server_id").notNull(),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
