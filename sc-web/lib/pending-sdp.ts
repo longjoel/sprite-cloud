@@ -46,14 +46,3 @@ export function resolveSdpAnswer(commandId: string, sdpAnswer: string): boolean 
   entry.resolve(sdpAnswer);
   return true;
 }
-
-/** Clean up on timeout / error — reject without the answer. */
-export function rejectSdpAnswer(commandId: string, reason: string): boolean {
-  const entry = pending.get(commandId);
-  if (!entry) return false;
-
-  clearTimeout(entry.timer);
-  pending.delete(commandId);
-  entry.reject(new Error(reason));
-  return true;
-}

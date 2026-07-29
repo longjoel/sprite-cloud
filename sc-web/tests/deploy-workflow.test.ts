@@ -22,6 +22,9 @@ const browserLogger = readFileSync("public/browser-log.js", "utf8");
 const productionEntrypoint = readFileSync("../docker/sc-web/entrypoint.prod.sh", "utf8");
 const developmentEntrypoint = readFileSync("../docker/sc-web/entrypoint.sh", "utf8");
 const hostEntrypoint = readFileSync("../docker/sc-server/entrypoint.sh", "utf8");
+const serverCiDockerfile = readFileSync("../docker/sc-server/Dockerfile.ci", "utf8");
+const composeFile = readFileSync("../docker-compose.yml", "utf8");
+const devStart = readFileSync("../scripts/dev-start.sh", "utf8");
 const migration = readFileSync("drizzle/0016_remove_cloud_library.sql", "utf8");
 const gamePlayer = readFileSync("components/GamePlayer.tsx", "utf8");
 const landingPage = readFileSync("components/LandingPage.tsx", "utf8");
@@ -173,6 +176,17 @@ server_id = ""`);
     expect(publicInstaller).toContain('"$INSTALL_DIR/sc-core"');
     expect(serverMain).toContain("Upgrade");
     expect(serverMain).toContain("upgrade::run().await");
+  });
+
+  it("packages the sc-core sibling in CI and every documented local runtime path", () => {
+    expect(ciWorkflow).toContain("cp target/release/sc-server ./sc-server-bin");
+    expect(ciWorkflow).toContain("cp target/release/sc-core ./sc-core-bin");
+    expect(serverCiDockerfile).toContain("COPY sc-server-bin /usr/local/bin/sc-server");
+    expect(serverCiDockerfile).toContain("COPY sc-core-bin /usr/local/bin/sc-core");
+    expect(hostEntrypoint).toContain("/usr/local/bin/sc-server /usr/local/bin/sc-core");
+    expect(composeFile).toContain("./target/release/sc-core:/usr/local/bin/sc-core:ro");
+    expect(devStart).toContain('CORE_BIN="${GV_CORE_BIN:-/usr/local/bin/sc-core}"');
+    expect(devStart).toContain("cargo build --release --locked -p sc-server -p sc-core");
   });
 
   it("pre-stages both binaries and rolls back partial replacements", () => {

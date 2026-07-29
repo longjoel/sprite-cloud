@@ -16,10 +16,6 @@ function randomPort(): number {
   return 9000 + Math.floor(Math.random() * 999);
 }
 
-export function getTestDbUrl(): string {
-  if (!_dbUrl) throw new Error("Test DB not started — call setupTestDb first");
-  return _dbUrl;
-}
 
 export function getTestDb() {
   if (!_db) throw new Error("Test DB not started — call setupTestDb first");

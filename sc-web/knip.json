@@ -1,0 +1,13 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "public/browser-log.js",
+    "public/player/play-v2.js",
+    "public/player/touch-gamepad-v2.js",
+    "public/sw.js"
+  ],
+  "ignoreExportsUsedInFile": true,
+  "ignoreIssues": {
+    "public/player/input-mapping.js": ["duplicates"]
+  }
+}

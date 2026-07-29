@@ -59,6 +59,10 @@ payload = {
             'path': os.path.join(project_dir, 'target/release/sc-server'),
             'sha256': checksum(os.path.join(project_dir, 'target/release/sc-server')),
         },
+        'sc_core': {
+            'path': os.path.join(project_dir, 'target/release/sc-core'),
+            'sha256': checksum(os.path.join(project_dir, 'target/release/sc-core')),
+        },
     },
 }
 with open(os.path.join(release_dir, 'release-manifest.json'), 'w', encoding='utf-8') as f:

@@ -51,21 +51,6 @@ export function mapLegacyStep(legacyId: string): string {
   }
 }
 
-// ── Route label → color ────────────────────────────────────────────────
-
-export function routeVariant(routeLabel: string): "success" | "warning" | "error" | "info" | "muted" {
-  const map: Record<string, "success" | "warning" | "error" | "info" | "muted"> = {
-    local: "success",
-    direct: "success",
-    relay: "warning",
-    host: "info",
-    failed: "error",
-    error: "error",
-    unknown: "muted",
-  };
-  return map[routeLabel] || "muted";
-}
-
 // ── Pipeline dot helpers ──────────────────────────────────────────────
 
 export function dotColor(state: StepState): string {

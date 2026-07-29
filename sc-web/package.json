@@ -9,15 +9,14 @@
     "prebuild": "esbuild lib/touch-gamepad/main.ts --bundle --outfile=public/player/touch-gamepad-v2.js --format=iife --target=es2020 --global-name=__touchGamepadBundle",
     "start": "next start",
     "lint": "eslint .",
+    "dead-code": "knip --no-progress",
     "test": "vitest run",
     "test:integration": "vitest run tests/integration/lifecycle-db.test.ts tests/integration/cleanup-db.test.ts",
     "cleanup:once": "tsx scripts/cleanup.ts"
   },
   "dependencies": {
-    "@emotion/cache": "^11.14.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
-    "@fluentui/tokens": "1.0.0-alpha.23",
     "@mui/icons-material": "^9.2.0",
     "@mui/material": "^9.2.0",
     "bcryptjs": "^3.0.3",
@@ -31,7 +30,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/bcryptjs": "^3.0.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
@@ -40,6 +38,8 @@
     "esbuild": "^0.25.12",
     "eslint": "^10.6.0",
     "jsdom": "^29.1.1",
+    "knip": "6.29.0",
+    "tsx": "^4.20.6",
     "typescript": "^5.7.0",
     "vitest": "^4.1.8"
   }

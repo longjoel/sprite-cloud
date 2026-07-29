@@ -8,8 +8,8 @@ Keep this directory boring. Scripts here should be reusable release/dev entrypoi
 |---|---|
 | `install.sh` | Public/self-host host installer entrypoint |
 | `dev-start.sh` | Local dev stack helper |
-| `build-release.sh` | Builds `sc-server` and `sc-web` release artifacts |
-| `deploy-dev.sh` | Deploys the dev/self-host `sc-server` binary |
+| `build-release.sh` | Builds `sc-server`, `sc-core`, and `sc-web` release artifacts |
+| `deploy-dev.sh` | Deploys the dev/self-host `sc-server` and `sc-core` binaries |
 | `deploy-sc-web.sh` | Rebuilds the sc-web Docker image on the VPS and restarts the host-network runtime safely |
 | `apply-sc-web-migration.sh` | Applies an explicit Drizzle SQL migration |
 | `smoke-test.sh` | Checks release markers and health endpoints |

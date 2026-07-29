@@ -1,6 +1,6 @@
 /** Canonical player roles and their capabilities. */
 
-export type PlayerRole = "host" | "player" | "spectator";
+type PlayerRole = "host" | "player" | "spectator";
 
 export interface PlayerCapabilities {
   role: PlayerRole;

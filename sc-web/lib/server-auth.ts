@@ -76,13 +76,6 @@ export function unauthorizedResponse(): Response {
   );
 }
 
-export function forbiddenResponse(): Response {
-  return Response.json(
-    { error: "forbidden", redirect_to: "/forbidden" },
-    { status: 403 },
-  );
-}
-
 // ── Admin-only bearer verification ────────────────────────────────────
 
 /**

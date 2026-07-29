@@ -154,12 +154,3 @@ export function getPlatformColor(platform: string): string {
   // and text overlays remain readable
   return hex.startsWith("#") ? darken(hex, 0.8) : hex;
 }
-
-/**
- * Returns the "brand" color (undarkened) for badges / accents.
- */
-export function getPlatformAccent(platform: string): string {
-  const key = platform.toLowerCase().trim();
-  const hex = PALETTE[key] ?? hashColor(platform);
-  return hex.startsWith("#") ? hex : hex.replace("45%", "60%").replace("18%", "25%");
-}
