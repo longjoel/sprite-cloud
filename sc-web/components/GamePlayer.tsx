@@ -332,15 +332,23 @@ export default function GamePlayer({
               setStatsData(stats as Record<string, any>);
             },
             onSaveResult(index: number, ok: boolean, error?: string) {
+              clearTimeoutRef(saveTimeoutRef);
               showToast(
                 ok ? `Saved (#${index})` : `Save failed — ${error || "unknown"}`,
                 ok,
               );
+              if (ok) {
+                const scPlay = window.scPlay;
+                if (scPlay && playerRef.current) scPlay.listSaves(playerRef.current);
+              }
             },
             onLoadResult(ok: boolean, error?: string) {
+              clearTimeoutRef(loadTimeoutRef);
               showToast(ok ? "Loaded" : `Load failed — ${error || "unknown"}`, ok);
             },
-            onListSaves(_entries: any[], _nextIndex: number) {},
+            onListSaves(entries: any[], _nextIndex: number) {
+              setSaveEntries(entries);
+            },
             onError(msg: string) {
               setError(msg);
               onFatalError?.(msg);
@@ -509,6 +517,13 @@ export default function GamePlayer({
   // ── Save stack ────────────────────────────────────────────────────
 
   const [saveEntries, setSaveEntries] = useState<any[]>([]);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const SAVE_TIMEOUT_MS = 8_000;
+
+  const clearTimeoutRef = (ref: ReturnType<typeof useRef<ReturnType<typeof setTimeout> | null>>) => {
+    if (ref.current) { clearTimeout(ref.current); ref.current = null; }
+  };
 
   const handleSave = () => {
     const scPlay = window.scPlay;
@@ -516,8 +531,17 @@ export default function GamePlayer({
       showToast("Not connected", false);
       return;
     }
+    showToast("Saving…", true);
     const ok = scPlay.saveState(playerRef.current);
-    if (!ok) showToast("Not connected", false);
+    if (!ok) {
+      showToast("Save failed — not connected", false);
+      return;
+    }
+    clearTimeoutRef(saveTimeoutRef);
+    saveTimeoutRef.current = setTimeout(() => {
+      showToast("Save timed out", false);
+      saveTimeoutRef.current = null;
+    }, SAVE_TIMEOUT_MS);
   };
 
   const handleLoad = () => {
@@ -526,8 +550,17 @@ export default function GamePlayer({
       showToast("Not connected", false);
       return;
     }
+    showToast("Loading…", true);
     const ok = scPlay.loadState(playerRef.current);
-    if (!ok) showToast("Not connected", false);
+    if (!ok) {
+      showToast("Load failed — not connected", false);
+      return;
+    }
+    clearTimeoutRef(loadTimeoutRef);
+    loadTimeoutRef.current = setTimeout(() => {
+      showToast("Load timed out", false);
+      loadTimeoutRef.current = null;
+    }, SAVE_TIMEOUT_MS);
   };
 
   const handleLoadAt = (index: number) => {
@@ -695,8 +728,8 @@ export default function GamePlayer({
           onClose={onClose}
           triggerRef={optionsTriggerRef}
           triggerDisabled={overlayState.activePanel !== "none" || higherPriorityBlocking}
-          onSave={() => { sendDC({ cmd: "save_state" }); showToast("Saved", true); }}
-          onLoad={() => { sendDC({ cmd: "load_state" }); showToast("Loaded", true); }}
+          onSave={handleSave}
+          onLoad={handleLoad}
           onFullscreen={toggleFullscreen}
           isFullscreen={isFullscreen}
           controlsVisible={touchGamepadVisible}
