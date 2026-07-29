@@ -53,6 +53,7 @@ jobs:
           for migration in \
             sc-web/drizzle/0017_add_server_games.sql \
             sc-web/drizzle/0018_add_invite_codes.sql \
+            sc-web/drizzle/0019_bind_short_codes_to_users.sql \
           ; do
             if [ ! -f "$migration" ]; then
               echo "  skip (not present): $migration"

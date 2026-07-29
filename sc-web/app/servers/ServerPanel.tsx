@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui";
+import { csrfHeaders } from "./dashboard-utils";
 
 interface ComponentVersion {
   package_version: string;
@@ -78,7 +79,7 @@ export default function ServerPanel({ serverId }: Props) {
     try {
       const response = await fetch(`/api/servers/${serverId}/core-overrides`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: csrfHeaders(),
         body: JSON.stringify({ overrides }),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);

@@ -382,6 +382,8 @@ export default function DashboardClient({ memberships }: Props) {
                             <Button
                               variant="secondary"
                               size="sm"
+                              disabled={s.role !== "admin"}
+                              title={s.role === "admin" ? "Inspect server details" : "Only server administrators can inspect server details"}
                               onClick={() => toggle(s.id)}
                             >
                               {isOpen ? "Hide details" : "Details"}
@@ -401,7 +403,7 @@ export default function DashboardClient({ memberships }: Props) {
                           </div>
                         </td>
                       </tr>
-                      {isOpen && (
+                      {isOpen && s.role === "admin" && (
                         <tr key={`${s.id}-panel`}>
                           <td colSpan={4} style={S.panelCell}>
                             <div style={S.panelShell}>
