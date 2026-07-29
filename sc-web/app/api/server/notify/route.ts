@@ -237,6 +237,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "invalid transfer command" }, { status: 409 });
     }
 
+    const leaseToken = body.lease_token; // narrowed after guard above
+
     if (body.sdp_answer) {
       await db.transaction(async (tx) => {
         await tx
@@ -250,7 +252,7 @@ export async function POST(request: NextRequest) {
             eq(commands.id, body.command_id),
             eq(commands.serverId, server.id),
             eq(commands.status, STATUS_LEASED),
-            eq(commands.leaseToken, body.lease_token),
+            eq(commands.leaseToken, leaseToken),
           ))
           .returning({ id: commands.id });
         if (!lease) throw new NotifyConflict("lease");
