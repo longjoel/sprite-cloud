@@ -7,6 +7,7 @@ import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
 import AppHeader from "@/components/fluent/AppHeader";
 import LibraryToolbar from "@/components/LibraryToolbar";
+import RomUploadDropzone from "@/components/RomUploadDropzone";
 import { Star, StarBorder, Edit, DesktopWindows } from "@mui/icons-material";
 import { buildLanPlayerLaunchUrl, canUseLanPlayer, chooseLaunchHost, createLaunchRequestGate, formatLaunchError } from "@/lib/lan/launch";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
@@ -62,6 +63,7 @@ interface LibraryClientProps {
   lanLibraries?: LanLibraryLink[];
   session: { user?: { id?: string; name?: string | null; email?: string | null } } | null;
   isLanProxy?: boolean;
+  adminServers?: { id: string; name: string; status: string }[];
 }
 
 const PAGE_SIZE = 100;
@@ -128,7 +130,7 @@ function saveRenames(renames: Record<string, string>) {
 
 // ── Component ─────────────────────────────────────────────────────────
 
-export default function LibraryClient({ serverIds, lanLibraries = [], session, isLanProxy = false }: LibraryClientProps) {
+export default function LibraryClient({ serverIds, lanLibraries = [], session, isLanProxy = false, adminServers = [] }: LibraryClientProps) {
   const router = useRouter();
   const theme = useTheme();
   const isNarrow = useMediaQuery(theme.breakpoints.down("sm"));
@@ -666,6 +668,14 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
           onClearPlatforms={() => setSelectedPlatforms(new Set())}
           onViewModeChange={setViewMode}
         />
+        {session && adminServers.length > 0 && (
+          <div style={{ marginBottom: "var(--space-4)" }}>
+            <RomUploadDropzone
+              adminServers={adminServers}
+              onUploadComplete={() => loadAllGames(true, search, [], 0)}
+            />
+          </div>
+        )}
 
 
         {/* Game grid / table */}

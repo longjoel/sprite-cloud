@@ -13,6 +13,7 @@ pub mod library_state;
 pub mod platform;
 pub mod player_server;
 pub mod retry;
+pub mod rom_transfer;
 pub mod saves;
 pub mod sc_web;
 pub mod scan;

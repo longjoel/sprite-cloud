@@ -37,12 +37,21 @@ export default async function Home() {
 
   // Authenticated: find all servers the user is a member of
   const memberships = await db
-    .select({ serverId: servers.id, name: servers.name, metadata: servers.metadata })
+    .select({ serverId: servers.id, name: servers.name, metadata: servers.metadata, role: serverMembers.role })
     .from(serverMembers)
     .innerJoin(servers, eq(serverMembers.serverId, servers.id))
     .where(eq(serverMembers.userId, session.user.id));
   const serverIds = memberships.map((m) => m.serverId);
   const lanLibraries = extractLanLibraryLinks(memberships);
+
+  // Admin servers (for ROM upload dropzone)
+  const adminServers = memberships
+    .filter((m) => m.role === "admin")
+    .map((m) => ({
+      id: m.serverId,
+      name: m.name,
+      status: ((m.metadata as Record<string, unknown> | null)?.status as string) ?? "unknown",
+    }));
 
   return (
     <LibraryClient
@@ -50,6 +59,7 @@ export default async function Home() {
       lanLibraries={lanLibraries}
       session={{ user: session.user }}
       isLanProxy={false}
+      adminServers={adminServers}
     />
   );
 }

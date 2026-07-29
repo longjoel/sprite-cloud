@@ -10,6 +10,13 @@ export const POLL_IDLE_MS = 500;
 export const CMD_START_GAME = "start_game" as const;
 export const CMD_STOP_GAME = "stop_game" as const;
 export const CMD_SDP_OFFER = "sdp_offer" as const;
+export const CMD_ROM_TRANSFER = "rom_transfer" as const;
+
+export type CommandType =
+  | typeof CMD_START_GAME
+  | typeof CMD_STOP_GAME
+  | typeof CMD_SDP_OFFER
+  | typeof CMD_ROM_TRANSFER;
 
 /** Command statuses in the queue. */
 export const STATUS_PENDING = "pending" as const;

@@ -10,6 +10,7 @@ mod nat;
 mod platform;
 mod player_server;
 mod retry;
+mod rom_transfer;
 mod saves;
 mod sc_web;
 mod scan;

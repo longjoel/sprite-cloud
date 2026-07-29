@@ -266,6 +266,10 @@ pub(crate) async fn cmd_start(
                                     game::handle_sdp_offer(
                                         cmd, &client, &sessions, &pc_pool,
                                     ).await;
+                                } else if cmd.command_type == "rom_transfer" {
+                                    crate::rom_transfer::session::handle_rom_transfer(
+                                        cmd, &client, &rom_roots,
+                                    ).await;
                                 }
                             }
                         }
