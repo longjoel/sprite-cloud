@@ -130,7 +130,7 @@ describe("production deploy workflow", () => {
     expect(serverCommands).toContain("core_bridge::configure_cores_dir(&cores.dir)");
     expect(serverCommands).toContain("let cfg = apply_pairing(");
     expect(serverSetup).toContain('"    {}/dashboard"');
-    expect(serverSetup).toContain('join("sprite-cloud").join("cores")');
+    expect(serverSetup).toMatch(/\.join\("sprite-cloud"\)\s*\.join\("cores"\)/);
     expect(serverSetup).not.toContain('let default_cores = "/usr/lib/libretro"');
     expect(hostInstaller).toContain("${WEB_URL%/}/dashboard");
     expect(publicInstaller).toContain("https://sprite-cloud.com/dashboard");

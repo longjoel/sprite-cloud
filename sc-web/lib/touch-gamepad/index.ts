@@ -795,9 +795,7 @@ function drawResizeHandles(ctx: CanvasRenderingContext2D, d: NormalisedRect, cw:
 // These are complex. They incorporate the domain logic directly since
 // extracting them cleanly requires a more substantial refactor.
 
-function handleStart(
-  gp: TouchGamepad, t: Touch, cw: number, self: TouchGamepad
-): boolean {
+function handleStart(gp: TouchGamepad, t: Touch): boolean {
   const rect = gp._canvas!.getBoundingClientRect();
   const n = {
     x: (t.clientX - rect.left) / (rect.width || 1),
@@ -1023,7 +1021,7 @@ TouchGamepad.prototype._onPointerDown = function (this: TouchGamepad, e: Pointer
   target.setPointerCapture?.(e.pointerId);
   const sample = pointerSample(e, target);
   this._activePointers.set(e.pointerId, sample);
-  handleStart(this, sample as unknown as Touch, this._canvas?.width || 1, this);
+  handleStart(this, sample as unknown as Touch);
   (this as any)._emitState();
   if (!this._editMode) (this as any)._scheduleRender();
 };

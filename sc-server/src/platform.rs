@@ -283,16 +283,6 @@ pub fn core_for_platform(name: &str) -> Option<String> {
     None
 }
 
-/// Find the DAT system name (first alias) for a file extension.
-///
-/// Used by the DAT module to locate the correct `.dat` file on GitHub.
-pub fn dat_system_name(ext: &str) -> Option<&'static str> {
-    PLATFORMS
-        .iter()
-        .find(|p| p.extensions.contains(&ext))
-        .and_then(|p| p.aliases.first().copied())
-}
-
 /// Peek inside a .zip file and return the extension of the first entry
 /// that maps to a known ROM platform. Returns `None` if the zip can't be
 /// read, is empty, or contains only entries with unrecognised extensions
@@ -531,19 +521,6 @@ mod tests {
             missing.is_empty(),
             "DAT platforms without core mappings: {missing:?}"
         );
-    }
-
-    /// DAT system name lookup matches the old `DAT_SYSTEM_NAMES`.
-    #[test]
-    fn dat_system_name_by_extension() {
-        assert_eq!(dat_system_name("gb"), Some("Nintendo - Game Boy"));
-        assert_eq!(dat_system_name("gba"), Some("Nintendo - Game Boy Advance"));
-        assert_eq!(
-            dat_system_name("nes"),
-            Some("Nintendo - Nintendo Entertainment System")
-        );
-        assert_eq!(dat_system_name("gen"), Some("Sega - Mega Drive - Genesis"));
-        assert_eq!(dat_system_name("xyz"), None);
     }
 
     /// Every platform alias must resolve to a core.

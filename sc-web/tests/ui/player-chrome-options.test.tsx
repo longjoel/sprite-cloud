@@ -173,6 +173,19 @@ describe("player option hierarchy", () => {
 
   it("uses same bottom-sheet CSS pattern for room panel on mobile as OptionsOverlay", () => {
     expect(playerCss).toMatch(/@media\s*\(max-width:\s*640px\)[\s\S]*?\.roomPanel\s*\{[^}]*bottom:\s*0[^}]*max-height:[^;}]*safe-area-inset-top[^}]*overflow-y:\s*auto[^}]*padding-bottom:[^;}]*safe-area-inset-bottom/);
-    expect(playerCss).toMatch(/@media\s*\(max-height:\s*520px\)\s*and\s*\(orientation:\s*landscape\)[\s\S]*?\n\s*\.roomPanel\s*\{[^}]*bottom:\s*0[^}]*max-height:[^;}]*safe-area-inset-top[^}]*overflow-y:\s*auto[^}]*padding-left:[^;}]*safe-area-inset-left[^}]*padding-right:[^;}]*safe-area-inset-right[^}]*padding-bottom:[^;}]*safe-area-inset-bottom/);
+    const landscapeRoomPanel = playerCss.match(
+      /@media\s*\(max-height:\s*520px\)\s*and\s*\(orientation:\s*landscape\)[\s\S]*?\.roomPanel\s*\{([^}]*)\}/,
+    )?.[1];
+    expect(landscapeRoomPanel).toBeDefined();
+    for (const declaration of [
+      /bottom:\s*0/,
+      /max-height:[^;]*safe-area-inset-top/,
+      /overflow-y:\s*auto/,
+      /padding-left:[^;]*safe-area-inset-left/,
+      /padding(?:-right)?:[^;]*safe-area-inset-right/,
+      /padding-bottom:[^;]*safe-area-inset-bottom/,
+    ]) {
+      expect(landscapeRoomPanel).toMatch(declaration);
+    }
   });
 });

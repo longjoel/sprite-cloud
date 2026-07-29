@@ -34,9 +34,7 @@ libretro-runner = { path = "../libretro-runner" }
 sc-core = { path = "../sc-core" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "time"] }
-quick-xml = "0.37"
 regex-lite = "0.1"
-crc32fast = "1"
 walkdir = "2"
 base64 = "0.22"
 axum = "0.7"

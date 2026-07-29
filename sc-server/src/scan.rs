@@ -12,9 +12,6 @@ use std::path::{Path, PathBuf};
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-/// Maximum nesting depth for file tree browsing.
-const BROWSE_MAX_DEPTH: u32 = 4;
-
 // ── Path traversal guard ───────────────────────────────────────────────
 
 /// Resolve a user-supplied path against the server's ROM roots.
@@ -62,10 +59,6 @@ pub struct DiscoveredFile {
     pub file_name: String,
     /// Size in bytes.
     pub file_size: u64,
-    /// SHA256 hex digest (populated by `hash_files`).
-    pub sha256: Option<String>,
-    /// CRC32 hex digest (populated by `hash_files`).
-    pub crc: Option<String>,
     /// Detected platform from extension or directory name.
     pub platform: Option<String>,
 }
@@ -121,94 +114,12 @@ pub fn discover_roms(root: &Path) -> Result<Vec<DiscoveredFile>> {
                 .to_string_lossy()
                 .to_string(),
             file_size,
-            sha256: None,
-            crc: None,
             platform,
         });
     }
 
     files.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
     Ok(files)
-}
-
-/// Compute SHA256 + CRC32 for each file in place.
-pub fn hash_files(files: &mut [DiscoveredFile], root: &Path) {
-    for f in files {
-        let full_path = root.join(&f.relative_path);
-        if let Ok((sha, crc)) = crate::dat::hash_file(&full_path) {
-            f.sha256 = Some(sha);
-            f.crc = Some(crc);
-        }
-    }
-}
-
-// ── File tree browsing ─────────────────────────────────────────────────
-
-/// A node in a browsable file tree.
-#[derive(Debug, Clone, Serialize)]
-pub struct TreeNode {
-    pub name: String,
-    #[serde(rename = "type")]
-    pub node_type: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub children: Vec<TreeNode>,
-}
-
-/// Build a recursive file tree for UI browsing.
-///
-/// Directories are listed first, then files. Limited to `BROWSE_MAX_DEPTH`.
-pub fn browse_path(root: &Path) -> TreeNode {
-    build_tree(root, root, 0)
-}
-
-fn build_tree(_base: &Path, current: &Path, depth: u32) -> TreeNode {
-    let name = current
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string();
-
-    if depth >= BROWSE_MAX_DEPTH {
-        return TreeNode {
-            name,
-            node_type: "dir".into(),
-            children: vec![],
-        };
-    }
-
-    let mut children = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(current) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let ft = match entry.file_type() {
-                Ok(t) => t,
-                Err(_) => continue,
-            };
-
-            if ft.is_dir() {
-                children.push(build_tree(_base, &path, depth + 1));
-            } else if ft.is_file() {
-                children.push(TreeNode {
-                    name: path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string(),
-                    node_type: "file".into(),
-                    children: vec![],
-                });
-            }
-        }
-    }
-
-    // Directories first, then alphabetical
-    children.sort_by(|a, b| a.node_type.cmp(&b.node_type).then(a.name.cmp(&b.name)));
-
-    TreeNode {
-        name,
-        node_type: "dir".into(),
-        children,
-    }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -288,29 +199,5 @@ mod tests {
         assert_eq!(files[0].file_name, "game.nes");
         assert_eq!(files[0].relative_path, "game.nes");
         assert_eq!(files[0].platform.as_deref(), Some("NES"));
-    }
-
-    #[test]
-    fn browse_path_returns_tree() {
-        let tmp = tempfile::tempdir().unwrap();
-        std::fs::create_dir(tmp.path().join("subdir")).unwrap();
-        std::fs::write(tmp.path().join("rom.nes"), b"fake").unwrap();
-        std::fs::write(tmp.path().join("subdir").join("rom2.gb"), b"fake").unwrap();
-
-        let tree = browse_path(tmp.path());
-        assert_eq!(tree.name, tmp.path().file_name().unwrap().to_str().unwrap());
-        assert_eq!(tree.node_type, "dir");
-
-        // subdir should appear first (dirs before files), then rom.nes
-        let dir_child = tree.children.iter().find(|c| c.node_type == "dir").unwrap();
-        assert_eq!(dir_child.name, "subdir");
-        assert!(!dir_child.children.is_empty());
-
-        let file_child = tree
-            .children
-            .iter()
-            .find(|c| c.node_type == "file")
-            .unwrap();
-        assert_eq!(file_child.name, "rom.nes");
     }
 }
