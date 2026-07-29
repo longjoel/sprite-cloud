@@ -164,7 +164,9 @@ export default function LandingPage() {
           <span style={s.footerDot}>·</span>
           <a href="https://github.com/longjoel/sprite-cloud/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" style={s.footerLink}>License</a>
           <span style={s.footerDot}>·</span>
-          <a href="https://github.com/longjoel/sprite-cloud" target="_blank" rel="noopener noreferrer" style={s.footerLink}>GitHub</a>
+          <a href="https://github.com/longjoel/sprite-cloud" target="_blank" rel="noopener noreferrer" style={s.footerLink}>Source</a>
+          <span style={s.footerDot}>·</span>
+          <a href="https://discord.gg/zujXa48kyS" target="_blank" rel="noopener noreferrer" style={s.footerLink}>Discord</a>
         </div>
       </footer>
 
