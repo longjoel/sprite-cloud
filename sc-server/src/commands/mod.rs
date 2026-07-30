@@ -278,6 +278,16 @@ pub(crate) async fn cmd_start(
                                         Arc::clone(&library_preferences),
                                         Arc::clone(&catalog_sync_lock),
                                     ).await;
+                                } else if cmd.command_type == "delete_game" {
+                                    handle_delete_game(
+                                        cmd,
+                                        &client,
+                                        &rom_roots,
+                                        &sessions,
+                                        Arc::clone(&local_game_list),
+                                        Arc::clone(&library_preferences),
+                                        Arc::clone(&catalog_sync_lock),
+                                    ).await;
                                 } else if cmd.command_type == "upgrade_server" {
                                     if !sessions.is_empty() {
                                         if let Err(error) = client.command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({
@@ -385,6 +395,117 @@ pub(crate) fn scan_library(rom_roots: &[String]) -> Vec<crate::player_server::Lo
         }
     }
     all_games
+}
+
+/// Delete a game by opaque game ID.  Only succeeds when:
+/// - The game exists and resolves under a configured ROM root.
+/// - No active session is playing it.
+/// - The file is a regular file (not symlink/device).
+async fn handle_delete_game(
+    cmd: &sc_web::Command,
+    client: &sc_web::ScWebClient,
+    rom_roots: &[String],
+    sessions: &HashMap<String, Arc<GameSession>>,
+    local_game_list: Arc<tokio::sync::RwLock<Vec<crate::player_server::LocalGame>>>,
+    library_preferences: crate::player_server::SharedLibraryState,
+    catalog_sync_lock: Arc<tokio::sync::Mutex<()>>,
+) {
+    let game_id = match cmd.payload.get("game_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            let _ = client
+                .command_result(
+                    &cmd.id,
+                    &cmd.lease_token,
+                    &serde_json::json!({"ok": false, "error": "missing game_id"}),
+                )
+                .await;
+            return;
+        }
+    };
+
+    // ── Check active sessions ────────────────────────────────────────
+    let active = sessions
+        .values()
+        .any(|s| s.game_id == game_id && !s.cancel.is_cancelled());
+    if active {
+        let _ = client
+            .command_result(
+                &cmd.id,
+                &cmd.lease_token,
+                &serde_json::json!({"ok": false, "error": "game is currently active"}),
+            )
+            .await;
+        return;
+    }
+
+    // ── Resolve and verify ────────────────────────────────────────────
+    let games = local_game_list.read().await;
+    let resolved = match crate::rom_transfer::storage::resolve_download(
+        &game_id,
+        rom_roots,
+        &games,
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = client
+                .command_result(
+                    &cmd.id,
+                    &cmd.lease_token,
+                    &serde_json::json!({"ok": false, "error": format!("{e:#}")}),
+                )
+                .await;
+            return;
+        }
+    };
+    let path = resolved.path;
+    drop(games); // release read lock before taking write lock
+
+    // ── Delete the file ──────────────────────────────────────────────
+    if let Err(e) = std::fs::remove_file(&path) {
+        tracing::error!("[DELETE] failed to remove file: {e}");
+        let _ = client
+            .command_result(
+                &cmd.id,
+                &cmd.lease_token,
+                &serde_json::json!({"ok": false, "error": format!("cannot delete: {e}")}),
+            )
+            .await;
+        return;
+    }
+
+    tracing::info!("[DELETE] game_id={game_id} removed");
+
+    // ── Rescan and sync ─────────────────────────────────────────────
+    let _guard = catalog_sync_lock.lock().await;
+    let scanned = scan_library(rom_roots);
+    {
+        let mut current = local_game_list.write().await;
+        *current = scanned;
+    }
+    let games_snapshot = local_game_list.read().await.clone();
+    let prefs_snapshot = library_preferences.lock().await.snapshot();
+    if let Err(e) =
+        sync_catalog(client, &games_snapshot, &prefs_snapshot).await
+    {
+        tracing::error!("[DELETE] catalog sync after deletion failed: {e:#}");
+        let _ = client
+            .command_result(
+                &cmd.id,
+                &cmd.lease_token,
+                &serde_json::json!({"ok": true, "warning": "deleted but catalog sync failed"}),
+            )
+            .await;
+        return;
+    }
+
+    let _ = client
+        .command_result(
+            &cmd.id,
+            &cmd.lease_token,
+            &serde_json::json!({"ok": true, "deleted": game_id}),
+        )
+        .await;
 }
 
 /// Push the current game catalog to sc-web for cloud library search.
