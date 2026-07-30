@@ -392,7 +392,7 @@ impl TransferSession {
                         return;
                     }
                     if !dc.ordered()
-                        || dc.max_retransmits() != Some(0)
+                        || dc.max_retransmits().is_some()
                         || dc.max_packet_lifetime().is_some()
                     {
                         tracing::warn!(
