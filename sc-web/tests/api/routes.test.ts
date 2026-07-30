@@ -1156,6 +1156,67 @@ describe("GET /api/server/poll", () => {
   });
 });
 
+// ── /api/servers/[server_id]/upgrade ──────────────────────────────────
+
+describe("POST /api/servers/[server_id]/upgrade", () => {
+  const params = { params: Promise.resolve({ server_id: "server-1" }) };
+  const request = () => mkReq("http://localhost/api/servers/server-1/upgrade", jsonBodyWithCsrf({}));
+
+  it("requires authentication", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    const { POST } = await import("@/app/api/servers/[server_id]/upgrade/route");
+    expect((await POST(request(), params)).status).toBe(401);
+  });
+
+  it("requires a matching CSRF token", async () => {
+    const { POST } = await import("@/app/api/servers/[server_id]/upgrade/route");
+    const req = mkReq("http://localhost/api/servers/server-1/upgrade", { method: "POST" });
+    expect((await POST(req, params)).status).toBe(403);
+  });
+
+  it("fails closed for non-members and non-admin members", async () => {
+    const { POST } = await import("@/app/api/servers/[server_id]/upgrade/route");
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([]));
+    expect((await POST(request(), params)).status).toBe(404);
+
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{ role: "member" }]));
+    expect((await POST(request(), params)).status).toBe(403);
+  });
+
+  it("queues an update for an administrator", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "admin" }]))
+      .mockReturnValueOnce(mockQueryBuilder([]));
+    mockDb.insert.mockReturnValueOnce(mockQueryBuilder([{ id: "upgrade-1", status: "pending" }]));
+    const { POST } = await import("@/app/api/servers/[server_id]/upgrade/route");
+    const resp = await POST(request(), params);
+    expect(resp.status).toBe(202);
+    expect(await resp.json()).toEqual({ command_id: "upgrade-1", status: "pending" });
+  });
+
+  it("rejects an already-active update", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "admin" }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ id: "upgrade-1", status: "leased" }]));
+    const { POST } = await import("@/app/api/servers/[server_id]/upgrade/route");
+    const resp = await POST(request(), params);
+    expect(resp.status).toBe(409);
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it("maps a concurrent unique-index loser to the winning command", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "admin" }]))
+      .mockReturnValueOnce(mockQueryBuilder([]))
+      .mockReturnValueOnce(mockQueryBuilder([{ id: "upgrade-winner", status: "pending" }]));
+    mockDb.insert.mockReturnValueOnce(mockQueryBuilder(Promise.reject(Object.assign(new Error("duplicate"), { code: "23505" }))));
+    const { POST } = await import("@/app/api/servers/[server_id]/upgrade/route");
+    const resp = await POST(request(), params);
+    expect(resp.status).toBe(409);
+    expect(await resp.json()).toMatchObject({ command_id: "upgrade-winner", status: "pending" });
+  });
+});
+
 // ── /api/server/notify ─────────────────────────────────────────────────
 
 describe("POST /api/server/notify", () => {
@@ -1179,6 +1240,32 @@ describe("POST /api/server/notify", () => {
     expect(resp.status).toBe(400);
   });
 
+
+  it("accepts a ROM SDP answer without game-only fields", async () => {
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{
+      id: "rom-command",
+      serverId: "server-1",
+      workerToken: null,
+      type: "rom_transfer",
+      payload: { transfer_id: "transfer-1" },
+    }]));
+    mockDb.update
+      .mockReturnValueOnce(mockQueryBuilder(undefined))
+      .mockReturnValueOnce(mockQueryBuilder([{ id: "rom-command" }]));
+
+    const { POST } = await import("@/app/api/server/notify/route");
+    const req = mkReq("http://localhost/api/server/notify", {
+      ...jsonBody({
+        command_id: "rom-command",
+        sdp_answer: "v=0\r\nanswer",
+        lease_token: "lease-rom",
+      }),
+      headers: authHeader(),
+    });
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(200);
+    expect(await resp.json()).toMatchObject({ ok: true, transfer_id: "transfer-1" });
+  });
 
   it("rejects notify for a command owned by another server", async () => {
     mockDb.select.mockReturnValueOnce(

@@ -25,6 +25,7 @@ import {
   Dns,
 } from "@mui/icons-material";
 import { RomTransferClient, type TransferCredentials, type TransferPhase } from "@/lib/rom-transfer-client";
+import { UploadBatchLock } from "@/lib/upload-batch-lock";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -124,6 +125,7 @@ export default function RomUploadDropzone({
   const [phase, setPhase] = useState<TransferPhase | "idle">("idle");
   const dragCounter = useRef(0);
   const abortRef = useRef<RomTransferClient | null>(null);
+  const uploadBatchLock = useRef(new UploadBatchLock());
 
   // ── Drag-and-drop handlers ────────────────────────────────────────
 
@@ -214,13 +216,13 @@ export default function RomUploadDropzone({
   // ── Upload flow ───────────────────────────────────────────────────
 
   const startUpload = useCallback(async () => {
-    if (!selectedServer || files.length === 0) return;
+    if (!selectedServer || files.length === 0 || !uploadBatchLock.current.tryAcquire()) return;
     setServerOpen(false);
 
     const updated = [...files];
     for (let i = 0; i < updated.length; i++) {
       const entry = updated[i];
-      if (entry.state === "done") continue;
+      if (entry.state !== "queued") continue;
 
       updated[i] = { ...entry, state: "uploading" as const };
       setFiles([...updated]);
@@ -269,6 +271,7 @@ export default function RomUploadDropzone({
 
     setPhase("idle");
     abortRef.current = null;
+    uploadBatchLock.current.release();
   }, [selectedServer, files, onUploadComplete]);
 
   const cancelUpload = useCallback(() => {

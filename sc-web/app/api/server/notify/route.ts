@@ -16,8 +16,9 @@ const NOTIFY_RATE_LIMIT = 300; // requests per minute per IP (server-to-server, 
 
 interface NotifyBody {
   command_id: string;
-  worker_url: string;
-  game_id: string;
+  // ROM-transfer signaling carries neither a worker URL nor a game ID.
+  worker_url?: string;
+  game_id?: string;
   /** WebRTC SDP answer from worker relay (for sdp_offer commands). */
   sdp_answer?: string;
   /** "stop" marks the session as ended (optional). */
@@ -89,18 +90,18 @@ export async function POST(request: NextRequest) {
     worker_url: body.worker_url,
   });
 
-  const missing = effectiveAction === "stop"
-    ? !body.command_id || !body.game_id
-    : !body.command_id || !body.worker_url || !body.game_id;
-  if (missing) {
-    return NextResponse.json(
-      { error: "command_id, worker_url, and game_id required" },
-      { status: 400 },
-    );
+  if (!body.command_id) {
+    return NextResponse.json({ error: "command_id required" }, { status: 400 });
+  }
+  if (effectiveAction !== "stop" && !body.worker_url && !body.game_id && !body.sdp_answer) {
+    return NextResponse.json({ error: "notification payload required" }, { status: 400 });
   }
 
   // ── Stop action: transition one authorized active session to ended ──────
   if (effectiveAction === "stop") {
+    if (!body.game_id) {
+      return NextResponse.json({ error: "stop notification requires game_id" }, { status: 400 });
+    }
     if (!body.session_id) {
       return NextResponse.json({ error: "stop notification requires session_id" }, { status: 400 });
     }
@@ -176,7 +177,7 @@ export async function POST(request: NextRequest) {
           .where(and(
             eq(sessions.id, session.id),
             eq(sessions.serverId, server.id),
-            eq(sessions.gameId, body.game_id),
+            eq(sessions.gameId, body.game_id!),
             eq(sessions.status, session.status),
           ))
           .returning({ id: sessions.id });
@@ -263,6 +264,9 @@ export async function POST(request: NextRequest) {
   }
 
   // ── Game session branch (existing path) ───────────────────────────
+  if (!body.worker_url || !body.game_id) {
+    return NextResponse.json({ error: "game notifications require worker_url and game_id" }, { status: 400 });
+  }
   if (commandPayload.game_id !== body.game_id) {
     return NextResponse.json({ error: "command does not match game" }, { status: 409 });
   }
@@ -504,7 +508,7 @@ export async function POST(request: NextRequest) {
           await tx.insert(sessions).values({
             userId: server.userId,
             serverId: server.id,
-            gameId: body.game_id,
+            gameId: body.game_id!,
             commandId: body.command_id,
             workerUrl: body.worker_url,
             status: targetStatus,

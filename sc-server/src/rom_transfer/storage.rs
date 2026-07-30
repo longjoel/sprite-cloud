@@ -152,8 +152,12 @@ pub fn check_disk_space(root: &Path, required: u64) -> Result<(), StorageError> 
     #[cfg(unix)]
     {
         use std::ffi::CString;
-        let c_root = CString::new(root.to_string_lossy().as_bytes())
-            .map_err(|_| StorageError::Io(io::Error::new(io::ErrorKind::InvalidInput, "invalid root path")))?;
+        let c_root = CString::new(root.to_string_lossy().as_bytes()).map_err(|_| {
+            StorageError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid root path",
+            ))
+        })?;
         let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
         let rc = unsafe { libc::statvfs(c_root.as_ptr(), &mut stat) };
         if rc == 0 {
@@ -222,9 +226,7 @@ impl StagedUpload {
         check_disk_space(root, declared_size)?;
 
         // Create unique partial filename
-        let suffix: String = std::iter::repeat_with(fast_random_char)
-            .take(8)
-            .collect();
+        let suffix: String = std::iter::repeat_with(fast_random_char).take(8).collect();
         let partial_name = format!("{sanitised}.partial.{suffix}");
         let partial_path = root.join(&partial_name);
 
@@ -273,10 +275,7 @@ impl StagedUpload {
     ///
     /// The caller should already have the expected hash from capability
     /// verification; `commit_with_expected_hash` is preferred.
-    pub fn commit(
-        mut self,
-        declared_size: Option<u64>,
-    ) -> Result<(String, u64), StorageError> {
+    pub fn commit(mut self, declared_size: Option<u64>) -> Result<(String, u64), StorageError> {
         // Fsync before verification
         self.file.flush()?;
         self.file.sync_all()?;
@@ -296,18 +295,7 @@ impl StagedUpload {
 
         let hash = hex::encode(self.hasher.clone().finalize());
 
-        // Atomic rename
-        // Refuse overwrite: if destination appeared between staging and commit, fail
-        if self.final_path.exists() {
-            let _ = self.remove_partial();
-            return Err(StorageError::Conflict(self.final_path.clone()));
-        }
-        // Refuse overwrite: if destination appeared between staging and commit, fail
-        if self.final_path.exists() {
-            let _ = self.remove_partial();
-            return Err(StorageError::Conflict(self.final_path.clone()));
-        }
-        std::fs::rename(&self.partial_path, &self.final_path)?;
+        self.promote_no_replace()?;
 
         // Fsync the directory to ensure the rename is durable
         if let Some(parent) = self.final_path.parent() {
@@ -318,10 +306,6 @@ impl StagedUpload {
                 }
             }
         }
-
-        // Don't run Drop (which tries to clean up partial)
-        let partial = std::mem::take(&mut self.partial_path);
-        std::mem::forget(partial);
 
         Ok((hash, actual_size))
     }
@@ -360,18 +344,7 @@ impl StagedUpload {
             });
         }
 
-        // Atomic rename
-        // Refuse overwrite: if destination appeared between staging and commit, fail
-        if self.final_path.exists() {
-            let _ = self.remove_partial();
-            return Err(StorageError::Conflict(self.final_path.clone()));
-        }
-        // Refuse overwrite: if destination appeared between staging and commit, fail
-        if self.final_path.exists() {
-            let _ = self.remove_partial();
-            return Err(StorageError::Conflict(self.final_path.clone()));
-        }
-        std::fs::rename(&self.partial_path, &self.final_path)?;
+        self.promote_no_replace()?;
 
         // Fsync the directory
         if let Some(parent) = self.final_path.parent() {
@@ -383,10 +356,28 @@ impl StagedUpload {
             }
         }
 
-        let partial = std::mem::take(&mut self.partial_path);
-        std::mem::forget(partial);
-
         Ok((computed, actual_size))
+    }
+
+    fn promote_no_replace(&mut self) -> Result<(), StorageError> {
+        match std::fs::hard_link(&self.partial_path, &self.final_path) {
+            Ok(()) => {
+                if let Err(error) = std::fs::remove_file(&self.partial_path) {
+                    tracing::warn!(
+                        "[ROM STORAGE] committed {}, but could not remove staging {}: {error}",
+                        self.final_path.display(),
+                        self.partial_path.display(),
+                    );
+                }
+                self.partial_path.clear();
+                Ok(())
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                let _ = self.remove_partial();
+                Err(StorageError::Conflict(self.final_path.clone()))
+            }
+            Err(error) => Err(StorageError::Io(error)),
+        }
     }
 
     /// Cancel: remove the partial file without committing.
@@ -440,10 +431,7 @@ pub(crate) fn resolve_download(
         .ok_or_else(|| StorageError::GameNotFound(game_id.to_string()))?;
 
     // Find which root contains this game
-    let canonical_path = game
-        .content_path
-        .canonicalize()
-        .map_err(StorageError::Io)?;
+    let canonical_path = game.content_path.canonicalize().map_err(StorageError::Io)?;
 
     let matched_root = rom_roots
         .iter()
@@ -454,8 +442,8 @@ pub(crate) fn resolve_download(
     verify_under_root(&canonical_path, &matched_root)?;
 
     let size = std::fs::metadata(&canonical_path)?.len();
-    let platform_name = platform::detect_platform_name(&canonical_path)
-        .unwrap_or_else(|| "Unknown".to_string());
+    let platform_name =
+        platform::detect_platform_name(&canonical_path).unwrap_or_else(|| "Unknown".to_string());
 
     Ok(ResolvedGame {
         path: canonical_path,
@@ -503,10 +491,7 @@ pub fn cleanup_expired_partials(rom_roots: &[String]) {
                         path.display()
                     );
                 } else {
-                    tracing::info!(
-                        "[ROM STORAGE] removed expired partial: {}",
-                        path.display()
-                    );
+                    tracing::info!("[ROM STORAGE] removed expired partial: {}", path.display());
                 }
             }
         }
@@ -676,6 +661,23 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_commits_never_overwrite_the_winner() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let mut first = StagedUpload::create(root, "race.nes", 4).unwrap();
+        let mut second = StagedUpload::create(root, "race.nes", 4).unwrap();
+        first.write_chunk(b"AAAA").unwrap();
+        second.write_chunk(b"BBBB").unwrap();
+
+        let first_result = first.commit(Some(4));
+        let second_result = second.commit(Some(4));
+
+        assert!(first_result.is_ok());
+        assert!(matches!(second_result, Err(StorageError::Conflict(_))));
+        assert_eq!(std::fs::read(root.join("race.nes")).unwrap(), b"AAAA");
+    }
+
+    #[test]
     fn staged_upload_unsupported_extension() {
         let dir = tempfile::tempdir().unwrap();
         let result = StagedUpload::create(dir.path(), "game.exe", 4);
@@ -700,8 +702,11 @@ mod tests {
 
         // Set mtime to 2 hours ago
         let two_hours_ago = SystemTime::now() - Duration::from_secs(7200);
-        filetime::set_file_mtime(&partial, filetime::FileTime::from_system_time(two_hours_ago))
-            .unwrap();
+        filetime::set_file_mtime(
+            &partial,
+            filetime::FileTime::from_system_time(two_hours_ago),
+        )
+        .unwrap();
 
         cleanup_expired_partials(&[root]);
 

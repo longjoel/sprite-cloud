@@ -160,7 +160,11 @@ export const commands = pgTable("commands", {
   result: jsonb("result"),
   sdpAnswer: text("sdp_answer"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("uq_commands_active_upgrade_per_server")
+    .on(table.serverId)
+    .where(sql`${table.type} = 'upgrade_server' AND ${table.status} IN ('pending', 'leased')`),
+]);
 
 // ── Game sessions (one per game start) ────────────────────────────────
 

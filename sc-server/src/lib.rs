@@ -19,4 +19,5 @@ pub mod sc_web;
 pub mod scan;
 pub mod session;
 pub mod streaming;
+pub mod upgrade;
 pub mod webrtc;

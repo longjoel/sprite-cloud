@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui";
 import { csrfHeaders } from "./dashboard-utils";
+import { runServerUpgrade, type ServerUpdateState } from "@/lib/server-upgrade-client";
 
 interface ComponentVersion {
   package_version: string;
@@ -58,6 +59,8 @@ const CORE_OPTIONS = [
 export default function ServerPanel({ serverId }: Props) {
   const [metadata, setMetadata] = useState<ServerMetadata | null>(null);
   const [coreOverrides, setCoreOverrides] = useState<Record<string, string>>({});
+  const [updateState, setUpdateState] = useState<"idle" | ServerUpdateState>("idle");
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -88,6 +91,13 @@ export default function ServerPanel({ serverId }: Props) {
     }
   }
 
+  async function requestUpdate() {
+    await runServerUpgrade(serverId, csrfHeaders(), (state, message) => {
+      setUpdateState(state);
+      setUpdateMessage(message);
+    });
+  }
+
   return (
     <div style={S.wrapper}>
       {error && <p style={S.error}>{error}</p>}
@@ -99,6 +109,16 @@ export default function ServerPanel({ serverId }: Props) {
           {metadata?.ice?.transport_policy && <Badge>{`ICE ${metadata.ice.transport_policy}`}</Badge>}
           {metadata?.runtime?.pc_pool_size !== undefined && <Badge>{`Pool ${metadata.runtime.pc_pool_size}`}</Badge>}
         </div>
+        <p style={S.note}>Updates verify and install both sc-server and sc-core, then restart this server. Updates are blocked while a game is active.</p>
+        <button
+          type="button"
+          style={S.updateButton}
+          disabled={updateState === "queued" || updateState === "running"}
+          onClick={requestUpdate}
+        >
+          {updateState === "queued" ? "Update queued" : updateState === "running" ? "Updating…" : "Update server"}
+        </button>
+        {updateMessage && <p style={updateState === "failed" ? S.error : S.note}>{updateMessage}</p>}
       </section>
 
       <section style={S.section}>
@@ -135,5 +155,6 @@ const S: Record<string, React.CSSProperties> = {
   field: { display: "grid", gap: "var(--space-2)" },
   label: { color: "var(--color-cloud-dim)", fontSize: "var(--font-size-sm)" },
   select: { minHeight: 36, border: "1px solid var(--color-sky-high)", borderRadius: 2, background: "var(--color-sky-deep)", color: "var(--color-cloud)", padding: "0 var(--space-3)", fontFamily: "var(--font-mono)" },
+  updateButton: { marginTop: "var(--space-2)", minHeight: 36, border: "1px solid var(--color-accent)", borderRadius: 2, background: "var(--color-accent)", color: "var(--color-sky-deep)", padding: "0 var(--space-3)", fontWeight: 700, cursor: "pointer" },
   error: { margin: 0, border: "1px solid var(--color-danger)", color: "var(--color-danger)", padding: "var(--space-3)" },
 };
