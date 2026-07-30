@@ -6,7 +6,7 @@
 //!   const result = await client.upload();
 
 const DC_LABEL = "rom-transfer-v1";
-const FALLBACK_CHUNK_SIZE = 64 * 1024; // RFC 8841 default when SDP omits max-message-size
+const FALLBACK_CHUNK_SIZE = 16 * 1024; // Safe across WebRTC stacks without SCTP message interleaving
 const POLL_INTERVAL_MS = 500;
 const POLL_TIMEOUT_MS = 30_000;
 

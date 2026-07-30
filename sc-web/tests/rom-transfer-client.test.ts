@@ -259,15 +259,16 @@ describe("RomTransferClient", () => {
 
   // ── Data channel message sizing ────────────────────────────────────
 
-  it("caps chunks at the negotiated SCTP maxMessageSize", () => {
-    expect(dataChannelChunkSize(65_536)).toBe(65_536);
+  it("caps chunks below the negotiated SCTP limit for cross-stack interoperability", () => {
+    expect(dataChannelChunkSize(65_536)).toBe(16_384);
     expect(dataChannelChunkSize(16_384)).toBe(16_384);
+    expect(dataChannelChunkSize(8_192)).toBe(8_192);
   });
 
-  it("uses a conservative 64 KiB fallback when no finite limit is advertised", () => {
-    expect(dataChannelChunkSize(undefined)).toBe(65_536);
-    expect(dataChannelChunkSize(0)).toBe(65_536);
-    expect(dataChannelChunkSize(Number.POSITIVE_INFINITY)).toBe(65_536);
+  it("uses a conservative 16 KiB fallback when no finite limit is advertised", () => {
+    expect(dataChannelChunkSize(undefined)).toBe(16_384);
+    expect(dataChannelChunkSize(0)).toBe(16_384);
+    expect(dataChannelChunkSize(Number.POSITIVE_INFINITY)).toBe(16_384);
   });
 
   // ── Credential validation ─────────────────────────────────────────
