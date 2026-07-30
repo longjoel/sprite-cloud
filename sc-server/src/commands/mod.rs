@@ -185,8 +185,11 @@ pub(crate) async fn cmd_start(
     {
         let prefs_snapshot = library_preferences.lock().await.snapshot();
         let games_snapshot = local_game_list.read().await;
-        sync_catalog(&client, &games_snapshot, &prefs_snapshot).await;
+        if let Err(error) = sync_catalog(&client, &games_snapshot, &prefs_snapshot).await {
+            tracing::warn!("[SYNC] initial catalog push failed: {error:#}");
+        }
     }
+    let catalog_sync_lock = Arc::new(tokio::sync::Mutex::new(()));
 
     // Pre-warm ICE
     webrtc::prewarm_ice_agent().await;
@@ -266,6 +269,60 @@ pub(crate) async fn cmd_start(
                                     game::handle_sdp_offer(
                                         cmd, &client, &sessions, &pc_pool,
                                     ).await;
+                                } else if cmd.command_type == "rom_transfer" {
+                                    crate::rom_transfer::session::handle_rom_transfer(
+                                        cmd,
+                                        &client,
+                                        &rom_roots,
+                                        Arc::clone(&local_game_list),
+                                        Arc::clone(&library_preferences),
+                                        Arc::clone(&catalog_sync_lock),
+                                    ).await;
+                                } else if cmd.command_type == "upgrade_server" {
+                                    if !sessions.is_empty() {
+                                        if let Err(error) = client.command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({
+                                            "ok": false,
+                                            "error": "cannot update while a game session is active",
+                                        })).await {
+                                            tracing::error!("[UPGRADE] failed to report active-session rejection: {error:#}");
+                                        }
+                                    } else {
+                                        match crate::upgrade::verify_managed_restart() {
+                                            Err(error) => {
+                                                tracing::error!("[UPGRADE] restart preflight failed: {error:#}");
+                                                if let Err(report_error) = client.command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({
+                                                    "ok": false,
+                                                    "error": format!("restart preflight failed: {error:#}"),
+                                                })).await {
+                                                    tracing::error!("[UPGRADE] failed to report restart preflight failure: {report_error:#}");
+                                                }
+                                            }
+                                            Ok(restart) => match crate::upgrade::run().await {
+                                                Ok(()) => {
+                                                    let result = serde_json::json!({
+                                                        "ok": true,
+                                                        "updated": ["sc-server", "sc-core"],
+                                                        "restarting": true,
+                                                    });
+                                                    match client.command_result(&cmd.id, &cmd.lease_token, &result).await {
+                                                        Ok(()) => restart.schedule(),
+                                                        Err(error) => tracing::error!(
+                                                            "[UPGRADE] binaries installed, but completion was not acknowledged; refusing restart: {error:#}"
+                                                        ),
+                                                    }
+                                                }
+                                                Err(error) => {
+                                                    tracing::error!("[UPGRADE] failed: {error:#}");
+                                                    if let Err(report_error) = client.command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({
+                                                        "ok": false,
+                                                        "error": format!("{error:#}"),
+                                                    })).await {
+                                                        tracing::error!("[UPGRADE] failed to report update failure: {report_error:#}");
+                                                    }
+                                                }
+                                            },
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -307,7 +364,7 @@ pub(crate) async fn cmd_start(
 
 // ── Local library ownership ─────────────────────────────────────────
 
-fn scan_library(rom_roots: &[String]) -> Vec<crate::player_server::LocalGame> {
+pub(crate) fn scan_library(rom_roots: &[String]) -> Vec<crate::player_server::LocalGame> {
     let mut all_games = Vec::new();
     for root in rom_roots {
         let path = std::path::Path::new(root);
@@ -334,11 +391,11 @@ fn scan_library(rom_roots: &[String]) -> Vec<crate::player_server::LocalGame> {
 ///
 /// Sends only metadata (id, name, platform, max_players).
 /// ROM paths and library preferences stay local.
-async fn sync_catalog(
+pub(crate) async fn sync_catalog(
     client: &crate::sc_web::ScWebClient,
     games: &[crate::player_server::LocalGame],
     preferences: &crate::library_state::LibraryPreferences,
-) {
+) -> Result<()> {
     let entries: Vec<serde_json::Value> = games
         .iter()
         .map(|game| {
@@ -353,14 +410,11 @@ async fn sync_catalog(
         })
         .collect();
 
-    if entries.is_empty() {
-        tracing::info!("[SYNC] no games to sync");
-        return;
-    }
-
-    if let Err(error) = client.sync_library(&entries).await {
-        tracing::warn!("[SYNC] failed to push catalog to sc-web: {error:#}");
-    }
+    client
+        .sync_library(&entries)
+        .await
+        .context("push catalog to sc-web")?;
+    Ok(())
 }
 
 // ── Standalone mode — no sc-web, local library only ───────────────

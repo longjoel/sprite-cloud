@@ -822,6 +822,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 
 [[package]]
+name = "filetime"
+version = "0.2.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
+dependencies = [
+ "cfg-if",
+ "libc",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2481,9 +2491,11 @@ name = "sc-server"
 version = "0.11.4"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
  "clap",
  "dirs",
+ "filetime",
  "gstreamer",
  "gstreamer-app",
  "hex",
@@ -2500,6 +2512,7 @@ dependencies = [
  "shellexpand",
  "stun",
  "tempfile",
+ "thiserror 2.0.18",
  "time",
  "tokio",
  "tokio-util",

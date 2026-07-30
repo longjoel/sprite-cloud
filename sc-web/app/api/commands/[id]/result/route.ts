@@ -22,7 +22,7 @@ export async function GET(
 
   // Verify the caller is a member of the command's server
   const [cmd] = await db
-    .select({ result: commands.result, status: commands.status, lastError: commands.lastError })
+    .select({ result: commands.result, status: commands.status, lastError: commands.lastError, sdpAnswer: commands.sdpAnswer })
     .from(commands)
     .innerJoin(
       serverMembers,
@@ -42,5 +42,6 @@ export async function GET(
     status: cmd.status,
     result: cmd.result,
     error: cmd.lastError ?? null,
+    sdp_answer: cmd.sdpAnswer ?? null,
   });
 }

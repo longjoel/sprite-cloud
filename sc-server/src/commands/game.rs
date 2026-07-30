@@ -135,7 +135,10 @@ pub(super) async fn handle_start_game(
 
     // Resolve (and download if needed) core from platform
     let t1 = std::time::Instant::now();
-    let core_path = match platform.as_deref().and_then(crate::platform::core_for_platform) {
+    let core_path = match platform
+        .as_deref()
+        .and_then(crate::platform::core_for_platform)
+    {
         Some(core_file) => match core_bridge::ensure_core(&core_file, client.http_client()).await {
             Ok(path) => {
                 tracing::info!("[SESSION] core resolved: {}", path.display());
@@ -358,7 +361,12 @@ pub(super) async fn handle_start_game(
                     signal_log(
                         "host_start",
                         "notify_sdp_sent",
-                        &format!("command_id={} game_id={} sdp_answer_length={}", cmd.id, game_id, answer_sdp.len()),
+                        &format!(
+                            "command_id={} game_id={} sdp_answer_length={}",
+                            cmd.id,
+                            game_id,
+                            answer_sdp.len()
+                        ),
                     );
                     tracing::info!("[SESSION] game ready with SDP: {game_id}");
                 }
@@ -392,7 +400,10 @@ pub(super) async fn handle_start_game(
             signal_log(
                 "host_start",
                 "notify_ready_sent",
-                &format!("command_id={} game_id={} session_id={}", cmd.id, game_id, session_id),
+                &format!(
+                    "command_id={} game_id={} session_id={}",
+                    cmd.id, game_id, session_id
+                ),
             );
             tracing::info!("[SESSION] game ready: {game_id}");
         }
@@ -430,9 +441,7 @@ pub(super) async fn handle_stop_game(
             .get(game_id)
             .and_then(|session| session.cloud_session_id.as_deref())
             == Some(target_session_id);
-        if matches_current
-            && let Some(session) = sessions.remove(game_id)
-        {
+        if matches_current && let Some(session) = sessions.remove(game_id) {
             session.cancel.cancel();
             stopped = true;
         } else if sessions.contains_key(game_id) {
@@ -445,12 +454,7 @@ pub(super) async fn handle_stop_game(
     }
     if stopped {
         let _ = client
-            .notify_stop(
-                &cmd.id,
-                &cmd.lease_token,
-                game_id,
-                target_session_id,
-            )
+            .notify_stop(&cmd.id, &cmd.lease_token, game_id, target_session_id)
             .await
             .map_err(|e| tracing::warn!("[POLL] notify_stop failed for {}: {:#}", game_id, e));
     }
@@ -506,7 +510,11 @@ pub(super) async fn handle_sdp_offer(
         .as_object()
         .is_some_and(|obj| obj.contains_key("host_token"));
 
-    let flow = if is_guest { "guest_offer" } else { "host_reconnect" };
+    let flow = if is_guest {
+        "guest_offer"
+    } else {
+        "host_reconnect"
+    };
     signal_log(
         flow,
         "command_polled",
@@ -552,7 +560,6 @@ pub(super) async fn handle_sdp_offer(
                 )
                 .await;
                 return;
-
             }
 
             // ── Host reconnection fast-path ─────────────────────────
@@ -577,7 +584,11 @@ pub(super) async fn handle_sdp_offer(
                                 signal_log(
                                     flow,
                                     "sdp_answer_created",
-                                    &format!("game_id={} sdp_answer_length={}", game_id, answer_sdp.len()),
+                                    &format!(
+                                        "game_id={} sdp_answer_length={}",
+                                        game_id,
+                                        answer_sdp.len()
+                                    ),
                                 );
                                 tracing::info!(
                                     "[SDP] reconnection exchange OK ({} chars)",
@@ -683,7 +694,12 @@ pub(super) async fn handle_sdp_offer(
                         signal_log(
                             flow,
                             "notify_sdp_sent",
-                            &format!("command_id={} game_id={} sdp_answer_length={}", cmd.id, game_id, answer_sdp.len()),
+                            &format!(
+                                "command_id={} game_id={} sdp_answer_length={}",
+                                cmd.id,
+                                game_id,
+                                answer_sdp.len()
+                            ),
                         );
                         tracing::info!("[SDP] answer sent ({}) chars", answer_sdp.len());
                     }
@@ -710,7 +726,11 @@ pub(super) async fn handle_sdp_offer(
             } else {
                 "session not ready"
             };
-            signal_log(flow, "session_missing", &format!("game_id={} reason={}", game_id, reason));
+            signal_log(
+                flow,
+                "session_missing",
+                &format!("game_id={} reason={}", game_id, reason),
+            );
             tracing::warn!("[SDP] no session for game {game_id}: {reason}");
             let _ = client.command_result(
                 &cmd.id, &cmd.lease_token,
@@ -743,7 +763,11 @@ pub(super) async fn handle_guest_sdp(
     signal_log(
         "guest_offer",
         "guest_exchange_started",
-        &format!("game_id={} peer_token_present={}", session.game_id, !peer_token.is_empty()),
+        &format!(
+            "game_id={} peer_token_present={}",
+            session.game_id,
+            !peer_token.is_empty()
+        ),
     );
     tracing::info!("[SDP] guest SDP exchange (peer capability present)");
 
@@ -810,7 +834,11 @@ pub(super) async fn handle_guest_sdp(
     signal_log(
         "guest_offer",
         "sdp_answer_created",
-        &format!("game_id={} sdp_answer_length={}", session.game_id, answer.len()),
+        &format!(
+            "game_id={} sdp_answer_length={}",
+            session.game_id,
+            answer.len()
+        ),
     );
 
     // Seat = existing guests + local_players (host takes seats 0..local_players-1)
@@ -851,7 +879,13 @@ pub(super) async fn handle_guest_sdp(
         signal_log(
             "guest_offer",
             "notify_sdp_sent",
-            &format!("command_id={} game_id={} seat={} sdp_answer_length={}", cmd.id, session.game_id, seat, answer.len()),
+            &format!(
+                "command_id={} game_id={} seat={} sdp_answer_length={}",
+                cmd.id,
+                session.game_id,
+                seat,
+                answer.len()
+            ),
         );
         tracing::info!(
             "[SDP] guest answer sent ({} chars, seat={})",

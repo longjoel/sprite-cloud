@@ -502,10 +502,7 @@ impl ScWebClient {
     /// Sends only game metadata (id, name, platform, max_players).
     /// ROM paths, file hashes, and library preferences stay local.
     /// Full-replace semantics: sc-web removes any stale rows not in this list.
-    pub async fn sync_library(
-        &self,
-        games: &[serde_json::Value],
-    ) -> Result<()> {
+    pub async fn sync_library(&self, games: &[serde_json::Value]) -> Result<()> {
         let url = format!("{}/api/server/sync-games", self.base_url);
         let resp = self
             .client
@@ -527,7 +524,6 @@ impl ScWebClient {
         tracing::info!("[SYNC] pushed {} games to sc-web", synced);
         Ok(())
     }
-
 }
 
 #[cfg(test)]
