@@ -285,8 +285,11 @@ pub fn core_for_platform(name: &str) -> Option<String> {
 
 /// Peek inside a .zip file and return the extension of the first entry
 /// that maps to a known ROM platform. Returns `None` if the zip can't be
-/// read, is empty, or contains only entries with unrecognised extensions
-/// (typical of MAME / FBNeo arcade ROMs).
+/// read, is empty, or contains only unrecognised extensions (typical of
+/// MAME / FBNeo arcade ROMs).
+///
+/// Nested archive entries (e.g. a `.zip` inside a `.zip`) are skipped;
+/// they represent containers, not ROMs.
 fn peek_zip_extension(path: &std::path::Path) -> Option<String> {
     let file = std::fs::File::open(path).ok()?;
     let mut archive = zip::ZipArchive::new(std::io::BufReader::new(file)).ok()?;
@@ -301,6 +304,10 @@ fn peek_zip_extension(path: &std::path::Path) -> Option<String> {
         let inner_path = std::path::Path::new(name);
         if let Some(ext) = inner_path.extension().and_then(|e| e.to_str()) {
             let ext_lower = ext.to_lowercase();
+            // Skip ZIP entries — they are nested archives, not ROMs
+            if ext_lower == "zip" {
+                continue;
+            }
             if by_extension(&ext_lower).is_some() {
                 return Some(ext_lower);
             }
@@ -587,6 +594,60 @@ mod tests {
         archive.finish().unwrap();
 
         // No known inner extension, no RetroArch-style parent dir → Arcade
+        assert_eq!(detect_platform_name(&zip_path), Some("Arcade".into()));
+    }
+
+    /// ZIP with a nested .zip entry before a .smc ROM → classified as SNES.
+    /// Regression test for the Star Ocean # SNES.zip misclassification.
+    #[test]
+    fn nested_zip_before_smc_is_snes_not_arcade() {
+        use std::io::Write;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("Star Ocean # SNES.zip");
+
+        let file = std::fs::File::create(&zip_path).unwrap();
+        let mut archive = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+
+        // First entry: nested archive (simulates SO_gfx40.zip)
+        archive.start_file("SO_gfx40.zip", options).unwrap();
+        archive.write_all(b"fake nested zip").unwrap();
+
+        // Second entry: actual ROM
+        archive.start_file("Star Ocean (ENG) # SNES.SMC", options).unwrap();
+        archive.write_all(b"fake rom bytes").unwrap();
+
+        archive.finish().unwrap();
+
+        assert_eq!(detect_platform_name(&zip_path), Some("SNES".into()));
+    }
+
+    /// Genuine Arcade ZIP (no concrete ROM extensions) still classified as Arcade.
+    #[test]
+    fn arcade_zip_with_nested_zip_is_still_arcade() {
+        use std::io::Write;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let zip_path = tmp.path().join("kof2002.zip");
+
+        let file = std::fs::File::create(&zip_path).unwrap();
+        let mut archive = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+
+        // First entry: nested archive (a driver zip / support file)
+        archive.start_file("neogeo.zip", options).unwrap();
+        archive.write_all(b"bios").unwrap();
+
+        // Second entry: raw data files (MAME-style, no recognized console extension)
+        archive.start_file("265-p1.03", options).unwrap();
+        archive.write_all(b"fake mame rom").unwrap();
+
+        archive.finish().unwrap();
+
+        // .03 is not a recognized console extension → Arcade fallback
         assert_eq!(detect_platform_name(&zip_path), Some("Arcade".into()));
     }
 }
