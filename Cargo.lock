@@ -2480,7 +2480,7 @@ dependencies = [
 
 [[package]]
 name = "sc-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "libretro-runner",
  "memmap2",
@@ -2488,7 +2488,7 @@ dependencies = [
 
 [[package]]
 name = "sc-server"
-version = "0.11.4"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "async-trait",
