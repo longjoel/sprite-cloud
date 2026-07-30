@@ -51,30 +51,33 @@ describe("classic table row actions", () => {
     expect(librarySource).not.toContain("favoriteIds.has(game.id)");
   });
 
-  it("shows Choose Host alongside Favorite and Rename on desktop", () => {
-    const desktopActions = librarySource.match(/className="library-row-secondary-actions">([\s\S]*?)<\/div>/)?.[1];
-    expect(desktopActions).toContain("Add ${game.name} to favorites");
-    expect(desktopActions).toContain("Rename ${game.name}");
-    expect(desktopActions).toContain("Choose host for ${game.name}");
+  it("shows Play button and ⋮ context menu trigger in each table row", () => {
+    const desktopActions = librarySource.match(/className="library-row-actions">([\s\S]*?)<\/div>/)?.[1];
+    expect(desktopActions).toContain("More actions for ${game.name}");
+    expect(desktopActions).toContain("Play");
+    // Individual inline buttons are gone — actions are in context menu
+    expect(desktopActions).not.toContain('<div className="library-row-secondary-actions">');
   });
 
-  it("provides a labelled mobile overflow menu with labelled action rows", () => {
-    expect(librarySource).toContain('className="library-row-overflow"');
-    expect(librarySource).toContain('className="library-row-overflow-actions"');
-    expect(librarySource).toContain("More actions for ${game.name}");
-    expect(librarySource).toContain("Add ${game.name} to favorites");
-    expect(librarySource).not.toContain("Pin ${game.name}");
-    expect(librarySource).toContain("Rename ${game.name}");
+  it("uses GameTileContextMenu in table rows instead of inline buttons", () => {
+    const desktopActions = librarySource.match(/className="library-row-actions">([\s\S]*?)<\/div>/)?.[1];
+    expect(desktopActions).toContain("GameTileContextMenu");
+    expect(desktopActions).not.toContain("library-row-secondary-actions");
   });
 
-  it("expands mobile row actions in document flow instead of clipping them in the table scroller", () => {
-    expect(tileStyles).toMatch(/@media \(max-width:640px\)[\s\S]*\.library-row-overflow-actions\s*\{[^}]*position:\s*static/);
+  it("expands mobile row actions via context menu instead of fixed overflow", () => {
+    // Context menus expand naturally outside the table — no static overflow needed
+    expect(librarySource).toContain("GameTileContextMenu");
+    expect(librarySource).not.toContain("library-row-overflow");
   });
 });
 
 describe("GameTile actions", () => {
-  it("lets an open mobile action menu escape the tile clipping boundary", () => {
-    expect(tileStyles).toMatch(/\.game-tile:has\(\.game-tile-overflow\[open\]\)\s*\{[^}]*overflow:\s*visible/);
+  it("context menu renders as a portal avoiding tile clip boundaries", () => {
+    // MUI Menu renders in a portal — no overflow:hidden escape hacks needed
+    const html = renderToStaticMarkup(createElement(GameTile, { game, onPlay: vi.fn(), onToggleFavorite: vi.fn() }));
+    expect(html).not.toContain("game-tile-overflow");
+    expect(librarySource).toContain("GameTileContextMenu");
   });
 
   it("keeps title and platform as the only persistent metadata", () => {
@@ -84,7 +87,7 @@ describe("GameTile actions", () => {
     expect(html).not.toContain("4p");
   });
 
-  it("provides a large labelled Play target and labelled secondary actions", () => {
+  it("provides a large labelled Play target and a ⋮ context-menu trigger", () => {
     const html = renderToStaticMarkup(createElement(GameTile, {
       game,
       isFavorite: true,
@@ -95,10 +98,11 @@ describe("GameTile actions", () => {
       onEdit: vi.fn(),
     }));
     expect(html).toContain('aria-label="Play Super Test"');
-    expect(html).toContain('aria-label="Remove Super Test from favorites"');
     expect(html).not.toContain('aria-label="Pin Super Test"');
-    expect(html).toContain('aria-label="Rename Super Test"');
     expect(html).toContain('aria-label="More actions for Super Test"');
+    // Secondary actions live in the context menu — not as standalone buttons
+    expect(html).not.toContain('aria-label="Remove Super Test from favorites"');
+    expect(html).not.toContain('aria-label="Rename Super Test"');
   });
 
   it("plays from the primary button without making the card itself interactive", () => {
@@ -113,57 +117,59 @@ describe("GameTile actions", () => {
     expect(onPlay).toHaveBeenCalledWith(game);
   });
 
-  it("runs a secondary action without also launching the game", () => {
+  it("runs a secondary action from the context menu without launching the game", () => {
     const onPlay = vi.fn();
     const onToggleFavorite = vi.fn();
     const tile = renderTile({ onPlay, onToggleFavorite });
-    act(() => (tile.querySelector('.game-tile-secondary-actions [aria-label="Add Super Test to favorites"]') as HTMLButtonElement).click());
+    // Open the context menu via the ⋮ trigger
+    const trigger = tile.querySelector('[aria-label="More actions for Super Test"]') as HTMLButtonElement;
+    act(() => trigger.click());
+    // Context menu should be open now — find and click the favorite action
+    const menu = document.querySelector('[role="menu"]');
+    expect(menu).not.toBeNull();
+    const favItem = menu!.querySelector('[role="menuitem"]') as HTMLElement;
+    expect(favItem).not.toBeNull();
+    act(() => favItem.click());
     expect(onToggleFavorite).toHaveBeenCalledOnce();
     expect(onToggleFavorite).toHaveBeenCalledWith(game, expect.anything());
     expect(onPlay).not.toHaveBeenCalled();
   });
 
-  it("uses keyboard-focusable native controls for the mobile menu and its actions", () => {
+  it("uses a keyboard-focusable ⋮ button to open the context menu", () => {
     const tile = renderTile({ onToggleFavorite: vi.fn(), onEdit: vi.fn() });
-    const menuTrigger = tile.querySelector('[aria-label="More actions for Super Test"]');
-    const menuActions = [...tile.querySelectorAll(".game-tile-overflow-actions button")];
-    expect(menuTrigger?.tagName).toBe("SUMMARY");
-    expect(menuActions).toHaveLength(2);
-    expect(menuActions.every((action) => action.tagName === "BUTTON" && !(action as HTMLButtonElement).disabled)).toBe(true);
+    const trigger = tile.querySelector('[aria-label="More actions for Super Test"]');
+    expect(trigger?.tagName).toBe("BUTTON");
+    expect((trigger as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("uses the same visible action names in the mobile tile menu", () => {
-    const tile = renderTile({ onToggleFavorite: vi.fn(), onEdit: vi.fn(), onChooseHost: vi.fn() });
-    const mobileActions = tile.querySelector(".game-tile-overflow-actions")?.textContent;
-    expect(mobileActions).toContain("Add Favorite");
-    expect(mobileActions).toContain("Rename");
-    expect(mobileActions).toContain("Choose Host");
+  it("context menu actions are hidden until the trigger is activated", () => {
+    const tile = renderTile({ onToggleFavorite: vi.fn(), onEdit: vi.fn() });
+    // Context menu should not be visible before trigger activation
+    expect(document.querySelector('[role="menu"]')).toBeNull();
   });
 
-  it("disables Play and host selection during launch without removing native controls", () => {
+  it("disables Play during launch while keeping the context menu trigger available", () => {
     const tile = renderTile({ onChooseHost: vi.fn(), launching: true });
     const play = tile.querySelector('[aria-label="Play Super Test"]') as HTMLButtonElement;
-    const choose = tile.querySelector('.game-tile-secondary-actions [aria-label="Choose host for Super Test"]') as HTMLButtonElement;
+    const trigger = tile.querySelector('[aria-label="More actions for Super Test"]') as HTMLButtonElement;
 
     expect(play.tagName).toBe("BUTTON");
-    expect(choose.tagName).toBe("BUTTON");
+    expect(trigger.tagName).toBe("BUTTON");
     expect(play.disabled).toBe(true);
-    expect(choose.disabled).toBe(true);
+    expect(trigger.disabled).toBe(false);
     expect(tile.querySelector(".MuiCircularProgress-root")).not.toBeNull();
   });
 
-  it("uses a recognizable Fluent desktop icon and a visible desktop label", () => {
+  it("shows action menu through a recognisable ⋮ icon", () => {
     const tile = renderTile({ onChooseHost: vi.fn() });
-    const choose = tile.querySelector('.game-tile-secondary-actions [aria-label="Choose host for Super Test"]') as HTMLButtonElement;
-    expect(choose.querySelector("svg")).not.toBeNull();
-    expect(choose.textContent).toContain("Choose Host");
-    expect(choose.textContent).not.toContain("⌁");
+    const trigger = tile.querySelector('[aria-label="More actions for Super Test"]') as HTMLButtonElement;
+    expect(trigger.querySelector("svg")).not.toBeNull();
+    expect(trigger.querySelector("svg")?.getAttribute("focusable")).toBe("false");
   });
 });
 
 describe("host selection actions", () => {
   it("offers an explicit host override without persisting ordinary selections", () => {
-    expect(librarySource).toContain("Choose host for ${game.name}");
     expect(librarySource).toContain("Always use this host");
     expect(librarySource).toContain("openHostPicker(game, !automatic)");
     expect(librarySource).not.toContain("const generation = openHostPicker(game);\n    setLaunchingGame");
