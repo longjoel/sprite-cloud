@@ -492,7 +492,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
   // ── Favorite toggle ─────────────────────────────────────────────
 
   const handleToggleFavorite = useCallback((game: Game, e: React.MouseEvent) => {
-    e.stopPropagation();
+    e?.stopPropagation?.();
     setFavoriteIds((prev) => {
       const next = toggleSavedGameFavorite(prev, game);
       saveFavorites(next);
