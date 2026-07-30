@@ -5,6 +5,9 @@
 //! WebRTC or filesystem.  `TransferSession` is the thin production wrapper
 //! that wires a real `RTCPeerConnection` + `RTCDataChannel`.
 
+use crate::rom_transfer::protocol::{
+    self, ClientControlState, MAX_BINARY_CHUNK_BYTES, TransferMessage,
+};
 use crate::rom_transfer::storage::{self, StagedUpload, StorageError};
 use crate::sc_web;
 use crate::webrtc as webrtc_util;
@@ -15,39 +18,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-const DC_LABEL: &str = "rom-transfer-v1";
-const MAX_CHUNK_SIZE: usize = 256 * 1024;
 const MAX_BUFFERED_AMOUNT: usize = 4 * 1024 * 1024;
-
-// ── Protocol messages ──────────────────────────────────────────────────
-
-#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Clone)]
-#[serde(tag = "cmd")]
-pub enum TransferMessage {
-    #[serde(rename = "auth")]
-    Auth { capability_secret: String },
-    #[serde(rename = "auth_ok")]
-    AuthOk,
-    #[serde(rename = "auth_error")]
-    AuthError { reason: String },
-    #[serde(rename = "transfer_complete")]
-    TransferComplete {
-        #[serde(skip_serializing_if = "Option::is_none")]
-        expected_size: Option<u64>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        expected_hash: Option<String>,
-    },
-    #[serde(rename = "transfer_ok")]
-    TransferOk {
-        hash: String,
-        size: u64,
-        game_id: Option<String>,
-    },
-    #[serde(rename = "transfer_error")]
-    TransferError { reason: String },
-    #[serde(rename = "cancel")]
-    Cancel,
-}
 
 // ── Protocol state ─────────────────────────────────────────────────────
 
@@ -85,6 +56,7 @@ pub type CommitCallback = Arc<dyn Fn() -> CommitFuture + Send + Sync>;
 
 pub struct TransferProtocol {
     capability_hash: String,
+    event_lock: Mutex<()>,
     state: Mutex<ProtocolState>,
     sink: Mutex<Option<Box<dyn TransferSink>>>,
     responder: Arc<dyn Responder>,
@@ -103,6 +75,7 @@ impl TransferProtocol {
     ) -> Self {
         Self {
             capability_hash,
+            event_lock: Mutex::new(()),
             state: Mutex::new(ProtocolState::AwaitingAuth),
             sink: Mutex::new(Some(sink)),
             responder,
@@ -112,13 +85,68 @@ impl TransferProtocol {
         }
     }
 
+    /// Test adapter. Production preserves DataChannel text/binary framing and
+    /// calls `handle_control_message` or `handle_binary_chunk` directly.
+    #[cfg(test)]
     pub async fn handle_message(&self, data: &[u8]) {
-        let state = *self.state.lock().await;
-        match state {
-            ProtocolState::AwaitingAuth => self.handle_auth(data).await,
-            ProtocolState::Receiving => self.handle_receiving(data).await,
-            _ => {}
+        if data.first() == Some(&b'{') {
+            self.handle_control_message(data).await;
+        } else {
+            self.handle_binary_chunk(data).await;
         }
+    }
+
+    pub async fn handle_control_message(&self, data: &[u8]) {
+        let _event = self.event_lock.lock().await;
+        let state = *self.state.lock().await;
+        let control_state = match state {
+            ProtocolState::AwaitingAuth => ClientControlState::AwaitingAuth,
+            ProtocolState::Receiving => ClientControlState::Receiving,
+            ProtocolState::Committing | ProtocolState::Done => return,
+        };
+
+        let message = match protocol::decode_client_control(data, control_state) {
+            Ok(message) => message,
+            Err(error) => {
+                self.fail(state, error.to_string()).await;
+                return;
+            }
+        };
+
+        match message {
+            TransferMessage::Auth { capability_secret } => {
+                self.handle_auth(capability_secret).await;
+            }
+            TransferMessage::TransferComplete {
+                expected_size,
+                expected_hash,
+            } => {
+                self.handle_complete(expected_size, expected_hash).await;
+            }
+            TransferMessage::Cancel => self.handle_cancel().await,
+            _ => unreachable!("client control decoder returned a server-only message"),
+        }
+    }
+
+    pub async fn handle_binary_chunk(&self, data: &[u8]) {
+        let _event = self.event_lock.lock().await;
+        let state = *self.state.lock().await;
+        if state != ProtocolState::Receiving {
+            if state != ProtocolState::Done {
+                self.fail(
+                    state,
+                    "binary chunk received outside receiving state".into(),
+                )
+                .await;
+            }
+            return;
+        }
+        self.write_chunk(data).await;
+    }
+
+    pub async fn abort(&self) {
+        let _event = self.event_lock.lock().await;
+        self.abort_inner().await;
     }
 
     pub async fn state(&self) -> ProtocolState {
@@ -129,114 +157,102 @@ impl TransferProtocol {
         *self.bytes_received.lock().await
     }
 
-    async fn handle_auth(&self, data: &[u8]) {
-        let msg: TransferMessage = match serde_json::from_slice(data) {
-            Ok(m) => m,
-            Err(_) => {
-                self.responder
-                    .send(&TransferMessage::AuthError {
-                        reason: "invalid JSON".into(),
-                    })
-                    .await;
-                return;
-            }
-        };
-        let TransferMessage::Auth { capability_secret } = msg else {
-            self.responder
-                .send(&TransferMessage::AuthError {
-                    reason: "expected auth message".into(),
-                })
-                .await;
-            return;
-        };
+    async fn handle_auth(&self, capability_secret: String) {
         let computed = hex::encode(Sha256::digest(capability_secret.as_bytes()));
         if !storage::constant_time_eq(computed.as_bytes(), self.capability_hash.as_bytes()) {
-            self.responder
-                .send(&TransferMessage::AuthError {
-                    reason: "invalid capability".into(),
-                })
+            self.fail(ProtocolState::AwaitingAuth, "invalid capability".into())
                 .await;
-            *self.state.lock().await = ProtocolState::Done;
             return;
         }
         *self.state.lock().await = ProtocolState::Receiving;
         self.responder.send(&TransferMessage::AuthOk).await;
     }
 
-    async fn handle_receiving(&self, data: &[u8]) {
-        if let Ok(msg) = serde_json::from_slice::<TransferMessage>(data) {
-            match msg {
-                TransferMessage::TransferComplete {
-                    expected_size,
-                    expected_hash,
-                } => {
-                    self.handle_complete(expected_size, expected_hash).await;
-                }
-                TransferMessage::Cancel => {
-                    self.handle_cancel().await;
-                }
-                _ => {}
-            }
+    async fn write_chunk(&self, data: &[u8]) {
+        if data.is_empty() || data.len() > MAX_BINARY_CHUNK_BYTES {
+            self.fail(
+                ProtocolState::Receiving,
+                format!(
+                    "invalid chunk size: {} (allowed 1..={MAX_BINARY_CHUNK_BYTES})",
+                    data.len()
+                ),
+            )
+            .await;
             return;
         }
-        if data.len() > MAX_CHUNK_SIZE {
-            self.responder
-                .send(&TransferMessage::TransferError {
-                    reason: format!("chunk too large: {} > {MAX_CHUNK_SIZE}", data.len()),
-                })
-                .await;
-            *self.state.lock().await = ProtocolState::Done;
-            return;
-        }
+
         let mut received = self.bytes_received.lock().await;
         let attempted_size = (*received).saturating_add(data.len() as u64);
         if attempted_size > self.authorized_size {
             drop(received);
-            if let Some(sink) = self.sink.lock().await.take() {
-                sink.cancel();
-            }
-            self.responder
-                .send(&TransferMessage::TransferError {
-                    reason: format!(
-                        "upload exceeds authorized size of {} bytes",
-                        self.authorized_size
-                    ),
-                })
-                .await;
-            *self.state.lock().await = ProtocolState::Done;
+            self.fail(
+                ProtocolState::Receiving,
+                format!(
+                    "upload exceeds authorized size of {} bytes",
+                    self.authorized_size
+                ),
+            )
+            .await;
             return;
         }
+
         let mut sink_guard = self.sink.lock().await;
         match sink_guard.as_mut() {
             Some(sink) => {
-                if let Err(e) = sink.write_chunk(data) {
+                if sink.write_chunk(data).is_err() {
                     drop(sink_guard);
-                    self.responder
-                        .send(&TransferMessage::TransferError {
-                            reason: format!("write error: {e}"),
-                        })
+                    drop(received);
+                    tracing::error!("[ROM XFER] chunk write failed");
+                    self.fail(ProtocolState::Receiving, "write failed".into())
                         .await;
-                    *self.state.lock().await = ProtocolState::Done;
                     return;
                 }
                 *received = attempted_size;
             }
             None => {
-                self.responder
-                    .send(&TransferMessage::TransferError {
-                        reason: "no active upload".into(),
-                    })
+                drop(sink_guard);
+                drop(received);
+                self.fail(ProtocolState::Receiving, "no active upload".into())
                     .await;
-                *self.state.lock().await = ProtocolState::Done;
             }
         }
     }
 
+    async fn fail(&self, state: ProtocolState, reason: String) {
+        if let Some(sink) = self.sink.lock().await.take() {
+            sink.cancel();
+        }
+        let response = if state == ProtocolState::AwaitingAuth {
+            TransferMessage::AuthError { reason }
+        } else {
+            TransferMessage::TransferError { reason }
+        };
+        self.responder.send(&response).await;
+        *self.state.lock().await = ProtocolState::Done;
+    }
+
+    async fn abort_inner(&self) {
+        if let Some(sink) = self.sink.lock().await.take() {
+            sink.cancel();
+        }
+        *self.state.lock().await = ProtocolState::Done;
+    }
+
     async fn handle_complete(
         &self,
-        _client_expected_size: Option<u64>,
+        client_expected_size: Option<u64>,
         expected_hash: Option<String>,
     ) {
+        if let Some(client_size) = client_expected_size
+            && client_size != self.authorized_size
+        {
+            self.fail(
+                ProtocolState::Receiving,
+                "completion size does not match authorized size".into(),
+            )
+            .await;
+            return;
+        }
         *self.state.lock().await = ProtocolState::Committing;
         let expected_size = Some(self.authorized_size);
         let sink = { self.sink.lock().await.take() };
@@ -260,11 +276,12 @@ impl TransferProtocol {
         match result {
             Ok((hash, size)) => {
                 if let Some(ref cb) = self.on_commit
-                    && let Err(error) = cb().await
+                    && cb().await.is_err()
                 {
+                    tracing::error!("[ROM XFER] catalog refresh failed after commit");
                     self.responder
                         .send(&TransferMessage::TransferError {
-                            reason: format!("ROM committed, but catalog refresh failed: {error}"),
+                            reason: "ROM committed, but catalog refresh failed".into(),
                         })
                         .await;
                     *self.state.lock().await = ProtocolState::Done;
@@ -278,10 +295,11 @@ impl TransferProtocol {
                     })
                     .await;
             }
-            Err(e) => {
+            Err(_) => {
+                tracing::error!("[ROM XFER] commit failed");
                 self.responder
                     .send(&TransferMessage::TransferError {
-                        reason: format!("commit error: {e}"),
+                        reason: "commit failed".into(),
                     })
                     .await;
             }
@@ -307,9 +325,12 @@ struct DcResponder {
 #[async_trait::async_trait]
 impl Responder for DcResponder {
     async fn send(&self, msg: &TransferMessage) {
-        let json = match serde_json::to_string(msg) {
-            Ok(j) => j,
-            Err(_) => return,
+        let json = match protocol::encode_server_control(msg) {
+            Some(encoded) => encoded,
+            None => {
+                tracing::error!("[ROM XFER] refused invalid outbound protocol control");
+                return;
+            }
         };
         if let Some(ref dc) = *self.dc.lock().await {
             let _ = dc.send_text(json).await;
@@ -321,6 +342,7 @@ pub struct TransferSession {
     pc: Arc<::webrtc::peer_connection::RTCPeerConnection>,
     transfer_id: String,
     rom_root: PathBuf,
+    channel_claimed: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Debug, Clone)]
@@ -337,6 +359,7 @@ impl TransferSession {
             pc,
             transfer_id,
             rom_root,
+            channel_claimed: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -363,8 +386,27 @@ impl TransferSession {
                 let cons = constraints.clone();
                 let on_commit = Arc::clone(&commit_callback);
                 Box::pin(async move {
-                    if dc.label() != DC_LABEL {
-                        tracing::warn!("[ROM XFER] unexpected DC label: {} — ignoring", dc.label());
+                    if let Err(error) = protocol::validate_channel_label(dc.label()) {
+                        tracing::warn!("[ROM XFER] {error} — closing");
+                        let _ = dc.close().await;
+                        return;
+                    }
+                    if !dc.ordered()
+                        || dc.max_retransmits() != Some(0)
+                        || dc.max_packet_lifetime().is_some()
+                    {
+                        tracing::warn!(
+                            "[ROM XFER] data channel is not ordered+reliable — closing"
+                        );
+                        let _ = dc.close().await;
+                        return;
+                    }
+                    if sess
+                        .channel_claimed
+                        .swap(true, std::sync::atomic::Ordering::AcqRel)
+                    {
+                        tracing::warn!("[ROM XFER] additional data channel rejected");
+                        let _ = dc.close().await;
                         return;
                     }
                     tracing::info!("[ROM XFER] data channel received: {}", dc.id());
@@ -377,13 +419,13 @@ impl TransferSession {
                             Ok(upload) => Box::new(StagedUploadSink {
                                 upload: Mutex::new(Some(upload)),
                             }),
-                            Err(e) => {
-                                tracing::error!("[ROM XFER] failed to create staged upload: {e}");
+                            Err(_) => {
+                                tracing::error!("[ROM XFER] storage preparation failed");
                                 let resp = DcResponder {
                                     dc: Mutex::new(Some(Arc::clone(&dc))),
                                 };
                                 resp.send(&TransferMessage::AuthError {
-                                    reason: format!("storage error: {e}"),
+                                    reason: "storage preparation failed".into(),
                                 })
                                 .await;
                                 return;
@@ -407,26 +449,52 @@ impl TransferSession {
 
                     dc.on_close(Box::new({
                         let s = Arc::clone(&sess);
+                        let proto = Arc::clone(&protocol);
                         move || {
                             let s = Arc::clone(&s);
+                            let proto = Arc::clone(&proto);
                             Box::pin(async move {
-                                tracing::warn!("[ROM XFER] data channel closed unexpectedly");
+                                if proto.state().await != ProtocolState::Done {
+                                    tracing::warn!(
+                                        "[ROM XFER] data channel closed before completion"
+                                    );
+                                    proto.abort().await;
+                                } else {
+                                    tracing::info!(
+                                        "[ROM XFER] data channel closed after completion"
+                                    );
+                                }
                                 let _ = s.pc.close().await;
                             })
                         }
                     }));
 
-                    dc.on_error(Box::new(move |err| {
-                        let err_str = err.to_string();
-                        Box::pin(async move {
-                            tracing::error!("[ROM XFER] data channel error: {err_str}")
-                        })
+                    dc.on_error(Box::new({
+                        let s = Arc::clone(&sess);
+                        let proto = Arc::clone(&protocol);
+                        move |err| {
+                            let s = Arc::clone(&s);
+                            let proto = Arc::clone(&proto);
+                            let err_str = err.to_string();
+                            Box::pin(async move {
+                                tracing::error!("[ROM XFER] data channel error: {err_str}");
+                                proto.abort().await;
+                                let _ = s.pc.close().await;
+                            })
+                        }
                     }));
 
                     dc.on_message(Box::new(move |msg| {
                         let proto = Arc::clone(&protocol);
                         let data = msg.data.to_vec();
-                        Box::pin(async move { proto.handle_message(&data).await })
+                        let is_string = msg.is_string;
+                        Box::pin(async move {
+                            if is_string {
+                                proto.handle_control_message(&data).await;
+                            } else {
+                                proto.handle_binary_chunk(&data).await;
+                            }
+                        })
                     }));
                 })
             },
@@ -507,6 +575,10 @@ pub(crate) async fn handle_rom_transfer(
         .get("transfer_id")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
+
+    // Best-effort cleanup of expired partial files from prior crashes.
+    storage::cleanup_expired_partials(rom_roots);
+
     let capability_hash = match cmd.payload.get("capability_hash").and_then(|v| v.as_str()) {
         Some(h) => h.to_string(),
         None => {
@@ -545,6 +617,7 @@ pub(crate) async fn handle_rom_transfer(
                 declared_size: obj
                     .get("declared_size")
                     .and_then(|v| v.as_u64())
+                    .filter(|s| *s > 0)
                     .unwrap_or(0),
                 platform_hint: obj
                     .get("platform_hint")
@@ -565,19 +638,18 @@ pub(crate) async fn handle_rom_transfer(
     };
 
     tracing::info!(
-        "[ROM XFER] transfer_id={transfer_id} basename={} size={}",
-        constraints.basename,
+        "[ROM XFER] transfer_id={transfer_id} authorized_size={}",
         constraints.declared_size
     );
 
     let rom_root = match storage::select_import_root(rom_roots) {
         Ok(r) => r,
-        Err(e) => {
+        Err(_) => {
             let _ = client
                 .command_result(
                     &cmd.id,
                     &cmd.lease_token,
-                    &serde_json::json!({"error": "no writable ROM root", "detail": e.to_string()}),
+                    &serde_json::json!({"error": "no writable ROM root"}),
                 )
                 .await;
             return;
@@ -585,12 +657,12 @@ pub(crate) async fn handle_rom_transfer(
     };
     let session = match TransferSession::new(transfer_id.to_string(), rom_root).await {
         Ok(s) => Arc::new(s),
-        Err(e) => {
+        Err(_) => {
             let _ = client
                 .command_result(
                     &cmd.id,
                     &cmd.lease_token,
-                    &serde_json::json!({"error": "session creation failed", "detail": e}),
+                    &serde_json::json!({"error": "session creation failed"}),
                 )
                 .await;
             return;
@@ -724,6 +796,32 @@ mod tests {
         }
     }
 
+    struct CancelTrackingSink {
+        cancelled: Arc<AtomicBool>,
+    }
+
+    impl TransferSink for CancelTrackingSink {
+        fn write_chunk(&mut self, _: &[u8]) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn commit(self: Box<Self>, _: Option<u64>) -> Result<(String, u64), StorageError> {
+            unreachable!("tracking sink is only used for abort tests")
+        }
+        fn commit_with_expected_hash(
+            self: Box<Self>,
+            _: Option<u64>,
+            _: &str,
+        ) -> Result<(String, u64), StorageError> {
+            unreachable!("tracking sink is only used for abort tests")
+        }
+        fn cancel(self: Box<Self>) {
+            self.cancelled.store(true, Ordering::SeqCst);
+        }
+        fn bytes_written(&self) -> u64 {
+            0
+        }
+    }
+
     struct FakeResponder {
         messages: StdMutex<Vec<TransferMessage>>,
     }
@@ -818,17 +916,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn auth_twice_second_ignored() {
+    async fn auth_twice_fails_closed() {
         let secret = "secret";
         let hash = cap_hash(secret);
         let responder = Arc::new(FakeResponder::new());
         let proto = build_protocol(&hash, Arc::clone(&responder));
         proto.handle_message(&auth_msg(secret)).await;
         assert_eq!(proto.state().await, ProtocolState::Receiving);
-        // Second auth message — parsed as JSON, but state is Receiving so
-        // handle_receiving runs; TransferMessage::Auth is not Complete/Cancel → ignored
+        // Authentication is single-use for this state machine.
         proto.handle_message(&auth_msg(secret)).await;
-        assert_eq!(proto.state().await, ProtocolState::Receiving);
+        assert_eq!(proto.state().await, ProtocolState::Done);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -836,7 +933,7 @@ mod tests {
     // ═══════════════════════════════════════════════════════════════
 
     #[tokio::test]
-    async fn chunks_before_auth_ignored() {
+    async fn chunks_before_auth_fail_closed() {
         let hash = cap_hash("secret");
         let responder = Arc::new(FakeResponder::new());
         let sink = FakeSink::new();
@@ -848,7 +945,7 @@ mod tests {
             None,
         );
         proto.handle_message(b"binary junk").await;
-        assert_eq!(proto.state().await, ProtocolState::AwaitingAuth);
+        assert_eq!(proto.state().await, ProtocolState::Done);
     }
 
     #[tokio::test]
@@ -893,7 +990,7 @@ mod tests {
         let responder = Arc::new(FakeResponder::new());
         let proto = build_protocol(&hash, Arc::clone(&responder));
         proto.handle_message(&auth_msg(secret)).await;
-        let big = vec![0u8; MAX_CHUNK_SIZE + 1];
+        let big = vec![0u8; MAX_BINARY_CHUNK_BYTES + 1];
         proto.handle_message(&big).await;
         assert_eq!(proto.state().await, ProtocolState::Done);
         assert!(
@@ -929,6 +1026,30 @@ mod tests {
             msgs.iter()
                 .any(|m| matches!(m, TransferMessage::TransferOk { size: 42, .. }))
         );
+    }
+
+    #[tokio::test]
+    async fn transfer_complete_rejects_client_size_mismatch() {
+        let secret = "secret";
+        let responder = Arc::new(FakeResponder::new());
+        let proto = TransferProtocol::new(
+            cap_hash(secret),
+            Box::new(FakeSink::new()),
+            Arc::clone(&responder) as Arc<dyn Responder>,
+            3,
+            None,
+        );
+        proto.handle_message(&auth_msg(secret)).await;
+        proto.handle_message(b"abc").await;
+
+        proto.handle_message(&complete_msg(Some(4), None)).await;
+
+        assert_eq!(proto.state().await, ProtocolState::Done);
+        assert!(matches!(
+            responder.last().unwrap(),
+            TransferMessage::TransferError { ref reason }
+                if reason == "completion size does not match authorized size"
+        ));
     }
 
     #[tokio::test]
@@ -994,8 +1115,7 @@ mod tests {
         let responder = Arc::new(FakeResponder::new());
         let proto = build_protocol(&hash, Arc::clone(&responder));
         proto.handle_message(&complete_msg(None, None)).await;
-        // In AwaitingAuth, handle_auth parses it — not Auth → error
-        assert_eq!(proto.state().await, ProtocolState::AwaitingAuth);
+        assert_eq!(proto.state().await, ProtocolState::Done);
         assert!(
             responder
                 .messages()
@@ -1021,12 +1141,36 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancel_before_auth_no_effect() {
+    async fn cancel_before_auth_fails_closed() {
         let hash = cap_hash("secret");
         let responder = Arc::new(FakeResponder::new());
         let proto = build_protocol(&hash, Arc::clone(&responder));
         proto.handle_message(&cancel_msg()).await;
-        assert_eq!(proto.state().await, ProtocolState::AwaitingAuth);
+        assert_eq!(proto.state().await, ProtocolState::Done);
+    }
+
+    #[tokio::test]
+    async fn transport_close_aborts_an_active_upload() {
+        let secret = "secret";
+        let responder = Arc::new(FakeResponder::new());
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let proto = TransferProtocol::new(
+            cap_hash(secret),
+            Box::new(CancelTrackingSink {
+                cancelled: Arc::clone(&cancelled),
+            }),
+            responder,
+            u64::MAX,
+            None,
+        );
+        proto.handle_message(&auth_msg(secret)).await;
+        proto.handle_message(b"partial bytes").await;
+
+        proto.abort().await;
+
+        assert_eq!(proto.state().await, ProtocolState::Done);
+        assert_eq!(proto.bytes_received().await, 13);
+        assert!(cancelled.load(Ordering::SeqCst));
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1038,10 +1182,10 @@ mod tests {
         let hash = cap_hash("secret");
         let responder = Arc::new(FakeResponder::new());
         let proto = build_protocol(&hash, Arc::clone(&responder));
-        proto.handle_message(b"not json {{").await;
-        assert_eq!(proto.state().await, ProtocolState::AwaitingAuth);
+        proto.handle_control_message(b"not json {{").await;
+        assert_eq!(proto.state().await, ProtocolState::Done);
         assert!(
-            matches!(responder.last().unwrap(), TransferMessage::AuthError { ref reason } if reason == "invalid JSON")
+            matches!(responder.last().unwrap(), TransferMessage::AuthError { ref reason } if reason == "invalid ROM transfer control message")
         );
     }
 

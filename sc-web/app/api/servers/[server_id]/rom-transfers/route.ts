@@ -49,9 +49,13 @@ function validateRomTransferBody(body: unknown): { ok: true; value: RomTransferB
     return { ok: false, error: "basename must not contain path separators or null bytes" };
   }
 
-  // declared_size — required, positive integer
-  if (typeof b.declared_size !== "number" || !Number.isFinite(b.declared_size) || b.declared_size < 1) {
-    return { ok: false, error: "declared_size must be a positive number" };
+  // declared_size — required, positive safe integer
+  if (
+    typeof b.declared_size !== "number" ||
+    !Number.isSafeInteger(b.declared_size) ||
+    b.declared_size < 1
+  ) {
+    return { ok: false, error: "declared_size must be a positive integer" };
   }
   if (b.declared_size > MAX_SIZE_BYTES) {
     return { ok: false, error: `declared_size exceeds maximum of ${MAX_SIZE_BYTES} bytes` };
@@ -180,6 +184,7 @@ export async function POST(
   const commandPayload = {
     transfer_id: transferId,
     operation: "upload" as const,
+    authorized_user_id: session.user.id,
     capability_hash: capabilityHash,
     constraints: {
       basename,

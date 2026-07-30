@@ -1,0 +1,104 @@
+{
+  "channel": {
+    "valid": "rom-transfer-v1",
+    "invalid": ["rom-transfer-v0", "rom-transfer-v2", "diagnostics", ""]
+  },
+  "valid_client_controls": [
+    {
+      "name": "authenticate once",
+      "state": "awaiting_auth",
+      "message": { "cmd": "auth", "capability_secret": "fixture-secret" }
+    },
+    {
+      "name": "complete without optional client assertions",
+      "state": "receiving",
+      "message": { "cmd": "transfer_complete" }
+    },
+    {
+      "name": "complete with size and sha256 assertion",
+      "state": "receiving",
+      "message": {
+        "cmd": "transfer_complete",
+        "expected_size": 4,
+        "expected_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "cancel active receive",
+      "state": "receiving",
+      "message": { "cmd": "cancel" }
+    }
+  ],
+  "invalid_client_controls": [
+    {
+      "name": "unknown command",
+      "state": "receiving",
+      "message": { "cmd": "resume", "offset": 0 }
+    },
+    {
+      "name": "unexpected field",
+      "state": "awaiting_auth",
+      "message": { "cmd": "auth", "capability_secret": "fixture-secret", "path": "/tmp/rom" }
+    },
+    {
+      "name": "authentication after receive starts",
+      "state": "receiving",
+      "message": { "cmd": "auth", "capability_secret": "fixture-secret" }
+    },
+    {
+      "name": "completion before authentication",
+      "state": "awaiting_auth",
+      "message": { "cmd": "transfer_complete" }
+    },
+    {
+      "name": "unexpected offset field",
+      "state": "receiving",
+      "message": { "cmd": "transfer_complete", "offset": 4 }
+    },
+    {
+      "name": "invalid expected hash",
+      "state": "receiving",
+      "message": { "cmd": "transfer_complete", "expected_hash": "not-a-sha256" }
+    },
+    {
+      "name": "uppercase expected hash",
+      "state": "receiving",
+      "message": { "cmd": "transfer_complete", "expected_hash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }
+    },
+    {
+      "name": "negative expected size",
+      "state": "receiving",
+      "message": { "cmd": "transfer_complete", "expected_size": -1 }
+    }
+  ],
+  "valid_server_controls": [
+    { "name": "authentication accepted", "message": { "cmd": "auth_ok" } },
+    { "name": "authentication rejected", "message": { "cmd": "auth_error", "reason": "invalid capability" } },
+    {
+      "name": "transfer committed",
+      "message": {
+        "cmd": "transfer_ok",
+        "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size": 4,
+        "game_id": null
+      }
+    },
+    { "name": "transfer rejected", "message": { "cmd": "transfer_error", "reason": "size mismatch" } }
+  ],
+  "invalid_server_controls": [
+    { "name": "unknown response", "message": { "cmd": "checkpoint", "offset": 4 } },
+    { "name": "unexpected response field", "message": { "cmd": "auth_ok", "capability_secret": "leak" } },
+    { "name": "missing committed hash", "message": { "cmd": "transfer_ok", "size": 4 } },
+    { "name": "invalid committed hash", "message": { "cmd": "transfer_ok", "hash": "bad", "size": 4 } },
+    { "name": "uppercase committed hash", "message": { "cmd": "transfer_ok", "hash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "size": 4 } },
+    {
+      "name": "fractional committed size",
+      "message": {
+        "cmd": "transfer_ok",
+        "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size": 4.5
+      }
+    },
+    { "name": "empty error reason", "message": { "cmd": "transfer_error", "reason": "" } }
+  ]
+}

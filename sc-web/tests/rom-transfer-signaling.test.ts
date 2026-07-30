@@ -19,13 +19,14 @@ function mockQueryBuilder(returnValue: unknown) {
     innerJoin: vi.fn().mockReturnThis(),
     limit: vi.fn().mockReturnThis(),
     set: vi.fn().mockReturnThis(),
+    returning: vi.fn().mockReturnThis(),
   };
   return Object.assign(Promise.resolve(returnValue), builder);
 }
 
 const mockDb = {
   select: vi.fn(() => mockQueryBuilder([])),
-  update: vi.fn(() => mockQueryBuilder(undefined)),
+  update: vi.fn(() => mockQueryBuilder([{ id: "cmd-1" }])),
 };
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));
@@ -58,6 +59,7 @@ const { POST } = await import(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockDb.update.mockReturnValue(mockQueryBuilder([{ id: "cmd-1" }]));
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────
@@ -197,7 +199,7 @@ describe("POST /api/servers/[server_id]/rom-transfers/[transfer_id]/offer", () =
     const secret = "the-real-secret";
     const cmd = makeCommand({ capability_secret: secret });
     mockDb.select.mockReturnValue(mockQueryBuilder([cmd]));
-    mockDb.update.mockReturnValue(mockQueryBuilder(undefined));
+    mockDb.update.mockReturnValue(mockQueryBuilder([{ id: "cmd-1" }]));
 
     const req = buildRequest(
       "http://localhost/api/servers/srv-1/rom-transfers/xfer-1/offer",
@@ -212,6 +214,25 @@ describe("POST /api/servers/[server_id]/rom-transfers/[transfer_id]/offer", () =
     expect(body.ok).toBe(true);
     expect(body.command_id).toBe("cmd-1");
     expect(body.transfer_id).toBe("xfer-1");
+  });
+
+  it("rejects a concurrent capability activation that lost the atomic claim", async () => {
+    const secret = "the-real-secret";
+    const cmd = makeCommand({ capability_secret: secret });
+    mockDb.select.mockReturnValue(mockQueryBuilder([cmd]));
+    mockDb.update.mockReturnValue(mockQueryBuilder([]));
+
+    const req = buildRequest(
+      "http://localhost/api/servers/srv-1/rom-transfers/xfer-1/offer",
+      { sdp: "v=0...", capability_secret: secret },
+      { csrf: "t", cookieCsrf: "t" },
+    );
+    const res = await POST(req, {
+      params: Promise.resolve({ server_id: "srv-1", transfer_id: "xfer-1" }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "transfer already activated" });
   });
 
   // ── Expiry ─────────────────────────────────────────────────────────
@@ -261,7 +282,7 @@ describe("POST /api/servers/[server_id]/rom-transfers/[transfer_id]/offer", () =
     const secret = "sdp-secret";
     const cmd = makeCommand({ capability_secret: secret });
     mockDb.select.mockReturnValue(mockQueryBuilder([cmd]));
-    mockDb.update.mockReturnValue(mockQueryBuilder(undefined));
+    mockDb.update.mockReturnValue(mockQueryBuilder([{ id: "cmd-1" }]));
 
     const sdp = "v=0\r\no=browser 123 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n";
     const req = buildRequest(

@@ -1,5 +1,11 @@
 # DataChannel Protocol — Browser ↔ Host Runtime
 
+> **Gameplay only.** This protocol MUST NOT carry ROM files or ROM-transfer
+> controls. Bulk file transfer uses a separate peer connection and the
+> versioned `"rom-transfer-v1"` DataChannel documented in
+> [`rom-transfer-protocol.md`](rom-transfer-protocol.md). Implementations must
+> not multiplex gameplay and ROM transfer traffic onto either channel.
+
 The `"diagnostics"` DataChannel carries both binary input and JSON control
 messages over a single WebRTC DataChannel. The browser (offerer) creates it,
 the host runtime (answerer) receives it via `ondatachannel`.

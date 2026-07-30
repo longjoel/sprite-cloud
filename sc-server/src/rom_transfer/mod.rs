@@ -7,5 +7,6 @@
 // Binary target sees some items as dead code (used only via library API).
 #![allow(dead_code)]
 
+pub mod protocol;
 pub mod session;
 pub mod storage;

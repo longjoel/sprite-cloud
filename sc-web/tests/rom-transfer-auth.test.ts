@@ -273,6 +273,19 @@ describe("POST /api/servers/[server_id]/rom-transfers", () => {
     expect(res.status).toBe(400);
   });
 
+  it("returns 400 when declared_size is fractional", async () => {
+    const req = buildRequest(
+      "http://localhost/api/servers/srv-1/rom-transfers",
+      { basename: "game.nes", declared_size: 1.5 },
+      { sessionUserId: "user-1", csrf: "t", cookieCsrf: "t" },
+    );
+
+    const res = await POST(req, {
+      params: Promise.resolve({ server_id: "srv-1" }),
+    });
+    expect(res.status).toBe(400);
+  });
+
   it("returns 400 when declared_size exceeds max", async () => {
     const req = buildRequest(
       "http://localhost/api/servers/srv-1/rom-transfers",
@@ -354,6 +367,8 @@ describe("POST /api/servers/[server_id]/rom-transfers", () => {
     expect(payload?.capability_hash).not.toBe(body.capability_secret);
     expect(typeof payload?.capability_hash).toBe("string");
     expect((payload?.capability_hash as string).length).toBe(64); // SHA-256 hex
+    expect(payload?.authorized_user_id).toBe("user-1");
+    expect(lastInsertValues?.serverId).toBe("srv-1");
 
     // Constraints are in the payload
     expect(payload?.constraints).toBeDefined();
