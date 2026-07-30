@@ -120,7 +120,11 @@ vi.stubGlobal("document", {
 
 // ── Imports (after mocks) ──────────────────────────────────────────────
 
-import { RomTransferClient, TransferCredentials } from "@/lib/rom-transfer-client";
+import {
+  RomTransferClient,
+  TransferCredentials,
+  dataChannelChunkSize,
+} from "@/lib/rom-transfer-client";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -253,11 +257,17 @@ describe("RomTransferClient", () => {
     await expect(client.upload()).rejects.toThrow("invalid capability");
   });
 
-  // ── Chunk size calculation ────────────────────────────────────────
+  // ── Data channel message sizing ────────────────────────────────────
 
-  it("chunk size is 256 KiB", () => {
-    // The CHUNK_SIZE constant is 256 * 1024
-    expect(256 * 1024).toBe(262144);
+  it("caps chunks at the negotiated SCTP maxMessageSize", () => {
+    expect(dataChannelChunkSize(65_536)).toBe(65_536);
+    expect(dataChannelChunkSize(16_384)).toBe(16_384);
+  });
+
+  it("uses a conservative 64 KiB fallback when no finite limit is advertised", () => {
+    expect(dataChannelChunkSize(undefined)).toBe(65_536);
+    expect(dataChannelChunkSize(0)).toBe(65_536);
+    expect(dataChannelChunkSize(Number.POSITIVE_INFINITY)).toBe(65_536);
   });
 
   // ── Credential validation ─────────────────────────────────────────
