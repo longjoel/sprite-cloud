@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState } from "react";
 import { Card as MuiCard, CardActionArea, Chip, IconButton, CircularProgress, Button } from "@mui/material";
-import { Star, StarBorder, Edit, MoreHoriz, DesktopWindows } from "@mui/icons-material";
+import { Star, StarBorder, Edit, MoreHoriz, DesktopWindows, Delete } from "@mui/icons-material";
 import { getPlatformColor } from "@/lib/platformColors";
 
 interface TileGame {
@@ -23,12 +23,13 @@ interface GameTileProps {
 
   onEdit?: (game: TileGame) => void;
   onChooseHost?: (game: TileGame) => void;
+  onDelete?: (game: TileGame) => void;
   launching?: boolean;
 }
 
 const sizeClassMap = { square: "tile-square", wide: "tile-wide", large: "tile-large" } as const;
 
-export default function GameTile({ game, size = "square", isFavorite = false, onPlay, onToggleFavorite, onEdit, onChooseHost, launching = false }: GameTileProps) {
+export default function GameTile({ game, size = "square", isFavorite = false, onPlay, onToggleFavorite, onEdit, onChooseHost, onDelete, launching = false }: GameTileProps) {
   const nameRef = useRef<HTMLSpanElement>(null);
   const [overflows, setOverflows] = useState(false);
 
@@ -81,6 +82,17 @@ export default function GameTile({ game, size = "square", isFavorite = false, on
         >
           Choose Host
         </Button>
+      )}
+      {onDelete && (
+        mobile ? (
+          <Button size="small" aria-label={`Delete ${game.name}`} onClick={stop(() => onDelete(game))} startIcon={<Delete fontSize="inherit" />} color="error">
+            Delete
+          </Button>
+        ) : (
+          <IconButton size="small" aria-label={`Delete ${game.name}`} onClick={stop(() => onDelete(game))} color="error">
+            <Delete fontSize="inherit" />
+          </IconButton>
+        )
       )}
     </div>
   );
