@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { commands, serverMembers, servers } from "@/lib/db/schema";
-import { CMD_ROM_TRANSFER } from "@/lib/constants";
 import { applyRateLimit } from "@/lib/rate-limit";
 import { and, eq } from "drizzle-orm";
 
