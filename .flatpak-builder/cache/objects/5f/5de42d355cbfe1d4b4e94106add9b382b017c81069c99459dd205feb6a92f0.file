@@ -1,0 +1,5 @@
+[Runtime]
+name=com.spritecloud.SpriteCloud.Debug
+
+[ExtensionOf]
+ref=app/com.spritecloud.SpriteCloud/x86_64/master
