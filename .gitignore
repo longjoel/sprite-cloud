@@ -42,3 +42,9 @@ sc-web/tsconfig.tsbuildinfo
 
 # Generated
 sc-web/public/player/player-bundle.js
+
+# Flatpak build cache
+.flatpak-builder/
+*.flatpak
+sc-desktop/.flatpak-builder/
+sc-desktop/flatpak/repo/
