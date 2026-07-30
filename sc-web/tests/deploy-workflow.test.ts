@@ -114,7 +114,7 @@ describe("production deploy workflow", () => {
     expect(installIndex).toBeGreaterThan(checksum);
     expect(hostInstaller).not.toContain('curl -sSL "$BIN_URL" -o "$BIN_PATH"');
     expect(hostInstaller).not.toContain('ARCH="armv7"');
-    expect(hostInstaller).toContain('mktemp "$BIN_DIR/.sc-server.XXXXXX"');
+    expect(hostInstaller).toContain('mktemp "$MANAGED_BIN_DIR/.sc-server.XXXXXX"');
     expect(hostInstaller).toContain('mv -f "$STAGED_SERVER" "$BIN_PATH"');
     expect(publicInstaller).toContain('mktemp "$INSTALL_DIR/.sc-server.XXXXXX"');
     expect(publicInstaller).toContain('mv -f "$STAGED_SERVER" "$INSTALL_DIR/sc-server"');

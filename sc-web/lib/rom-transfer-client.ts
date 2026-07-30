@@ -4,8 +4,11 @@
 //!   const client = new RomTransferClient(file, transferCreds, serverId);
 //!   client.onProgress = (sent, total) => { ... };
 //!   const result = await client.upload();
+//!   // or to download:
+//!   await downloadRom(serverId, gameId, gameName);
 
 export const ROM_TRANSFER_CHANNEL_LABEL = "rom-transfer-v1";
+export const ROM_DOWNLOAD_CHANNEL_LABEL = "rom-download-v1";
 export const MAX_CONTROL_MESSAGE_BYTES = 8 * 1024;
 const MAX_ERROR_REASON_BYTES = 1024;
 const FALLBACK_CHUNK_SIZE = 16 * 1024; // Safe across WebRTC stacks without SCTP message interleaving
@@ -439,4 +442,160 @@ export class RomTransferClient {
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
+}
+
+// ── Download ────────────────────────────────────────────────────────────
+
+const DOWNLOAD_POLL_INTERVAL_MS = 500;
+const DOWNLOAD_POLL_TIMEOUT_MS = 30_000;
+const DOWNLOAD_CHUNK_SIZE = 256 * 1024;
+
+interface DownloadOffer {
+  ok: true;
+  sdp: string;
+  game_id: string;
+  name: string;
+  size: number;
+  waiting_for_answer: boolean;
+}
+
+/**
+ * Download a ROM from the server over WebRTC DataChannel.
+ *
+ * 1. Queues a rom_download command on sc-web
+ * 2. Polls for the SDP offer from sc-server
+ * 3. Prompts the user for a save location
+ * 4. Connects via WebRTC, receives chunks, writes to file
+ */
+export async function downloadRom(
+  serverId: string,
+  gameId: string,
+  gameName: string,
+): Promise<{ sha256: string; size: number }> {
+  const headers = csrfHeaders();
+
+  // 1. Queue the download command
+  const queueRes = await fetch(
+    `/api/servers/${encodeURIComponent(serverId)}/rom-downloads`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ game_id: gameId }),
+    },
+  );
+
+  if (!queueRes.ok) {
+    const err = await queueRes.json().catch(() => ({}));
+    throw new Error(err.error ?? "Failed to queue download");
+  }
+
+  // 2. Poll for the SDP offer
+  const pollStart = Date.now();
+  let sdpOffer: string | null = null;
+
+  while (Date.now() - pollStart < DOWNLOAD_POLL_TIMEOUT_MS) {
+    // The command result is delivered when sc-server creates the SDP offer.
+    // We check by re-requesting the download endpoint — it returns the last known state.
+    const pollRes = await fetch(
+      `/api/servers/${encodeURIComponent(serverId)}/rom-downloads/${encodeURIComponent(gameId)}/status`,
+      { headers },
+    );
+
+    if (pollRes.ok) {
+      const data = await pollRes.json();
+      if (data.sdp) {
+        sdpOffer = data.sdp;
+        break;
+      }
+    }
+
+    await new Promise((r) => setTimeout(r, DOWNLOAD_POLL_INTERVAL_MS));
+  }
+
+  if (!sdpOffer) {
+    throw new Error("Server did not respond with an SDP offer in time");
+  }
+
+  // 3. Prompt user for save location
+  const ext = gameName.includes(".") ? "" : ".rom";
+  let writable: FileSystemWritableFileStream;
+  try {
+    const handle = await (window as any).showSaveFilePicker({
+      suggestedName: `${gameName}${ext}`,
+      types: [
+        { description: "ROM file", accept: { "application/octet-stream": [ext || ".rom", ".bin"] } },
+      ],
+    });
+    writable = await handle.createWritable();
+  } catch (e: any) {
+    if (e?.name === "AbortError") throw new Error("Cancelled");
+    throw new Error(`Save dialog failed: ${e}`);
+  }
+
+  // 4. WebRTC connection
+  const iceConfig = await fetchIceConfig();
+  const pc = new RTCPeerConnection(iceConfig);
+
+  return new Promise((resolve, reject) => {
+    let totalReceived = 0;
+    let sha256 = "";
+    let resolved = false;
+    const chunks: Uint8Array[] = [];
+
+    pc.ondatachannel = (event) => {
+      const dc = event.channel;
+      if (dc.label !== ROM_DOWNLOAD_CHANNEL_LABEL) return;
+
+      dc.onmessage = async (e) => {
+        if (typeof e.data === "string") {
+          // Completion message
+          try {
+            const msg = JSON.parse(e.data);
+            if (msg.done && msg.sha256) {
+              sha256 = msg.sha256;
+              // Flush all chunks to disk
+              for (const chunk of chunks) {
+                await writable.write(chunk as any);
+              }
+              await writable.close();
+              if (!resolved) {
+                resolved = true;
+                resolve({ sha256, size: msg.size ?? totalReceived });
+              }
+              pc.close();
+            }
+          } catch {
+            reject(new Error("Invalid completion message"));
+          }
+        } else if (e.data instanceof ArrayBuffer) {
+          const chunk = new Uint8Array(e.data);
+          chunks.push(chunk);
+          totalReceived += chunk.byteLength;
+        } else if (e.data instanceof Blob) {
+          const buf = await e.data.arrayBuffer();
+          const chunk = new Uint8Array(buf);
+          chunks.push(chunk);
+          totalReceived += chunk.byteLength;
+        }
+      };
+
+      dc.onclose = () => {
+        if (!resolved) {
+          resolved = true;
+          reject(new Error("Data channel closed before completion"));
+        }
+      };
+    };
+
+    // Set remote SDP offer, create answer
+    pc.setRemoteDescription({ type: "offer", sdp: sdpOffer! })
+      .then(() => pc.createAnswer())
+      .then((answer) => pc.setLocalDescription(answer))
+      .catch((e) => {
+        if (!resolved) {
+          resolved = true;
+          reject(new Error(`SDP exchange failed: ${e}`));
+        }
+      });
+  });
 }

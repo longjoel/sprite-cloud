@@ -8,6 +8,7 @@ import {
   Edit,
   DesktopWindows,
   Delete,
+  Download,
   MoreVert,
 } from "@mui/icons-material";
 
@@ -39,6 +40,8 @@ interface GameTileContextMenuProps {
   onChooseHost?: () => void;
   /** Delete callback (admin only). */
   onDelete?: () => void;
+  /** Download callback (admin only). */
+  onDownload?: () => void;
   /** Label for the trigger button. */
   triggerAriaLabel?: string;
 }
@@ -88,6 +91,7 @@ export default function GameTileContextMenu({
   onRename,
   onChooseHost,
   onDelete,
+  onDownload,
   triggerAriaLabel,
 }: GameTileContextMenuProps) {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -149,6 +153,17 @@ export default function GameTileContextMenu({
       onClick: () => {
         handleClose();
         onChooseHost();
+      },
+    });
+  }
+  if (onDownload) {
+    actions.push({
+      id: "download",
+      label: "Download",
+      icon: <Download fontSize="small" />,
+      onClick: () => {
+        handleClose();
+        onDownload();
       },
     });
   }
