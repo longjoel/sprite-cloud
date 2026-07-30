@@ -30,6 +30,7 @@ interface GameActionModel {
   canFavorite: boolean;
 
   canRename: boolean;
+  canDelete: boolean;
   isFavorite: (game: Game) => boolean;
 
   onPlay: (game: Game) => void;
@@ -37,6 +38,7 @@ interface GameActionModel {
 
   onRename?: (game: Game) => void;
   onChooseHost?: (game: Game) => void;
+  onDelete?: (game: Game) => void;
 }
 
 interface PlayableHost {
@@ -527,17 +529,51 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
 
   // ── Render helpers ──────────────────────────────────────────────
 
+  const isAdmin = adminServers.length > 0;
+
   const gameActions: GameActionModel = {
     canFavorite: true,
     canRename: true,
+    canDelete: isAdmin,
     isFavorite: (game: Game) => isSavedGameFavorite(favoriteIds, game),
 
     onPlay: handlePlay,
     onToggleFavorite: handleToggleFavorite,
     onRename: startRename,
     onChooseHost: hasServers ? chooseHost : undefined,
+    onDelete: isAdmin ? handleDelete : undefined,
   };
 
+  // ── Delete handler ──────────────────────────────────────────────
+
+  async function handleDelete(game: Game) {
+    const confirmed = window.confirm(
+      `Delete "${game.name}"?\n\nThis permanently removes the game from the server. This action cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    const serverId = game.serverId ?? adminServers[0]?.id;
+    if (!serverId) return;
+
+    try {
+      const res = await fetch(`/api/servers/${encodeURIComponent(serverId)}/delete-game`, {
+        method: "POST",
+        headers: csrfHeaders(),
+        body: JSON.stringify({ game_id: game.id }),
+      });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        alert(data.error ?? "Deletion failed");
+        return;
+      }
+      // Refresh the library — the game will disappear on next poll
+      window.location.reload();
+    } catch {
+      alert("Network error — deletion may not have been processed");
+    }
+  }
+
+  // ── Render card ───────────────────────────────────────────────
 
   const renderGameCard = (game: Game) => (
     <GameTile
@@ -551,6 +587,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
 
       onEdit={gameActions.onRename}
       onChooseHost={gameActions.onChooseHost}
+      onDelete={gameActions.canDelete ? gameActions.onDelete : undefined}
       launching={launchingGame === libraryGameKey(game)}
     />
   );
