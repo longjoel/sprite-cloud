@@ -5,7 +5,9 @@
 //!   client.onProgress = (sent, total) => { ... };
 //!   const result = await client.upload();
 
-const DC_LABEL = "rom-transfer-v1";
+export const ROM_TRANSFER_CHANNEL_LABEL = "rom-transfer-v1";
+export const MAX_CONTROL_MESSAGE_BYTES = 8 * 1024;
+const MAX_ERROR_REASON_BYTES = 1024;
 const FALLBACK_CHUNK_SIZE = 16 * 1024; // Safe across WebRTC stacks without SCTP message interleaving
 const POLL_INTERVAL_MS = 500;
 const POLL_TIMEOUT_MS = 30_000;
@@ -71,11 +73,68 @@ interface TransferErrorMessage {
   reason: string;
 }
 
-type ServerMessage =
+export type ServerMessage =
   | AuthOkMessage
   | AuthErrorMessage
   | TransferOkMessage
   | TransferErrorMessage;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(value: Record<string, unknown>, required: string[], optional: string[] = []): boolean {
+  const keys = Object.keys(value);
+  return required.every((key) => keys.includes(key)) &&
+    keys.every((key) => required.includes(key) || optional.includes(key));
+}
+
+function isSha256(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+}
+
+function isBoundedReason(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 &&
+    new TextEncoder().encode(value).byteLength <= MAX_ERROR_REASON_BYTES;
+}
+
+/** Parse an untrusted text frame from the host using the strict v1 contract. */
+export function parseRomTransferServerMessage(text: string): ServerMessage {
+  if (new TextEncoder().encode(text).byteLength > MAX_CONTROL_MESSAGE_BYTES) {
+    throw new Error("ROM transfer control message too large");
+  }
+
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    throw new Error("Invalid ROM transfer control message");
+  }
+  if (!isRecord(value) || typeof value.cmd !== "string") {
+    throw new Error("Invalid ROM transfer control message");
+  }
+
+  const valid = (() => {
+    switch (value.cmd) {
+      case "auth_ok":
+        return hasExactKeys(value, ["cmd"]);
+      case "auth_error":
+      case "transfer_error":
+        return hasExactKeys(value, ["cmd", "reason"]) && isBoundedReason(value.reason);
+      case "transfer_ok":
+        return hasExactKeys(value, ["cmd", "hash", "size"], ["game_id"]) &&
+          isSha256(value.hash) &&
+          typeof value.size === "number" && Number.isSafeInteger(value.size) && value.size >= 0 &&
+          (value.game_id === undefined || value.game_id === null ||
+            (typeof value.game_id === "string" && value.game_id.length > 0 && value.game_id.length <= 256));
+      default:
+        return false;
+    }
+  })();
+
+  if (!valid) throw new Error("Invalid ROM transfer control message");
+  return value as unknown as ServerMessage;
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -150,7 +209,7 @@ export class RomTransferClient {
       this.setPhase("signaling");
       const iceConfig = await fetchIceConfig();
       this.pc = new RTCPeerConnection(iceConfig);
-      this.dc = this.pc.createDataChannel(DC_LABEL, {
+      this.dc = this.pc.createDataChannel(ROM_TRANSFER_CHANNEL_LABEL, {
         ordered: true,
       });
 
@@ -331,9 +390,9 @@ export class RomTransferClient {
       const onMessage = (event: MessageEvent<string>) => {
         clearTimeout(timeout);
         try {
-          resolve(JSON.parse(event.data) as ServerMessage);
-        } catch {
-          reject(new Error("Invalid JSON from server"));
+          resolve(parseRomTransferServerMessage(event.data));
+        } catch (error) {
+          reject(error instanceof Error ? error : new Error("Invalid ROM transfer control message"));
         }
       };
       const onAbort = () => {

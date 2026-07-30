@@ -362,11 +362,9 @@ impl StagedUpload {
     fn promote_no_replace(&mut self) -> Result<(), StorageError> {
         match std::fs::hard_link(&self.partial_path, &self.final_path) {
             Ok(()) => {
-                if let Err(error) = std::fs::remove_file(&self.partial_path) {
+                if let Err(_error) = std::fs::remove_file(&self.partial_path) {
                     tracing::warn!(
-                        "[ROM STORAGE] committed {}, but could not remove staging {}: {error}",
-                        self.final_path.display(),
-                        self.partial_path.display(),
+                        "[ROM STORAGE] committed but could not remove staging file"
                     );
                 }
                 self.partial_path.clear();
@@ -485,13 +483,10 @@ pub fn cleanup_expired_partials(rom_roots: &[String]) {
                 .map(|modified| now.duration_since(modified).unwrap_or_default() > PARTIAL_EXPIRY)
                 .unwrap_or(true); // can't read metadata → assume expired
             if is_expired {
-                if let Err(e) = std::fs::remove_file(&path) {
-                    tracing::warn!(
-                        "[ROM STORAGE] failed to remove expired partial {}: {e}",
-                        path.display()
-                    );
+                if let Err(_e) = std::fs::remove_file(&path) {
+                    tracing::warn!("[ROM STORAGE] failed to remove expired partial");
                 } else {
-                    tracing::info!("[ROM STORAGE] removed expired partial: {}", path.display());
+                    tracing::info!("[ROM STORAGE] removed expired partial");
                 }
             }
         }
