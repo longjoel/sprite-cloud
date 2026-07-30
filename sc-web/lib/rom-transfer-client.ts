@@ -6,9 +6,20 @@
 //!   const result = await client.upload();
 
 const DC_LABEL = "rom-transfer-v1";
-const CHUNK_SIZE = 256 * 1024; // 256 KiB
+const FALLBACK_CHUNK_SIZE = 64 * 1024; // RFC 8841 default when SDP omits max-message-size
 const POLL_INTERVAL_MS = 500;
 const POLL_TIMEOUT_MS = 30_000;
+
+export function dataChannelChunkSize(maxMessageSize: number | undefined): number {
+  if (
+    typeof maxMessageSize === "number" &&
+    Number.isFinite(maxMessageSize) &&
+    maxMessageSize > 0
+  ) {
+    return Math.min(FALLBACK_CHUNK_SIZE, Math.floor(maxMessageSize));
+  }
+  return FALLBACK_CHUNK_SIZE;
+}
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -337,12 +348,13 @@ export class RomTransferClient {
 
   private async sendFileChunks(signal: AbortSignal): Promise<void> {
     const total = this.file.size;
+    const chunkSize = dataChannelChunkSize(this.pc?.sctp?.maxMessageSize);
     let offset = 0;
 
     while (offset < total) {
       if (signal.aborted) throw new Error("Cancelled");
 
-      const end = Math.min(offset + CHUNK_SIZE, total);
+      const end = Math.min(offset + chunkSize, total);
       const chunk = this.file.slice(offset, end);
       const buffer = await chunk.arrayBuffer();
 
@@ -350,7 +362,7 @@ export class RomTransferClient {
       while (
         this.dc &&
         this.dc.readyState === "open" &&
-        this.dc.bufferedAmount > CHUNK_SIZE * 2
+        this.dc.bufferedAmount > chunkSize * 2
       ) {
         await this.sleep(50);
       }
