@@ -54,3 +54,65 @@ export async function GET(
 
   return NextResponse.json(game);
 }
+
+// ── PUT /api/games/:id ─────────────────────────────────────────────────
+//
+// Rename a game. Only server members can rename games that exist on
+// their servers. Body: { name: string }
+
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "sign in first" }, { status: 401 });
+  }
+
+  const { id: gameId } = await params;
+
+  let body: { name?: unknown };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "invalid json" }, { status: 400 });
+  }
+
+  if (typeof body.name !== "string" || body.name.trim().length === 0) {
+    return NextResponse.json({ error: "name is required" }, { status: 400 });
+  }
+  const newName = body.name.trim();
+
+  // Resolve user's server memberships
+  const memberships = await db
+    .select({ serverId: serverMembers.serverId })
+    .from(serverMembers)
+    .where(eq(serverMembers.userId, session.user.id));
+
+  const serverIds = memberships.map((m) => m.serverId);
+  if (serverIds.length === 0) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
+
+  const [existing] = await db
+    .select({ id: serverGames.gameId, serverId: serverGames.serverId })
+    .from(serverGames)
+    .where(
+      and(
+        eq(serverGames.gameId, gameId),
+        inArray(serverGames.serverId, serverIds),
+      ),
+    )
+    .limit(1);
+
+  if (!existing) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
+
+  await db
+    .update(serverGames)
+    .set({ name: newName })
+    .where(eq(serverGames.gameId, gameId));
+
+  return NextResponse.json({ ok: true, name: newName });
+}
