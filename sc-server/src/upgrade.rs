@@ -1,6 +1,64 @@
 use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::process::Command;
+
+#[derive(Debug)]
+pub struct ManagedRestart {
+    scope: &'static str,
+}
+
+fn restartable_properties(output: &str, current_pid: u32) -> bool {
+    let mut main_pid = None;
+    let mut restart = None;
+    for line in output.lines() {
+        if let Some(value) = line.strip_prefix("MainPID=") {
+            main_pid = value.parse::<u32>().ok();
+        } else if let Some(value) = line.strip_prefix("Restart=") {
+            restart = Some(value);
+        }
+    }
+    main_pid == Some(current_pid) && matches!(restart, Some("on-failure" | "always"))
+}
+
+pub fn verify_managed_restart() -> Result<ManagedRestart> {
+    for scope in ["user", "system"] {
+        let mut command = Command::new("systemctl");
+        if scope == "user" {
+            command.arg("--user");
+        }
+        let output = command
+            .args([
+                "show",
+                "sc-server.service",
+                "--property=MainPID",
+                "--property=Restart",
+            ])
+            .output();
+        if let Ok(output) = output
+            && output.status.success()
+            && restartable_properties(&String::from_utf8_lossy(&output.stdout), std::process::id())
+        {
+            return Ok(ManagedRestart { scope });
+        }
+    }
+    bail!(
+        "dashboard updates require this process to be the main PID of sc-server.service with Restart=on-failure or Restart=always"
+    );
+}
+
+impl ManagedRestart {
+    pub fn schedule(self) {
+        tracing::info!(
+            scope = self.scope,
+            "[UPGRADE] acknowledged update; exiting for managed restart"
+        );
+        tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            std::process::exit(75);
+        });
+    }
+}
 
 const RELEASE_API: &str = "https://api.github.com/repos/longjoel/sprite-cloud/releases/latest";
 const RELEASE_BASE: &str = "https://github.com/longjoel/sprite-cloud/releases/download";
@@ -315,6 +373,21 @@ mod tests {
 
     extern "C" fn count_restored_signal(_: libc::c_int) {
         RESTORED_SIGNAL_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    #[test]
+    fn restart_preflight_requires_exact_main_pid_and_restart_policy() {
+        assert!(restartable_properties(
+            "MainPID=42\nRestart=on-failure\n",
+            42
+        ));
+        assert!(restartable_properties("Restart=always\nMainPID=42\n", 42));
+        assert!(!restartable_properties(
+            "MainPID=41\nRestart=on-failure\n",
+            42
+        ));
+        assert!(!restartable_properties("MainPID=42\nRestart=no\n", 42));
+        assert!(!restartable_properties("", 42));
     }
 
     #[test]
