@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMediaQuery, useTheme } from "@mui/material";
 import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
+import GameTileContextMenu from "@/components/fluent/GameTileContextMenu";
 import AppHeader from "@/components/fluent/AppHeader";
 import LibraryToolbar from "@/components/LibraryToolbar";
 import RomUploadDropzone from "@/components/RomUploadDropzone";
@@ -621,24 +622,26 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
       )}
       <td style={{ padding: "8px 14px", textAlign: "right" }}>
         <div className="library-row-actions">
-          <div className="library-row-secondary-actions">
-            {gameActions.canFavorite && gameActions.onToggleFavorite && <button aria-label={gameActions.isFavorite(game) ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`} onClick={(e) => gameActions.onToggleFavorite?.(game, e)}>{gameActions.isFavorite(game) ? <Star fontSize="inherit" /> : <StarBorder fontSize="inherit" />}</button>}
-
-            {gameActions.canRename && gameActions.onRename && <button aria-label={`Rename ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onRename?.(game); }}><Edit fontSize="inherit" /></button>}
-            {gameActions.onChooseHost && <button disabled={launchingGame === libraryGameKey(game)} aria-label={`Choose host for ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onChooseHost?.(game); }}><DesktopWindows fontSize="inherit" /></button>}
-          </div>
-          {(gameActions.canFavorite || gameActions.canRename || gameActions.onChooseHost) && <details className="library-row-overflow">
-              <summary aria-label={`More actions for ${game.name}`}><span aria-hidden="true">⋯</span></summary>
-              <div className="library-row-overflow-actions">
-                {gameActions.canFavorite && gameActions.onToggleFavorite && <button aria-label={gameActions.isFavorite(game) ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`} onClick={(e) => gameActions.onToggleFavorite?.(game, e)}>{gameActions.isFavorite(game) ? <Star fontSize="inherit" /> : <StarBorder fontSize="inherit" />}<span>{gameActions.isFavorite(game) ? "Remove favorite" : "Add favorite"}</span></button>}
-
-                {gameActions.canRename && gameActions.onRename && <button aria-label={`Rename ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onRename?.(game); }}><Edit fontSize="inherit" /><span>Rename</span></button>}
-                {gameActions.onChooseHost && <button disabled={launchingGame === libraryGameKey(game)} aria-label={`Choose host for ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onChooseHost?.(game); }}><DesktopWindows fontSize="inherit" /><span>Choose host…</span></button>}
-              </div>
-            </details>}
-          <Button disabled={!hasServers || launchingGame === libraryGameKey(game)} variant="primary" size="sm" aria-label={`Play ${game.name}`} onClick={(e) => { e.stopPropagation(); gameActions.onPlay(game); }}>
+          <Button
+            disabled={!hasServers || launchingGame === libraryGameKey(game)}
+            variant="primary"
+            size="sm"
+            aria-label={`Play ${game.name}`}
+            onClick={(e) => { e.stopPropagation(); gameActions.onPlay(game); }}
+          >
             {launchingGame === libraryGameKey(game) ? "Launching…" : "Play"}
           </Button>
+          {(gameActions.canFavorite || gameActions.canRename || gameActions.canDelete || !!gameActions.onChooseHost) && (
+            <GameTileContextMenu
+              game={game}
+              isFavorite={gameActions.isFavorite(game)}
+              onToggleFavorite={gameActions.canFavorite ? () => gameActions.onToggleFavorite?.(game, {} as React.MouseEvent) : undefined}
+              onRename={gameActions.canRename ? () => gameActions.onRename?.(game) : undefined}
+              onChooseHost={gameActions.onChooseHost ? () => gameActions.onChooseHost?.(game) : undefined}
+              onDelete={gameActions.canDelete ? () => gameActions.onDelete?.(game) : undefined}
+              triggerAriaLabel={`More actions for ${game.name}`}
+            />
+          )}
         </div>
       </td>
     </tr>
