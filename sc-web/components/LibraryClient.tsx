@@ -6,6 +6,7 @@ import { useMediaQuery, useTheme } from "@mui/material";
 import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
 import GameTileContextMenu from "@/components/fluent/GameTileContextMenu";
+import { downloadRom } from "@/lib/rom-transfer-client";
 import AppHeader from "@/components/fluent/AppHeader";
 import LibraryToolbar from "@/components/LibraryToolbar";
 import RomUploadDropzone from "@/components/RomUploadDropzone";
@@ -40,6 +41,7 @@ interface GameActionModel {
   onRename?: (game: Game) => void;
   onChooseHost?: (game: Game) => void;
   onDelete?: (game: Game) => void;
+  onDownload?: (game: Game) => void;
 }
 
 interface PlayableHost {
@@ -543,6 +545,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
     onRename: startRename,
     onChooseHost: hasServers ? chooseHost : undefined,
     onDelete: isAdmin ? handleDelete : undefined,
+    onDownload: isAdmin ? handleDownload : undefined,
   };
 
   // ── Delete handler ──────────────────────────────────────────────
@@ -574,6 +577,21 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
     }
   }
 
+  // ── Download handler ─────────────────────────────────────────────
+
+  async function handleDownload(game: Game) {
+    const serverId = game.serverId ?? adminServers[0]?.id;
+    if (!serverId) return;
+
+    try {
+      await downloadRom(serverId, game.id, game.name);
+    } catch (err: any) {
+      if (err?.message !== "Cancelled") {
+        alert(err?.message ?? "Download failed");
+      }
+    }
+  }
+
   // ── Render card ───────────────────────────────────────────────
 
   const renderGameCard = (game: Game) => (
@@ -589,6 +607,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
       onEdit={gameActions.onRename}
       onChooseHost={gameActions.onChooseHost}
       onDelete={gameActions.canDelete ? gameActions.onDelete : undefined}
+      onDownload={gameActions.onDownload ? gameActions.onDownload : undefined}
       launching={launchingGame === libraryGameKey(game)}
     />
   );
@@ -631,7 +650,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
           >
             {launchingGame === libraryGameKey(game) ? "Launching…" : "Play"}
           </Button>
-          {(gameActions.canFavorite || gameActions.canRename || gameActions.canDelete || !!gameActions.onChooseHost) && (
+          {(gameActions.canFavorite || gameActions.canRename || gameActions.canDelete || !!gameActions.onChooseHost || !!gameActions.onDownload) && (
             <GameTileContextMenu
               game={game}
               isFavorite={gameActions.isFavorite(game)}
@@ -639,6 +658,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
               onRename={gameActions.canRename ? () => gameActions.onRename?.(game) : undefined}
               onChooseHost={gameActions.onChooseHost ? () => gameActions.onChooseHost?.(game) : undefined}
               onDelete={gameActions.canDelete ? () => gameActions.onDelete?.(game) : undefined}
+              onDownload={gameActions.onDownload ? () => gameActions.onDownload?.(game) : undefined}
               triggerAriaLabel={`More actions for ${game.name}`}
             />
           )}

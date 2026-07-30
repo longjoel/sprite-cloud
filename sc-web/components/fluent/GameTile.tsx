@@ -24,6 +24,7 @@ interface GameTileProps {
   onEdit?: (game: TileGame) => void;
   onChooseHost?: (game: TileGame) => void;
   onDelete?: (game: TileGame) => void;
+  onDownload?: (game: TileGame) => void;
   launching?: boolean;
 }
 
@@ -38,6 +39,7 @@ export default function GameTile({
   onEdit,
   onChooseHost,
   onDelete,
+  onDownload,
   launching = false,
 }: GameTileProps) {
   const nameRef = useRef<HTMLSpanElement>(null);
@@ -49,7 +51,7 @@ export default function GameTile({
   }, [game.name]);
 
   // Detect whether the context menu has any actions to show
-  const hasContextActions = !!(onToggleFavorite || onEdit || onChooseHost || onDelete);
+  const hasContextActions = !!(onToggleFavorite || onEdit || onChooseHost || onDelete || onDownload);
 
   return (
     <MuiCard
@@ -86,6 +88,7 @@ export default function GameTile({
           onRename={onEdit ? () => onEdit(game) : undefined}
           onChooseHost={onChooseHost ? () => onChooseHost(game) : undefined}
           onDelete={onDelete ? () => onDelete(game) : undefined}
+          onDownload={onDownload ? () => onDownload(game) : undefined}
           triggerAriaLabel={`More actions for ${game.name}`}
         />
       )}
