@@ -134,13 +134,29 @@ export async function POST(
     sdp,
   };
 
-  await db
+  const [activated] = await db
     .update(commands)
     .set({
       payload: enrichedPayload,
       status: STATUS_PENDING,
     })
-    .where(eq(commands.id, cmd.id));
+    .where(
+      and(
+        eq(commands.id, cmd.id),
+        eq(commands.serverId, server_id),
+        eq(commands.type, CMD_ROM_TRANSFER),
+        eq(commands.status, "preparing"),
+        sql`${commands.payload}->>'transfer_id' = ${transfer_id}`,
+      ),
+    )
+    .returning({ id: commands.id });
+
+  if (!activated) {
+    return NextResponse.json(
+      { error: "transfer already activated" },
+      { status: 409 },
+    );
+  }
 
   return NextResponse.json({
     ok: true,
