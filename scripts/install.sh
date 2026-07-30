@@ -106,6 +106,7 @@ else
     err "sudo not found — run as root or use --rootless"
   fi
   BIN_DIR="/usr/local/bin"
+  MANAGED_BIN_DIR="${DATA_DIR}/bin"
   CONFIG_DIR="/etc/sprite-cloud"
   DATA_DIR="/var/lib/sprite-cloud"
   SYSTEMD_DIR="/etc/systemd/system"
@@ -116,7 +117,9 @@ fi
 
 CORES_DIR="${DATA_DIR}/cores"
 CONFIG_FILE="${CONFIG_DIR}/config.toml"
-BIN_PATH="${BIN_DIR}/sc-server"
+BIN_PATH="${MANAGED_BIN_DIR}/sc-server"
+CORE_BIN_PATH="${MANAGED_BIN_DIR}/sc-core"
+MANAGED_BIN_PATH="${MANAGED_BIN_DIR}/sc-server"
 
 printf "${BOLD}Sprite Cloud — Self-Hosted Install${NC}\n"
 printf "  Mode:   ${CYAN}%s${NC}\n" "$MODE"
@@ -161,13 +164,24 @@ if ! $ROOTLESS; then
   fi
 fi
 
-$SUDO mkdir -p "$BIN_DIR" "$CONFIG_DIR" "$DATA_DIR" "$CORES_DIR"
+$SUDO mkdir -p "$BIN_DIR" "$MANAGED_BIN_DIR" "$CONFIG_DIR" "$DATA_DIR" "$CORES_DIR"
 
 if ! $ROOTLESS; then
   $SUDO chown -R "$SU_CMD" "$DATA_DIR"
 fi
 
 ok "directories created"
+
+# ── Migrate existing /usr/local/bin installation ──────────────────────
+if ! $ROOTLESS && $SUDO test -e /usr/local/bin/sc-server && ! $SUDO test -e "$BIN_PATH"; then
+  warn "existing /usr/local/bin installation detected — migrating to managed directory"
+  $SUDO cp -p /usr/local/bin/sc-server "$BIN_PATH" || err "migration failed: sc-server"
+  $SUDO cp -p /usr/local/bin/sc-core "$CORE_BIN_PATH" 2>/dev/null || true
+  $SUDO chown "$SU_CMD" "$BIN_PATH" "$CORE_BIN_PATH" 2>/dev/null || true
+  $SUDO mv /usr/local/bin/sc-server "/usr/local/bin/sc-server.migrated-$(date +%Y%m%dT%H%M%SZ)" 2>/dev/null || true
+  $SUDO mv /usr/local/bin/sc-core "/usr/local/bin/sc-core.migrated-$(date +%Y%m%dT%H%M%SZ)" 2>/dev/null || true
+  ok "binaries migrated to ${MANAGED_BIN_DIR}"
+fi
 
 # ── Download binary ────────────────────────────────────────────────────
 BIN_URL="${GV_BIN_URL:-https://github.com/longjoel/sprite-cloud/releases/latest/download/sc-server-${ARCH}}"
@@ -184,9 +198,7 @@ EXPECTED_SHA="$(cut -d ' ' -f1 "$DOWNLOAD_SHA")"
 [[ "$EXPECTED_SHA" =~ ^[0-9a-fA-F]{64}$ ]] || err "invalid checksum file"
 (cd "$DOWNLOAD_DIR" && printf '%s  %s\n' "$EXPECTED_SHA" sc-server | sha256sum -c - >/dev/null) \
   || err "checksum verification failed"
-BIN_DIR="$(dirname "$BIN_PATH")"
 # Keep both verified downloads staged before replacing either installed executable.
-CORE_BIN_PATH="${BIN_DIR}/sc-core"
 CORE_BIN_URL="${GV_CORE_BIN_URL:-https://github.com/longjoel/sprite-cloud/releases/latest/download/sc-core-${ARCH}}"
 CORE_SHA_URL="${GV_CORE_BIN_SHA256_URL:-${CORE_BIN_URL}.sha256}"
 DOWNLOAD_CORE="$DOWNLOAD_DIR/sc-core"
@@ -199,14 +211,14 @@ EXPECTED_CORE_SHA="$(cut -d ' ' -f1 "$DOWNLOAD_CORE_SHA")"
 [[ "$EXPECTED_CORE_SHA" =~ ^[0-9a-fA-F]{64}$ ]] || err "invalid sc-core checksum file"
 (cd "$DOWNLOAD_DIR" && printf '%s  %s\n' "$EXPECTED_CORE_SHA" sc-core | sha256sum -c - >/dev/null) \
   || err "sc-core checksum verification failed"
-STAGED_CORE="$($SUDO mktemp "$BIN_DIR/.sc-core.XXXXXX")" || err "could not stage sc-core in $BIN_DIR"
+STAGED_CORE="$($SUDO mktemp "$MANAGED_BIN_DIR/.sc-core.XXXXXX")" || err "could not stage sc-core in $MANAGED_BIN_DIR"
 if ! $SUDO install -m 0755 "$DOWNLOAD_CORE" "$STAGED_CORE"; then
   $SUDO rm -f "$STAGED_CORE"
   err "sc-core staging failed"
 fi
-STAGED_SERVER="$($SUDO mktemp "$BIN_DIR/.sc-server.XXXXXX")" || {
+STAGED_SERVER="$($SUDO mktemp "$MANAGED_BIN_DIR/.sc-server.XXXXXX")" || {
   $SUDO rm -f "$STAGED_CORE"
-  err "could not stage sc-server in $BIN_DIR"
+  err "could not stage sc-server in $MANAGED_BIN_DIR"
 }
 if ! $SUDO install -m 0755 "$DOWNLOAD_BIN" "$STAGED_SERVER"; then
   $SUDO rm -f "$STAGED_CORE" "$STAGED_SERVER"
@@ -216,11 +228,11 @@ fi
 BACKUP_CORE=""
 BACKUP_SERVER=""
 if $SUDO test -e "$CORE_BIN_PATH"; then
-  BACKUP_CORE="$($SUDO mktemp "$BIN_DIR/.sc-core.backup.XXXXXX")" || err "could not stage sc-core rollback"
+  BACKUP_CORE="$($SUDO mktemp "$MANAGED_BIN_DIR/.sc-core.backup.XXXXXX")" || err "could not stage sc-core rollback"
   $SUDO cp -p "$CORE_BIN_PATH" "$BACKUP_CORE" || err "could not back up sc-core"
 fi
 if $SUDO test -e "$BIN_PATH"; then
-  BACKUP_SERVER="$($SUDO mktemp "$BIN_DIR/.sc-server.backup.XXXXXX")" || err "could not stage sc-server rollback"
+  BACKUP_SERVER="$($SUDO mktemp "$MANAGED_BIN_DIR/.sc-server.backup.XXXXXX")" || err "could not stage sc-server rollback"
   $SUDO cp -p "$BIN_PATH" "$BACKUP_SERVER" || err "could not back up sc-server"
 fi
 
@@ -251,6 +263,29 @@ trap - INT TERM HUP
 $SUDO rm -f "$BACKUP_CORE" "$BACKUP_SERVER"
 ok "sc-core installed to $CORE_BIN_PATH"
 ok "sc-server installed to $BIN_PATH"
+
+# ── Convenience symlink ──────────────────────────────────────────────────
+if ! $ROOTLESS; then
+  $SUDO ln -sf "$BIN_PATH" "/usr/local/bin/sc-server"
+  ok "symlink created: /usr/local/bin/sc-server → $BIN_PATH"
+fi
+
+# ── ROM root (system-wide only) ────────────────────────────────────────
+if ! $ROOTLESS && [[ -n "$ROM_DIR" ]] && [[ ! -d "$ROM_DIR" ]]; then
+  $SUDO mkdir -p "$ROM_DIR"
+  $SUDO chown "$SU_CMD" "$ROM_DIR"
+  ok "ROM root created: $ROM_DIR"
+fi
+
+# ── Preflight: verify service can write to its binary directory ────────
+if ! $ROOTLESS; then
+  PROBE_FILE="${MANAGED_BIN_DIR}/.sc-install-write-probe-$$"
+  if ! $SUDO touch "$PROBE_FILE" 2>/dev/null; then
+    err "${MANAGED_BIN_DIR} is not writable — check filesystem permissions"
+  fi
+  $SUDO rm -f "$PROBE_FILE"
+  ok "managed binary directory writable: ${MANAGED_BIN_DIR}"
+fi
 
 # ── Config ─────────────────────────────────────────────────────────────
 log "Configuration"
@@ -359,7 +394,7 @@ Environment="GV_ICE_STUN_URLS=stun:stun.l.google.com:19302,stun:stun1.l.google.c
 Environment="GV_ICE_TURN_URLS=turn:sprite-cloud.com:3478?transport=udp"
 Environment="GV_ICE_TURN_USERNAME=guest"
 Environment="GV_ICE_TURN_CREDENTIAL=${TURN_CREDENTIAL:-}"
-ExecStart=${BIN_PATH} start
+ExecStart=${MANAGED_BIN_PATH} start
 Restart=on-failure
 RestartSec=5
 LimitNOFILE=65536
@@ -368,7 +403,7 @@ LimitNOFILE=65536
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=${DATA_DIR} /tmp/sc-sessions
+ReadWritePaths=${DATA_DIR} ${ROM_DIR} /tmp/sc-sessions
 PrivateTmp=yes
 PrivateDevices=no
 DeviceAllow=/dev/dri rw
