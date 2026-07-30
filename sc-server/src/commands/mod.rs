@@ -288,6 +288,13 @@ pub(crate) async fn cmd_start(
                                         Arc::clone(&library_preferences),
                                         Arc::clone(&catalog_sync_lock),
                                     ).await;
+                                } else if cmd.command_type == "rom_download" {
+                                    crate::rom_transfer::download::handle_rom_download(
+                                        cmd,
+                                        &client,
+                                        &rom_roots,
+                                        Arc::clone(&local_game_list),
+                                    ).await;
                                 } else if cmd.command_type == "upgrade_server" {
                                     if !sessions.is_empty() {
                                         if let Err(error) = client.command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({
