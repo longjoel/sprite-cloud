@@ -8,8 +8,16 @@ interface SyncGame {
   id: string;
   name: string;
   source_name?: string | null;
+  thumbnail_name?: string | null;
   platform: string;
   max_players?: number;
+}
+
+function canonicalThumbnailName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const name = value.trim();
+  // Keep catalog input bounded before it becomes a remote URL segment.
+  return name.length > 0 && name.length <= 300 ? name : null;
 }
 
 // POST /api/server/sync-games — sc-server pushes its game catalog to sc-web.
@@ -54,6 +62,7 @@ export async function POST(request: NextRequest) {
         gameId: game.id,
         name: game.name,
         sourceName: game.source_name ?? null,
+        thumbnailName: canonicalThumbnailName(game.thumbnail_name),
         platform: game.platform || "Unknown",
         maxPlayers: game.max_players ?? 1,
       })
@@ -62,6 +71,7 @@ export async function POST(request: NextRequest) {
         set: {
           name: game.name,
           sourceName: game.source_name ?? null,
+          thumbnailName: canonicalThumbnailName(game.thumbnail_name),
           platform: game.platform || "Unknown",
           maxPlayers: game.max_players ?? 1,
           updatedAt: new Date(),
