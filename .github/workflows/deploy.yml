@@ -54,6 +54,8 @@ jobs:
             sc-web/drizzle/0018_add_invite_codes.sql \
             sc-web/drizzle/0019_bind_short_codes_to_users.sql \
             sc-web/drizzle/0020_active_upgrade_guard.sql \
+            sc-web/drizzle/0021_add_source_name.sql \
+            sc-web/drizzle/0022_add_thumbnail_name.sql \
           ; do
             if [ ! -f "$migration" ]; then
               echo "  skip (not present): $migration"

@@ -37,6 +37,8 @@ export const serverGames = pgTable("server_games", {
   gameId: text("game_id").notNull(),
   name: text("name").notNull(),
   sourceName: text("source_name"),
+  // Trusted canonical DAT identity supplied by the paired server. UI renames never change it.
+  thumbnailName: text("thumbnail_name"),
   platform: text("platform").notNull().default("Unknown"),
   maxPlayers: integer("max_players").notNull().default(1),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
