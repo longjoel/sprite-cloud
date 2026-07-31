@@ -447,25 +447,13 @@ export class RomTransferClient {
 // ── Download ────────────────────────────────────────────────────────────
 
 const DOWNLOAD_POLL_INTERVAL_MS = 500;
-const DOWNLOAD_POLL_TIMEOUT_MS = 30_000;
-const DOWNLOAD_CHUNK_SIZE = 256 * 1024;
-
-interface DownloadOffer {
-  ok: true;
-  sdp: string;
-  game_id: string;
-  name: string;
-  size: number;
-  waiting_for_answer: boolean;
-}
+const DOWNLOAD_POLL_TIMEOUT_MS = 60_000;
 
 /**
  * Download a ROM from the server over WebRTC DataChannel.
  *
- * 1. Queues a rom_download command on sc-web
- * 2. Polls for the SDP offer from sc-server
- * 3. Prompts the user for a save location
- * 4. Connects via WebRTC, receives chunks, writes to file
+ * Browser creates the offer (mirrors upload flow). Server answers,
+ * creates its own DataChannel, and streams the file.
  */
 export async function downloadRom(
   serverId: string,
@@ -474,49 +462,7 @@ export async function downloadRom(
 ): Promise<{ sha256: string; size: number }> {
   const headers = csrfHeaders();
 
-  // 1. Queue the download command
-  const queueRes = await fetch(
-    `/api/servers/${encodeURIComponent(serverId)}/rom-downloads`,
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ game_id: gameId }),
-    },
-  );
-
-  if (!queueRes.ok) {
-    const err = await queueRes.json().catch(() => ({}));
-    throw new Error(err.error ?? "Failed to queue download");
-  }
-
-  // 2. Poll for the SDP offer
-  const pollStart = Date.now();
-  let sdpOffer: string | null = null;
-
-  while (Date.now() - pollStart < DOWNLOAD_POLL_TIMEOUT_MS) {
-    // The command result is delivered when sc-server creates the SDP offer.
-    // We check by re-requesting the download endpoint — it returns the last known state.
-    const pollRes = await fetch(
-      `/api/servers/${encodeURIComponent(serverId)}/rom-downloads/${encodeURIComponent(gameId)}/status`,
-      { headers },
-    );
-
-    if (pollRes.ok) {
-      const data = await pollRes.json();
-      if (data.sdp) {
-        sdpOffer = data.sdp;
-        break;
-      }
-    }
-
-    await new Promise((r) => setTimeout(r, DOWNLOAD_POLL_INTERVAL_MS));
-  }
-
-  if (!sdpOffer) {
-    throw new Error("Server did not respond with an SDP offer in time");
-  }
-
-  // 3. Prompt user for save location
+  // Prompt user for save location first
   const ext = gameName.includes(".") ? "" : ".rom";
   let writable: FileSystemWritableFileStream;
   try {
@@ -532,7 +478,7 @@ export async function downloadRom(
     throw new Error(`Save dialog failed: ${e}`);
   }
 
-  // 4. WebRTC connection
+  // Create peer connection
   const iceConfig = await fetchIceConfig();
   const pc = new RTCPeerConnection(iceConfig);
 
@@ -548,12 +494,10 @@ export async function downloadRom(
 
       dc.onmessage = async (e) => {
         if (typeof e.data === "string") {
-          // Completion message
           try {
             const msg = JSON.parse(e.data);
             if (msg.done && msg.sha256) {
               sha256 = msg.sha256;
-              // Flush all chunks to disk
               for (const chunk of chunks) {
                 await writable.write(chunk as any);
               }
@@ -587,14 +531,65 @@ export async function downloadRom(
       };
     };
 
-    // Set remote SDP offer, create answer
-    pc.setRemoteDescription({ type: "offer", sdp: sdpOffer! })
-      .then(() => pc.createAnswer())
-      .then((answer) => pc.setLocalDescription(answer))
+    // Create offer, wait for ICE, send to server, poll for answer
+    pc.createOffer()
+      .then((offer) => pc.setLocalDescription(offer))
+      .then(() => new Promise<void>((resolve, reject) => {
+        if (pc.iceGatheringState === "complete") resolve();
+        else {
+          const timeout = setTimeout(() => reject(new Error("ICE gathering timed out")), 15_000);
+          const handler = () => {
+            if (pc.iceGatheringState === "complete") {
+              clearTimeout(timeout);
+              pc.removeEventListener("icegatheringstatechange", handler);
+              resolve();
+            }
+          };
+          pc.addEventListener("icegatheringstatechange", handler);
+        }
+      }))
+      .then(() => {
+        const sdp = pc.localDescription?.sdp;
+        if (!sdp) throw new Error("No local SDP");
+        return fetch(
+          `/api/servers/${encodeURIComponent(serverId)}/rom-downloads`,
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ game_id: gameId, sdp }),
+          },
+        );
+      })
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data: any) => {
+        if (!data.ok || !data.command_id) throw new Error("Failed to queue download");
+        return data.command_id as string;
+      })
+      .then(async (commandId) => {
+        const pollStart = Date.now();
+        while (Date.now() - pollStart < DOWNLOAD_POLL_TIMEOUT_MS) {
+          const pollRes = await fetch(
+            `/api/servers/${encodeURIComponent(serverId)}/rom-downloads?command_id=${encodeURIComponent(commandId)}`,
+            { headers },
+          );
+          if (pollRes.ok) {
+            const data = await pollRes.json();
+            if (data.sdp) {
+              await pc.setRemoteDescription({ type: "answer", sdp: data.sdp });
+              return; // DataChannel opens → server streams file
+            }
+          }
+          await new Promise((r) => setTimeout(r, DOWNLOAD_POLL_INTERVAL_MS));
+        }
+        throw new Error("Server did not respond with SDP answer in time");
+      })
       .catch((e) => {
         if (!resolved) {
           resolved = true;
-          reject(new Error(`SDP exchange failed: ${e}`));
+          reject(e instanceof Error ? e : new Error(`Download failed: ${e}`));
         }
       });
   });
