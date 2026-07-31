@@ -1,4 +1,5 @@
-//! Browser-side ROM transfer client over WebRTC data channel.
+//! Browser-side ROM transfer client.
+//! Upload uses WebRTC DataChannel; download uses HTTP proxy.
 //!
 //! Usage:
 //!   const client = new RomTransferClient(file, transferCreds, serverId);
@@ -8,7 +9,6 @@
 //!   await downloadRom(serverId, gameId, gameName);
 
 export const ROM_TRANSFER_CHANNEL_LABEL = "rom-transfer-v1";
-export const ROM_DOWNLOAD_CHANNEL_LABEL = "rom-download-v1";
 export const MAX_CONTROL_MESSAGE_BYTES = 8 * 1024;
 const MAX_ERROR_REASON_BYTES = 1024;
 const FALLBACK_CHUNK_SIZE = 16 * 1024; // Safe across WebRTC stacks without SCTP message interleaving
