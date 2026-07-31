@@ -1,6 +1,7 @@
 mod commands;
 mod config;
 mod core_bridge;
+mod dat;
 mod encoder_probe;
 mod gst_audio;
 mod gst_video;
