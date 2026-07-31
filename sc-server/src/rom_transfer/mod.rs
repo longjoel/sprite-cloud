@@ -10,4 +10,5 @@
 pub mod download;
 pub mod protocol;
 pub mod session;
+pub mod staging;
 pub mod storage;
