@@ -7,6 +7,7 @@ pub mod bios;
 pub mod commands;
 pub mod config;
 pub mod core_bridge;
+pub mod covers;
 pub mod dat;
 pub mod encoder_probe;
 pub mod gst_audio;

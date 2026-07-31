@@ -105,6 +105,7 @@ fn app_router() -> Router<Arc<AppState>> {
         .route("/api/recent-plays", get(list_recent_plays))
         .route("/api/games/:id", get(get_game).put(rename_game))
         .route("/api/playable-hosts", get(playable_hosts))
+        .route("/covers/:game_id", get(serve_cover))
         .route("/api/room/resolve/:code", get(proxy_server_authenticated))
         .route("/api/room/share", post(proxy_server_authenticated))
         .route("/api/room/shorten", post(proxy_server_authenticated))
@@ -562,6 +563,64 @@ async fn get_game(
         .find(|game| game.id == game_id)
         .ok_or(axum::http::StatusCode::NOT_FOUND)?;
     Ok(Json(game_entry(game, &state, &preferences)))
+}
+
+/// Serve a cached or lazily-fetched cover image for a game.
+///
+/// Checks the local cover cache first. On miss, fetches from the
+/// RetroArch thumbnail server, validates, and caches. Returns 404
+/// if no cover is available — the web UI falls back to a platform-color
+/// placeholder.
+async fn serve_cover(
+    Path(game_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<axum::response::Response, axum::http::StatusCode> {
+    let standalone = state
+        .standalone
+        .as_ref()
+        .ok_or(axum::http::StatusCode::NOT_FOUND)?;
+
+    // Look up the game to get platform + name
+    let games = standalone.game_list.read().await;
+    let game = games
+        .iter()
+        .find(|g| g.id == game_id)
+        .ok_or(axum::http::StatusCode::NOT_FOUND)?;
+
+    let platform_name = game
+        .discovered
+        .platform
+        .as_deref()
+        .unwrap_or("unknown");
+    let game_name = local_game_name(game);
+
+    // Covers directory: sibling of first ROM root
+    let covers_dir = standalone
+        .rom_roots
+        .first()
+        .map(|r| std::path::Path::new(r).parent().unwrap_or(std::path::Path::new(".")).join("covers"))
+        .unwrap_or_else(|| std::path::PathBuf::from("covers"));
+
+    match crate::covers::resolve_cover(&covers_dir, &game_id, platform_name, &game_name).await {
+        crate::covers::CoverResult::Cached(path) => {
+            match tokio::fs::read(&path).await {
+                Ok(bytes) => {
+                    Ok(axum::response::Response::builder()
+                        .header("Content-Type", "image/png")
+                        .header("Cache-Control", "public, max-age=86400, immutable")
+                        .body(axum::body::Body::from(bytes))
+                        .unwrap())
+                }
+                Err(e) => {
+                    tracing::warn!("[COVER] failed to read cached cover {}: {e}", path.display());
+                    Err(axum::http::StatusCode::NOT_FOUND)
+                }
+            }
+        }
+        crate::covers::CoverResult::NotFound => {
+            Err(axum::http::StatusCode::NOT_FOUND)
+        }
+    }
 }
 
 async fn preference_entries(

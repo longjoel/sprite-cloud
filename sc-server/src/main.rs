@@ -2,6 +2,7 @@ mod bios;
 mod commands;
 mod config;
 mod core_bridge;
+mod covers;
 mod dat;
 mod encoder_probe;
 mod gst_audio;
