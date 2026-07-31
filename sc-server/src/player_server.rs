@@ -423,6 +423,8 @@ struct GameEntry {
     favorite: bool,
     #[serde(rename = "playedAt", skip_serializing_if = "Option::is_none")]
     played_at: Option<String>,
+    #[serde(rename = "coverUrl", skip_serializing_if = "Option::is_none")]
+    cover_url: Option<String>,
 }
 
 #[derive(Default, Deserialize)]
@@ -491,6 +493,7 @@ fn game_entry(
         max_players: 1,
         favorite: preferences.is_favorite(&game.id),
         played_at: preferences.recent.get(&game.id).cloned(),
+        cover_url: Some(format!("/covers/{}", game.id)),
     }
 }
 

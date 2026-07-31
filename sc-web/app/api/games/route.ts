@@ -28,6 +28,7 @@ interface GameEntry {
   platform: string;
   serverId: string;
   maxPlayers: number;
+  coverUrl?: string | null;
 }
 
 export async function GET(request: NextRequest) {
@@ -95,7 +96,7 @@ export async function GET(request: NextRequest) {
     .offset(offset);
 
   return NextResponse.json({
-    games: rows.map((r) => ({ id: r.id, name: r.name, platform: r.platform, serverId: r.serverId, maxPlayers: r.maxPlayers })),
+    games: rows.map((r) => ({ id: r.id, name: r.name, platform: r.platform, serverId: r.serverId, maxPlayers: r.maxPlayers, coverUrl: null })),
     total: Number(total),
     platforms: platformRows.map((r) => ({ name: r.name, count: Number(r.count) })),
   });
