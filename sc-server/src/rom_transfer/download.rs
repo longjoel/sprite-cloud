@@ -163,15 +163,8 @@ pub(crate) async fn handle_rom_download(
         }
     };
 
-    if let Err(e) = pc.set_remote_description(offer_desc).await {
-        let _ = client
-            .command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({"ok": false, "error": format!("set remote desc failed: {e}")}),
-            )
-            .await;
-        return;
-    }
-
-    // Wait for the browser's DataChannel to arrive, then stream
+    // Register on_data_channel BEFORE set_remote_description —
+    // the DC event fires during SDP processing (or we miss the channel)
     let (dc_tx, mut dc_rx) = tokio::sync::mpsc::channel::<Arc<RTCDataChannel>>(1);
 
     pc.on_data_channel(Box::new(move |dc| {
@@ -182,6 +175,14 @@ pub(crate) async fn handle_rom_download(
             }
         })
     }));
+
+    if let Err(e) = pc.set_remote_description(offer_desc).await {
+        let _ = client
+            .command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({"ok": false, "error": format!("set remote desc failed: {e}")}),
+            )
+            .await;
+        return;
+    }
 
     // Create answer (we're the answerer — DC arrives from browser's offer)
     let answer = match pc.create_answer(None).await {
