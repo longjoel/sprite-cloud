@@ -104,13 +104,54 @@ pub(crate) async fn resolve_cover(
 ///
 /// URL pattern: `{base}/{platform}/Named_Boxarts/{name}.png`
 ///
-/// Game names are URL-encoded. Special characters in platform names
-/// (spaces, hyphens, slashes) are preserved as-is — RetroArch uses
-/// them directly in folder names.
+/// Platform names are mapped from sc-server short names (e.g. "SNES")
+/// to RetroArch's No-Intro folder names (e.g. "Nintendo - Super Nintendo Entertainment System").
+/// Game names are URL-encoded. Folder separators in platform names are encoded
+/// so the full path is a valid URL.
 fn build_thumbnail_url(platform: &str, game_name: &str) -> String {
-    // URL-encode the game name: spaces → %20, parens → %28/%29, etc.
+    let ra_platform = retroarch_platform_name(platform);
     let encoded_name = urlencoding(game_name);
-    format!("{THUMBNAIL_BASE}/{platform}/Named_Boxarts/{encoded_name}.png")
+    format!("{THUMBNAIL_BASE}/{ra_platform}/Named_Boxarts/{encoded_name}.png")
+}
+
+/// Map sc-server platform short names to RetroArch thumbnail folder names.
+fn retroarch_platform_name(short: &str) -> String {
+    let mapped = match short {
+        "SNES" => "Nintendo - Super Nintendo Entertainment System",
+        "NES" => "Nintendo - Nintendo Entertainment System",
+        "Game Boy" => "Nintendo - Game Boy",
+        "Game Boy Color" => "Nintendo - Game Boy Color",
+        "Game Boy Advance" => "Nintendo - Game Boy Advance",
+        "Nintendo 64" => "Nintendo - Nintendo 64",
+        "Nintendo DS" => "Nintendo - Nintendo DS",
+        "Virtual Boy" => "Nintendo - Virtual Boy",
+        "Family Computer Disk System" => "Nintendo - Family Computer Disk System",
+        "Pokemon Mini" => "Nintendo - Pokemon Mini",
+        "Genesis" => "Sega - Mega Drive - Genesis",
+        "Master System" => "Sega - Master System - Mark III",
+        "Game Gear" => "Sega - Game Gear",
+        "Sega CD" => "Sega - Mega-CD - Sega CD",
+        "Sega 32X" => "Sega - 32X",
+        "Saturn" => "Sega - Saturn",
+        "Dreamcast" => "Sega - Dreamcast",
+        "PlayStation" => "Sony - PlayStation",
+        "PSP" => "Sony - PlayStation Portable",
+        "Atari 2600" => "Atari - 2600",
+        "Atari 5200" => "Atari - 5200",
+        "Atari 7800" => "Atari - 7800",
+        "Atari Lynx" => "Atari - Lynx",
+        "PC Engine" => "NEC - PC Engine - TurboGrafx 16",
+        "Neo Geo Pocket" => "SNK - Neo Geo Pocket",
+        "Neo Geo Pocket Color" => "SNK - Neo Geo Pocket Color",
+        "Neo Geo CD" => "SNK - Neo Geo CD",
+        "WonderSwan" => "Bandai - WonderSwan",
+        "WonderSwan Color" => "Bandai - WonderSwan Color",
+        "Arcade" => "Arcade",
+        // Unknown — use as-is for forward compat
+        other => other,
+    };
+    // URL-encode the platform path segment (spaces become %20, etc.)
+    urlencoding(mapped)
 }
 
 /// Download cover bytes from a URL.
@@ -206,7 +247,7 @@ mod tests {
         );
         assert_eq!(
             url,
-            "https://thumbnails.libretro.com/Nintendo - Super Nintendo Entertainment System/Named_Boxarts/Super%20Mario%20World%20%28USA%29.png"
+            "https://thumbnails.libretro.com/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System/Named_Boxarts/Super%20Mario%20World%20%28USA%29.png"
         );
     }
 
