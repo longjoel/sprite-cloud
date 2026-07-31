@@ -35,16 +35,16 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build Rust release binaries
-        run: cargo build --release --locked -p sc-server -p sc-core
+        run: cargo build --release -p sc-server -p sc-core
 
       - name: Lint Rust workspace
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Test Rust crates
-        run: cargo test --workspace --locked
+        run: cargo test --workspace
 
       - name: Smoke test libretro-runner
-        run: cargo test --locked -p libretro-runner --test smoke -- --test-threads=1
+        run: cargo test -p libretro-runner --test smoke -- --test-threads=1
 
       # ── Docker: sc-server ────────────────────────────────────────
       - name: Set up Docker Buildx
