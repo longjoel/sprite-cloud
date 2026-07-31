@@ -96,7 +96,7 @@ export async function GET(request: NextRequest) {
     .offset(offset);
 
   return NextResponse.json({
-    games: rows.map((r) => ({ id: r.id, name: r.name, platform: r.platform, serverId: r.serverId, maxPlayers: r.maxPlayers, coverUrl: r.id.startsWith("local_") ? null : `/api/covers/${r.id}` })),
+    games: rows.map((r) => ({ id: r.id, name: r.name, platform: r.platform, serverId: r.serverId, maxPlayers: r.maxPlayers, coverUrl: `/api/covers/${r.id}` })),
     total: Number(total),
     platforms: platformRows.map((r) => ({ name: r.name, count: Number(r.count) })),
   });

@@ -78,6 +78,8 @@ export async function GET(
     .where(eq(serverGames.gameId, game_id))
     .limit(1);
 
+  console.log(`[covers] game_id=${game_id} found=${!!game} name=${game?.name} platform=${game?.platform}`);
+
   if (!game) {
     return new NextResponse("game not found", { status: 404 });
   }
@@ -98,6 +100,7 @@ export async function GET(
   // Fetch from RetroArch thumbnail server
   const retroarchPlatform = PLATFORM_TO_RETROARCH[game.platform] ?? game.platform;
   const thumbnailUrl = `${THUMBNAIL_BASE}/${encodeURIComponent(retroarchPlatform)}/Named_Boxarts/${encodeGameName(game.name)}.png`;
+  console.log(`[covers] fetching: ${thumbnailUrl}`);
 
   try {
     const resp = await fetch(thumbnailUrl, { signal: AbortSignal.timeout(15000) });
