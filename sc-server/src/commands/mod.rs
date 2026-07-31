@@ -295,6 +295,11 @@ pub(crate) async fn cmd_start(
                                         &rom_roots,
                                         Arc::clone(&local_game_list),
                                     ).await;
+                                } else if cmd.command_type == "stage_rom" {
+                                    crate::commands::stage_rom::handle_stage_rom(
+                                        cmd,
+                                        &client,
+                                    ).await;
                                 } else if cmd.command_type == "upgrade_server" {
                                     if !sessions.is_empty() {
                                         if let Err(error) = client.command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({
@@ -620,6 +625,7 @@ async fn run_standalone_server(rom_roots: Vec<String>) -> Result<()> {
 pub(crate) mod dc_handler;
 mod game;
 mod save_handlers;
+mod stage_rom;
 
 // ── Shutdown signal ─────────────────────────────────────────────────
 
