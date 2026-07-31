@@ -493,7 +493,17 @@ fn game_entry(
         max_players: 1,
         favorite: preferences.is_favorite(&game.id),
         played_at: preferences.recent.get(&game.id).cloned(),
-        cover_url: Some(format!("/covers/{}", game.id)),
+        cover_url: Some(format!(
+            "/covers/{}?name={}&platform={}",
+            game.id,
+            crate::covers::urlencoding(&fallback),
+            crate::covers::urlencoding(
+                game.discovered
+                    .platform
+                    .as_deref()
+                    .unwrap_or("unknown")
+            ),
+        )),
     }
 }
 
