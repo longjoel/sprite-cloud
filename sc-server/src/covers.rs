@@ -170,7 +170,7 @@ fn is_valid_png(bytes: &[u8]) -> bool {
 /// RetroArch thumbnail filenames use standard URL encoding for
 /// special characters in game names. This encodes spaces and
 /// common punctuation that appear in DAT game names.
-fn urlencoding(s: &str) -> String {
+pub(crate) fn urlencoding(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for byte in s.bytes() {
         match byte {

@@ -26,24 +26,37 @@ function encodeGameName(name: string): string {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ game_id: string }> }
 ) {
   const { game_id } = await params;
+  const url = new URL(request.url);
+  const queryName = url.searchParams.get("name");
+  const queryPlatform = url.searchParams.get("platform");
 
   const session = await auth();
   if (!session?.user?.id) {
     return new NextResponse("sign in first", { status: 401 });
   }
 
-  // Look up the game in the catalog to get platform + name
-  const [game] = await db
+  let platformName: string;
+  let gameName: string;
+
+  // Try DB lookup first (cloud-synced games)
+  const [dbGame] = await db
     .select({ name: serverGames.name, platform: serverGames.platform })
     .from(serverGames)
     .where(eq(serverGames.gameId, game_id))
     .limit(1);
 
-  if (!game) {
+  if (dbGame) {
+    platformName = dbGame.platform;
+    gameName = dbGame.name;
+  } else if (queryName && queryPlatform) {
+    // Local game (from player_server) — use query params
+    platformName = queryPlatform;
+    gameName = queryName;
+  } else {
     return new NextResponse("game not found", { status: 404 });
   }
 
@@ -61,12 +74,10 @@ export async function GET(
   }
 
   // Fetch from RetroArch thumbnail server
-  const platformName = game.platform;
-  const gameName = game.name;
-  const url = `${THUMBNAIL_BASE}/${platformName}/Named_Boxarts/${encodeGameName(gameName)}.png`;
+  const thumbnailUrl = `${THUMBNAIL_BASE}/${platformName}/Named_Boxarts/${encodeGameName(gameName)}.png`;
 
   try {
-    const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    const resp = await fetch(thumbnailUrl, { signal: AbortSignal.timeout(15000) });
 
     if (!resp.ok) {
       return new NextResponse("no cover available", { status: 404 });
