@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readFile, unlink } from "fs/promises";
-
-// Re-use the registry from the upload endpoint
-import { downloads } from "../../servers/[server_id]/rom-downloads/[game_id]/upload/route";
+import { downloads } from "@/lib/download-registry";
 
 export async function GET(
   _request: NextRequest,
