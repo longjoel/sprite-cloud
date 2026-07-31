@@ -1,3 +1,8 @@
+// Binary target module declarations — these modules are consumed by the
+// binary path but not directly referenced in main.rs itself.
+// The lib target has its own `pub mod` declarations for the same modules.
+#![allow(dead_code)]
+
 mod bios;
 mod commands;
 mod config;

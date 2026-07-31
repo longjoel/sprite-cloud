@@ -215,35 +215,30 @@ pub(crate) fn parse_dat(
                 let tag = std::str::from_utf8(name_bytes)
                     .map_err(|_| ParseError::Malformed("non-UTF8 tag name".into()))?;
 
-                match tag {
-                    "game" => {
-                        in_game = false;
-                        // Emit the game entry
-                        let name = current_game_name
-                            .clone()
-                            .unwrap_or_else(|| {
-                                current_rom_name.clone().unwrap_or_default()
-                            });
-                        if !name.is_empty() && current_size.is_some() {
-                            entries.push(RomEntry {
-                                name,
-                                alt_names: Vec::new(),
-                                platform: dat_name.clone(),
-                                region: None,
-                                revision: None,
-                                status: None,
-                                size: current_size.unwrap_or(0),
-                                crc32: current_crc32.clone(),
-                                md5: current_md5.clone(),
-                                sha1: current_sha1.clone(),
-                            });
-                        }
+                if tag == "game" {
+                    in_game = false;
+                    // Emit the game entry
+                    let name = current_game_name
+                        .clone()
+                        .unwrap_or_else(|| {
+                            current_rom_name.clone().unwrap_or_default()
+                        });
+                    if !name.is_empty() && current_size.is_some() {
+                        entries.push(RomEntry {
+                            name,
+                            alt_names: Vec::new(),
+                            platform: dat_name.clone(),
+                            region: None,
+                            revision: None,
+                            status: None,
+                            size: current_size.unwrap_or(0),
+                            crc32: current_crc32.clone(),
+                            md5: current_md5.clone(),
+                            sha1: current_sha1.clone(),
+                        });
                     }
-                    _ => {}
                 }
-                if depth > 0 {
-                    depth -= 1;
-                }
+                depth = depth.saturating_sub(1);
             }
             Ok(Event::Empty(ref e)) => {
                 let name_ref = e.name();
@@ -325,22 +320,21 @@ pub(crate) fn parse_dat(
     })
 }
 
+/// Parsed header fields from a DAT file.
+type HeaderFields = (
+    Option<String>, // name
+    Option<String>, // description
+    Option<String>, // version
+    Option<String>, // date
+    Option<String>, // author
+    Option<String>, // url
+);
+
 /// Lightweight second pass to extract header fields.
-/// Returns (name, description, version, date, author, url).
 fn parse_header_fields(
     data: &[u8],
     limits: &ParseLimits,
-) -> Result<
-    (
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    ),
-    ParseError,
-> {
+) -> Result<HeaderFields, ParseError> {
     let mut reader = Reader::from_reader(data);
     reader.config_mut().trim_text(true);
 
@@ -379,8 +373,8 @@ fn parse_header_fields(
                 current_field = None;
             }
             Ok(Event::Text(ref e)) => {
-                if in_header {
-                    if let Some(ref field) = current_field {
+                if in_header
+                    && let Some(ref field) = current_field {
                         let text = e
                             .unescape()
                             .map(|cow| cow.into_owned())
@@ -404,7 +398,6 @@ fn parse_header_fields(
                             _ => {}
                         }
                     }
-                }
             }
             Ok(Event::Eof) => break,
             Ok(_) => {}
