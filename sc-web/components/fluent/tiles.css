@@ -1,6 +1,6 @@
 /* Metro game collection */
 .game-tile-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; padding:0; }
-.game-tile { position:relative; min-height:160px; overflow:hidden; border:1px solid transparent; box-shadow:inset 0 0 0 1px rgba(255,255,255,.02); transition:border-color .15s,transform .1s,box-shadow .15s; }
+.game-tile { position:relative; min-height:200px; aspect-ratio:3/4; overflow:hidden; border:1px solid transparent; box-shadow:inset 0 0 0 1px rgba(255,255,255,.02); transition:border-color .15s,transform .1s,box-shadow .15s; }
 .game-tile.is-favorite { box-shadow:inset 0 0 0 1px rgba(56,189,248,.2); }
 .game-tile:hover,.game-tile:focus-within { border-color:var(--color-accent); }
 .game-tile:hover { transform:scale(1.02); }
@@ -33,7 +33,7 @@
 
 .library-skeleton-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; }
 .library-skeleton-tile,.library-skeleton-row { background:linear-gradient(90deg,rgba(255,255,255,.03),rgba(255,255,255,.09),rgba(255,255,255,.03)); background-size:200% 100%; animation:library-skeleton 1.4s ease-in-out infinite; }
-.library-skeleton-tile { min-height:160px; }
+.library-skeleton-tile { min-height:200px; aspect-ratio:3/4; }
 .library-skeleton-row { height:48px; margin-bottom:2px; }
 .library-load-sentinel { height:20px; opacity:.45; }
 .library-load-sentinel.is-loading::after { content:""; display:block; width:32px; height:2px; margin:9px auto; background:var(--color-accent); animation:library-sentinel 1s ease-in-out infinite; }
@@ -54,8 +54,8 @@
 
 @media (max-width:640px) {
   .game-tile-grid,.library-skeleton-grid { grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:8px; }
-  .game-tile,.library-skeleton-tile { min-height:140px; }
-  .game-tile.tile-wide,.game-tile.tile-large { grid-column:span 2; grid-row:span 1; min-height:140px; }
+  .game-tile,.library-skeleton-tile { min-height:180px; }
+  .game-tile.tile-wide,.game-tile.tile-large { grid-column:span 2; grid-row:span 1; min-height:180px; }
   .game-tile-secondary-actions { display:none; }
   .game-tile-overflow { display:block; }
   .game-tile:has(.game-tile-overflow[open]) { overflow:visible; z-index:5; }
