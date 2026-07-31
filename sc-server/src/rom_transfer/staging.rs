@@ -26,6 +26,7 @@ pub(crate) enum Classification {
     Rom,
     RomVerified,
     Bios,
+    BiosVerified,
     Artwork,
     Unknown,
     Unverified,
@@ -44,6 +45,17 @@ pub(crate) struct DatMatchInfo {
     pub confidence: String,
 }
 
+/// BIOS verification metadata.
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct BiosMatchInfo {
+    /// Canonical firmware filename (e.g. "gba_bios.bin")
+    pub filename: String,
+    /// Human-readable description (e.g. "Game Boy Advance BIOS")
+    pub description: String,
+    /// Platform the firmware is for (e.g. "Game Boy Advance")
+    pub platform: String,
+}
+
 /// The full manifest produced from a single staging pass.
 #[derive(Debug, Clone, serde::Serialize)]
 pub(crate) struct AssetManifest {
@@ -57,6 +69,10 @@ pub(crate) struct AssetManifest {
     /// Absent when no DAT is available for the platform.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dat_match: Option<DatMatchInfo>,
+    /// Populated when firmware hash verification confirms this is a
+    /// known-good BIOS file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bios_match: Option<BiosMatchInfo>,
 }
 
 /// Compute hashes and classification from a staged file path.
@@ -97,6 +113,7 @@ pub(crate) async fn compute_manifest(path: &Path, file_size: u64) -> Result<Asse
         extension,
         classification: Classification::Rom, // overridden by DAT enrichment
         dat_match: None,
+        bios_match: None,
     })
 }
 
@@ -110,9 +127,17 @@ impl AssetManifest {
     /// - No match → `Unverified` (but still committed)
     /// - index is None → leave classification as-is (no DAT available)
     pub(crate) fn enrich(&mut self, index: Option<&crate::dat::DatIndex>) {
+        // Extract the heuristically-set classification before DAT enrichment
+        // may override it. BIOS detection runs regardless of DAT match result.
+        let was_bios = matches!(self.classification, Classification::Bios);
+
         let index = match index {
             Some(idx) => idx,
-            None => return, // no DAT available — leave heuristic classification
+            None => {
+                // No DAT — still try BIOS verification for BIOS-classified files
+                self.verify_bios_if_applicable(was_bios);
+                return;
+            }
         };
 
         let m = index.find_match(&self.sha1, &self.crc32, self.size);
@@ -134,8 +159,34 @@ impl AssetManifest {
                 }
             }
             crate::dat::MatchConfidence::None => {
+                // DAT says no — but was this heuristically a BIOS file?
+                // If so, try firmware verification before marking Unverified.
+                if was_bios {
+                    self.verify_bios_if_applicable(true);
+                    // If still Bios (no firmware match), keep as Bios — it IS
+                    // a BIOS-like file by extension, just not in our known DB.
+                    if matches!(self.classification, Classification::Bios) {
+                        return;
+                    }
+                }
                 self.classification = Classification::Unverified;
             }
+        }
+    }
+
+    /// Cross-reference SHA-256 against the known firmware database.
+    /// Only runs when the extension heuristic flagged this as BIOS.
+    fn verify_bios_if_applicable(&mut self, was_bios: bool) {
+        if !was_bios {
+            return;
+        }
+        if let Some(bm) = crate::bios::verify_bios(&self.sha256) {
+            self.classification = Classification::BiosVerified;
+            self.bios_match = Some(BiosMatchInfo {
+                filename: bm.filename,
+                description: bm.description,
+                platform: bm.platform,
+            });
         }
     }
 }
@@ -301,5 +352,80 @@ mod tests {
         // Classification unchanged when no DAT available
         assert_eq!(manifest.classification, original_classification);
         assert!(manifest.dat_match.is_none());
+    }
+
+    // ── BIOS verification tests ────────────────────────────────────
+
+    #[tokio::test]
+    async fn bios_hash_match_sets_bios_verified() {
+        // "hello world" doesn't match any firmware, so use a known BIOS hash.
+        // We test via the BIOS module directly, and test enrich separately.
+        // The extension-based classification for .bin files returns Bios.
+        // We need a file whose hash IS in the firmware DB.
+        //
+        // The GBA BIOS hash is:
+        // fd2547724b505f487e6dcb29ec2ecff3af35a841a77ab2e85fd87350abd36570
+        // We can't easily create a file with that hash, so we test the
+        // enrichment path by manually constructing a manifest.
+
+        let mut manifest = AssetManifest {
+            sha256: "fd2547724b505f487e6dcb29ec2ecff3af35a841a77ab2e85fd87350abd36570".into(),
+            sha1: "test".into(),
+            crc32: "00000000".into(),
+            size: 16384,
+            extension: Some("bin".into()),
+            classification: Classification::Bios,
+            dat_match: None,
+            bios_match: None,
+        };
+
+        manifest.enrich(None);
+
+        assert_eq!(manifest.classification, Classification::BiosVerified);
+        let bm = manifest.bios_match.expect("bios_match should be populated");
+        assert_eq!(bm.filename, "gba_bios.bin");
+        assert_eq!(bm.platform, "Game Boy Advance");
+    }
+
+    #[tokio::test]
+    async fn bios_extension_no_firmware_match_stays_bios() {
+        // File with BIOS extension but unknown hash — stays as Bios
+        let mut manifest = AssetManifest {
+            sha256: "0000000000000000000000000000000000000000000000000000000000000000".into(),
+            sha1: "test".into(),
+            crc32: "00000000".into(),
+            size: 256,
+            extension: Some("bin".into()),
+            classification: Classification::Bios,
+            dat_match: None,
+            bios_match: None,
+        };
+
+        manifest.enrich(None);
+
+        // Stays Bios — we know it's a BIOS-like file but can't verify
+        assert_eq!(manifest.classification, Classification::Bios);
+        assert!(manifest.bios_match.is_none());
+    }
+
+    #[tokio::test]
+    async fn rom_file_not_tested_as_bios() {
+        // ROM-classified files should NOT be BIOS-verified
+        let mut manifest = AssetManifest {
+            sha256: "fd2547724b505f487e6dcb29ec2ecff3af35a841a77ab2e85fd87350abd36570".into(),
+            sha1: "test".into(),
+            crc32: "00000000".into(),
+            size: 16384,
+            extension: Some("gba".into()),
+            classification: Classification::Rom,
+            dat_match: None,
+            bios_match: None,
+        };
+
+        manifest.enrich(None);
+
+        // Should NOT try BIOS verification — ROM classification
+        assert_eq!(manifest.classification, Classification::Rom);
+        assert!(manifest.bios_match.is_none());
     }
 }

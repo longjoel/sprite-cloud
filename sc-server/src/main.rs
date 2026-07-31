@@ -1,3 +1,4 @@
+mod bios;
 mod commands;
 mod config;
 mod core_bridge;

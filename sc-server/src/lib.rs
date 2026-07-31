@@ -3,6 +3,7 @@
 // this target in isolation.
 #![allow(dead_code)]
 
+pub mod bios;
 pub mod commands;
 pub mod config;
 pub mod core_bridge;
