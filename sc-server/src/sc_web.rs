@@ -179,6 +179,11 @@ impl ScWebClient {
         &self.client
     }
 
+    /// Return the base sc-web URL (no trailing slash).
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
     /// POST /api/auth/pair/claim — exchange pairing code for API key.
     /// Local ROM roots are intentionally never part of this contract.
     pub async fn claim(code: &str, sc_web_url: &str, hostname: &str) -> Result<ClaimResponse> {

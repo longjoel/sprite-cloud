@@ -42,7 +42,7 @@ export async function POST(
     return NextResponse.json({ error: "csrf token invalid" }, { status: 403 });
   }
 
-  let body: { game_id?: unknown; sdp?: unknown };
+  let body: { game_id?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -51,9 +51,6 @@ export async function POST(
 
   if (typeof body.game_id !== "string" || body.game_id.length === 0) {
     return NextResponse.json({ error: "game_id is required" }, { status: 400 });
-  }
-  if (typeof body.sdp !== "string" || body.sdp.length === 0) {
-    return NextResponse.json({ error: "sdp is required" }, { status: 400 });
   }
   const game_id = body.game_id;
 
@@ -77,13 +74,13 @@ export async function POST(
     return NextResponse.json({ error: "administrator role required" }, { status: 403 });
   }
 
-  // Queue the download command with the browser's SDP offer
+  // Queue download command for sc-server
   const [cmd] = await db
     .insert(commands)
     .values({
       serverId: server_id,
       type: "rom_download",
-      payload: { game_id, sdp: body.sdp },
+      payload: { game_id, server_id },
       status: "pending",
     })
     .returning({ id: commands.id });
@@ -108,7 +105,6 @@ export async function GET(
     return NextResponse.json({ error: "sign in first" }, { status: 401 });
   }
 
-  // Admin membership check
   const [membership] = await db
     .select({ role: serverMembers.role })
     .from(serverMembers)
@@ -128,7 +124,6 @@ export async function GET(
     return NextResponse.json({ error: "administrator role required" }, { status: 403 });
   }
 
-  // Look up the command result (contains SDP answer from sc-server)
   const [cmd] = await db
     .select({
       id: commands.id,
