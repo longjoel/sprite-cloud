@@ -162,10 +162,16 @@ export async function GET(
     const bytes = await readBoundedPng(response);
     if (!bytes) return new NextResponse("invalid cover", { status: 404 });
 
-    await mkdir(CACHE_DIR, { recursive: true });
-    const temporaryPath = `${path}.${randomUUID()}.partial`;
-    await writeFile(temporaryPath, bytes);
-    await rename(temporaryPath, path);
+    // Caching is an optimization; a read-only or full volume must not turn a
+    // successfully fetched cover into a false 404.
+    try {
+      await mkdir(CACHE_DIR, { recursive: true });
+      const temporaryPath = `${path}.${randomUUID()}.partial`;
+      await writeFile(temporaryPath, bytes);
+      await rename(temporaryPath, path);
+    } catch {
+      // The response remains valid even when cache persistence is unavailable.
+    }
     return imageResponse(bytes);
   } catch {
     return new NextResponse("cover unavailable", { status: 404 });

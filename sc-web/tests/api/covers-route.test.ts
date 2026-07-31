@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { mkdtemp, rm } from "fs/promises";
+import { mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -78,5 +78,27 @@ describe("GET /api/covers/:server_id/:game_id", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(fetchMock.mock.calls[0][0]).toContain("Super%20Mario%20World%20%28USA%29.png");
+  });
+
+  it("serves a valid cover even when its cache directory cannot be created", async () => {
+    mockDb.select.mockReturnValue(query([{
+      name: "Super Mario World (USA)",
+      sourceName: null,
+      thumbnailName: null,
+      platform: "SNES",
+    }]));
+    await rm(cacheDir, { recursive: true, force: true });
+    await writeFile(cacheDir, "not a directory");
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(png, {
+      status: 200,
+      headers: { "content-type": "image/png", "content-length": String(png.length) },
+    })));
+
+    const { GET } = await import("@/app/api/covers/[server_id]/[game_id]/route");
+    const response = await GET(request(), { params: Promise.resolve({ server_id: "server-a", game_id: "game-a" }) });
+
+    expect(response.status).toBe(200);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(png);
   });
 });
