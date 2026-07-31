@@ -7,6 +7,12 @@ function csrfCookieValue(request: NextRequest): string | null {
 }
 
 export function middleware(request: NextRequest) {
+  // Legacy request-time caches were written under public/covers. Do not allow
+  // pre-existing artifacts to bypass the server-scoped authorization route.
+  if (request.nextUrl.pathname.startsWith("/covers/")) {
+    return new NextResponse("not found", { status: 404 });
+  }
+
   // Handle CORS preflight
   if (request.method === "OPTIONS") {
     const response = new NextResponse(null, { status: 204 });
@@ -21,7 +27,9 @@ export function middleware(request: NextRequest) {
 
   // Allow cross-origin for player pages and API routes
   const path = request.nextUrl.pathname;
-  if (path.startsWith("/player/") || path.startsWith("/api/")) {
+  // Covers are authenticated, server-scoped assets. Never make them readable
+  // cross-origin even though the rest of the player/API surface supports CORS.
+  if ((path.startsWith("/player/") || path.startsWith("/api/")) && !path.startsWith("/api/covers/")) {
     response.headers.set("Access-Control-Allow-Origin", "*");
   }
 
@@ -47,6 +55,7 @@ export const config = {
   matcher: [
     "/player/:path*",
     "/api/:path*",
+    "/covers/:path*",
     "/p/:path*",
     "/signin",
     "/setup",

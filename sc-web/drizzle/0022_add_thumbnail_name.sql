@@ -1,0 +1,1 @@
+ALTER TABLE "server_games" ADD COLUMN IF NOT EXISTS "thumbnail_name" text;
