@@ -447,168 +447,58 @@ export class RomTransferClient {
 // ── Download ────────────────────────────────────────────────────────────
 
 const DOWNLOAD_POLL_INTERVAL_MS = 500;
-const DOWNLOAD_POLL_TIMEOUT_MS = 60_000;
+const DOWNLOAD_POLL_TIMEOUT_MS = 120_000;
 
 /**
- * Download a ROM from the server over WebRTC DataChannel.
- *
- * Browser creates the offer (mirrors upload flow). Server answers,
- * creates its own DataChannel, and streams the file.
+ * Download a ROM from the server. Simple HTTP flow:
+ *   1. Queue a rom_download command on sc-web
+ *   2. Poll for the command result (contains download URL)
+ *   3. Navigate browser to the URL → instant file download
  */
 export async function downloadRom(
   serverId: string,
   gameId: string,
-  gameName: string,
+  _gameName: string,
 ): Promise<{ sha256: string; size: number }> {
   const headers = csrfHeaders();
 
-  // Prompt user for save location (mobile falls back to blob download)
-  const ext = gameName.includes(".") ? "" : ".rom";
-  const hasFilePicker = typeof (window as any).showSaveFilePicker === "function";
-  let writable: FileSystemWritableFileStream | null = null;
+  // Queue the download command
+  const queueRes = await fetch(
+    `/api/servers/${encodeURIComponent(serverId)}/rom-downloads`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ game_id: gameId }),
+    },
+  );
 
-  if (hasFilePicker) {
-    try {
-      const handle = await (window as any).showSaveFilePicker({
-        suggestedName: `${gameName}${ext}`,
-        types: [
-          { description: "ROM file", accept: { "application/octet-stream": [ext || ".rom", ".bin"] } },
-        ],
-      });
-      writable = await handle.createWritable();
-    } catch (e: any) {
-      if (e?.name === "AbortError") throw new Error("Cancelled");
-      throw new Error(`Save dialog failed: ${e}`);
-    }
+  if (!queueRes.ok) {
+    const err = await queueRes.json().catch(() => ({}));
+    throw new Error(err.error ?? "Failed to queue download");
   }
 
-  // Create peer connection
-  const iceConfig = await fetchIceConfig();
-  const pc = new RTCPeerConnection(iceConfig);
+  const { command_id } = await queueRes.json();
+  if (!command_id) throw new Error("No command ID returned");
 
-  return new Promise((resolve, reject) => {
-    let totalReceived = 0;
-    let sha256 = "";
-    let resolved = false;
-    const chunks: Uint8Array[] = [];
+  // Poll for the result (contains download URL)
+  const pollStart = Date.now();
+  while (Date.now() - pollStart < DOWNLOAD_POLL_TIMEOUT_MS) {
+    const pollRes = await fetch(
+      `/api/servers/${encodeURIComponent(serverId)}/rom-downloads?command_id=${encodeURIComponent(command_id)}`,
+      { headers },
+    );
 
-    pc.ondatachannel = (event) => {
-      const dc = event.channel;
-      if (dc.label !== ROM_DOWNLOAD_CHANNEL_LABEL) return;
+    if (pollRes.ok) {
+      const data = await pollRes.json();
+      if (data.url) {
+        // Navigate to the download URL — triggers browser download
+        window.location.href = data.url;
+        return { sha256: data.sha256 ?? "", size: data.size ?? 0 };
+      }
+    }
 
-      dc.onmessage = async (e) => {
-        if (typeof e.data === "string") {
-          try {
-            const msg = JSON.parse(e.data);
-            if (msg.done && msg.sha256) {
-              sha256 = msg.sha256;
-              // Write chunks to file (desktop) or trigger blob download (mobile)
-              const blob = new Blob(chunks as BlobPart[]);
-              if (writable) {
-                await writable.write(blob);
-                await writable.close();
-              } else {
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `${gameName}${ext}`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-              }
-              if (!resolved) {
-                resolved = true;
-                resolve({ sha256, size: msg.size ?? totalReceived });
-              }
-              pc.close();
-            }
-          } catch {
-            reject(new Error("Invalid completion message"));
-          }
-        } else if (e.data instanceof ArrayBuffer) {
-          const chunk = new Uint8Array(e.data);
-          chunks.push(chunk);
-          totalReceived += chunk.byteLength;
-        } else if (e.data instanceof Blob) {
-          const buf = await e.data.arrayBuffer();
-          const chunk = new Uint8Array(buf);
-          chunks.push(chunk);
-          totalReceived += chunk.byteLength;
-        }
-      };
+    await new Promise((r) => setTimeout(r, DOWNLOAD_POLL_INTERVAL_MS));
+  }
 
-      dc.onclose = () => {
-        if (!resolved) {
-          resolved = true;
-          reject(new Error("Data channel closed before completion"));
-        }
-      };
-    };
-
-    // Create DataChannel before offer (so it appears in the SDP)
-    pc.createDataChannel(ROM_DOWNLOAD_CHANNEL_LABEL);
-
-    // Create offer, wait for ICE, send to server, poll for answer
-    pc.createOffer()
-      .then((offer) => pc.setLocalDescription(offer))
-      .then(() => new Promise<void>((resolve, reject) => {
-        if (pc.iceGatheringState === "complete") resolve();
-        else {
-          const timeout = setTimeout(() => reject(new Error("ICE gathering timed out")), 15_000);
-          const handler = () => {
-            if (pc.iceGatheringState === "complete") {
-              clearTimeout(timeout);
-              pc.removeEventListener("icegatheringstatechange", handler);
-              resolve();
-            }
-          };
-          pc.addEventListener("icegatheringstatechange", handler);
-        }
-      }))
-      .then(() => {
-        const sdp = pc.localDescription?.sdp;
-        if (!sdp) throw new Error("No local SDP");
-        return fetch(
-          `/api/servers/${encodeURIComponent(serverId)}/rom-downloads`,
-          {
-            method: "POST",
-            headers,
-            body: JSON.stringify({ game_id: gameId, sdp }),
-          },
-        );
-      })
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      })
-      .then((data: any) => {
-        if (!data.ok || !data.command_id) throw new Error("Failed to queue download");
-        return data.command_id as string;
-      })
-      .then(async (commandId) => {
-        const pollStart = Date.now();
-        while (Date.now() - pollStart < DOWNLOAD_POLL_TIMEOUT_MS) {
-          const pollRes = await fetch(
-            `/api/servers/${encodeURIComponent(serverId)}/rom-downloads?command_id=${encodeURIComponent(commandId)}`,
-            { headers },
-          );
-          if (pollRes.ok) {
-            const data = await pollRes.json();
-            if (data.sdp) {
-              await pc.setRemoteDescription({ type: "answer", sdp: data.sdp });
-              return; // DataChannel opens → server streams file
-            }
-          }
-          await new Promise((r) => setTimeout(r, DOWNLOAD_POLL_INTERVAL_MS));
-        }
-        throw new Error("Server did not respond with SDP answer in time");
-      })
-      .catch((e) => {
-        if (!resolved) {
-          resolved = true;
-          reject(e instanceof Error ? e : new Error(`Download failed: ${e}`));
-        }
-      });
-  });
+  throw new Error("Download timed out — server did not prepare the file");
 }
