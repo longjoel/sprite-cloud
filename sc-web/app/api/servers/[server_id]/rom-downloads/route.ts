@@ -42,7 +42,7 @@ export async function POST(
     return NextResponse.json({ error: "csrf token invalid" }, { status: 403 });
   }
 
-  let body: { game_id?: unknown };
+  let body: { game_id?: unknown; sdp?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -51,6 +51,9 @@ export async function POST(
 
   if (typeof body.game_id !== "string" || body.game_id.length === 0) {
     return NextResponse.json({ error: "game_id is required" }, { status: 400 });
+  }
+  if (typeof body.sdp !== "string" || body.sdp.length === 0) {
+    return NextResponse.json({ error: "sdp is required" }, { status: 400 });
   }
   const game_id = body.game_id;
 
@@ -74,16 +77,80 @@ export async function POST(
     return NextResponse.json({ error: "administrator role required" }, { status: 403 });
   }
 
-  // Queue the download command for sc-server
+  // Queue the download command with the browser's SDP offer
   const [cmd] = await db
     .insert(commands)
     .values({
       serverId: server_id,
       type: "rom_download",
-      payload: { game_id },
+      payload: { game_id, sdp: body.sdp },
       status: "pending",
     })
     .returning({ id: commands.id });
 
   return NextResponse.json({ ok: true, command_id: cmd.id, game_id });
+}
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ server_id: string }> },
+) {
+  const { server_id } = await params;
+  const url = new URL(request.url);
+  const command_id = url.searchParams.get("command_id");
+
+  if (!command_id) {
+    return NextResponse.json({ error: "missing command_id" }, { status: 400 });
+  }
+
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "sign in first" }, { status: 401 });
+  }
+
+  // Admin membership check
+  const [membership] = await db
+    .select({ role: serverMembers.role })
+    .from(serverMembers)
+    .innerJoin(servers, eq(servers.id, serverMembers.serverId))
+    .where(
+      and(
+        eq(serverMembers.serverId, server_id),
+        eq(serverMembers.userId, session.user.id),
+      ),
+    )
+    .limit(1);
+
+  if (!membership) {
+    return NextResponse.json({ error: "not authorized" }, { status: 403 });
+  }
+  if (membership.role !== "admin") {
+    return NextResponse.json({ error: "administrator role required" }, { status: 403 });
+  }
+
+  // Look up the command result (contains SDP answer from sc-server)
+  const [cmd] = await db
+    .select({
+      id: commands.id,
+      status: commands.status,
+      result: commands.result,
+    })
+    .from(commands)
+    .where(
+      and(
+        eq(commands.id, command_id),
+        eq(commands.serverId, server_id),
+        eq(commands.type, "rom_download"),
+      ),
+    );
+
+  if (!cmd) {
+    return NextResponse.json({ error: "command not found" }, { status: 404 });
+  }
+
+  if (cmd.result && typeof cmd.result === "object") {
+    return NextResponse.json(cmd.result as Record<string, unknown>);
+  }
+
+  return NextResponse.json({ status: cmd.status });
 }
