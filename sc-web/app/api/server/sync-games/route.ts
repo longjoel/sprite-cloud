@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 interface SyncGame {
   id: string;
   name: string;
+  source_name?: string | null;
   platform: string;
   max_players?: number;
 }
@@ -52,6 +53,7 @@ export async function POST(request: NextRequest) {
         serverId: server.id,
         gameId: game.id,
         name: game.name,
+        sourceName: game.source_name ?? null,
         platform: game.platform || "Unknown",
         maxPlayers: game.max_players ?? 1,
       })
@@ -59,6 +61,7 @@ export async function POST(request: NextRequest) {
         target: [serverGames.serverId, serverGames.gameId],
         set: {
           name: game.name,
+          sourceName: game.source_name ?? null,
           platform: game.platform || "Unknown",
           maxPlayers: game.max_players ?? 1,
           updatedAt: new Date(),
