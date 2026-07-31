@@ -1,9 +1,10 @@
 //! ROM download over WebRTC DataChannel.
 //!
-//! Architecture: server creates a minimal peer connection with a
-//! `rom-download-v1` DataChannel, generates an SDP offer, reports it
-//! to sc-web, then streams the resolved ROM file to the browser in
-//! 256 KiB chunks with a trailing SHA256 hash.
+//! Architecture: browser creates peer connection + SDP offer, sends it
+//! to sc-server via a rom_download command. sc-server resolves the game,
+//! creates a peer connection with a `rom-download-v1` DataChannel, sets
+//! the browser's offer as remote, generates an SDP answer, and reports it
+//! back. When the DataChannel opens, sc-server streams the file in chunks.
 
 use crate::rom_transfer::storage;
 use crate::sc_web;
@@ -24,64 +25,60 @@ const DC_LABEL: &str = "rom-download-v1";
 const CHUNK_SIZE: usize = 256 * 1024;
 const ICE_GATHERING_TIMEOUT_SECS: u64 = 30;
 
-/// Response sent to sc-web after the SDP offer is ready.
-/// The browser picks this up and connects.
-#[derive(serde::Serialize)]
-struct DownloadOfferResponse {
-    ok: bool,
-    sdp: String,
-    game_id: String,
-    name: String,
-    size: u64,
-    waiting_for_answer: bool,
-}
-
-/// Read the file and send it chunk-by-chunk over the DataChannel.
-/// Returns on completion or error.
-async fn stream_file_to_dc(
+/// Stream the resolved ROM file to the browser over a DataChannel.
+async fn stream_file(
     dc: &Arc<RTCDataChannel>,
     path: &std::path::Path,
-) -> Result<(), String> {
-    use std::io::Read;
+    game_id: &str,
+    file_size: u64,
+) {
+    let mut file = match tokio::fs::File::open(path).await {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::error!("[ROM DL] open failed for {game_id}: {e:#}");
+            let _ = dc.send_text(r#"{"error":"cannot open file"}"#.to_string()).await;
+            return;
+        }
+    };
 
-    let mut file = std::fs::File::open(path)
-        .map_err(|e| format!("cannot open file: {e}"))?;
-    let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
-
+    use tokio::io::AsyncReadExt;
     let mut hasher = Sha256::new();
     let mut buf = vec![0u8; CHUNK_SIZE];
     let mut total_sent: u64 = 0;
 
     loop {
-        let n = file.read(&mut buf).map_err(|e| format!("read error: {e}"))?;
-        if n == 0 {
-            break;
+        match file.read(&mut buf).await {
+            Ok(0) => break,
+            Ok(n) => {
+                hasher.update(&buf[..n]);
+                if let Err(e) = dc.send(&bytes::Bytes::from(buf[..n].to_vec())).await {
+                    tracing::error!("[ROM DL] send chunk failed: {e:#}");
+                    return;
+                }
+                total_sent += n as u64;
+            }
+            Err(e) => {
+                tracing::error!("[ROM DL] read error for {game_id}: {e:#}");
+                return;
+            }
         }
-        hasher.update(&buf[..n]);
-
-        dc.send(&bytes::Bytes::from(buf[..n].to_vec()))
-            .await
-            .map_err(|e| format!("send chunk error: {e}"))?;
-
-        total_sent += n as u64;
     }
 
     let hash = hex::encode(hasher.finalize());
-
     let complete = serde_json::json!({
         "done": true,
         "sha256": hash,
         "size": total_sent,
     });
-    dc.send_text(complete.to_string())
-        .await
-        .map_err(|e| format!("send complete error: {e}"))?;
+
+    if let Err(e) = dc.send_text(complete.to_string()).await {
+        tracing::error!("[ROM DL] send complete failed: {e:#}");
+        return;
+    }
 
     tracing::info!(
         "[ROM DL] complete: {total_sent} bytes (declared {file_size}), sha256={hash}",
     );
-
-    Ok(())
 }
 
 pub(crate) async fn handle_rom_download(
@@ -104,10 +101,24 @@ pub(crate) async fn handle_rom_download(
         }
     };
 
-    // Resolve the game — reuses existing path safety
+    let browser_sdp = match cmd.payload.get("sdp").and_then(|v| v.as_str()) {
+        Some(s) => s.to_string(),
+        None => {
+            let _ = client
+                .command_result(
+                    &cmd.id,
+                    &cmd.lease_token,
+                    &serde_json::json!({"ok": false, "error": "missing browser SDP offer"}),
+                )
+                .await;
+            return;
+        }
+    };
+
+    // Resolve the game
     let games = local_game_list.read().await;
-    let resolved = match storage::resolve_download(&game_id, rom_roots, &games) {
-        Ok(r) => r,
+    let (path, name, size) = match storage::resolve_download(&game_id, rom_roots, &games) {
+        Ok(r) => (r.path.clone(), r.name.clone(), r.size),
         Err(e) => {
             let _ = client
                 .command_result(
@@ -119,9 +130,6 @@ pub(crate) async fn handle_rom_download(
             return;
         }
     };
-    let path = resolved.path.clone();
-    let name = resolved.name.clone();
-    let size = resolved.size;
     drop(games);
 
     tracing::info!(
@@ -129,57 +137,67 @@ pub(crate) async fn handle_rom_download(
         path.display(),
     );
 
-    // Build a minimal PC (no tracks, just a DataChannel)
+    // Build PC and create DataChannel (we're the answerer)
     let pc = match build_download_pc().await {
         Ok(pc) => Arc::new(pc),
         Err(e) => {
             let _ = client
-                .command_result(
-                    &cmd.id,
-                    &cmd.lease_token,
-                    &serde_json::json!({"ok": false, "error": format!("peer connection failed: {e}")}),
+                .command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({"ok": false, "error": format!("peer connection failed: {e}")}),
                 )
                 .await;
             return;
         }
     };
 
-    // Create DataChannel before offer (so it appears in the SDP)
+    // Set browser's offer as remote description
+    let offer_desc = match webrtc::peer_connection::sdp::session_description::RTCSessionDescription::offer(
+        browser_sdp,
+    ) {
+        Ok(d) => d,
+        Err(e) => {
+            let _ = client
+                .command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({"ok": false, "error": format!("invalid SDP offer: {e}")}),
+                )
+                .await;
+            return;
+        }
+    };
+
+    if let Err(e) = pc.set_remote_description(offer_desc).await {
+        let _ = client
+            .command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({"ok": false, "error": format!("set remote desc failed: {e}")}),
+            )
+            .await;
+        return;
+    }
+
+    // Create DataChannel (we create it as answerer — browser receives via ondatachannel)
     let dc = match pc.create_data_channel(DC_LABEL, None).await {
         Ok(dc) => Arc::new(dc),
         Err(e) => {
             let _ = client
-                .command_result(
-                    &cmd.id,
-                    &cmd.lease_token,
-                    &serde_json::json!({"ok": false, "error": format!("data channel failed: {e}")}),
+                .command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({"ok": false, "error": format!("data channel failed: {e}")}),
                 )
                 .await;
             return;
         }
     };
 
-    // Create SDP offer, set local description
-    let offer = match pc.create_offer(None).await {
-        Ok(o) => o,
+    // Create answer
+    let answer = match pc.create_answer(None).await {
+        Ok(a) => a,
         Err(e) => {
             let _ = client
-                .command_result(
-                    &cmd.id,
-                    &cmd.lease_token,
-                    &serde_json::json!({"ok": false, "error": format!("create offer failed: {e}")}),
+                .command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({"ok": false, "error": format!("create answer failed: {e}")}),
                 )
                 .await;
             return;
         }
     };
 
-    if let Err(e) = pc.set_local_description(offer).await {
+    if let Err(e) = pc.set_local_description(answer).await {
         let _ = client
-            .command_result(
-                &cmd.id,
-                &cmd.lease_token,
-                &serde_json::json!({"ok": false, "error": format!("set local desc failed: {e}")}),
+            .command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({"ok": false, "error": format!("set local desc failed: {e}")}),
             )
             .await;
         return;
@@ -208,10 +226,7 @@ pub(crate) async fn handle_rom_download(
         Ok(Some(())) => {}
         _ => {
             let _ = client
-                .command_result(
-                    &cmd.id,
-                    &cmd.lease_token,
-                    &serde_json::json!({"ok": false, "error": "ICE gathering timed out"}),
+                .command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({"ok": false, "error": "ICE gathering timed out"}),
                 )
                 .await;
             return;
@@ -220,39 +235,37 @@ pub(crate) async fn handle_rom_download(
 
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    let sdp_offer = match pc.local_description().await {
+    let answer_sdp = match pc.local_description().await {
         Some(desc) => desc.sdp,
         None => {
             let _ = client
-                .command_result(
-                    &cmd.id,
-                    &cmd.lease_token,
-                    &serde_json::json!({"ok": false, "error": "no local description"}),
+                .command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({"ok": false, "error": "no local description"}),
                 )
                 .await;
             return;
         }
     };
 
-    // Report SDP offer to sc-web
-    let response = DownloadOfferResponse {
-        ok: true,
-        sdp: sdp_offer,
-        game_id: game_id.clone(),
-        name,
-        size,
-        waiting_for_answer: true,
-    };
-
+    // Report SDP answer + game metadata to sc-web
     if let Err(e) = client
-        .command_result(&cmd.id, &cmd.lease_token, &serde_json::json!(response))
+        .command_result(
+            &cmd.id,
+            &cmd.lease_token,
+            &serde_json::json!({
+                "ok": true,
+                "sdp": answer_sdp,
+                "game_id": game_id,
+                "name": name,
+                "size": size,
+            }),
+        )
         .await
     {
-        tracing::error!("[ROM DL] failed to report SDP offer: {e:#}");
+        tracing::error!("[ROM DL] failed to report SDP answer: {e:#}");
         return;
     }
 
-    tracing::info!("[ROM DL] SDP offer delivered for game_id={game_id}");
+    tracing::info!("[ROM DL] SDP answer delivered for game_id={game_id}");
 
     // Wait for DataChannel to open, then stream
     let (opened_tx, mut opened_rx) = tokio::sync::mpsc::channel::<()>(1);
@@ -266,15 +279,7 @@ pub(crate) async fn handle_rom_download(
     match tokio::time::timeout(Duration::from_secs(60), opened_rx.recv()).await {
         Ok(Some(())) => {
             tracing::info!("[ROM DL] DataChannel open, streaming for game_id={game_id}");
-
-            match stream_file_to_dc(&dc, &path).await {
-                Ok(()) => {
-                    tracing::info!("[ROM DL] stream complete for game_id={game_id}");
-                }
-                Err(e) => {
-                    tracing::error!("[ROM DL] stream failed for {game_id}: {e}");
-                }
-            }
+            stream_file(&dc, &path, &game_id, size).await;
         }
         _ => {
             tracing::warn!("[ROM DL] DataChannel did not open within 60s for game_id={game_id}");
