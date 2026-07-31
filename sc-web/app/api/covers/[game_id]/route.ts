@@ -73,12 +73,12 @@ export async function GET(
 
   // Look up the game in the catalog to get platform + name
   const [game] = await db
-    .select({ name: serverGames.name, platform: serverGames.platform })
+    .select({ name: serverGames.name, sourceName: serverGames.sourceName, platform: serverGames.platform })
     .from(serverGames)
     .where(eq(serverGames.gameId, game_id))
     .limit(1);
 
-  console.log(`[covers] game_id=${game_id} found=${!!game} name=${game?.name} platform=${game?.platform}`);
+  console.log(`[covers] game_id=${game_id} found=${!!game} name=${game?.name} sourceName=${game?.sourceName} platform=${game?.platform}`);
 
   if (!game) {
     return new NextResponse("game not found", { status: 404 });
@@ -98,8 +98,10 @@ export async function GET(
   }
 
   // Fetch from RetroArch thumbnail server
+  // Prefer sourceName (original DAT/filename with region tags) for matching
+  const lookupName = game.sourceName ?? game.name;
   const retroarchPlatform = PLATFORM_TO_RETROARCH[game.platform] ?? game.platform;
-  const thumbnailUrl = `${THUMBNAIL_BASE}/${encodeURIComponent(retroarchPlatform)}/Named_Boxarts/${encodeGameName(game.name)}.png`;
+  const thumbnailUrl = `${THUMBNAIL_BASE}/${encodeURIComponent(retroarchPlatform)}/Named_Boxarts/${encodeGameName(lookupName)}.png`;
   console.log(`[covers] fetching: ${thumbnailUrl}`);
 
   try {

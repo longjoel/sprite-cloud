@@ -36,6 +36,7 @@ export const serverGames = pgTable("server_games", {
     .notNull(),
   gameId: text("game_id").notNull(),
   name: text("name").notNull(),
+  sourceName: text("source_name"),
   platform: text("platform").notNull().default("Unknown"),
   maxPlayers: integer("max_players").notNull().default(1),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

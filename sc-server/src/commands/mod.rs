@@ -538,6 +538,7 @@ pub(crate) async fn sync_catalog(
             serde_json::json!({
                 "id": game.id,
                 "name": name,
+                "source_name": fallback,
                 "platform": game.discovered.platform.as_deref().unwrap_or("Unknown"),
                 "max_players": 4,
             })
