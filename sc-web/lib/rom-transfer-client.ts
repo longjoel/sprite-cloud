@@ -462,20 +462,24 @@ export async function downloadRom(
 ): Promise<{ sha256: string; size: number }> {
   const headers = csrfHeaders();
 
-  // Prompt user for save location first
+  // Prompt user for save location (mobile falls back to blob download)
   const ext = gameName.includes(".") ? "" : ".rom";
-  let writable: FileSystemWritableFileStream;
-  try {
-    const handle = await (window as any).showSaveFilePicker({
-      suggestedName: `${gameName}${ext}`,
-      types: [
-        { description: "ROM file", accept: { "application/octet-stream": [ext || ".rom", ".bin"] } },
-      ],
-    });
-    writable = await handle.createWritable();
-  } catch (e: any) {
-    if (e?.name === "AbortError") throw new Error("Cancelled");
-    throw new Error(`Save dialog failed: ${e}`);
+  const hasFilePicker = typeof (window as any).showSaveFilePicker === "function";
+  let writable: FileSystemWritableFileStream | null = null;
+
+  if (hasFilePicker) {
+    try {
+      const handle = await (window as any).showSaveFilePicker({
+        suggestedName: `${gameName}${ext}`,
+        types: [
+          { description: "ROM file", accept: { "application/octet-stream": [ext || ".rom", ".bin"] } },
+        ],
+      });
+      writable = await handle.createWritable();
+    } catch (e: any) {
+      if (e?.name === "AbortError") throw new Error("Cancelled");
+      throw new Error(`Save dialog failed: ${e}`);
+    }
   }
 
   // Create peer connection
@@ -498,10 +502,21 @@ export async function downloadRom(
             const msg = JSON.parse(e.data);
             if (msg.done && msg.sha256) {
               sha256 = msg.sha256;
-              for (const chunk of chunks) {
-                await writable.write(chunk as any);
+              // Write chunks to file (desktop) or trigger blob download (mobile)
+              const blob = new Blob(chunks as BlobPart[]);
+              if (writable) {
+                await writable.write(blob);
+                await writable.close();
+              } else {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `${gameName}${ext}`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
               }
-              await writable.close();
               if (!resolved) {
                 resolved = true;
                 resolve({ sha256, size: msg.size ?? totalReceived });
