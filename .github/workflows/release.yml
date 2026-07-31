@@ -30,7 +30,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build sc-server and sc-core
-        run: cargo build --release --locked -p sc-server -p sc-core
+        run: cargo build --release -p sc-server -p sc-core
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
@@ -64,7 +64,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build sc-server and sc-core
-        run: cargo build --release --locked -p sc-server -p sc-core
+        run: cargo build --release -p sc-server -p sc-core
 
       - name: Upload binaries
         uses: actions/upload-artifact@v4
