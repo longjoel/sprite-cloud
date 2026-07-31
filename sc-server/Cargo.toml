@@ -46,6 +46,7 @@ stun = "=0.17.1"
 shellexpand = "3.1.2"
 thiserror = "2"
 async-trait = "0.1"
+quick-xml = { version = "0.37", default-features = false, features = ["encoding"] }
 
 [dev-dependencies]
 tempfile = "3"
