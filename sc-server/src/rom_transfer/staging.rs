@@ -15,13 +15,33 @@ use std::path::{Path, PathBuf};
 pub(crate) static CRC32: Crc<u32> = Crc::<u32>::new(&crc::CRC_32_ISO_HDLC);
 
 /// Supported staging classifications.
-#[derive(Debug, Clone, serde::Serialize)]
+///
+/// `RomVerified` is set when a DAT index confirms the file identity.
+/// `Unverified` means the file was committed but no DAT match was found.
+/// The original `Rom`/`Bios`/`Artwork`/`Unknown` are extension-heuristic
+/// only and are overridden by DAT enrichment.
+#[derive(Debug, Clone, serde::Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum Classification {
     Rom,
+    RomVerified,
     Bios,
     Artwork,
     Unknown,
+    Unverified,
+}
+
+/// DAT match metadata attached to a manifest after index lookup.
+#[derive(Debug, Clone, serde::Serialize)]
+pub(crate) struct DatMatchInfo {
+    /// Canonical game name from the DAT (e.g. "Super Mario World (USA)")
+    pub canonical_name: String,
+    /// Platform from the DAT header (e.g. "Nintendo - Super Nintendo Entertainment System")
+    pub platform: Option<String>,
+    /// Region extracted from the game name when parseable
+    pub region: Option<String>,
+    /// Match confidence: "sha1" or "crc32_size"
+    pub confidence: String,
 }
 
 /// The full manifest produced from a single staging pass.
@@ -33,6 +53,10 @@ pub(crate) struct AssetManifest {
     pub size: u64,
     pub extension: Option<String>,
     pub classification: Classification,
+    /// Populated when a DAT index matches this file.
+    /// Absent when no DAT is available for the platform.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dat_match: Option<DatMatchInfo>,
 }
 
 /// Compute hashes and classification from a staged file path.
@@ -65,16 +89,55 @@ pub(crate) async fn compute_manifest(path: &Path, file_size: u64) -> Result<Asse
         .and_then(|e| e.to_str())
         .map(|s| s.to_lowercase());
 
-    let classification = classify(extension.as_deref());
-
     Ok(AssetManifest {
         sha256: hex::encode(sha256.finalize()),
         sha1: hex::encode(sha1.finalize()),
         crc32: format!("{:08x}", crc_digest.finalize()),
         size: file_size,
         extension,
-        classification,
+        classification: Classification::Rom, // overridden by DAT enrichment
+        dat_match: None,
     })
+}
+
+impl AssetManifest {
+    /// Enrich this manifest with DAT match metadata.
+    ///
+    /// If `index` is Some, looks up the file's hashes and updates
+    /// `classification` and `dat_match` accordingly:
+    /// - SHA-1 match → `RomVerified` + full canonical identity
+    /// - CRC32 + size match → `RomVerified` + canonical identity
+    /// - No match → `Unverified` (but still committed)
+    /// - index is None → leave classification as-is (no DAT available)
+    pub(crate) fn enrich(&mut self, index: Option<&crate::dat::DatIndex>) {
+        let index = match index {
+            Some(idx) => idx,
+            None => return, // no DAT available — leave heuristic classification
+        };
+
+        let m = index.find_match(&self.sha1, &self.crc32, self.size);
+
+        match m.confidence {
+            crate::dat::MatchConfidence::Sha1
+            | crate::dat::MatchConfidence::Crc32Size => {
+                self.classification = Classification::RomVerified;
+                if let Some(entry) = m.entry {
+                    self.dat_match = Some(DatMatchInfo {
+                        canonical_name: entry.name,
+                        platform: entry.platform,
+                        region: entry.region,
+                        confidence: match m.confidence {
+                            crate::dat::MatchConfidence::Sha1 => "sha1".into(),
+                            _ => "crc32_size".into(),
+                        },
+                    });
+                }
+            }
+            crate::dat::MatchConfidence::None => {
+                self.classification = Classification::Unverified;
+            }
+        }
+    }
 }
 
 /// Determine the asset class from file extension.
@@ -175,5 +238,68 @@ mod tests {
         assert_eq!(manifest.sha256.len(), 64);
         assert_eq!(manifest.sha1.len(), 40);
         assert_eq!(manifest.crc32.len(), 8);
+    }
+
+    // ── DAT enrichment tests ───────────────────────────────────────
+
+    fn make_test_index() -> crate::dat::DatIndex {
+        use crate::dat::RomEntry;
+        let entries = vec![RomEntry {
+            name: "hello world (World)".into(),
+            alt_names: vec![],
+            platform: Some("Test Platform".into()),
+            region: Some("World".into()),
+            revision: None,
+            status: Some("verified".into()),
+            size: 11,
+            crc32: Some("0d4a1185".into()),
+            md5: None,
+            sha1: Some("2aae6c35c94fcfb415dbe95f408b9ce91ee846ed".into()),
+        }];
+        crate::dat::DatIndex::from_entries(entries)
+    }
+
+    #[tokio::test]
+    async fn enrich_sha1_match_upgrades_to_rom_verified() {
+        let data = b"hello world";
+        let (_dir, path) = write_temp_file("test.bin", data).await;
+        let mut manifest = compute_manifest(&path, data.len() as u64).await.expect("manifest");
+        let index = make_test_index();
+
+        manifest.enrich(Some(&index));
+
+        assert_eq!(manifest.classification, Classification::RomVerified);
+        let m = manifest.dat_match.expect("dat_match should be populated");
+        assert_eq!(m.canonical_name, "hello world (World)");
+        assert_eq!(m.confidence, "sha1");
+        assert_eq!(m.platform.as_deref(), Some("Test Platform"));
+        assert_eq!(m.region.as_deref(), Some("World"));
+    }
+
+    #[tokio::test]
+    async fn enrich_no_match_sets_unverified() {
+        let data = b"some unknown file content!";
+        let (_dir, path) = write_temp_file("unknown.bin", data).await;
+        let mut manifest = compute_manifest(&path, data.len() as u64).await.expect("manifest");
+        let index = make_test_index();
+
+        manifest.enrich(Some(&index));
+
+        assert_eq!(manifest.classification, Classification::Unverified);
+        assert!(manifest.dat_match.is_none(), "no dat_match for unverified files");
+    }
+
+    #[tokio::test]
+    async fn enrich_with_none_index_is_noop() {
+        let data = b"hello world";
+        let (_dir, path) = write_temp_file("test.bin", data).await;
+        let mut manifest = compute_manifest(&path, data.len() as u64).await.expect("manifest");
+
+        let original_classification = manifest.classification.clone();
+        manifest.enrich(None);
+
+        // Classification unchanged when no DAT available
+        assert_eq!(manifest.classification, original_classification);
+        assert!(manifest.dat_match.is_none());
     }
 }

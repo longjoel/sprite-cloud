@@ -1,7 +1,8 @@
 //! Staging command — hash + classify a file in the staging area.
 //!
 //! Invoked by a `stage_rom` command. Reads the file path from the payload,
-//! computes the asset manifest, and returns it as the command result.
+//! computes the asset manifest, enriches with DAT identity when available,
+//! and returns the result.
 
 use crate::rom_transfer::staging;
 use crate::sc_web;
@@ -9,6 +10,7 @@ use crate::sc_web;
 pub(crate) async fn handle_stage_rom(
     cmd: &sc_web::Command,
     client: &sc_web::ScWebClient,
+    dat_index: Option<&crate::dat::DatIndex>,
 ) {
     let file_path = match cmd.payload.get("file_path").and_then(|v| v.as_str()) {
         Some(p) => std::path::PathBuf::from(p),
@@ -62,7 +64,7 @@ pub(crate) async fn handle_stage_rom(
         metadata.len(),
     );
 
-    let manifest = match staging::compute_manifest(&file_path, metadata.len()).await {
+    let mut manifest = match staging::compute_manifest(&file_path, metadata.len()).await {
         Ok(m) => m,
         Err(e) => {
             tracing::error!("[stage] manifest compute failed: {e}");
@@ -77,10 +79,14 @@ pub(crate) async fn handle_stage_rom(
         }
     };
 
+    // Enrich with DAT identity when available
+    manifest.enrich(dat_index);
+
     tracing::info!(
-        "[stage] manifest ready — sha256={} classification={:?}",
+        "[stage] manifest ready — sha256={} classification={:?} dat_match={}",
         &manifest.sha256[..12],
         manifest.classification,
+        manifest.dat_match.as_ref().map_or("none", |m| &m.canonical_name),
     );
 
     let _ = client
