@@ -5,12 +5,10 @@ import path from "path";
 import { db } from "@/lib/db";
 import { commands } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { downloads } from "@/lib/download-registry";
 
 const DOWNLOAD_EXPIRY_MS = 5 * 60 * 1000;
 const UPLOAD_DIR = path.join(process.cwd(), ".downloads");
-
-const downloads = new Map<string, { filePath: string; name: string; size: number; expiresAt: number }>();
-export { downloads };
 
 export async function POST(
   request: NextRequest,
