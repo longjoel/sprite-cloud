@@ -11,6 +11,7 @@ interface TileGame {
   name: string;
   platform: string;
   maxPlayers: number;
+  coverUrl?: string | null;
 }
 
 interface GameTileProps {
@@ -63,7 +64,17 @@ export default function GameTile({
         disabled={launching}
         aria-label={`Play ${game.name}`}
         onClick={() => onPlay(game)}
-        sx={{ height: "100%", width: "100%" }}
+        sx={{
+          height: "100%",
+          width: "100%",
+          ...(game.coverUrl
+            ? {
+                backgroundImage: `url(${game.coverUrl})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+              }
+            : {}),
+        }}
       >
         {launching && <CircularProgress size={16} sx={{ position: "absolute", top: 8, right: 8 }} />}
       </CardActionArea>

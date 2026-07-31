@@ -26,6 +26,7 @@ interface Game {
   platform: string;
   maxPlayers: number;
   playedAt?: string;
+  coverUrl?: string | null;
 }
 
 interface GameActionModel {
@@ -517,7 +518,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
 
       recentRank: tab === "recent" ? index : null,
       serverId: game.serverId ?? null,
-      coverUrl: null,
+      coverUrl: game.coverUrl ?? null,
     }));
     const filtered = filterLibraryGames(normalized, createLibraryFilters(tab, search, selectedPlatforms));
     const byId = new Map(currentGames.map((game) => [libraryGameKey(game), game]));
