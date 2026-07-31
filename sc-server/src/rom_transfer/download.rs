@@ -171,19 +171,19 @@ pub(crate) async fn handle_rom_download(
         return;
     }
 
-    // Create DataChannel (we create it as answerer — browser receives via ondatachannel)
-    let dc = match pc.create_data_channel(DC_LABEL, None).await {
-        Ok(dc) => Arc::new(dc),
-        Err(e) => {
-            let _ = client
-                .command_result(&cmd.id, &cmd.lease_token, &serde_json::json!({"ok": false, "error": format!("data channel failed: {e}")}),
-                )
-                .await;
-            return;
-        }
-    };
+    // Wait for the browser's DataChannel to arrive, then stream
+    let (dc_tx, mut dc_rx) = tokio::sync::mpsc::channel::<Arc<RTCDataChannel>>(1);
 
-    // Create answer
+    pc.on_data_channel(Box::new(move |dc| {
+        let dc_tx = dc_tx.clone();
+        Box::pin(async move {
+            if dc.label() == DC_LABEL {
+                let _ = dc_tx.try_send(dc);
+            }
+        })
+    }));
+
+    // Create answer (we're the answerer — DC arrives from browser's offer)
     let answer = match pc.create_answer(None).await {
         Ok(a) => a,
         Err(e) => {
@@ -267,22 +267,29 @@ pub(crate) async fn handle_rom_download(
 
     tracing::info!("[ROM DL] SDP answer delivered for game_id={game_id}");
 
-    // Wait for DataChannel to open, then stream
-    let (opened_tx, mut opened_rx) = tokio::sync::mpsc::channel::<()>(1);
-    dc.on_open(Box::new(move || {
-        let opened_tx = opened_tx.clone();
-        Box::pin(async move {
-            let _ = opened_tx.try_send(());
-        })
-    }));
+    // Wait for the browser's DataChannel to arrive and open, then stream
+    match tokio::time::timeout(Duration::from_secs(60), dc_rx.recv()).await {
+        Ok(Some(dc)) => {
+            let (opened_tx, mut opened_rx) = tokio::sync::mpsc::channel::<()>(1);
+            dc.on_open(Box::new(move || {
+                let opened_tx = opened_tx.clone();
+                Box::pin(async move {
+                    let _ = opened_tx.try_send(());
+                })
+            }));
 
-    match tokio::time::timeout(Duration::from_secs(60), opened_rx.recv()).await {
-        Ok(Some(())) => {
-            tracing::info!("[ROM DL] DataChannel open, streaming for game_id={game_id}");
-            stream_file(&dc, &path, &game_id, size).await;
+            match tokio::time::timeout(Duration::from_secs(30), opened_rx.recv()).await {
+                Ok(Some(())) => {
+                    tracing::info!("[ROM DL] DataChannel open, streaming for game_id={game_id}");
+                    stream_file(&dc, &path, &game_id, size).await;
+                }
+                _ => {
+                    tracing::warn!("[ROM DL] DataChannel did not open within 30s for game_id={game_id}");
+                }
+            }
         }
         _ => {
-            tracing::warn!("[ROM DL] DataChannel did not open within 60s for game_id={game_id}");
+            tracing::warn!("[ROM DL] no DataChannel received within 60s for game_id={game_id}");
         }
     }
 

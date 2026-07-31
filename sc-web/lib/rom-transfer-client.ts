@@ -531,6 +531,9 @@ export async function downloadRom(
       };
     };
 
+    // Create DataChannel before offer (so it appears in the SDP)
+    pc.createDataChannel(ROM_DOWNLOAD_CHANNEL_LABEL);
+
     // Create offer, wait for ICE, send to server, poll for answer
     pc.createOffer()
       .then((offer) => pc.setLocalDescription(offer))
