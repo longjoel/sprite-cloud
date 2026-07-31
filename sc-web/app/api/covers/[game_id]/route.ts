@@ -11,6 +11,41 @@ const THUMBNAIL_BASE = "https://thumbnails.libretro.com";
 const CACHE_DIR = join(process.cwd(), "public", "covers");
 const MAX_SIZE = 5 * 1024 * 1024; // 5 MiB
 
+/// Map sc-server platform short names to RetroArch thumbnail folder names.
+/// RetroArch uses No-Intro-style folder names: "Nintendo - System Name".
+const PLATFORM_TO_RETROARCH: Record<string, string> = {
+  "SNES": "Nintendo - Super Nintendo Entertainment System",
+  "NES": "Nintendo - Nintendo Entertainment System",
+  "Game Boy": "Nintendo - Game Boy",
+  "Game Boy Color": "Nintendo - Game Boy Color",
+  "Game Boy Advance": "Nintendo - Game Boy Advance",
+  "Nintendo 64": "Nintendo - Nintendo 64",
+  "Nintendo DS": "Nintendo - Nintendo DS",
+  "Virtual Boy": "Nintendo - Virtual Boy",
+  "Family Computer Disk System": "Nintendo - Family Computer Disk System",
+  "Pokemon Mini": "Nintendo - Pokemon Mini",
+  "Genesis": "Sega - Mega Drive - Genesis",
+  "Master System": "Sega - Master System - Mark III",
+  "Game Gear": "Sega - Game Gear",
+  "Sega CD": "Sega - Mega-CD - Sega CD",
+  "Sega 32X": "Sega - 32X",
+  "Saturn": "Sega - Saturn",
+  "Dreamcast": "Sega - Dreamcast",
+  "PlayStation": "Sony - PlayStation",
+  "PSP": "Sony - PlayStation Portable",
+  "Atari 2600": "Atari - 2600",
+  "Atari 5200": "Atari - 5200",
+  "Atari 7800": "Atari - 7800",
+  "Atari Lynx": "Atari - Lynx",
+  "PC Engine": "NEC - PC Engine - TurboGrafx 16",
+  "Neo Geo Pocket": "SNK - Neo Geo Pocket",
+  "Neo Geo Pocket Color": "SNK - Neo Geo Pocket Color",
+  "Neo Geo CD": "SNK - Neo Geo CD",
+  "WonderSwan": "Bandai - WonderSwan",
+  "WonderSwan Color": "Bandai - WonderSwan Color",
+  "Arcade": "Arcade",
+};
+
 function encodeGameName(name: string): string {
   return name
     .replace(/ /g, "%20")
@@ -26,37 +61,24 @@ function encodeGameName(name: string): string {
 }
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ game_id: string }> }
 ) {
   const { game_id } = await params;
-  const url = new URL(request.url);
-  const queryName = url.searchParams.get("name");
-  const queryPlatform = url.searchParams.get("platform");
 
   const session = await auth();
   if (!session?.user?.id) {
     return new NextResponse("sign in first", { status: 401 });
   }
 
-  let platformName: string;
-  let gameName: string;
-
-  // Try DB lookup first (cloud-synced games)
-  const [dbGame] = await db
+  // Look up the game in the catalog to get platform + name
+  const [game] = await db
     .select({ name: serverGames.name, platform: serverGames.platform })
     .from(serverGames)
     .where(eq(serverGames.gameId, game_id))
     .limit(1);
 
-  if (dbGame) {
-    platformName = dbGame.platform;
-    gameName = dbGame.name;
-  } else if (queryName && queryPlatform) {
-    // Local game (from player_server) — use query params
-    platformName = queryPlatform;
-    gameName = queryName;
-  } else {
+  if (!game) {
     return new NextResponse("game not found", { status: 404 });
   }
 
@@ -74,7 +96,8 @@ export async function GET(
   }
 
   // Fetch from RetroArch thumbnail server
-  const thumbnailUrl = `${THUMBNAIL_BASE}/${platformName}/Named_Boxarts/${encodeGameName(gameName)}.png`;
+  const retroarchPlatform = PLATFORM_TO_RETROARCH[game.platform] ?? game.platform;
+  const thumbnailUrl = `${THUMBNAIL_BASE}/${encodeURIComponent(retroarchPlatform)}/Named_Boxarts/${encodeGameName(game.name)}.png`;
 
   try {
     const resp = await fetch(thumbnailUrl, { signal: AbortSignal.timeout(15000) });
