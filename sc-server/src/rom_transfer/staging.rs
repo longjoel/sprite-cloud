@@ -230,8 +230,8 @@ fn classify(ext: Option<&str>) -> Classification {
 /// Ensure the staging directory exists under the first ROM root.
 pub(crate) fn staging_dir(rom_roots: &[String]) -> PathBuf {
     let root = rom_roots.first().map(Path::new).unwrap_or_else(|| Path::new("."));
-    let staging = root.parent().map(|p| p.join("staging")).unwrap_or_else(|| root.join("staging"));
-    staging
+    
+    root.parent().map(|p| p.join("staging")).unwrap_or_else(|| root.join("staging"))
 }
 
 #[cfg(test)]

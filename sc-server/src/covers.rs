@@ -56,12 +56,10 @@ pub(crate) async fn resolve_cover(
     let cache_path = covers_dir.join(format!("{game_id}.png"));
 
     // ── Cache hit ─────────────────────────────────────────────────
-    if cache_path.exists() {
-        if let Ok(meta) = tokio::fs::metadata(&cache_path).await {
-            if meta.len() > 0 {
-                return CoverResult::Cached(cache_path);
-            }
-        }
+    if cache_path.exists()
+        && tokio::fs::metadata(&cache_path).await.is_ok_and(|m| m.len() > 0)
+    {
+        return CoverResult::Cached(cache_path);
     }
 
     // ── Cache miss — fetch from RetroArch ─────────────────────────
@@ -111,7 +109,7 @@ pub(crate) async fn resolve_cover(
 /// them directly in folder names.
 fn build_thumbnail_url(platform: &str, game_name: &str) -> String {
     // URL-encode the game name: spaces → %20, parens → %28/%29, etc.
-    let encoded_name = urlencoding(&game_name);
+    let encoded_name = urlencoding(game_name);
     format!("{THUMBNAIL_BASE}/{platform}/Named_Boxarts/{encoded_name}.png")
 }
 
@@ -139,11 +137,10 @@ async fn download_cover(url: &str) -> Result<Vec<u8>, String> {
     }
 
     // Check Content-Length if available
-    if let Some(cl) = resp.content_length() {
-        if cl > MAX_COVER_BYTES {
+    if let Some(cl) = resp.content_length()
+        && cl > MAX_COVER_BYTES {
             return Err(format!("content-length {cl} exceeds max {MAX_COVER_BYTES}"));
         }
-    }
 
     let bytes = resp
         .bytes()
