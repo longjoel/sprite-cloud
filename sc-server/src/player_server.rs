@@ -306,6 +306,22 @@ pub(crate) fn open_library_preferences() -> std::io::Result<SharedLibraryState> 
         .map(|store| Arc::new(tokio::sync::Mutex::new(store)))
 }
 
+#[cfg(unix)]
+async fn player_shutdown_signal() {
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut sigterm = signal(SignalKind::terminate()).expect("SIGTERM handler");
+    let mut sigint = signal(SignalKind::interrupt()).expect("SIGINT handler");
+    tokio::select! {
+        _ = sigterm.recv() => tracing::info!("[player] received SIGTERM"),
+        _ = sigint.recv() => tracing::info!("[player] received SIGINT"),
+    }
+}
+
+#[cfg(not(unix))]
+async fn player_shutdown_signal() {
+    let _ = tokio::signal::ctrl_c().await;
+}
+
 // These values are assembled from pairing, runtime configuration, and the
 // scanned library. Keeping them explicit makes the security boundary visible.
 #[allow(clippy::too_many_arguments)]
@@ -350,8 +366,14 @@ pub(crate) async fn serve(
         }
     };
 
-    if let Err(e) = axum::serve(listener, app).await {
+    if let Err(e) = axum::serve(listener, app)
+        .with_graceful_shutdown(player_shutdown_signal())
+        .await
+    {
         tracing::error!("[player] HTTP server error: {e:#}");
+    }
+    if !crate::core_bridge::shutdown_all_core_bridges(std::time::Duration::from_secs(2)).await {
+        tracing::error!("[player] timed out waiting for core bridge shutdown");
     }
 }
 
@@ -398,8 +420,14 @@ pub(crate) async fn serve_standalone(
         }
     };
 
-    if let Err(e) = axum::serve(listener, app).await {
+    if let Err(e) = axum::serve(listener, app)
+        .with_graceful_shutdown(player_shutdown_signal())
+        .await
+    {
         tracing::error!("[player] HTTP server error: {e:#}");
+    }
+    if !crate::core_bridge::shutdown_all_core_bridges(std::time::Duration::from_secs(2)).await {
+        tracing::error!("[player] timed out waiting for core bridge shutdown");
     }
 }
 
@@ -811,6 +839,7 @@ async fn launch_game(
         game_id: session_id.clone(),
         cloud_session_id: None,
         cancel: tokio_util::sync::CancellationToken::new(),
+        core_stopped: tokio_util::sync::CancellationToken::new(),
         pc: std::sync::Mutex::new(stack.pc),
         video_track: std::sync::Mutex::new(stack.video_track),
         audio_track: std::sync::Mutex::new(stack.audio_track),
@@ -1256,6 +1285,24 @@ mod tests {
         Arc::new(tokio::sync::Mutex::new(
             crate::library_state::LibraryStateStore::load(path).unwrap(),
         ))
+    }
+
+    #[test]
+    fn paired_and_standalone_servers_keep_graceful_registry_shutdown_wired() {
+        let source = include_str!("player_server.rs");
+        let graceful = ["with_graceful_", "shutdown(player_shutdown_signal())"].concat();
+        let registry_wait = ["shutdown_all_core_", "bridges(std::time::Duration::from_secs(2))"]
+            .concat();
+        assert_eq!(
+            source.matches(&graceful).count(),
+            2,
+            "paired and standalone servers must both drain HTTP handlers"
+        );
+        assert_eq!(
+            source.matches(&registry_wait).count(),
+            2,
+            "paired and standalone servers must both await registered bridges"
+        );
     }
 
     #[test]

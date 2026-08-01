@@ -203,13 +203,14 @@ pub(crate) async fn cmd_start(
 
     tracing::info!("sc-server running — polling for commands...");
 
-    // Start LAN player HTTP server (port 8787) for direct guest connections
-    if !no_lan_player {
+    // Keep the task handle so process shutdown cannot preempt a local player's
+    // final SRAM capture after the HTTP server begins graceful shutdown.
+    let player_handle = if !no_lan_player {
         let player_addr: SocketAddr = std::env::var("GV_PLAYER_BIND")
             .unwrap_or_else(|_| "0.0.0.0:8787".into())
             .parse()
             .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 8787)));
-        tokio::spawn(crate::player_server::serve(
+        Some(tokio::spawn(crate::player_server::serve(
             player_addr,
             cfg.sc_web.url.clone(),
             cfg.auth.api_key.clone(),
@@ -220,10 +221,11 @@ pub(crate) async fn cmd_start(
             Arc::clone(&local_game_list),
             Arc::clone(&local_rom_roots),
             Arc::clone(&library_preferences),
-        ));
+        )))
     } else {
         tracing::info!("LAN player disabled (--no-lan-player) — relay-only mode");
-    }
+        None
+    };
 
     const POLL_ERROR_BACKOFF_MS: u64 = 5_000;
     let mut sessions: HashMap<String, Arc<GameSession>> = HashMap::new();
@@ -232,10 +234,6 @@ pub(crate) async fn cmd_start(
         tokio::select! {
             _ = shutdown_signal() => {
                 tracing::info!("[SHUTDOWN] stopping all sessions...");
-                for (gid, s) in &sessions {
-                    s.cancel.cancel();
-                    tracing::info!("[SHUTDOWN] cancelled session {gid}");
-                }
                 break;
             }
             _ = async {
@@ -379,6 +377,16 @@ pub(crate) async fn cmd_start(
     for (gid, s) in &sessions {
         s.cancel.cancel();
         tracing::info!("[SHUTDOWN] cancelled session {gid}");
+    }
+
+    if let Some(player_handle) = player_handle
+        && let Err(error) = player_handle.await
+    {
+        tracing::error!("[SHUTDOWN] LAN player task failed: {error}");
+    }
+
+    if !crate::core_bridge::shutdown_all_core_bridges(Duration::from_secs(2)).await {
+        tracing::error!("[SHUTDOWN] timed out waiting for core bridge shutdown");
     }
 
     tracing::info!("[SHUTDOWN] done");
@@ -652,6 +660,23 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn daemon_shutdown_keeps_player_join_and_registry_wait_wired() {
+        let source = include_str!("mod.rs");
+        let player_wait = ["player_handle", ".await"].concat();
+        let registry_wait = ["shutdown_all_core_", "bridges(Duration::from_secs(2))"].concat();
+        let player_pos = source
+            .rfind(&player_wait)
+            .expect("daemon shutdown must await the LAN player task");
+        let registry_pos = source
+            .rfind(&registry_wait)
+            .expect("daemon shutdown must await all registered core bridges");
+        assert!(
+            player_pos < registry_pos,
+            "player handlers must drain before the final core registry wait"
+        );
+    }
 
     #[test]
     fn pairing_preserves_setup_rom_core_and_ice_config() {

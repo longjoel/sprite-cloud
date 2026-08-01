@@ -11,9 +11,9 @@
 //! keeping the streaming loop and command handling completely unchanged.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use sc_core::{
@@ -24,6 +24,211 @@ use sc_core::{
 use crate::session::GameSession;
 
 use crate::saves;
+
+/// Request a fresh SRAM snapshot while the core process is still alive.
+///
+/// Clearing the prior response before publishing the command prevents a stale
+/// save-state response from being mistaken for this SRAM acknowledgement.
+fn request_sram_snapshot<F>(
+    input: &InputShm,
+    output: &OutputShm,
+    mut child_alive: F,
+    timeout: Duration,
+) -> Option<Vec<u8>>
+where
+    F: FnMut() -> bool,
+{
+    let deadline = std::time::Instant::now() + timeout;
+    // Do not overwrite a command that the core has already acquired. Waiting
+    // here also prevents that earlier command's acknowledgement from being
+    // mistaken for the SRAM request below.
+    while input.cmd_ready.load(Ordering::Acquire) {
+        if !child_alive() || std::time::Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+
+    output.response_ok.store(false, Ordering::Relaxed);
+    output.response_data_len.store(0, Ordering::Relaxed);
+    input.cmd_type.store(CMD_SAVE_SRAM, Ordering::Relaxed);
+    input.cmd_ready.store(true, Ordering::Release);
+
+    while input.cmd_ready.load(Ordering::Acquire) {
+        if !child_alive() || std::time::Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+
+    if !output.response_ok.load(Ordering::Relaxed) {
+        return None;
+    }
+    let len = output.response_data_len.load(Ordering::Relaxed) as usize;
+    if len == 0 {
+        return None;
+    }
+    Some(output.response_data[..len.min(sc_core::MAX_RESPONSE)].to_vec())
+}
+
+trait CoreChildLifecycle {
+    fn is_alive(&mut self) -> bool;
+    fn terminate(&mut self);
+}
+
+impl CoreChildLifecycle for std::process::Child {
+    fn is_alive(&mut self) -> bool {
+        matches!(self.try_wait(), Ok(None))
+    }
+
+    fn terminate(&mut self) {
+        let _ = self.kill();
+        let _ = self.wait();
+    }
+}
+
+struct CoreShutdownCompletion(Option<tokio_util::sync::CancellationToken>);
+
+impl CoreShutdownCompletion {
+    fn registered_in(
+        registry: &CoreBridgeShutdownRegistry,
+        cancel: tokio_util::sync::CancellationToken,
+        stopped: tokio_util::sync::CancellationToken,
+    ) -> Self {
+        registry.register(cancel, stopped.clone());
+        Self(Some(stopped))
+    }
+
+    fn registered(
+        cancel: tokio_util::sync::CancellationToken,
+        stopped: tokio_util::sync::CancellationToken,
+    ) -> Self {
+        Self::registered_in(core_bridge_shutdown_registry(), cancel, stopped)
+    }
+
+    fn complete(mut self) {
+        if let Some(stopped) = self.0.take() {
+            stopped.cancel();
+        }
+    }
+}
+
+impl Drop for CoreShutdownCompletion {
+    fn drop(&mut self) {
+        if self.0.is_some() {
+            tracing::error!("[BRIDGE] shutdown completion guard dropped before cleanup completed");
+        }
+    }
+}
+
+#[derive(Clone)]
+struct CoreBridgeShutdownHandle {
+    cancel: tokio_util::sync::CancellationToken,
+    stopped: tokio_util::sync::CancellationToken,
+}
+
+#[derive(Default)]
+struct CoreBridgeShutdownRegistry {
+    handles: Mutex<Vec<CoreBridgeShutdownHandle>>,
+}
+
+impl CoreBridgeShutdownRegistry {
+    fn register(
+        &self,
+        cancel: tokio_util::sync::CancellationToken,
+        stopped: tokio_util::sync::CancellationToken,
+    ) {
+        let mut handles = self
+            .handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        handles.retain(|handle| !handle.stopped.is_cancelled());
+        handles.push(CoreBridgeShutdownHandle { cancel, stopped });
+    }
+
+    async fn cancel_and_wait(&self, timeout: Duration) -> bool {
+        let handles = {
+            let mut handles = self
+                .handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            handles.retain(|handle| !handle.stopped.is_cancelled());
+            handles.clone()
+        };
+
+        for handle in &handles {
+            handle.cancel.cancel();
+        }
+
+        let completed = tokio::time::timeout(timeout, async {
+            for handle in &handles {
+                handle.stopped.cancelled().await;
+            }
+        })
+        .await
+        .is_ok();
+
+        if completed {
+            self.handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .retain(|handle| !handle.stopped.is_cancelled());
+        }
+        completed
+    }
+}
+
+fn core_bridge_shutdown_registry() -> &'static CoreBridgeShutdownRegistry {
+    static REGISTRY: OnceLock<CoreBridgeShutdownRegistry> = OnceLock::new();
+    REGISTRY.get_or_init(CoreBridgeShutdownRegistry::default)
+}
+
+/// Cancel every bridge started by this process and wait under one global
+/// deadline. The registry is independent of active session maps, so a bridge
+/// remains observable while stop/disconnect cleanup is saving SRAM.
+pub(crate) async fn shutdown_all_core_bridges(timeout: Duration) -> bool {
+    core_bridge_shutdown_registry()
+        .cancel_and_wait(timeout)
+        .await
+}
+
+/// Run bridge work and always invoke its shutdown lifecycle, even when the
+/// processing loop panics. The panic is contained so SRAM capture and child
+/// termination can complete before the daemon observes bridge completion.
+fn run_and_shutdown_after_panic<T, R, S>(state: &mut T, run: R, shutdown: S) -> bool
+where
+    R: FnOnce(&mut T),
+    S: FnOnce(&mut T),
+{
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(state))).is_err();
+    shutdown(state);
+    panicked
+}
+
+/// Capture and persist current SRAM before terminating the core child.
+/// Keeping this ordering in one testable operation prevents shutdown cleanup
+/// from silently moving ahead of the final battery-save acknowledgement.
+fn capture_sram_and_terminate<C, P>(
+    child: &mut C,
+    input: &InputShm,
+    output: &OutputShm,
+    rom_hash: Option<&str>,
+    timeout: Duration,
+    mut persist: P,
+) where
+    C: CoreChildLifecycle,
+    P: FnMut(&str, &[u8]),
+{
+    if let Some(hash) = rom_hash {
+        let snapshot = request_sram_snapshot(input, output, || child.is_alive(), timeout);
+        if let Some(data) = snapshot {
+            persist(hash, &data);
+        } else {
+            tracing::warn!("[SRAM] no fresh shutdown snapshot available");
+        }
+    }
+    child.terminate();
+}
 
 // ── Zip extraction helper ──────────────────────────────────────────────
 
@@ -541,6 +746,8 @@ pub async fn load_core_into_session(
         .store(false, std::sync::atomic::Ordering::Relaxed);
 
     let cancel = session.cancel.clone();
+    let core_stopped = session.core_stopped.clone();
+    let shutdown_completion = CoreShutdownCompletion::registered(cancel.clone(), core_stopped);
     let out_name_clone = out_name.clone();
     let in_name_clone = in_name.clone();
 
@@ -550,163 +757,176 @@ pub async fn load_core_into_session(
     // ── Bridge thread: shm ↔ channels ───────────────────────────────
     let rom_hash_save = rom_hash.clone();
     std::thread::spawn(move || {
+        let shutdown_completion = shutdown_completion;
         let _out_mmap = out_mmap; // keep mmap alive for lifetime of thread
         let _in_mmap = in_mmap; // keep mmap alive for lifetime of thread
         let mut frame_num: u64 = 0;
         let _frame_interval = Duration::from_secs_f64(1.0 / fps.max(1.0));
 
-        loop {
-            // Check cancel
-            if cancel.is_cancelled() {
-                tracing::info!("[BRIDGE] cancel — killing child");
-                let _ = child.kill();
-                let _ = child.wait();
-                break;
-            }
+        let bridge_panicked = run_and_shutdown_after_panic(
+            &mut child,
+            |child| {
+                loop {
+                    // Check cancel
+                    if cancel.is_cancelled() {
+                        tracing::info!("[BRIDGE] cancel — capturing SRAM before child shutdown");
+                        break;
+                    }
 
-            // Write commands from channel → input shm
-            while let Ok(cmd) = cmd_rx.try_recv() {
-                match cmd {
-                    CoreCommand::SetInput { port, state } => {
-                        inp.port.store(port, Ordering::Relaxed);
-                        inp.state.store(state, Ordering::Relaxed);
-                        inp.cmd_type.store(CMD_SET_INPUT, Ordering::Relaxed);
-                        inp.cmd_ready.store(true, Ordering::Release);
+                    // Write commands from channel → input shm
+                    while let Ok(cmd) = cmd_rx.try_recv() {
+                        match cmd {
+                            CoreCommand::SetInput { port, state } => {
+                                inp.port.store(port, Ordering::Relaxed);
+                                inp.state.store(state, Ordering::Relaxed);
+                                inp.cmd_type.store(CMD_SET_INPUT, Ordering::Relaxed);
+                                inp.cmd_ready.store(true, Ordering::Release);
+                            }
+                            CoreCommand::SaveState => {
+                                inp.cmd_type.store(CMD_SAVE_STATE, Ordering::Relaxed);
+                                inp.cmd_ready.store(true, Ordering::Release);
+                                std::thread::sleep(Duration::from_millis(100));
+                                let ok = out.response_ok.load(Ordering::Relaxed);
+                                let len = out.response_data_len.load(Ordering::Relaxed) as usize;
+                                let data =
+                                    out.response_data[..len.min(sc_core::MAX_RESPONSE)].to_vec();
+                                let _ = resp_tx.send(CoreResponse::SaveStateResult { data, ok });
+                            }
+                            CoreCommand::LoadState { data } => {
+                                let len = data.len().min(sc_core::MAX_RESPONSE);
+                                unsafe {
+                                    std::ptr::copy_nonoverlapping(
+                                        data.as_ptr(),
+                                        out.response_data.as_ptr() as *mut u8,
+                                        len,
+                                    );
+                                }
+                                out.response_data_len.store(len as u32, Ordering::Relaxed);
+                                inp.cmd_type.store(CMD_LOAD_STATE, Ordering::Relaxed);
+                                inp.cmd_ready.store(true, Ordering::Release);
+                                std::thread::sleep(Duration::from_millis(100));
+                                let ok = out.response_ok.load(Ordering::Relaxed);
+                                let _ = resp_tx.send(CoreResponse::LoadStateResult { ok });
+                            }
+                        }
                     }
-                    CoreCommand::SaveState => {
-                        inp.cmd_type.store(CMD_SAVE_STATE, Ordering::Relaxed);
-                        inp.cmd_ready.store(true, Ordering::Release);
-                        std::thread::sleep(Duration::from_millis(100));
-                        let ok = out.response_ok.load(Ordering::Relaxed);
-                        let len = out.response_data_len.load(Ordering::Relaxed) as usize;
-                        let data = out.response_data[..len.min(sc_core::MAX_RESPONSE)].to_vec();
-                        let _ = resp_tx.send(CoreResponse::SaveStateResult { data, ok });
+
+                    // Check child alive
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            let stderr_out = child
+                                .stderr
+                                .take()
+                                .and_then(|mut r| {
+                                    let mut s = String::new();
+                                    std::io::Read::read_to_string(&mut r, &mut s)
+                                        .ok()
+                                        .map(|_| s)
+                                })
+                                .unwrap_or_default();
+                            tracing::warn!("[BRIDGE] child exited with {status}: {stderr_out}");
+                            let _ = frame_tx.send(CoreFrame {
+                                pixels: vec![],
+                                width: 0,
+                                height: 0,
+                                audio: vec![],
+                            });
+                            break;
+                        }
+                        Ok(None) => {} // still running
+                        Err(e) => {
+                            tracing::error!("[BRIDGE] try_wait error: {e}");
+                            let _ = frame_tx.send(CoreFrame {
+                                pixels: vec![],
+                                width: 0,
+                                height: 0,
+                                audio: vec![],
+                            });
+                            break;
+                        }
                     }
-                    CoreCommand::LoadState { data } => {
-                        let len = data.len().min(sc_core::MAX_RESPONSE);
+
+                    // Read frame from output shm
+                    if out.frame_ready.load(Ordering::Acquire) {
+                        let fw = out.width.load(Ordering::Relaxed);
+                        let fh = out.height.load(Ordering::Relaxed);
+                        let audio_len = out.audio_len.load(Ordering::Relaxed) as usize;
+
+                        let px_count = (fw as usize * fh as usize * 3).min(sc_core::MAX_PIXELS);
+                        let mut pixels = vec![0u8; px_count];
                         unsafe {
                             std::ptr::copy_nonoverlapping(
-                                data.as_ptr(),
-                                out.response_data.as_ptr() as *mut u8,
-                                len,
+                                out.pixels.as_ptr(),
+                                pixels.as_mut_ptr(),
+                                px_count,
                             );
                         }
-                        out.response_data_len.store(len as u32, Ordering::Relaxed);
-                        inp.cmd_type.store(CMD_LOAD_STATE, Ordering::Relaxed);
-                        inp.cmd_ready.store(true, Ordering::Release);
-                        std::thread::sleep(Duration::from_millis(100));
-                        let ok = out.response_ok.load(Ordering::Relaxed);
-                        let _ = resp_tx.send(CoreResponse::LoadStateResult { ok });
+
+                        let audio_count = audio_len.min(sc_core::MAX_AUDIO);
+                        let mut audio = vec![0i16; audio_count];
+                        unsafe {
+                            std::ptr::copy_nonoverlapping(
+                                out.audio.as_ptr(),
+                                audio.as_mut_ptr(),
+                                audio_count,
+                            );
+                        }
+
+                        out.frame_ready.store(false, Ordering::Release);
+
+                        if frame_tx
+                            .send(CoreFrame {
+                                pixels,
+                                width: fw,
+                                height: fh,
+                                audio,
+                            })
+                            .is_err()
+                        {
+                            break;
+                        }
+                        frame_num = frame_num.wrapping_add(1);
                     }
+
+                    std::thread::sleep(Duration::from_millis(1));
                 }
-            }
+            },
+            |child| {
+                // ── Auto-save SRAM, then terminate child ────────────
+                capture_sram_and_terminate(
+                    child,
+                    inp,
+                    out,
+                    rom_hash_save.as_deref(),
+                    Duration::from_millis(500),
+                    |hash, data| {
+                        let sram_file = saves::sram_path(hash);
+                        match saves::write_atomic(&sram_file, data) {
+                            Ok(()) => {
+                                tracing::info!(
+                                    "[SRAM] auto-saved {} bytes to {}",
+                                    data.len(),
+                                    sram_file.display()
+                                )
+                            }
+                            Err(e) => {
+                                tracing::error!("[SRAM] write failed {}: {e}", sram_file.display())
+                            }
+                        }
+                    },
+                );
+            },
+        );
 
-            // Check child alive
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    let stderr_out = child
-                        .stderr
-                        .take()
-                        .and_then(|mut r| {
-                            let mut s = String::new();
-                            std::io::Read::read_to_string(&mut r, &mut s)
-                                .ok()
-                                .map(|_| s)
-                        })
-                        .unwrap_or_default();
-                    tracing::warn!("[BRIDGE] child exited with {status}: {stderr_out}");
-                    let _ = frame_tx.send(CoreFrame {
-                        pixels: vec![],
-                        width: 0,
-                        height: 0,
-                        audio: vec![],
-                    });
-                    break;
-                }
-                Ok(None) => {} // still running
-                Err(e) => {
-                    tracing::error!("[BRIDGE] try_wait error: {e}");
-                    let _ = frame_tx.send(CoreFrame {
-                        pixels: vec![],
-                        width: 0,
-                        height: 0,
-                        audio: vec![],
-                    });
-                    break;
-                }
-            }
-
-            // Read frame from output shm
-            if out.frame_ready.load(Ordering::Acquire) {
-                let fw = out.width.load(Ordering::Relaxed);
-                let fh = out.height.load(Ordering::Relaxed);
-                let audio_len = out.audio_len.load(Ordering::Relaxed) as usize;
-
-                let px_count = (fw as usize * fh as usize * 3).min(sc_core::MAX_PIXELS);
-                let mut pixels = vec![0u8; px_count];
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        out.pixels.as_ptr(),
-                        pixels.as_mut_ptr(),
-                        px_count,
-                    );
-                }
-
-                let audio_count = audio_len.min(sc_core::MAX_AUDIO);
-                let mut audio = vec![0i16; audio_count];
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        out.audio.as_ptr(),
-                        audio.as_mut_ptr(),
-                        audio_count,
-                    );
-                }
-
-                out.frame_ready.store(false, Ordering::Release);
-
-                if frame_tx
-                    .send(CoreFrame {
-                        pixels,
-                        width: fw,
-                        height: fh,
-                        audio,
-                    })
-                    .is_err()
-                {
-                    break;
-                }
-                frame_num = frame_num.wrapping_add(1);
-            }
-
-            std::thread::sleep(Duration::from_millis(1));
+        if bridge_panicked {
+            tracing::error!("[BRIDGE] processing loop panicked; shutdown lifecycle completed");
         }
 
-        // ── Auto-save SRAM on shutdown ──────────────────────────────
-        if let Some(ref hash) = rom_hash_save {
-            // Signal sc-core to save SRAM (may fail if core already died)
-            inp.cmd_type.store(CMD_SAVE_SRAM, Ordering::Relaxed);
-            inp.cmd_ready.store(true, Ordering::Release);
-            std::thread::sleep(Duration::from_millis(100));
-            let ok = out.response_ok.load(Ordering::Relaxed);
-            let len = out.response_data_len.load(Ordering::Relaxed) as usize;
-            if ok && len > 0 {
-                let data = &out.response_data[..len.min(sc_core::MAX_RESPONSE)];
-                let sram_file = saves::sram_path(hash);
-                match saves::write_atomic(&sram_file, data) {
-                    Ok(()) => {
-                        tracing::info!("[SRAM] auto-saved {} bytes to {}", len, sram_file.display())
-                    }
-                    Err(e) => tracing::error!("[SRAM] write failed {}: {e}", sram_file.display()),
-                }
-            }
-        }
-
-        // Cleanup
-        let _ = child.kill();
-        let _ = child.wait();
+        // Cleanup shared-memory files after child termination.
         unlink_shm(&out_name_clone);
         unlink_shm(&in_name_clone);
         tracing::info!("[BRIDGE] exited ({} frames)", frame_num);
+        shutdown_completion.complete();
     });
     Ok(())
 }
@@ -715,6 +935,262 @@ pub async fn load_core_into_session(
 mod tests {
     use super::*;
 
+    #[test]
+    fn production_bridge_keeps_registration_and_explicit_completion_wired() {
+        let source = include_str!("core_bridge.rs");
+        let registration = [
+            "CoreShutdownCompletion::",
+            "registered(cancel.clone(), core_stopped)",
+        ]
+        .concat();
+        let completion = ["shutdown_completion", ".complete()"].concat();
+        assert_eq!(source.matches(&registration).count(), 1);
+        assert_eq!(source.matches(&completion).count(), 1);
+    }
+
+    #[tokio::test]
+    async fn incomplete_panic_does_not_report_core_shutdown_complete() {
+        let registry = CoreBridgeShutdownRegistry::default();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let stopped = tokio_util::sync::CancellationToken::new();
+        let observed_stopped = stopped.clone();
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _completion = CoreShutdownCompletion::registered_in(&registry, cancel, stopped);
+            panic!("induced bridge panic before shutdown lifecycle");
+        }));
+
+        assert!(result.is_err());
+        assert!(
+            !observed_stopped.is_cancelled(),
+            "panic unwinding must not falsely report completed shutdown"
+        );
+    }
+
+    #[tokio::test]
+    async fn shutdown_registry_retains_bridge_after_session_handles_are_dropped() {
+        let registry = CoreBridgeShutdownRegistry::default();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let stopped = tokio_util::sync::CancellationToken::new();
+        let worker_cancel = cancel.clone();
+        let completion = CoreShutdownCompletion::registered_in(&registry, cancel, stopped);
+
+        tokio::spawn(async move {
+            worker_cancel.cancelled().await;
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            completion.complete();
+        });
+
+        let started = std::time::Instant::now();
+        assert!(registry.cancel_and_wait(Duration::from_millis(250)).await);
+        assert!(started.elapsed() >= Duration::from_millis(25));
+    }
+
+    #[tokio::test]
+    async fn shutdown_registry_uses_one_deadline_for_multiple_bridges() {
+        let registry = CoreBridgeShutdownRegistry::default();
+        for _ in 0..3 {
+            registry.register(
+                tokio_util::sync::CancellationToken::new(),
+                tokio_util::sync::CancellationToken::new(),
+            );
+        }
+
+        let started = std::time::Instant::now();
+        assert!(!registry.cancel_and_wait(Duration::from_millis(30)).await);
+        assert!(started.elapsed() < Duration::from_millis(100));
+    }
+
+    struct SharedMemoryCleanup {
+        input_name: String,
+        output_name: String,
+    }
+
+    impl Drop for SharedMemoryCleanup {
+        fn drop(&mut self) {
+            unlink_shm(&self.input_name);
+            unlink_shm(&self.output_name);
+        }
+    }
+
+    struct FakeChild {
+        alive: Arc<std::sync::atomic::AtomicBool>,
+        terminated: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl CoreChildLifecycle for FakeChild {
+        fn is_alive(&mut self) -> bool {
+            self.alive.load(Ordering::Acquire)
+        }
+
+        fn terminate(&mut self) {
+            self.terminated.store(true, Ordering::Release);
+            self.alive.store(false, Ordering::Release);
+        }
+    }
+
+    #[test]
+    fn bridge_panic_still_persists_fresh_sram_before_terminating_child() {
+        let suffix = format!("{:032x}", rand::random::<u128>());
+        let input_name = format!("sc-test-in-{suffix}");
+        let output_name = format!("sc-test-out-{suffix}");
+        let _cleanup = SharedMemoryCleanup {
+            input_name: input_name.clone(),
+            output_name: output_name.clone(),
+        };
+        let mut input_map = map_shm::<InputShm>(&input_name, InputShm::size()).unwrap();
+        let mut output_map = map_shm::<OutputShm>(&output_name, OutputShm::size()).unwrap();
+        // SAFETY: mappings are zeroed, correctly sized/aligned, and remain
+        // alive for every shared-memory access in this test.
+        let input = unsafe { &*(input_map.as_mut_ptr() as *const InputShm) };
+        let output = unsafe { &*(output_map.as_mut_ptr() as *const OutputShm) };
+
+        output.response_ok.store(true, Ordering::Relaxed);
+        output.response_data_len.store(4, Ordering::Relaxed);
+        let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let terminated = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut child = FakeChild {
+            alive: alive.clone(),
+            terminated: terminated.clone(),
+        };
+        let mut persisted = None;
+
+        std::thread::scope(|scope| {
+            let terminated_at_ack = terminated.clone();
+            scope.spawn(move || {
+                while !input.cmd_ready.load(Ordering::Acquire) {
+                    std::thread::yield_now();
+                }
+                assert!(
+                    !terminated_at_ack.load(Ordering::Acquire),
+                    "child terminated before SRAM acknowledgement"
+                );
+                let fresh = [4_u8, 5, 6];
+                // SAFETY: `fresh` fits in the mapped response buffer.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        fresh.as_ptr(),
+                        output.response_data.as_ptr() as *mut u8,
+                        fresh.len(),
+                    );
+                }
+                output
+                    .response_data_len
+                    .store(fresh.len() as u32, Ordering::Relaxed);
+                output.response_ok.store(true, Ordering::Relaxed);
+                input.cmd_ready.store(false, Ordering::Release);
+            });
+
+            let panicked = run_and_shutdown_after_panic(
+                &mut child,
+                |_| panic!("induced bridge-loop panic"),
+                |child| {
+                    capture_sram_and_terminate(
+                        child,
+                        input,
+                        output,
+                        Some("test-rom"),
+                        Duration::from_millis(250),
+                        |_, data| {
+                            assert!(
+                                !terminated.load(Ordering::Acquire),
+                                "child terminated before SRAM persistence"
+                            );
+                            persisted = Some(data.to_vec());
+                        },
+                    );
+                },
+            );
+            assert!(panicked);
+        });
+
+        assert_eq!(persisted, Some(vec![4, 5, 6]));
+        assert!(child.terminated.load(Ordering::Acquire));
+        assert!(!child.alive.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn sram_snapshot_waits_for_fresh_ack_and_rejects_stale_response() {
+        let suffix = format!("{:032x}", rand::random::<u128>());
+        let input_name = format!("sc-test-in-{suffix}");
+        let output_name = format!("sc-test-out-{suffix}");
+        let _cleanup = SharedMemoryCleanup {
+            input_name: input_name.clone(),
+            output_name: output_name.clone(),
+        };
+        let mut input_map = map_shm::<InputShm>(&input_name, InputShm::size()).unwrap();
+        let mut output_map = map_shm::<OutputShm>(&output_name, OutputShm::size()).unwrap();
+        // SAFETY: each shared-memory mapping is zeroed, correctly sized,
+        // suitably aligned for its type, and remains alive for the test.
+        let input = unsafe { &*(input_map.as_mut_ptr() as *const InputShm) };
+        let output = unsafe { &*(output_map.as_mut_ptr() as *const OutputShm) };
+
+        output.response_ok.store(true, Ordering::Relaxed);
+        output.response_data_len.store(4, Ordering::Relaxed);
+        let stale = [9_u8, 9, 9, 9];
+        // SAFETY: `stale` fits in the mapped response buffer.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                stale.as_ptr(),
+                output.response_data.as_ptr() as *mut u8,
+                stale.len(),
+            );
+        }
+
+        let snapshot = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                while !input.cmd_ready.load(Ordering::Acquire) {
+                    std::thread::yield_now();
+                }
+                assert_eq!(input.cmd_type.load(Ordering::Relaxed), CMD_SAVE_SRAM);
+                assert!(!output.response_ok.load(Ordering::Relaxed));
+                assert_eq!(output.response_data_len.load(Ordering::Relaxed), 0);
+
+                let fresh = [1_u8, 2, 3];
+                // SAFETY: `fresh` fits in the mapped response buffer.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        fresh.as_ptr(),
+                        output.response_data.as_ptr() as *mut u8,
+                        fresh.len(),
+                    );
+                }
+                output
+                    .response_data_len
+                    .store(fresh.len() as u32, Ordering::Relaxed);
+                output.response_ok.store(true, Ordering::Relaxed);
+                input.cmd_ready.store(false, Ordering::Release);
+            });
+
+            request_sram_snapshot(input, output, || true, Duration::from_millis(250))
+        });
+
+        assert_eq!(snapshot, Some(vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn sram_snapshot_rejects_stale_response_when_child_is_dead() {
+        let suffix = format!("{:032x}", rand::random::<u128>());
+        let input_name = format!("sc-test-in-{suffix}");
+        let output_name = format!("sc-test-out-{suffix}");
+        let _cleanup = SharedMemoryCleanup {
+            input_name: input_name.clone(),
+            output_name: output_name.clone(),
+        };
+        let mut input_map = map_shm::<InputShm>(&input_name, InputShm::size()).unwrap();
+        let mut output_map = map_shm::<OutputShm>(&output_name, OutputShm::size()).unwrap();
+        // SAFETY: mappings are zeroed, correctly sized/aligned, and live long
+        // enough for every shared-memory access in this test.
+        let input = unsafe { &*(input_map.as_mut_ptr() as *const InputShm) };
+        let output = unsafe { &*(output_map.as_mut_ptr() as *const OutputShm) };
+        output.response_ok.store(true, Ordering::Relaxed);
+        output.response_data_len.store(4, Ordering::Relaxed);
+
+        let snapshot = request_sram_snapshot(input, output, || false, Duration::from_millis(250));
+
+        assert_eq!(snapshot, None);
+    }
+
     #[tokio::test]
     async fn core_startup_failure_is_reported_to_caller() {
         let stack = crate::webrtc::build_session_pc_lan().await.unwrap();
@@ -722,6 +1198,7 @@ mod tests {
             game_id: format!("{:032x}", rand::random::<u128>()),
             cloud_session_id: None,
             cancel: tokio_util::sync::CancellationToken::new(),
+            core_stopped: tokio_util::sync::CancellationToken::new(),
             pc: std::sync::Mutex::new(stack.pc),
             video_track: std::sync::Mutex::new(stack.video_track),
             audio_track: std::sync::Mutex::new(stack.audio_track),

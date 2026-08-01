@@ -205,6 +205,7 @@ pub(super) async fn handle_start_game(
             .and_then(|value| value.as_str())
             .map(str::to_owned),
         cancel: tokio_util::sync::CancellationToken::new(),
+        core_stopped: tokio_util::sync::CancellationToken::new(),
         pc: std::sync::Mutex::new(stack.pc),
         video_track: std::sync::Mutex::new(stack.video_track),
         audio_track: std::sync::Mutex::new(stack.audio_track),
