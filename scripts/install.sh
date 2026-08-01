@@ -128,7 +128,7 @@ fi
 case "$OS_ID" in
   ubuntu|debian|pop|linuxmint|raspbian)
     PKG_MGR="apt"
-    GST_PKGS="libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad libopus0 libvpx9 libgl1 libegl1"
+    GST_PKGS="libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad libopus0 libvpx-dev libgl1 libegl1"
     ;;
   fedora|centos|rhel|rocky|almalinux|bazzite)
     PKG_MGR="dnf"
