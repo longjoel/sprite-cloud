@@ -39,6 +39,38 @@ env_script = fenced_after("Generate a protected `.env` file before starting Comp
 (out / "generate-env.sh").write_text(env_script + "\n")
 PY
 
+mkdir "$TMP_DIR/failing-openssl" "$TMP_DIR/failing-openssl/bin"
+cp "$TMP_DIR/generate-env.sh" "$TMP_DIR/failing-openssl/generate-env.sh"
+cat >"$TMP_DIR/failing-openssl/bin/openssl" <<'SH'
+#!/bin/sh
+exit 23
+SH
+chmod +x "$TMP_DIR/failing-openssl/bin/openssl"
+if (cd "$TMP_DIR/failing-openssl" && PATH="$PWD/bin:$PATH" bash generate-env.sh >/dev/null 2>&1); then
+  echo "secret-generation workflow must fail when OpenSSL fails" >&2
+  exit 1
+fi
+if [[ -e "$TMP_DIR/failing-openssl/.env" ]]; then
+  echo "failed secret generation must not leave a poisoned .env" >&2
+  exit 1
+fi
+
+mkdir "$TMP_DIR/invalid-openssl" "$TMP_DIR/invalid-openssl/bin"
+cp "$TMP_DIR/generate-env.sh" "$TMP_DIR/invalid-openssl/generate-env.sh"
+cat >"$TMP_DIR/invalid-openssl/bin/openssl" <<'SH'
+#!/bin/sh
+printf 'not-a-secret\n'
+SH
+chmod +x "$TMP_DIR/invalid-openssl/bin/openssl"
+if (cd "$TMP_DIR/invalid-openssl" && PATH="$PWD/bin:$PATH" bash generate-env.sh >/dev/null 2>&1); then
+  echo "secret-generation workflow must reject invalid OpenSSL output" >&2
+  exit 1
+fi
+if [[ -e "$TMP_DIR/invalid-openssl/.env" ]]; then
+  echo "invalid secret output must not leave a poisoned .env" >&2
+  exit 1
+fi
+
 mkdir "$TMP_DIR/deploy"
 cp "$TMP_DIR/generate-env.sh" "$TMP_DIR/deploy/generate-env.sh"
 (
