@@ -24,6 +24,7 @@ jobs:
           bash tests/install-paths.sh
           bash tests/install-package-matrix.sh
           bash tests/docker-server-entrypoint.sh
+          bash tests/quickstart-compose.sh
           bash tests/no-tracked-turn-credentials.sh
           bash -n scripts/*.sh tests/*.sh docker/sc-web/entrypoint.prod.sh docker/sc-server/entrypoint.sh
 
