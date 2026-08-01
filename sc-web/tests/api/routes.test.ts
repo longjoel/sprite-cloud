@@ -467,6 +467,43 @@ describe("POST /api/server/command", () => {
     }));
   });
 
+  it("propagates viewer authority from the exact peer token", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "session-1",
+        serverId: "server-1",
+        gameId: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        status: "playing",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "viewer", seat: 4 }]));
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      ...jsonBody({
+        server_id: "server-1",
+        type: "sdp_offer",
+        payload: {
+          game_id: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          room_token: "room-token",
+          peer_token: "viewer-peer-for-session-1",
+          sdp: "v=0\r\n",
+        },
+      }),
+    });
+
+    const resp = await POST(req as any);
+
+    expect(resp.status).toBe(201);
+    const insertBuilder = mockDb.insert.mock.results[0].value;
+    expect(insertBuilder.values).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({
+        peer_role: "viewer",
+        peer_seat: 4,
+        session_id: "session-1",
+      }),
+    }));
+  });
+
   it("does not let a host capability bypass guest peer binding", async () => {
     mockAuth.mockResolvedValueOnce(null);
     mockDb.select
@@ -1885,7 +1922,61 @@ describe("POST /api/room/join", () => {
     expect(body.peer_token).toBe("peer-abc");
     expect(body.seat).toBe(1);
     expect(body.role).toBe("player");
+    expect(body.capabilities.role).toBe("player");
     expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it("returns spectator capabilities when reusing a viewer peer", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "sess-1",
+        workerUrl: "http://localhost:9999",
+        gameId: "local_0123456789abcdef0123456789abcdef",
+        serverId: "server-1",
+        status: "ready",
+        maxSeats: 4,
+        commandWorkerToken: "worker-123",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ token: "peer-viewer", seat: 4, role: "viewer" }]));
+
+    const { POST } = await import("@/app/api/room/join/route");
+    const req = mkReq("http://localhost/api/room/join", {
+      ...jsonBody({ room_token: "room-123", client_id: "viewer-client" }),
+    });
+    const resp = await POST(req as any);
+    const body = await resp.json();
+
+    expect(resp.status).toBe(200);
+    expect(body.role).toBe("viewer");
+    expect(body.capabilities.role).toBe("spectator");
+    expect(mockDb.insert).not.toHaveBeenCalled();
+  });
+
+  it("returns spectator capabilities for a new join beyond maxSeats", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "sess-1",
+        workerUrl: "http://localhost:9999",
+        gameId: "local_0123456789abcdef0123456789abcdef",
+        serverId: "server-1",
+        status: "playing",
+        maxSeats: 4,
+        commandWorkerToken: "worker-123",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([]))
+      .mockReturnValueOnce(mockQueryBuilder([{ max: 3 }]));
+
+    const { POST } = await import("@/app/api/room/join/route");
+    const req = mkReq("http://localhost/api/room/join", {
+      ...jsonBody({ room_token: "room-123", client_id: "viewer-client" }),
+    });
+    const resp = await POST(req as any);
+    const body = await resp.json();
+
+    expect(resp.status).toBe(200);
+    expect(body.seat).toBe(4);
+    expect(body.role).toBe("viewer");
+    expect(body.capabilities.role).toBe("spectator");
   });
 });
 

@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { commands, peerTokens, sessions } from "@/lib/db/schema";
-import { and, eq, sql } from "drizzle-orm";
-import crypto from "crypto";
+import { commands, sessions } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { logSignalingStage } from "@/lib/signaling";
 import { playerCapabilities, spectatorCapabilities } from "@/lib/capabilities";
+import { issueRoomPeer } from "@/lib/peer-tokens";
 
 // ── POST /api/room/join — guest resolves a room_token to session details
 //
@@ -75,33 +75,6 @@ export async function POST(request: NextRequest) {
     worker_url: session.workerUrl,
   });
 
-  if (clientId) {
-    const [existingPeer] = await db
-      .select({ token: peerTokens.token, seat: peerTokens.seat, role: peerTokens.role })
-      .from(peerTokens)
-      .where(and(eq(peerTokens.sessionId, session.id), eq(peerTokens.clientId, clientId)))
-      .limit(1);
-
-    if (existingPeer) {
-      logSignalingStage("guest_join", "peer_reused", {
-        role: existingPeer.role,
-        seat: existingPeer.seat,
-        session_id: session.id,
-      });
-      return NextResponse.json({
-        worker_url: session.workerUrl,
-        game_id: session.gameId,
-        server_id: session.serverId,
-        max_seats: session.maxSeats,
-        worker_token: session.commandWorkerToken,
-        peer_token: existingPeer.token,
-        seat: existingPeer.seat,
-        role: existingPeer.role,
-        capabilities: playerCapabilities(existingPeer.seat),
-      });
-    }
-  }
-
   // Without a client_id, this is a preview call (e.g. PlayPage resolving
   // the session to show the UI). Don't create a peer_token — the actual
   // join happens via play.js which always sends a client_id.
@@ -123,31 +96,15 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  // Find the next available seat for this session.
-  // Use MAX(seat)+1 instead of COUNT(*) — COUNT(*) inflates when stale
-  // peer_tokens from disconnected guests linger in the DB without cleanup.
-  // host always occupies seat 0, so MAX(seat) is at least 0.
-  const [maxResult] = await db
-    .select({ max: sql<number>`coalesce(max(${peerTokens.seat}), 0)` })
-    .from(peerTokens)
-    .where(eq(peerTokens.sessionId, session.id));
-
-  const seat = (maxResult?.max ?? 0) + 1; // 1=first guest, 2=second, etc.
-  const role = seat < session.maxSeats ? "player" : "viewer";
-
-  // Issue guest peer_token
-  const guestPeerToken = crypto.randomBytes(16).toString("hex");
-  await db.insert(peerTokens).values({
+  const peer = await issueRoomPeer(db, {
     sessionId: session.id,
-    token: guestPeerToken,
-    seat,
-    role,
     clientId,
+    maxSeats: session.maxSeats,
   });
 
-  logSignalingStage("guest_join", "peer_issued", {
-    role,
-    seat,
+  logSignalingStage("guest_join", peer.reused ? "peer_reused" : "peer_issued", {
+    role: peer.role,
+    seat: peer.seat,
     session_id: session.id,
     has_worker_token: typeof session.commandWorkerToken === "string",
   });
@@ -158,9 +115,9 @@ export async function POST(request: NextRequest) {
     server_id: session.serverId,
     max_seats: session.maxSeats,
     worker_token: session.commandWorkerToken,
-    peer_token: guestPeerToken,
-    seat,
-    role,
-    capabilities: playerCapabilities(seat),
+    peer_token: peer.token,
+    seat: peer.seat,
+    role: peer.role,
+    capabilities: peer.role === "player" ? playerCapabilities(peer.seat) : spectatorCapabilities(),
   });
 }
