@@ -57,8 +57,8 @@ pub struct CoreConfig {
     pub content_path: Option<PathBuf>,
     pub system_dir: PathBuf,
     pub save_dir: PathBuf,
-    /// Number of audio channels the core outputs (default: 2 for stereo).
-    /// Set to 1 for mono cores (Game Boy, Game Boy Color, some arcade).
+    /// Legacy compatibility hint. Libretro audio callbacks always provide
+    /// interleaved stereo frames, so this value does not change callback width.
     pub audio_channels: u16,
 }
 
