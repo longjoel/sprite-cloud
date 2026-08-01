@@ -92,7 +92,7 @@ The gateway is the web interface for sign-up, pairing, coordination, and signali
 
 ### Requirements
 
-- A server with Docker + public domain (or LAN)
+- A server with Docker, Docker Compose, and OpenSSL + public domain (or LAN)
 - 2 GB RAM, Postgres + Node.js
 
 ### 1. Clone and start
@@ -102,7 +102,24 @@ git clone https://github.com/longjoel/sprite-cloud
 cd sprite-cloud
 ```
 
-Create a `docker-compose.yml` in a deploy directory:
+Generate a protected `.env` file before starting Compose:
+
+```bash
+if [ -e .env ]; then
+  echo ".env already exists; refusing to replace deployed secrets" >&2
+  exit 1
+fi
+umask 077
+cat > .env <<EOF
+POSTGRES_PASSWORD=$(openssl rand -hex 32)
+AUTH_SECRET=$(openssl rand -hex 32)
+AUTH_URL=https://your-domain.com
+EOF
+```
+
+Replace `AUTH_URL` with the public origin for your gateway. Keep `.env` private and backed up: changing `POSTGRES_PASSWORD` after Postgres initializes does not change the database user's existing password.
+
+Create a `docker-compose.yml` in the same deploy directory:
 
 ```yaml
 services:
@@ -111,7 +128,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: sprite_cloud
-      POSTGRES_PASSWORD: your-db-password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: sprite_cloud
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -130,16 +147,16 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      AUTH_SECRET: $(openssl rand -hex 32)
-      AUTH_URL: https://your-domain.com
-      DATABASE_URL: postgresql://sprite_cloud:your-db-password@postgres:5432/sprite_cloud
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env}
+      AUTH_URL: ${AUTH_URL:?set AUTH_URL in .env}
+      DATABASE_URL: postgresql://sprite_cloud:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/sprite_cloud
       # Empty-database initialization only; existing DBs require explicit migrations.
       GV_WEB_SCHEMA_PUSH_ON_START: "1"
       GV_ICE_STUN_URLS: stun:stun.l.google.com:19302
       # Optional TURN (recommended for players outside LAN):
-      GV_ICE_TURN_URLS: turn:your-turn-server:3478
-      GV_ICE_TURN_USERNAME: turn-user
-      GV_ICE_TURN_CREDENTIAL: turn-pass
+      # GV_ICE_TURN_URLS: turn:your-turn-server:3478
+      # GV_ICE_TURN_USERNAME: turn-user
+      # GV_ICE_TURN_CREDENTIAL: replace-with-a-generated-secret
 
 volumes:
   pgdata:
