@@ -19,6 +19,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Test installer path contract
+        run: |
+          bash tests/install-paths.sh
+          bash -n scripts/*.sh tests/*.sh docker/sc-web/entrypoint.prod.sh docker/sc-server/entrypoint.sh
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
