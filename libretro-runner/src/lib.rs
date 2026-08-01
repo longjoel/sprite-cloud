@@ -14,6 +14,7 @@
 //!         content_path: Some("/roms/game.gb".into()),
 //!         system_dir: "/srv/storage/games/system".into(),
 //!         save_dir: "/srv/storage/games/saves".into(),
+//!         audio_channels: 2,
 //!     })?
 //! };
 //!
@@ -56,6 +57,9 @@ pub struct CoreConfig {
     pub content_path: Option<PathBuf>,
     pub system_dir: PathBuf,
     pub save_dir: PathBuf,
+    /// Legacy compatibility hint. Libretro audio callbacks always provide
+    /// interleaved stereo frames, so this value does not change callback width.
+    pub audio_channels: u16,
 }
 
 impl Default for CoreConfig {
@@ -65,6 +69,7 @@ impl Default for CoreConfig {
             content_path: None,
             system_dir: PathBuf::from("/tmp"),
             save_dir: PathBuf::from("/tmp"),
+            audio_channels: 2,
         }
     }
 }
