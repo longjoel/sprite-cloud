@@ -11,9 +11,9 @@
 //! keeping the streaming loop and command handling completely unchanged.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use sc_core::{
@@ -89,10 +89,99 @@ impl CoreChildLifecycle for std::process::Child {
 
 struct CoreShutdownCompletion(tokio_util::sync::CancellationToken);
 
+impl CoreShutdownCompletion {
+    fn registered_in(
+        registry: &CoreBridgeShutdownRegistry,
+        cancel: tokio_util::sync::CancellationToken,
+        stopped: tokio_util::sync::CancellationToken,
+    ) -> Self {
+        registry.register(cancel, stopped.clone());
+        Self(stopped)
+    }
+
+    fn registered(
+        cancel: tokio_util::sync::CancellationToken,
+        stopped: tokio_util::sync::CancellationToken,
+    ) -> Self {
+        Self::registered_in(core_bridge_shutdown_registry(), cancel, stopped)
+    }
+}
+
 impl Drop for CoreShutdownCompletion {
     fn drop(&mut self) {
         self.0.cancel();
     }
+}
+
+#[derive(Clone)]
+struct CoreBridgeShutdownHandle {
+    cancel: tokio_util::sync::CancellationToken,
+    stopped: tokio_util::sync::CancellationToken,
+}
+
+#[derive(Default)]
+struct CoreBridgeShutdownRegistry {
+    handles: Mutex<Vec<CoreBridgeShutdownHandle>>,
+}
+
+impl CoreBridgeShutdownRegistry {
+    fn register(
+        &self,
+        cancel: tokio_util::sync::CancellationToken,
+        stopped: tokio_util::sync::CancellationToken,
+    ) {
+        let mut handles = self
+            .handles
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        handles.retain(|handle| !handle.stopped.is_cancelled());
+        handles.push(CoreBridgeShutdownHandle { cancel, stopped });
+    }
+
+    async fn cancel_and_wait(&self, timeout: Duration) -> bool {
+        let handles = {
+            let mut handles = self
+                .handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            handles.retain(|handle| !handle.stopped.is_cancelled());
+            handles.clone()
+        };
+
+        for handle in &handles {
+            handle.cancel.cancel();
+        }
+
+        let completed = tokio::time::timeout(timeout, async {
+            for handle in &handles {
+                handle.stopped.cancelled().await;
+            }
+        })
+        .await
+        .is_ok();
+
+        if completed {
+            self.handles
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .retain(|handle| !handle.stopped.is_cancelled());
+        }
+        completed
+    }
+}
+
+fn core_bridge_shutdown_registry() -> &'static CoreBridgeShutdownRegistry {
+    static REGISTRY: OnceLock<CoreBridgeShutdownRegistry> = OnceLock::new();
+    REGISTRY.get_or_init(CoreBridgeShutdownRegistry::default)
+}
+
+/// Cancel every bridge started by this process and wait under one global
+/// deadline. The registry is independent of active session maps, so a bridge
+/// remains observable while stop/disconnect cleanup is saving SRAM.
+pub(crate) async fn shutdown_all_core_bridges(timeout: Duration) -> bool {
+    core_bridge_shutdown_registry()
+        .cancel_and_wait(timeout)
+        .await
 }
 
 /// Capture and persist current SRAM before terminating the core child.
@@ -637,6 +726,7 @@ pub async fn load_core_into_session(
 
     let cancel = session.cancel.clone();
     let core_stopped = session.core_stopped.clone();
+    let shutdown_completion = CoreShutdownCompletion::registered(cancel.clone(), core_stopped);
     let out_name_clone = out_name.clone();
     let in_name_clone = in_name.clone();
 
@@ -646,7 +736,7 @@ pub async fn load_core_into_session(
     // ── Bridge thread: shm ↔ channels ───────────────────────────────
     let rom_hash_save = rom_hash.clone();
     std::thread::spawn(move || {
-        let _shutdown_completion = CoreShutdownCompletion(core_stopped);
+        let _shutdown_completion = shutdown_completion;
         let _out_mmap = out_mmap; // keep mmap alive for lifetime of thread
         let _in_mmap = in_mmap; // keep mmap alive for lifetime of thread
         let mut frame_num: u64 = 0;
@@ -809,6 +899,40 @@ pub async fn load_core_into_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn shutdown_registry_retains_bridge_after_session_handles_are_dropped() {
+        let registry = CoreBridgeShutdownRegistry::default();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let stopped = tokio_util::sync::CancellationToken::new();
+        let worker_cancel = cancel.clone();
+        let completion = CoreShutdownCompletion::registered_in(&registry, cancel, stopped);
+
+        tokio::spawn(async move {
+            worker_cancel.cancelled().await;
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            drop(completion);
+        });
+
+        let started = std::time::Instant::now();
+        assert!(registry.cancel_and_wait(Duration::from_millis(250)).await);
+        assert!(started.elapsed() >= Duration::from_millis(25));
+    }
+
+    #[tokio::test]
+    async fn shutdown_registry_uses_one_deadline_for_multiple_bridges() {
+        let registry = CoreBridgeShutdownRegistry::default();
+        for _ in 0..3 {
+            registry.register(
+                tokio_util::sync::CancellationToken::new(),
+                tokio_util::sync::CancellationToken::new(),
+            );
+        }
+
+        let started = std::time::Instant::now();
+        assert!(!registry.cancel_and_wait(Duration::from_millis(30)).await);
+        assert!(started.elapsed() < Duration::from_millis(100));
+    }
 
     struct SharedMemoryCleanup {
         input_name: String,

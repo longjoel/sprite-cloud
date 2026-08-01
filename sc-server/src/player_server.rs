@@ -306,6 +306,22 @@ pub(crate) fn open_library_preferences() -> std::io::Result<SharedLibraryState> 
         .map(|store| Arc::new(tokio::sync::Mutex::new(store)))
 }
 
+#[cfg(unix)]
+async fn player_shutdown_signal() {
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut sigterm = signal(SignalKind::terminate()).expect("SIGTERM handler");
+    let mut sigint = signal(SignalKind::interrupt()).expect("SIGINT handler");
+    tokio::select! {
+        _ = sigterm.recv() => tracing::info!("[player] received SIGTERM"),
+        _ = sigint.recv() => tracing::info!("[player] received SIGINT"),
+    }
+}
+
+#[cfg(not(unix))]
+async fn player_shutdown_signal() {
+    let _ = tokio::signal::ctrl_c().await;
+}
+
 // These values are assembled from pairing, runtime configuration, and the
 // scanned library. Keeping them explicit makes the security boundary visible.
 #[allow(clippy::too_many_arguments)]
@@ -350,8 +366,14 @@ pub(crate) async fn serve(
         }
     };
 
-    if let Err(e) = axum::serve(listener, app).await {
+    if let Err(e) = axum::serve(listener, app)
+        .with_graceful_shutdown(player_shutdown_signal())
+        .await
+    {
         tracing::error!("[player] HTTP server error: {e:#}");
+    }
+    if !crate::core_bridge::shutdown_all_core_bridges(std::time::Duration::from_secs(2)).await {
+        tracing::error!("[player] timed out waiting for core bridge shutdown");
     }
 }
 
@@ -398,8 +420,14 @@ pub(crate) async fn serve_standalone(
         }
     };
 
-    if let Err(e) = axum::serve(listener, app).await {
+    if let Err(e) = axum::serve(listener, app)
+        .with_graceful_shutdown(player_shutdown_signal())
+        .await
+    {
         tracing::error!("[player] HTTP server error: {e:#}");
+    }
+    if !crate::core_bridge::shutdown_all_core_bridges(std::time::Duration::from_secs(2)).await {
+        tracing::error!("[player] timed out waiting for core bridge shutdown");
     }
 }
 

@@ -21,39 +21,6 @@ fn worker_url(game_id: &str) -> String {
     format!("http://{host}:{port}/{game_id}")
 }
 
-struct SessionShutdownHandle {
-    game_id: String,
-    cancel: tokio_util::sync::CancellationToken,
-    core_stopped: tokio_util::sync::CancellationToken,
-}
-
-async fn cancel_and_wait_for_sessions(
-    sessions: &[SessionShutdownHandle],
-    timeout: Duration,
-) -> bool {
-    for session in sessions {
-        session.cancel.cancel();
-        tracing::info!("[SHUTDOWN] cancelled session {}", session.game_id);
-    }
-
-    let completed = tokio::time::timeout(timeout, async {
-        for session in sessions {
-            session.core_stopped.cancelled().await;
-            tracing::info!("[SHUTDOWN] core stopped for session {}", session.game_id);
-        }
-    })
-    .await
-    .is_ok();
-
-    if !completed {
-        tracing::error!(
-            "[SHUTDOWN] timed out waiting for {} core bridge(s)",
-            sessions.len()
-        );
-    }
-    completed
-}
-
 fn apply_pairing(
     existing: Option<config::Config>,
     sc_web_url: &str,
@@ -236,13 +203,14 @@ pub(crate) async fn cmd_start(
 
     tracing::info!("sc-server running — polling for commands...");
 
-    // Start LAN player HTTP server (port 8787) for direct guest connections
-    if !no_lan_player {
+    // Keep the task handle so process shutdown cannot preempt a local player's
+    // final SRAM capture after the HTTP server begins graceful shutdown.
+    let player_handle = if !no_lan_player {
         let player_addr: SocketAddr = std::env::var("GV_PLAYER_BIND")
             .unwrap_or_else(|_| "0.0.0.0:8787".into())
             .parse()
             .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 8787)));
-        tokio::spawn(crate::player_server::serve(
+        Some(tokio::spawn(crate::player_server::serve(
             player_addr,
             cfg.sc_web.url.clone(),
             cfg.auth.api_key.clone(),
@@ -253,10 +221,11 @@ pub(crate) async fn cmd_start(
             Arc::clone(&local_game_list),
             Arc::clone(&local_rom_roots),
             Arc::clone(&library_preferences),
-        ));
+        )))
     } else {
         tracing::info!("LAN player disabled (--no-lan-player) — relay-only mode");
-    }
+        None
+    };
 
     const POLL_ERROR_BACKOFF_MS: u64 = 5_000;
     let mut sessions: HashMap<String, Arc<GameSession>> = HashMap::new();
@@ -265,15 +234,6 @@ pub(crate) async fn cmd_start(
         tokio::select! {
             _ = shutdown_signal() => {
                 tracing::info!("[SHUTDOWN] stopping all sessions...");
-                let shutdowns: Vec<_> = sessions
-                    .iter()
-                    .map(|(game_id, session)| SessionShutdownHandle {
-                        game_id: game_id.clone(),
-                        cancel: session.cancel.clone(),
-                        core_stopped: session.core_stopped.clone(),
-                    })
-                    .collect();
-                cancel_and_wait_for_sessions(&shutdowns, Duration::from_secs(2)).await;
                 break;
             }
             _ = async {
@@ -417,6 +377,16 @@ pub(crate) async fn cmd_start(
     for (gid, s) in &sessions {
         s.cancel.cancel();
         tracing::info!("[SHUTDOWN] cancelled session {gid}");
+    }
+
+    if let Some(player_handle) = player_handle
+        && let Err(error) = player_handle.await
+    {
+        tracing::error!("[SHUTDOWN] LAN player task failed: {error}");
+    }
+
+    if !crate::core_bridge::shutdown_all_core_bridges(Duration::from_secs(2)).await {
+        tracing::error!("[SHUTDOWN] timed out waiting for core bridge shutdown");
     }
 
     tracing::info!("[SHUTDOWN] done");
@@ -690,33 +660,6 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[tokio::test]
-    async fn daemon_shutdown_waits_for_core_completion_after_cancelling() {
-        let cancel = tokio_util::sync::CancellationToken::new();
-        let stopped = tokio_util::sync::CancellationToken::new();
-        let worker_cancel = cancel.clone();
-        let worker_stopped = stopped.clone();
-        tokio::spawn(async move {
-            worker_cancel.cancelled().await;
-            tokio::time::sleep(Duration::from_millis(25)).await;
-            worker_stopped.cancel();
-        });
-
-        let handles = vec![SessionShutdownHandle {
-            game_id: "test-game".to_string(),
-            cancel: cancel.clone(),
-            core_stopped: stopped,
-        }];
-        let started = std::time::Instant::now();
-
-        assert!(
-            cancel_and_wait_for_sessions(&handles, Duration::from_millis(250)).await,
-            "core completion should arrive before the daemon timeout"
-        );
-        assert!(cancel.is_cancelled());
-        assert!(started.elapsed() >= Duration::from_millis(25));
-    }
 
     #[test]
     fn pairing_preserves_setup_rom_core_and_ice_config() {
