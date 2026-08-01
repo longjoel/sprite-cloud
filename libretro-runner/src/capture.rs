@@ -13,7 +13,7 @@ use tempfile::{NamedTempFile, TempDir};
 use crate::{Core, CoreConfig, Error};
 
 /// Maximum accepted framebuffer dimensions, matching the existing sc-core safety limit.
-pub const MAX_CAPTURE_WIDTH: u32 = 512;
+pub const MAX_CAPTURE_WIDTH: u32 = 640;
 pub const MAX_CAPTURE_HEIGHT: u32 = 480;
 
 /// Inputs and bounds for one isolated still-image capture.

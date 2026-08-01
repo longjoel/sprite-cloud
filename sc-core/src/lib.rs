@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU16, AtomicU8};
 
 // ── Constants ────────────────────────────────────────────────────────
 
-/// Max core framebuffer: 512×480 RGB24 = ~720KB. Covers up to PSX/N64.
+/// Max core framebuffer: 640×480 RGB24 = 900 KiB.
 const MAX_WIDTH: usize = 640;
 const MAX_HEIGHT: usize = 480;
 /// Max pixels in output buffer (RGB24 bytes).
