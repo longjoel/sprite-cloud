@@ -109,10 +109,25 @@ if [ -e .env ]; then
   echo ".env already exists; refusing to replace deployed secrets" >&2
   exit 1
 fi
+postgres_password="$(openssl rand -hex 32)" || {
+  echo "failed to generate POSTGRES_PASSWORD" >&2
+  exit 1
+}
+auth_secret="$(openssl rand -hex 32)" || {
+  echo "failed to generate AUTH_SECRET" >&2
+  exit 1
+}
+if [ "${#postgres_password}" -ne 64 ] || [ "${#auth_secret}" -ne 64 ]; then
+  echo "OpenSSL returned an invalid secret" >&2
+  exit 1
+fi
+case "$postgres_password$auth_secret" in
+  *[!0-9a-f]*) echo "OpenSSL returned an invalid secret" >&2; exit 1 ;;
+esac
 umask 077
 cat > .env <<EOF
-POSTGRES_PASSWORD=$(openssl rand -hex 32)
-AUTH_SECRET=$(openssl rand -hex 32)
+POSTGRES_PASSWORD=$postgres_password
+AUTH_SECRET=$auth_secret
 AUTH_URL=https://your-domain.com
 EOF
 ```
