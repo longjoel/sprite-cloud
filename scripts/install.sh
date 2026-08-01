@@ -17,6 +17,7 @@ warn() { printf "${YELLOW}!${NC} %s\n" "$*"; }
 err()  { printf "${RED}✗${NC} %s\n" "$*" >&2; exit 1; }
 
 ROOTLESS=false
+PRINT_PATHS=false
 WEB_URL=""
 ROM_DIR=""
 # Default TURN credential for sprite-cloud.com (override with GV_TURN_CREDENTIAL env var)
@@ -26,11 +27,13 @@ TURN_CREDENTIAL="${GV_TURN_CREDENTIAL:-0bf1912a8e569c803978495362f14dbb1f2ed50e7
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --rootless)           ROOTLESS=true; shift ;;
+    --print-paths)        PRINT_PATHS=true; shift ;;
     --web-url)            WEB_URL="$2"; shift 2 ;;
     --rom-dir)            ROM_DIR="$2"; shift 2 ;;
     --help|-h)
       printf "Usage: install.sh [--rootless] [--web-url URL] [--rom-dir PATH]\n"
       printf "  --rootless   Install as current user (no sudo)\n"
+      printf "  --print-paths  Print resolved install paths without changing the system\n"
       printf "  --web-url    sc-web URL (skip prompt)\n"
       printf "  --rom-dir    ROM directory (skip prompt)\n"
       exit 0
@@ -89,6 +92,7 @@ if $ROOTLESS; then
   MODE="rootless (user)"
   SUDO=""
   BIN_DIR="${HOME}/.local/bin"
+  MANAGED_BIN_DIR="$BIN_DIR"
   CONFIG_DIR="${HOME}/.config/sprite-cloud"
   DATA_DIR="${HOME}/.local/share/sprite-cloud"
   SYSTEMD_DIR="${HOME}/.config/systemd/user"
@@ -106,9 +110,9 @@ else
     err "sudo not found — run as root or use --rootless"
   fi
   BIN_DIR="/usr/local/bin"
-  MANAGED_BIN_DIR="${DATA_DIR}/bin"
   CONFIG_DIR="/etc/sprite-cloud"
   DATA_DIR="/var/lib/sprite-cloud"
+  MANAGED_BIN_DIR="${DATA_DIR}/bin"
   SYSTEMD_DIR="/etc/systemd/system"
   SYSTEMCTL="${SUDO:+$SUDO }systemctl"
   JOURNALCTL="${SUDO:+$SUDO }journalctl"
@@ -120,6 +124,18 @@ CONFIG_FILE="${CONFIG_DIR}/config.toml"
 BIN_PATH="${MANAGED_BIN_DIR}/sc-server"
 CORE_BIN_PATH="${MANAGED_BIN_DIR}/sc-core"
 MANAGED_BIN_PATH="${MANAGED_BIN_DIR}/sc-server"
+
+if $PRINT_PATHS; then
+  printf 'MODE=%s\n' "$MODE"
+  printf 'BIN_DIR=%s\n' "$BIN_DIR"
+  printf 'MANAGED_BIN_DIR=%s\n' "$MANAGED_BIN_DIR"
+  printf 'BIN_PATH=%s\n' "$BIN_PATH"
+  printf 'CORE_BIN_PATH=%s\n' "$CORE_BIN_PATH"
+  printf 'DATA_DIR=%s\n' "$DATA_DIR"
+  printf 'CONFIG_DIR=%s\n' "$CONFIG_DIR"
+  printf 'SYSTEMD_DIR=%s\n' "$SYSTEMD_DIR"
+  exit 0
+fi
 
 printf "${BOLD}Sprite Cloud — Self-Hosted Install${NC}\n"
 printf "  Mode:   ${CYAN}%s${NC}\n" "$MODE"
