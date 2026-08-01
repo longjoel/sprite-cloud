@@ -16,6 +16,11 @@ use crate::{AvInfo, CoreConfig, Error};
 
 mod pixels;
 
+/// Native callback allocation limits. Keep in sync with sc-core's shared-memory bound.
+const MAX_FRAME_WIDTH: u32 = 640;
+const MAX_FRAME_HEIGHT: u32 = 480;
+const MAX_RAW_FRAME_BYTES: usize = MAX_FRAME_WIDTH as usize * MAX_FRAME_HEIGHT as usize * 4;
+
 // ---------------------------------------------------------------------------
 // Thread-local state shared with C callbacks
 // ---------------------------------------------------------------------------
@@ -791,6 +796,15 @@ unsafe extern "C" fn environment_callback(cmd: u32, data: *mut std::ffi::c_void)
 // Video callback
 // ---------------------------------------------------------------------------
 
+fn bounded_raw_frame_len(width: u32, height: u32, pitch: usize) -> Option<usize> {
+    if width == 0 || height == 0 || width > MAX_FRAME_WIDTH || height > MAX_FRAME_HEIGHT {
+        return None;
+    }
+
+    let byte_count = pitch.checked_mul(height as usize)?;
+    (byte_count <= MAX_RAW_FRAME_BYTES).then_some(byte_count)
+}
+
 /// Video refresh callback — called by the core each frame with rendered pixels.
 ///
 /// `data` is null for duplicate frames or HW-rendered cores. In that case we
@@ -806,11 +820,9 @@ unsafe extern "C" fn video_refresh_callback(
         return;
     }
 
-    if width == 0 || height == 0 {
+    let Some(byte_count) = bounded_raw_frame_len(width, height, pitch) else {
         return;
-    }
-
-    let byte_count = pitch * height as usize;
+    };
 
     RAW_FRAME_DIMS.with(|dims| {
         *dims.borrow_mut() = (width, height, pitch);
@@ -1021,3 +1033,20 @@ unsafe extern "C" fn input_state_callback(port: u32, device: u32, _index: u32, i
 // ---------------------------------------------------------------------------
 
 unsafe extern "C" fn stub_input_poll() {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_frame_limit_matches_the_640_pixel_ipc_buffer() {
+        let max_pitch = 640usize * 4;
+        assert_eq!(
+            bounded_raw_frame_len(640, 480, max_pitch),
+            Some(max_pitch * 480)
+        );
+        assert_eq!(bounded_raw_frame_len(641, 480, 641 * 4), None);
+        assert_eq!(bounded_raw_frame_len(640, 481, max_pitch), None);
+        assert_eq!(bounded_raw_frame_len(640, 480, usize::MAX), None);
+    }
+}
