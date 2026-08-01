@@ -71,6 +71,47 @@ where
     Some(output.response_data[..len.min(sc_core::MAX_RESPONSE)].to_vec())
 }
 
+trait CoreChildLifecycle {
+    fn is_alive(&mut self) -> bool;
+    fn terminate(&mut self);
+}
+
+impl CoreChildLifecycle for std::process::Child {
+    fn is_alive(&mut self) -> bool {
+        matches!(self.try_wait(), Ok(None))
+    }
+
+    fn terminate(&mut self) {
+        let _ = self.kill();
+        let _ = self.wait();
+    }
+}
+
+/// Capture and persist current SRAM before terminating the core child.
+/// Keeping this ordering in one testable operation prevents shutdown cleanup
+/// from silently moving ahead of the final battery-save acknowledgement.
+fn capture_sram_and_terminate<C, P>(
+    child: &mut C,
+    input: &InputShm,
+    output: &OutputShm,
+    rom_hash: Option<&str>,
+    timeout: Duration,
+    mut persist: P,
+) where
+    C: CoreChildLifecycle,
+    P: FnMut(&str, &[u8]),
+{
+    if let Some(hash) = rom_hash {
+        let snapshot = request_sram_snapshot(input, output, || child.is_alive(), timeout);
+        if let Some(data) = snapshot {
+            persist(hash, &data);
+        } else {
+            tracing::warn!("[SRAM] no fresh shutdown snapshot available");
+        }
+    }
+    child.terminate();
+}
+
 // ── Zip extraction helper ──────────────────────────────────────────────
 
 /// Extract the first ROM file from a .zip archive to a temp file.
@@ -725,17 +766,16 @@ pub async fn load_core_into_session(
             std::thread::sleep(Duration::from_millis(1));
         }
 
-        // ── Auto-save SRAM on shutdown ──────────────────────────────
-        if let Some(ref hash) = rom_hash_save {
-            let snapshot = request_sram_snapshot(
-                inp,
-                out,
-                || matches!(child.try_wait(), Ok(None)),
-                Duration::from_millis(500),
-            );
-            if let Some(data) = snapshot {
+        // ── Auto-save SRAM, then terminate child ────────────────────
+        capture_sram_and_terminate(
+            &mut child,
+            inp,
+            out,
+            rom_hash_save.as_deref(),
+            Duration::from_millis(500),
+            |hash, data| {
                 let sram_file = saves::sram_path(hash);
-                match saves::write_atomic(&sram_file, &data) {
+                match saves::write_atomic(&sram_file, data) {
                     Ok(()) => {
                         tracing::info!(
                             "[SRAM] auto-saved {} bytes to {}",
@@ -745,14 +785,10 @@ pub async fn load_core_into_session(
                     }
                     Err(e) => tracing::error!("[SRAM] write failed {}: {e}", sram_file.display()),
                 }
-            } else {
-                tracing::warn!("[SRAM] no fresh shutdown snapshot available");
-            }
-        }
+            },
+        );
 
-        // Cleanup
-        let _ = child.kill();
-        let _ = child.wait();
+        // Cleanup shared-memory files after child termination.
         unlink_shm(&out_name_clone);
         unlink_shm(&in_name_clone);
         tracing::info!("[BRIDGE] exited ({} frames)", frame_num);
@@ -764,11 +800,116 @@ pub async fn load_core_into_session(
 mod tests {
     use super::*;
 
+    struct SharedMemoryCleanup {
+        input_name: String,
+        output_name: String,
+    }
+
+    impl Drop for SharedMemoryCleanup {
+        fn drop(&mut self) {
+            unlink_shm(&self.input_name);
+            unlink_shm(&self.output_name);
+        }
+    }
+
+    struct FakeChild {
+        alive: Arc<std::sync::atomic::AtomicBool>,
+        terminated: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    impl CoreChildLifecycle for FakeChild {
+        fn is_alive(&mut self) -> bool {
+            self.alive.load(Ordering::Acquire)
+        }
+
+        fn terminate(&mut self) {
+            self.terminated.store(true, Ordering::Release);
+            self.alive.store(false, Ordering::Release);
+        }
+    }
+
+    #[test]
+    fn shutdown_persists_fresh_sram_before_terminating_child() {
+        let suffix = format!("{:032x}", rand::random::<u128>());
+        let input_name = format!("sc-test-in-{suffix}");
+        let output_name = format!("sc-test-out-{suffix}");
+        let _cleanup = SharedMemoryCleanup {
+            input_name: input_name.clone(),
+            output_name: output_name.clone(),
+        };
+        let mut input_map = map_shm::<InputShm>(&input_name, InputShm::size()).unwrap();
+        let mut output_map = map_shm::<OutputShm>(&output_name, OutputShm::size()).unwrap();
+        // SAFETY: mappings are zeroed, correctly sized/aligned, and remain
+        // alive for every shared-memory access in this test.
+        let input = unsafe { &*(input_map.as_mut_ptr() as *const InputShm) };
+        let output = unsafe { &*(output_map.as_mut_ptr() as *const OutputShm) };
+
+        output.response_ok.store(true, Ordering::Relaxed);
+        output.response_data_len.store(4, Ordering::Relaxed);
+        let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let terminated = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut child = FakeChild {
+            alive: alive.clone(),
+            terminated: terminated.clone(),
+        };
+        let mut persisted = None;
+
+        std::thread::scope(|scope| {
+            let terminated_at_ack = terminated.clone();
+            scope.spawn(move || {
+                while !input.cmd_ready.load(Ordering::Acquire) {
+                    std::thread::yield_now();
+                }
+                assert!(
+                    !terminated_at_ack.load(Ordering::Acquire),
+                    "child terminated before SRAM acknowledgement"
+                );
+                let fresh = [4_u8, 5, 6];
+                // SAFETY: `fresh` fits in the mapped response buffer.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        fresh.as_ptr(),
+                        output.response_data.as_ptr() as *mut u8,
+                        fresh.len(),
+                    );
+                }
+                output
+                    .response_data_len
+                    .store(fresh.len() as u32, Ordering::Relaxed);
+                output.response_ok.store(true, Ordering::Relaxed);
+                input.cmd_ready.store(false, Ordering::Release);
+            });
+
+            capture_sram_and_terminate(
+                &mut child,
+                input,
+                output,
+                Some("test-rom"),
+                Duration::from_millis(250),
+                |_, data| {
+                    assert!(
+                        !terminated.load(Ordering::Acquire),
+                        "child terminated before SRAM persistence"
+                    );
+                    persisted = Some(data.to_vec());
+                },
+            );
+        });
+
+        assert_eq!(persisted, Some(vec![4, 5, 6]));
+        assert!(child.terminated.load(Ordering::Acquire));
+        assert!(!child.alive.load(Ordering::Acquire));
+    }
+
     #[test]
     fn sram_snapshot_waits_for_fresh_ack_and_rejects_stale_response() {
         let suffix = format!("{:032x}", rand::random::<u128>());
         let input_name = format!("sc-test-in-{suffix}");
         let output_name = format!("sc-test-out-{suffix}");
+        let _cleanup = SharedMemoryCleanup {
+            input_name: input_name.clone(),
+            output_name: output_name.clone(),
+        };
         let mut input_map = map_shm::<InputShm>(&input_name, InputShm::size()).unwrap();
         let mut output_map = map_shm::<OutputShm>(&output_name, OutputShm::size()).unwrap();
         // SAFETY: each shared-memory mapping is zeroed, correctly sized,
@@ -817,8 +958,6 @@ mod tests {
         });
 
         assert_eq!(snapshot, Some(vec![1, 2, 3]));
-        unlink_shm(&input_name);
-        unlink_shm(&output_name);
     }
 
     #[test]
@@ -826,6 +965,10 @@ mod tests {
         let suffix = format!("{:032x}", rand::random::<u128>());
         let input_name = format!("sc-test-in-{suffix}");
         let output_name = format!("sc-test-out-{suffix}");
+        let _cleanup = SharedMemoryCleanup {
+            input_name: input_name.clone(),
+            output_name: output_name.clone(),
+        };
         let mut input_map = map_shm::<InputShm>(&input_name, InputShm::size()).unwrap();
         let mut output_map = map_shm::<OutputShm>(&output_name, OutputShm::size()).unwrap();
         // SAFETY: mappings are zeroed, correctly sized/aligned, and live long
@@ -838,8 +981,6 @@ mod tests {
         let snapshot = request_sram_snapshot(input, output, || false, Duration::from_millis(250));
 
         assert_eq!(snapshot, None);
-        unlink_shm(&input_name);
-        unlink_shm(&output_name);
     }
 
     #[tokio::test]
