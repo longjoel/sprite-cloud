@@ -27,10 +27,12 @@
 // with a `// SAFETY:` comment explaining why it's sound.
 #![deny(unsafe_op_in_unsafe_fn)]
 
+mod capture;
 mod ffi;
 mod info;
 mod runner;
 
+pub use crate::capture::{CaptureConfig, CaptureError, CapturedStill, capture_still};
 pub use crate::runner::Core;
 pub use info::{CoreInfo, FirmwareFile, check_firmware, detect_core, discover_cores, parse_info};
 

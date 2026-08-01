@@ -16,6 +16,11 @@ use crate::{AvInfo, CoreConfig, Error};
 
 mod pixels;
 
+/// Native callback allocation limits. Keep in sync with sc-core's shared-memory bound.
+const MAX_FRAME_WIDTH: u32 = 512;
+const MAX_FRAME_HEIGHT: u32 = 480;
+const MAX_RAW_FRAME_BYTES: usize = MAX_FRAME_WIDTH as usize * MAX_FRAME_HEIGHT as usize * 4;
+
 // ---------------------------------------------------------------------------
 // Thread-local state shared with C callbacks
 // ---------------------------------------------------------------------------
@@ -806,11 +811,16 @@ unsafe extern "C" fn video_refresh_callback(
         return;
     }
 
-    if width == 0 || height == 0 {
+    if width == 0 || height == 0 || width > MAX_FRAME_WIDTH || height > MAX_FRAME_HEIGHT {
         return;
     }
 
-    let byte_count = pitch * height as usize;
+    let Some(byte_count) = pitch.checked_mul(height as usize) else {
+        return;
+    };
+    if byte_count > MAX_RAW_FRAME_BYTES {
+        return;
+    }
 
     RAW_FRAME_DIMS.with(|dims| {
         *dims.borrow_mut() = (width, height, pitch);
