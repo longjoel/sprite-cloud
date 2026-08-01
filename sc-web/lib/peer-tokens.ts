@@ -16,6 +16,11 @@ export interface IssuedRoomPeer {
   reused: boolean;
 }
 
+export interface RoomPeerIssueHooks {
+  /** Test synchronization hook; production callers leave this unset. */
+  afterLockAcquired?: () => Promise<void>;
+}
+
 /**
  * Issue one stable peer capability while serializing seat allocation per session.
  * The transaction lock prevents concurrent guests from claiming the same final
@@ -24,11 +29,13 @@ export interface IssuedRoomPeer {
 export async function issueRoomPeer<TSchema extends Record<string, unknown>>(
   database: PostgresJsDatabase<TSchema>,
   input: RoomPeerInput,
+  hooks: RoomPeerIssueHooks = {},
 ): Promise<IssuedRoomPeer> {
   return database.transaction(async (tx) => {
     await tx.execute(
       sql`SELECT pg_advisory_xact_lock(hashtextextended(${input.sessionId}, 0))`,
     );
+    await hooks.afterLockAcquired?.();
 
     const [existingPeer] = await tx
       .select({ token: peerTokens.token, seat: peerTokens.seat, role: peerTokens.role })

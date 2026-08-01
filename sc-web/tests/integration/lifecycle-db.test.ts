@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { setupTestDb, teardownTestDb, getTestDb, resetTestDb } from "./test-db";
 import { users, servers, commands, sessions, launchEvents, peerTokens } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { issueRoomPeer } from "@/lib/peer-tokens";
 
 beforeAll(() => setupTestDb());
@@ -202,6 +202,43 @@ describe("Peer tokens", () => {
     expect(peers.map((peer) => peer.seat).sort((a, b) => a - b)).toEqual([3, 4]);
     expect(peers.map((peer) => peer.role).sort()).toEqual(["player", "viewer"]);
     expect(new Set(peers.map((peer) => peer.token))).toHaveLength(2);
+  });
+
+  it("holds the session allocation lock until peer issuance commits", async () => {
+    const db = getTestDb();
+    const { userId, serverId } = await seedUserAndServer();
+    const [session] = await db.insert(sessions).values({
+      userId, serverId, gameId: "smw", status: "playing", maxSeats: 4,
+    }).returning();
+    await db.insert(peerTokens).values({
+      sessionId: session.id, token: "host-token", seat: 0, role: "host",
+    });
+
+    let releaseLock!: () => void;
+    const holdLock = new Promise<void>((resolve) => { releaseLock = resolve; });
+    let reportLocked!: () => void;
+    const locked = new Promise<void>((resolve) => { reportLocked = resolve; });
+    const issuance = issueRoomPeer(
+      db,
+      { sessionId: session.id, clientId: "client-a", maxSeats: 4 },
+      {
+        afterLockAcquired: async () => {
+          reportLocked();
+          await holdLock;
+        },
+      },
+    );
+
+    await locked;
+    try {
+      const probe = await db.execute(
+        sql<{ acquired: boolean }>`SELECT pg_try_advisory_xact_lock(hashtextextended(${session.id}, 0)) AS acquired`,
+      );
+      expect(probe[0].acquired).toBe(false);
+    } finally {
+      releaseLock();
+      await issuance;
+    }
   });
 });
 
