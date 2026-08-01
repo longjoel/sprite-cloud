@@ -20,8 +20,8 @@ ROOTLESS=false
 PRINT_PATHS=false
 WEB_URL=""
 ROM_DIR=""
-# Default TURN credential for sprite-cloud.com (override with GV_TURN_CREDENTIAL env var)
-TURN_CREDENTIAL="${GV_TURN_CREDENTIAL:-0bf1912a8e569c803978495362f14dbb1f2ed50e7151c5fd26968748cd1eef7f}"
+# TURN relay is disabled unless the operator injects GV_TURN_CREDENTIAL.
+TURN_CREDENTIAL="${GV_TURN_CREDENTIAL:-}"
 
 # ── Parse args ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -36,6 +36,7 @@ while [[ $# -gt 0 ]]; do
       printf "  --print-paths  Print resolved install paths without changing the system\n"
       printf "  --web-url    sc-web URL (skip prompt)\n"
       printf "  --rom-dir    ROM directory (skip prompt)\n"
+      printf "  GV_TURN_CREDENTIAL  Explicit TURN credential (relay disabled when unset)\n"
       exit 0
       ;;
     *) err "unknown flag: $1 (use --help)" ;;
@@ -145,6 +146,11 @@ printf "  Pkg:    ${GREEN}%s${NC}\n" "$PKG_MGR"
 printf "  Binary: ${GREEN}%s${NC}\n" "$BIN_PATH"
 printf "  Config: ${GREEN}%s${NC}\n" "$CONFIG_FILE"
 echo ""
+
+if [[ -z "$TURN_CREDENTIAL" ]]; then
+  warn "TURN relay credential not configured; remote relay fallback will be unavailable"
+  warn "set GV_TURN_CREDENTIAL explicitly and rerun the installer to enable TURN"
+fi
 
 # ── Install system dependencies ────────────────────────────────────────
 if $ROOTLESS; then
