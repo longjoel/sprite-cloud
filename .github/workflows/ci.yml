@@ -19,9 +19,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Test installer path contract
+      - name: Test installer path and secret contracts
         run: |
           bash tests/install-paths.sh
+          bash tests/no-tracked-turn-credentials.sh
           bash -n scripts/*.sh tests/*.sh docker/sc-web/entrypoint.prod.sh docker/sc-server/entrypoint.sh
 
       - name: Install system dependencies
