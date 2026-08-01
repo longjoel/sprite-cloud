@@ -31,6 +31,17 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Build trusted libretro test core
+        id: libretro_fixture
+        run: |
+          core_dir="${RUNNER_TEMP}/libretro-2048"
+          git init -q "${core_dir}"
+          git -C "${core_dir}" remote add origin https://github.com/libretro/libretro-2048.git
+          git -C "${core_dir}" fetch -q --depth=1 origin c90437d3c3913999624deca3fb55ecfa632b72c4
+          git -C "${core_dir}" checkout -q --detach FETCH_HEAD
+          make -C "${core_dir}" -f Makefile.libretro
+          echo "core_path=${core_dir}/2048_libretro.so" >> "${GITHUB_OUTPUT}"
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
@@ -42,6 +53,11 @@ jobs:
 
       - name: Test Rust crates
         run: cargo test --workspace
+
+      - name: Test bounded still capture
+        env:
+          TEST_LIBRETRO_CORE: ${{ steps.libretro_fixture.outputs.core_path }}
+        run: cargo test -p libretro-runner --test capture -- --test-threads=1
 
       - name: Smoke test libretro-runner
         run: cargo test -p libretro-runner --test smoke -- --test-threads=1
