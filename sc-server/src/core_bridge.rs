@@ -11,19 +11,65 @@
 //! keeping the streaming loop and command handling completely unchanged.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
+use std::sync::Arc;
 use std::time::Duration;
 
 use sc_core::{
-    CMD_LOAD_SRAM, CMD_LOAD_STATE, CMD_SAVE_SRAM, CMD_SAVE_STATE, CMD_SET_INPUT, InputShm,
-    OutputShm, map_shm, unlink_shm,
+    map_shm, unlink_shm, InputShm, OutputShm, CMD_LOAD_SRAM, CMD_LOAD_STATE, CMD_SAVE_SRAM,
+    CMD_SAVE_STATE, CMD_SET_INPUT,
 };
 
 use crate::session::GameSession;
 
 use crate::saves;
+
+/// Request a fresh SRAM snapshot while the core process is still alive.
+///
+/// Clearing the prior response before publishing the command prevents a stale
+/// save-state response from being mistaken for this SRAM acknowledgement.
+fn request_sram_snapshot<F>(
+    input: &InputShm,
+    output: &OutputShm,
+    mut child_alive: F,
+    timeout: Duration,
+) -> Option<Vec<u8>>
+where
+    F: FnMut() -> bool,
+{
+    let deadline = std::time::Instant::now() + timeout;
+    // Do not overwrite a command that the core has already acquired. Waiting
+    // here also prevents that earlier command's acknowledgement from being
+    // mistaken for the SRAM request below.
+    while input.cmd_ready.load(Ordering::Acquire) {
+        if !child_alive() || std::time::Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+
+    output.response_ok.store(false, Ordering::Relaxed);
+    output.response_data_len.store(0, Ordering::Relaxed);
+    input.cmd_type.store(CMD_SAVE_SRAM, Ordering::Relaxed);
+    input.cmd_ready.store(true, Ordering::Release);
+
+    while input.cmd_ready.load(Ordering::Acquire) {
+        if !child_alive() || std::time::Instant::now() >= deadline {
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+
+    if !output.response_ok.load(Ordering::Relaxed) {
+        return None;
+    }
+    let len = output.response_data_len.load(Ordering::Relaxed) as usize;
+    if len == 0 {
+        return None;
+    }
+    Some(output.response_data[..len.min(sc_core::MAX_RESPONSE)].to_vec())
+}
 
 // ── Zip extraction helper ──────────────────────────────────────────────
 
@@ -558,9 +604,7 @@ pub async fn load_core_into_session(
         loop {
             // Check cancel
             if cancel.is_cancelled() {
-                tracing::info!("[BRIDGE] cancel — killing child");
-                let _ = child.kill();
-                let _ = child.wait();
+                tracing::info!("[BRIDGE] cancel — capturing SRAM before child shutdown");
                 break;
             }
 
@@ -683,21 +727,26 @@ pub async fn load_core_into_session(
 
         // ── Auto-save SRAM on shutdown ──────────────────────────────
         if let Some(ref hash) = rom_hash_save {
-            // Signal sc-core to save SRAM (may fail if core already died)
-            inp.cmd_type.store(CMD_SAVE_SRAM, Ordering::Relaxed);
-            inp.cmd_ready.store(true, Ordering::Release);
-            std::thread::sleep(Duration::from_millis(100));
-            let ok = out.response_ok.load(Ordering::Relaxed);
-            let len = out.response_data_len.load(Ordering::Relaxed) as usize;
-            if ok && len > 0 {
-                let data = &out.response_data[..len.min(sc_core::MAX_RESPONSE)];
+            let snapshot = request_sram_snapshot(
+                inp,
+                out,
+                || matches!(child.try_wait(), Ok(None)),
+                Duration::from_millis(500),
+            );
+            if let Some(data) = snapshot {
                 let sram_file = saves::sram_path(hash);
-                match saves::write_atomic(&sram_file, data) {
+                match saves::write_atomic(&sram_file, &data) {
                     Ok(()) => {
-                        tracing::info!("[SRAM] auto-saved {} bytes to {}", len, sram_file.display())
+                        tracing::info!(
+                            "[SRAM] auto-saved {} bytes to {}",
+                            data.len(),
+                            sram_file.display()
+                        )
                     }
                     Err(e) => tracing::error!("[SRAM] write failed {}: {e}", sram_file.display()),
                 }
+            } else {
+                tracing::warn!("[SRAM] no fresh shutdown snapshot available");
             }
         }
 
@@ -714,6 +763,84 @@ pub async fn load_core_into_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sram_snapshot_waits_for_fresh_ack_and_rejects_stale_response() {
+        let suffix = format!("{:032x}", rand::random::<u128>());
+        let input_name = format!("sc-test-in-{suffix}");
+        let output_name = format!("sc-test-out-{suffix}");
+        let mut input_map = map_shm::<InputShm>(&input_name, InputShm::size()).unwrap();
+        let mut output_map = map_shm::<OutputShm>(&output_name, OutputShm::size()).unwrap();
+        // SAFETY: each shared-memory mapping is zeroed, correctly sized,
+        // suitably aligned for its type, and remains alive for the test.
+        let input = unsafe { &*(input_map.as_mut_ptr() as *const InputShm) };
+        let output = unsafe { &*(output_map.as_mut_ptr() as *const OutputShm) };
+
+        output.response_ok.store(true, Ordering::Relaxed);
+        output.response_data_len.store(4, Ordering::Relaxed);
+        let stale = [9_u8, 9, 9, 9];
+        // SAFETY: `stale` fits in the mapped response buffer.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                stale.as_ptr(),
+                output.response_data.as_ptr() as *mut u8,
+                stale.len(),
+            );
+        }
+
+        let snapshot = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                while !input.cmd_ready.load(Ordering::Acquire) {
+                    std::thread::yield_now();
+                }
+                assert_eq!(input.cmd_type.load(Ordering::Relaxed), CMD_SAVE_SRAM);
+                assert!(!output.response_ok.load(Ordering::Relaxed));
+                assert_eq!(output.response_data_len.load(Ordering::Relaxed), 0);
+
+                let fresh = [1_u8, 2, 3];
+                // SAFETY: `fresh` fits in the mapped response buffer.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        fresh.as_ptr(),
+                        output.response_data.as_ptr() as *mut u8,
+                        fresh.len(),
+                    );
+                }
+                output
+                    .response_data_len
+                    .store(fresh.len() as u32, Ordering::Relaxed);
+                output.response_ok.store(true, Ordering::Relaxed);
+                input.cmd_ready.store(false, Ordering::Release);
+            });
+
+            request_sram_snapshot(input, output, || true, Duration::from_millis(250))
+        });
+
+        assert_eq!(snapshot, Some(vec![1, 2, 3]));
+        unlink_shm(&input_name);
+        unlink_shm(&output_name);
+    }
+
+    #[test]
+    fn sram_snapshot_rejects_stale_response_when_child_is_dead() {
+        let suffix = format!("{:032x}", rand::random::<u128>());
+        let input_name = format!("sc-test-in-{suffix}");
+        let output_name = format!("sc-test-out-{suffix}");
+        let mut input_map = map_shm::<InputShm>(&input_name, InputShm::size()).unwrap();
+        let mut output_map = map_shm::<OutputShm>(&output_name, OutputShm::size()).unwrap();
+        // SAFETY: mappings are zeroed, correctly sized/aligned, and live long
+        // enough for every shared-memory access in this test.
+        let input = unsafe { &*(input_map.as_mut_ptr() as *const InputShm) };
+        let output = unsafe { &*(output_map.as_mut_ptr() as *const OutputShm) };
+        output.response_ok.store(true, Ordering::Relaxed);
+        output.response_data_len.store(4, Ordering::Relaxed);
+
+        let snapshot = request_sram_snapshot(input, output, || false, Duration::from_millis(250));
+
+        assert_eq!(snapshot, None);
+        unlink_shm(&input_name);
+        unlink_shm(&output_name);
+    }
 
     #[tokio::test]
     async fn core_startup_failure_is_reported_to_caller() {
