@@ -20,8 +20,49 @@ ROOTLESS=false
 PRINT_PATHS=false
 WEB_URL=""
 ROM_DIR=""
-# TURN relay is disabled unless the operator injects GV_TURN_CREDENTIAL.
+# TURN relay is disabled unless the operator explicitly injects a credential.
+TURN_URLS="${GV_ICE_TURN_URLS:-turn:sprite-cloud.com:3478?transport=udp}"
+TURN_USERNAME="${GV_ICE_TURN_USERNAME:-guest}"
 TURN_CREDENTIAL="${GV_TURN_CREDENTIAL:-}"
+
+write_systemd_environment_value() {
+  local key="$1"
+  local value="$2"
+
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '%s="%s"\n' "$key" "$value"
+}
+
+write_turn_environment_file() {
+  local target="$1"
+
+  if [[ -z "${TURN_CREDENTIAL//[[:space:]]/}" ]]; then
+    $SUDO rm -f "$target"
+    return
+  fi
+
+  local value
+  for value in "$TURN_URLS" "$TURN_USERNAME" "$TURN_CREDENTIAL"; do
+    if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+      err "TURN environment values must not contain newlines"
+    fi
+  done
+
+  local staged
+  staged="$(mktemp)"
+  chmod 600 "$staged"
+  {
+    write_systemd_environment_value GV_ICE_TURN_URLS "$TURN_URLS"
+    write_systemd_environment_value GV_ICE_TURN_USERNAME "$TURN_USERNAME"
+    write_systemd_environment_value GV_ICE_TURN_CREDENTIAL "$TURN_CREDENTIAL"
+  } > "$staged"
+  if ! $SUDO install -m 0600 "$staged" "$target"; then
+    rm -f "$staged"
+    err "could not install protected TURN environment file"
+  fi
+  rm -f "$staged"
+}
 
 # ── Parse args ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -125,6 +166,7 @@ CONFIG_FILE="${CONFIG_DIR}/config.toml"
 BIN_PATH="${MANAGED_BIN_DIR}/sc-server"
 CORE_BIN_PATH="${MANAGED_BIN_DIR}/sc-core"
 MANAGED_BIN_PATH="${MANAGED_BIN_DIR}/sc-server"
+TURN_ENV_FILE="${CONFIG_DIR}/turn.env"
 
 if $PRINT_PATHS; then
   printf 'MODE=%s\n' "$MODE"
@@ -147,7 +189,7 @@ printf "  Binary: ${GREEN}%s${NC}\n" "$BIN_PATH"
 printf "  Config: ${GREEN}%s${NC}\n" "$CONFIG_FILE"
 echo ""
 
-if [[ -z "$TURN_CREDENTIAL" ]]; then
+if [[ -z "${TURN_CREDENTIAL//[[:space:]]/}" ]]; then
   warn "TURN relay credential not configured; remote relay fallback will be unavailable"
   warn "set GV_TURN_CREDENTIAL explicitly and rerun the installer to enable TURN"
 fi
@@ -362,6 +404,11 @@ if ! $ROOTLESS; then
   $SUDO chown "$SU_CMD" "$CONFIG_DIR" "$CONFIG_FILE"
 fi
 
+write_turn_environment_file "$TURN_ENV_FILE"
+if [[ -n "${TURN_CREDENTIAL//[[:space:]]/}" ]]; then
+  ok "TURN relay configuration written to a protected environment file"
+fi
+
 # ── Systemd service ────────────────────────────────────────────────────
 SERVICE_FILE="${SYSTEMD_DIR}/sc-server.service"
 
@@ -386,9 +433,7 @@ Environment="GV_CORES_DIR=${CORES_DIR}"
 Environment="GV_DATA_DIR=${DATA_DIR}"
 Environment="RUST_LOG=info"
 Environment="GV_ICE_STUN_URLS=stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"
-Environment="GV_ICE_TURN_URLS=turn:sprite-cloud.com:3478?transport=udp"
-Environment="GV_ICE_TURN_USERNAME=guest"
-Environment="GV_ICE_TURN_CREDENTIAL=${TURN_CREDENTIAL:-}"
+EnvironmentFile=-${TURN_ENV_FILE}
 ExecStart=${BIN_PATH} start
 Restart=on-failure
 RestartSec=5
@@ -413,9 +458,7 @@ Environment="GV_CORES_DIR=${CORES_DIR}"
 Environment="GV_DATA_DIR=${DATA_DIR}"
 Environment="RUST_LOG=info"
 Environment="GV_ICE_STUN_URLS=stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"
-Environment="GV_ICE_TURN_URLS=turn:sprite-cloud.com:3478?transport=udp"
-Environment="GV_ICE_TURN_USERNAME=guest"
-Environment="GV_ICE_TURN_CREDENTIAL=${TURN_CREDENTIAL:-}"
+EnvironmentFile=-${TURN_ENV_FILE}
 ExecStart=${MANAGED_BIN_PATH} start
 Restart=on-failure
 RestartSec=5
