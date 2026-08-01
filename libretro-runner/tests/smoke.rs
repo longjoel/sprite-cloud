@@ -47,7 +47,6 @@ fn load_and_run_2048_core() {
             content_path: None,
             system_dir: "/tmp".into(),
             save_dir: "/tmp".into(),
-            audio_channels: 2,
         })
     }
     .unwrap_or_else(|e| panic!("Failed to load 2048 core at {}: {}", core_path.display(), e));
@@ -266,7 +265,6 @@ fn genesis_endian_test() {
         content_path: Some(rom),
         system_dir: "/srv/storage/games/system".into(),
         save_dir: "/tmp".into(),
-        audio_channels: 2,
     };
     let mut core = unsafe { Core::load(config).unwrap() };
 
@@ -360,7 +358,6 @@ fn negotiated_pixel_format_survives_core_thread_handoff() {
             content_path: Some(rom),
             system_dir: "/srv/storage/games/system".into(),
             save_dir: "/tmp/libretro-runner-pixel-format-test".into(),
-            audio_channels: 2,
         };
         let mut core = unsafe { Core::load(config).unwrap() };
         if cross_thread {

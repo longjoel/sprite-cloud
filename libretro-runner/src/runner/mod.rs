@@ -59,9 +59,6 @@ thread_local! {
     static PIXEL_FORMAT: Cell<u32> = const { Cell::new(RETRO_PIXEL_FORMAT_0RGB1555) };
     /// Whether the core explicitly called SET_PIXEL_FORMAT this load.
     static PIXEL_FORMAT_NEGOTIATED: Cell<bool> = const { Cell::new(false) };
-    /// Number of audio channels the core outputs (1 = mono, 2 = stereo).
-    static AUDIO_CHANNELS: Cell<u16> = const { Cell::new(2) };
-
 }
 
 // ---------------------------------------------------------------------------
@@ -230,8 +227,6 @@ impl Core {
         SAVE_DIR.with(|cell| {
             *cell.borrow_mut() = CString::new(config.save_dir.to_string_lossy().as_bytes()).ok();
         });
-        AUDIO_CHANNELS.with(|c| c.set(config.audio_channels));
-
         // ---- Step 4: register callbacks ----
         // SAFETY: registering function pointers that match the ABI.
         // The C side will call back into our safe Rust wrappers.
@@ -983,8 +978,9 @@ unsafe extern "C" fn audio_batch_callback(data: *const i16, frames: usize) -> us
     if data.is_null() || frames == 0 {
         return 0;
     }
-    let channels = AUDIO_CHANNELS.with(|c| c.get()) as usize;
-    let sample_count = frames * channels;
+    // Libretro defines each audio frame as one interleaved stereo pair,
+    // including for cores that emulate mono hardware.
+    let sample_count = frames * 2;
     AUDIO_BUFFER.with(|buf| {
         let mut buf = buf.borrow_mut();
         let offset = buf.len();
@@ -1048,5 +1044,19 @@ mod tests {
         assert_eq!(bounded_raw_frame_len(641, 480, 641 * 4), None);
         assert_eq!(bounded_raw_frame_len(640, 481, max_pitch), None);
         assert_eq!(bounded_raw_frame_len(640, 480, usize::MAX), None);
+    }
+
+    #[test]
+    fn batch_callback_always_consumes_libretro_stereo_pairs() {
+        AUDIO_BUFFER.with(|buffer| buffer.borrow_mut().clear());
+        let input = [11_i16, 12, 21, 22];
+
+        // SAFETY: `input` contains the two interleaved stereo frames declared
+        // by the callback invocation and remains alive for the whole call.
+        let consumed = unsafe { audio_batch_callback(input.as_ptr(), 2) };
+        let output = AUDIO_BUFFER.with(|buffer| buffer.borrow().clone());
+
+        assert_eq!(consumed, 2);
+        assert_eq!(output, input);
     }
 }

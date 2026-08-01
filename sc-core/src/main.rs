@@ -86,7 +86,6 @@ fn main() {
         content_path: Some(rom_path.into()),
         system_dir: system_dir.into(),
         save_dir: "/tmp".into(),
-        audio_channels: 2,
     };
     
     let mut core = match unsafe { libretro_runner::Core::load(core_config) } {

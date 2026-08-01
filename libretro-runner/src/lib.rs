@@ -14,7 +14,6 @@
 //!         content_path: Some("/roms/game.gb".into()),
 //!         system_dir: "/srv/storage/games/system".into(),
 //!         save_dir: "/srv/storage/games/saves".into(),
-//!         audio_channels: 2,
 //!     })?
 //! };
 //!
@@ -57,9 +56,6 @@ pub struct CoreConfig {
     pub content_path: Option<PathBuf>,
     pub system_dir: PathBuf,
     pub save_dir: PathBuf,
-    /// Number of audio channels the core outputs (default: 2 for stereo).
-    /// Set to 1 for mono cores (Game Boy, Game Boy Color, some arcade).
-    pub audio_channels: u16,
 }
 
 impl Default for CoreConfig {
@@ -69,7 +65,6 @@ impl Default for CoreConfig {
             content_path: None,
             system_dir: PathBuf::from("/tmp"),
             save_dir: PathBuf::from("/tmp"),
-            audio_channels: 2,
         }
     }
 }
