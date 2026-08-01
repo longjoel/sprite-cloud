@@ -757,6 +757,17 @@ pub(super) async fn handle_guest_sdp(
     client: &sc_web::ScWebClient,
     _pool: &webrtc::PcPool,
 ) {
+    let peer_role = cmd
+        .payload
+        .get("peer_role")
+        .and_then(|value| value.as_str())
+        .unwrap_or("viewer")
+        .to_string();
+    let peer_seat = cmd
+        .payload
+        .get("peer_seat")
+        .and_then(|value| value.as_u64())
+        .and_then(|value| u32::try_from(value).ok());
     let report_error = |msg: &str| {
         tracing::error!("[SDP] guest error: {msg}");
     };
@@ -842,14 +853,17 @@ pub(super) async fn handle_guest_sdp(
         ),
     );
 
-    // Seat = existing guests + local_players (host takes seats 0..local_players-1)
+    // The gateway binds peer_role and peer_seat to the validated peer token.
+    // Keep a display-only fallback for old commands, but never grant input
+    // authority without an explicit player role and authoritative seat.
     let local_players = session
         .local_players
         .load(std::sync::atomic::Ordering::Relaxed);
-    let seat = {
+    let fallback_seat = {
         let guests = session.guests.lock().await;
         guests.len() as u32 + local_players
     };
+    let seat = peer_seat.unwrap_or(fallback_seat);
 
     // Store guest peer
     let guest = Arc::new(crate::session::GuestPeer {
@@ -858,8 +872,8 @@ pub(super) async fn handle_guest_sdp(
     });
     session.guests.lock().await.push(Arc::clone(&guest));
 
-    // Wire DC handler for guest input
-    wire_dc_handler_for_guest(session, peer_token, seat).await;
+    // Wire DC handler with the role and seat authenticated by sc-web.
+    wire_dc_handler_for_guest(session, peer_token, seat, &peer_role, peer_seat).await;
 
     // Send SDP answer back via notify_sdp
     let worker_url = worker_url(&session.game_id);
@@ -903,6 +917,8 @@ pub(super) async fn wire_dc_handler_for_guest(
     session: &Arc<GameSession>,
     peer_token: &str,
     seat: u32,
+    peer_role: &str,
+    authoritative_seat: Option<u32>,
 ) {
     let session = Arc::clone(session);
     let pc = {
@@ -924,10 +940,12 @@ pub(super) async fn wire_dc_handler_for_guest(
     let pc_for_ice = Arc::clone(&pc);
     let session_for_ice = Arc::clone(&session);
     let pt_for_ice = peer_token.clone();
+    let peer_role = peer_role.to_string();
 
     pc.on_data_channel(Box::new(move |dc: Arc<_>| {
         let session = Arc::clone(&session);
         let pt = peer_token.clone();
+        let peer_role = peer_role.clone();
         Box::pin(async move {
             tracing::info!(
                 "[DC] guest data channel received: {} (seat={})",
@@ -961,6 +979,7 @@ pub(super) async fn wire_dc_handler_for_guest(
             dc_for_msg.on_message(Box::new(move |msg| {
                 let session = Arc::clone(&session_for_msg);
                 let dc = Arc::clone(&dc_for_move);
+                let peer_role = peer_role.clone();
                 Box::pin(async move {
                     let data = if msg.is_string {
                         String::from_utf8_lossy(&msg.data).into_owned().into_bytes()
@@ -986,16 +1005,15 @@ pub(super) async fn wire_dc_handler_for_guest(
                         }
                     }
 
-                    // Binary input: [seat_byte, state_lo, state_hi]
-                    if data.len() >= 3 {
-                        let state = data[1] as u16 | ((data[2] as u16) << 8);
+                    if let Some(command) =
+                        guest_input_command(&peer_role, authoritative_seat, &data)
+                    {
                         let guard = session.core_cmd_tx.lock().await;
                         if let Some(ref tx) = *guard {
-                            let _ = tx.try_send(crate::core_bridge::CoreCommand::SetInput {
-                                port: seat,
-                                state,
-                            });
+                            let _ = tx.try_send(command);
                         }
+                    } else if data.len() >= 3 && peer_role != "player" {
+                        tracing::trace!("[DC] ignored input from role={peer_role}");
                     }
                 })
             }));
@@ -1024,9 +1042,50 @@ pub(super) async fn wire_dc_handler_for_guest(
     });
 }
 
+fn guest_input_command(
+    peer_role: &str,
+    authoritative_seat: Option<u32>,
+    data: &[u8],
+) -> Option<crate::core_bridge::CoreCommand> {
+    if peer_role != "player" || data.len() < 3 {
+        return None;
+    }
+
+    let seat = authoritative_seat?;
+    let state = data[1] as u16 | ((data[2] as u16) << 8);
+    Some(crate::core_bridge::CoreCommand::SetInput { port: seat, state })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn viewer_data_channel_input_cannot_reach_the_core() {
+        let command = guest_input_command("viewer", Some(4), &[4, 0x34, 0x12]);
+
+        assert!(command.is_none());
+    }
+
+    #[test]
+    fn authorized_player_input_uses_the_server_assigned_seat() {
+        let command = guest_input_command("player", Some(2), &[99, 0x34, 0x12]);
+
+        assert!(matches!(
+            command,
+            Some(crate::core_bridge::CoreCommand::SetInput {
+                port: 2,
+                state: 0x1234
+            })
+        ));
+    }
+
+    #[test]
+    fn malformed_or_unproven_player_authority_fails_closed() {
+        assert!(guest_input_command("player", None, &[1, 0x34, 0x12]).is_none());
+        assert!(guest_input_command("host", Some(1), &[1, 0x34, 0x12]).is_none());
+        assert!(guest_input_command("player", Some(1), &[1, 0x34]).is_none());
+    }
 
     #[tokio::test]
     async fn recent_history_requires_a_ready_server_local_launch() {

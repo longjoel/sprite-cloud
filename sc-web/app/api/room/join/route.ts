@@ -97,7 +97,9 @@ export async function POST(request: NextRequest) {
         peer_token: existingPeer.token,
         seat: existingPeer.seat,
         role: existingPeer.role,
-        capabilities: playerCapabilities(existingPeer.seat),
+        capabilities: existingPeer.role === "player"
+          ? playerCapabilities(existingPeer.seat)
+          : spectatorCapabilities(),
       });
     }
   }
@@ -161,6 +163,6 @@ export async function POST(request: NextRequest) {
     peer_token: guestPeerToken,
     seat,
     role,
-    capabilities: playerCapabilities(seat),
+    capabilities: role === "player" ? playerCapabilities(seat) : spectatorCapabilities(),
   });
 }
