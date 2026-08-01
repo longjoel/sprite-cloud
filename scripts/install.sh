@@ -24,6 +24,19 @@ ROM_DIR=""
 TURN_URLS="${GV_ICE_TURN_URLS:-turn:sprite-cloud.com:3478?transport=udp}"
 TURN_USERNAME="${GV_ICE_TURN_USERNAME:-guest}"
 TURN_CREDENTIAL="${GV_TURN_CREDENTIAL:-}"
+TURN_STAGED_FILE=""
+DOWNLOAD_DIR=""
+
+cleanup_installer_files() {
+  if [[ -n "$TURN_STAGED_FILE" ]]; then
+    rm -f "$TURN_STAGED_FILE"
+  fi
+  if [[ -n "$DOWNLOAD_DIR" ]]; then
+    rm -rf "$DOWNLOAD_DIR"
+  fi
+}
+trap cleanup_installer_files EXIT
+trap 'exit 130' INT TERM HUP
 
 write_systemd_environment_value() {
   local key="$1"
@@ -49,19 +62,20 @@ write_turn_environment_file() {
     fi
   done
 
-  local staged
-  staged="$(mktemp)"
-  chmod 600 "$staged"
+  TURN_STAGED_FILE="$(mktemp)"
+  chmod 600 "$TURN_STAGED_FILE"
   {
     write_systemd_environment_value GV_ICE_TURN_URLS "$TURN_URLS"
     write_systemd_environment_value GV_ICE_TURN_USERNAME "$TURN_USERNAME"
     write_systemd_environment_value GV_ICE_TURN_CREDENTIAL "$TURN_CREDENTIAL"
-  } > "$staged"
-  if ! $SUDO install -m 0600 "$staged" "$target"; then
-    rm -f "$staged"
+  } > "$TURN_STAGED_FILE"
+  if ! $SUDO install -m 0600 "$TURN_STAGED_FILE" "$target"; then
+    rm -f "$TURN_STAGED_FILE"
+    TURN_STAGED_FILE=""
     err "could not install protected TURN environment file"
   fi
-  rm -f "$staged"
+  rm -f "$TURN_STAGED_FILE"
+  TURN_STAGED_FILE=""
 }
 
 # ── Parse args ──────────────────────────────────────────────────────────
@@ -251,7 +265,6 @@ fi
 BIN_URL="${GV_BIN_URL:-https://github.com/longjoel/sprite-cloud/releases/latest/download/sc-server-${ARCH}}"
 SHA_URL="${GV_BIN_SHA256_URL:-${BIN_URL}.sha256}"
 DOWNLOAD_DIR="$(mktemp -d)"
-trap 'rm -rf "$DOWNLOAD_DIR"' EXIT
 DOWNLOAD_BIN="$DOWNLOAD_DIR/sc-server"
 DOWNLOAD_SHA="$DOWNLOAD_DIR/sc-server.sha256"
 
@@ -323,7 +336,7 @@ if ! $SUDO mv -f "$STAGED_SERVER" "$BIN_PATH"; then
   rollback_install
   err "atomic sc-server install failed; previous binaries restored"
 fi
-trap - INT TERM HUP
+trap 'exit 130' INT TERM HUP
 $SUDO rm -f "$BACKUP_CORE" "$BACKUP_SERVER"
 ok "sc-core installed to $CORE_BIN_PATH"
 ok "sc-server installed to $BIN_PATH"
