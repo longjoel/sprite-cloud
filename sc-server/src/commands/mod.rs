@@ -662,6 +662,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn daemon_shutdown_keeps_player_join_and_registry_wait_wired() {
+        let source = include_str!("mod.rs");
+        let player_wait = ["player_handle", ".await"].concat();
+        let registry_wait = ["shutdown_all_core_", "bridges(Duration::from_secs(2))"].concat();
+        let player_pos = source
+            .rfind(&player_wait)
+            .expect("daemon shutdown must await the LAN player task");
+        let registry_pos = source
+            .rfind(&registry_wait)
+            .expect("daemon shutdown must await all registered core bridges");
+        assert!(
+            player_pos < registry_pos,
+            "player handlers must drain before the final core registry wait"
+        );
+    }
+
+    #[test]
     fn pairing_preserves_setup_rom_core_and_ice_config() {
         let existing = config::Config {
             sc_web: config::ScWeb {

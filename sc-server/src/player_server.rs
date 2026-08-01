@@ -1288,6 +1288,24 @@ mod tests {
     }
 
     #[test]
+    fn paired_and_standalone_servers_keep_graceful_registry_shutdown_wired() {
+        let source = include_str!("player_server.rs");
+        let graceful = ["with_graceful_", "shutdown(player_shutdown_signal())"].concat();
+        let registry_wait = ["shutdown_all_core_", "bridges(std::time::Duration::from_secs(2))"]
+            .concat();
+        assert_eq!(
+            source.matches(&graceful).count(),
+            2,
+            "paired and standalone servers must both drain HTTP handlers"
+        );
+        assert_eq!(
+            source.matches(&registry_wait).count(),
+            2,
+            "paired and standalone servers must both await registered bridges"
+        );
+    }
+
+    #[test]
     fn health_payload_is_non_secret_lan_probe_identity() {
         let state = AppState {
             client: Client::new(),
