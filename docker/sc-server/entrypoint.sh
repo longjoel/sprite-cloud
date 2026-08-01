@@ -39,8 +39,10 @@ fi
 
 # ── Wait for sc-web ─────────────────────────────────────────────────
 if [ "${GV_SKIP_WEB_WAIT:-0}" != "1" ]; then
+  web_url="${GV_WEB_URL:-http://localhost:3000}"
+  health_url="${web_url%/}/api/health"
   echo "[sc-server] waiting for sc-web..."
-  until curl -sf http://localhost:3000/api/health >/dev/null 2>&1; do
+  until curl -sf "$health_url" >/dev/null 2>&1; do
     sleep 1
   done
   echo "[sc-server] sc-web is healthy"
