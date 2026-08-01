@@ -30,6 +30,9 @@ pub struct GameSession {
     pub cloud_session_id: Option<String>,
     /// Cancel token — signals the streaming loop and fan-out to stop.
     pub cancel: tokio_util::sync::CancellationToken,
+    /// Completion token — cancelled only after the core bridge has captured
+    /// shutdown SRAM, terminated the child, and released shared memory.
+    pub core_stopped: tokio_util::sync::CancellationToken,
 
     // ── WebRTC ──────────────────────────────────────────────────────
     pub pc: StdMutex<Arc<RTCPeerConnection>>,

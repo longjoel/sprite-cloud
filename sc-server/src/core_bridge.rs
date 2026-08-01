@@ -11,14 +11,14 @@
 //! keeping the streaming loop and command handling completely unchanged.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
-use std::sync::Arc;
 use std::time::Duration;
 
 use sc_core::{
-    map_shm, unlink_shm, InputShm, OutputShm, CMD_LOAD_SRAM, CMD_LOAD_STATE, CMD_SAVE_SRAM,
-    CMD_SAVE_STATE, CMD_SET_INPUT,
+    CMD_LOAD_SRAM, CMD_LOAD_STATE, CMD_SAVE_SRAM, CMD_SAVE_STATE, CMD_SET_INPUT, InputShm,
+    OutputShm, map_shm, unlink_shm,
 };
 
 use crate::session::GameSession;
@@ -84,6 +84,14 @@ impl CoreChildLifecycle for std::process::Child {
     fn terminate(&mut self) {
         let _ = self.kill();
         let _ = self.wait();
+    }
+}
+
+struct CoreShutdownCompletion(tokio_util::sync::CancellationToken);
+
+impl Drop for CoreShutdownCompletion {
+    fn drop(&mut self) {
+        self.0.cancel();
     }
 }
 
@@ -628,6 +636,7 @@ pub async fn load_core_into_session(
         .store(false, std::sync::atomic::Ordering::Relaxed);
 
     let cancel = session.cancel.clone();
+    let core_stopped = session.core_stopped.clone();
     let out_name_clone = out_name.clone();
     let in_name_clone = in_name.clone();
 
@@ -637,6 +646,7 @@ pub async fn load_core_into_session(
     // ── Bridge thread: shm ↔ channels ───────────────────────────────
     let rom_hash_save = rom_hash.clone();
     std::thread::spawn(move || {
+        let _shutdown_completion = CoreShutdownCompletion(core_stopped);
         let _out_mmap = out_mmap; // keep mmap alive for lifetime of thread
         let _in_mmap = in_mmap; // keep mmap alive for lifetime of thread
         let mut frame_num: u64 = 0;
@@ -990,6 +1000,7 @@ mod tests {
             game_id: format!("{:032x}", rand::random::<u128>()),
             cloud_session_id: None,
             cancel: tokio_util::sync::CancellationToken::new(),
+            core_stopped: tokio_util::sync::CancellationToken::new(),
             pc: std::sync::Mutex::new(stack.pc),
             video_track: std::sync::Mutex::new(stack.video_track),
             audio_track: std::sync::Mutex::new(stack.audio_track),

@@ -811,6 +811,7 @@ async fn launch_game(
         game_id: session_id.clone(),
         cloud_session_id: None,
         cancel: tokio_util::sync::CancellationToken::new(),
+        core_stopped: tokio_util::sync::CancellationToken::new(),
         pc: std::sync::Mutex::new(stack.pc),
         video_track: std::sync::Mutex::new(stack.video_track),
         audio_track: std::sync::Mutex::new(stack.audio_track),

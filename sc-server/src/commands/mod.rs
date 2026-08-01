@@ -21,6 +21,39 @@ fn worker_url(game_id: &str) -> String {
     format!("http://{host}:{port}/{game_id}")
 }
 
+struct SessionShutdownHandle {
+    game_id: String,
+    cancel: tokio_util::sync::CancellationToken,
+    core_stopped: tokio_util::sync::CancellationToken,
+}
+
+async fn cancel_and_wait_for_sessions(
+    sessions: &[SessionShutdownHandle],
+    timeout: Duration,
+) -> bool {
+    for session in sessions {
+        session.cancel.cancel();
+        tracing::info!("[SHUTDOWN] cancelled session {}", session.game_id);
+    }
+
+    let completed = tokio::time::timeout(timeout, async {
+        for session in sessions {
+            session.core_stopped.cancelled().await;
+            tracing::info!("[SHUTDOWN] core stopped for session {}", session.game_id);
+        }
+    })
+    .await
+    .is_ok();
+
+    if !completed {
+        tracing::error!(
+            "[SHUTDOWN] timed out waiting for {} core bridge(s)",
+            sessions.len()
+        );
+    }
+    completed
+}
+
 fn apply_pairing(
     existing: Option<config::Config>,
     sc_web_url: &str,
@@ -232,10 +265,15 @@ pub(crate) async fn cmd_start(
         tokio::select! {
             _ = shutdown_signal() => {
                 tracing::info!("[SHUTDOWN] stopping all sessions...");
-                for (gid, s) in &sessions {
-                    s.cancel.cancel();
-                    tracing::info!("[SHUTDOWN] cancelled session {gid}");
-                }
+                let shutdowns: Vec<_> = sessions
+                    .iter()
+                    .map(|(game_id, session)| SessionShutdownHandle {
+                        game_id: game_id.clone(),
+                        cancel: session.cancel.clone(),
+                        core_stopped: session.core_stopped.clone(),
+                    })
+                    .collect();
+                cancel_and_wait_for_sessions(&shutdowns, Duration::from_secs(2)).await;
                 break;
             }
             _ = async {
@@ -652,6 +690,33 @@ async fn shutdown_signal() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn daemon_shutdown_waits_for_core_completion_after_cancelling() {
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let stopped = tokio_util::sync::CancellationToken::new();
+        let worker_cancel = cancel.clone();
+        let worker_stopped = stopped.clone();
+        tokio::spawn(async move {
+            worker_cancel.cancelled().await;
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            worker_stopped.cancel();
+        });
+
+        let handles = vec![SessionShutdownHandle {
+            game_id: "test-game".to_string(),
+            cancel: cancel.clone(),
+            core_stopped: stopped,
+        }];
+        let started = std::time::Instant::now();
+
+        assert!(
+            cancel_and_wait_for_sessions(&handles, Duration::from_millis(250)).await,
+            "core completion should arrive before the daemon timeout"
+        );
+        assert!(cancel.is_cancelled());
+        assert!(started.elapsed() >= Duration::from_millis(25));
+    }
 
     #[test]
     fn pairing_preserves_setup_rom_core_and_ice_config() {
