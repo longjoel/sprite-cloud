@@ -1005,8 +1005,11 @@ pub(super) async fn wire_dc_handler_for_guest(
                         }
                     }
 
+                    let local_players = session
+                        .local_players
+                        .load(std::sync::atomic::Ordering::Relaxed);
                     if let Some(command) =
-                        guest_input_command(&peer_role, authoritative_seat, &data)
+                        guest_input_command(&peer_role, authoritative_seat, local_players, &data)
                     {
                         let guard = session.core_cmd_tx.lock().await;
                         if let Some(ref tx) = *guard {
@@ -1045,13 +1048,15 @@ pub(super) async fn wire_dc_handler_for_guest(
 fn guest_input_command(
     peer_role: &str,
     authoritative_seat: Option<u32>,
+    local_players: u32,
     data: &[u8],
 ) -> Option<crate::core_bridge::CoreCommand> {
     if peer_role != "player" || data.len() < 3 {
         return None;
     }
 
-    let seat = authoritative_seat?;
+    let guest_index = authoritative_seat?.checked_sub(1)?;
+    let seat = local_players.checked_add(guest_index)?;
     let state = data[1] as u16 | ((data[2] as u16) << 8);
     Some(crate::core_bridge::CoreCommand::SetInput { port: seat, state })
 }
@@ -1062,14 +1067,27 @@ mod tests {
 
     #[test]
     fn viewer_data_channel_input_cannot_reach_the_core() {
-        let command = guest_input_command("viewer", Some(4), &[4, 0x34, 0x12]);
+        let command = guest_input_command("viewer", Some(4), 2, &[4, 0x34, 0x12]);
 
         assert!(command.is_none());
     }
 
     #[test]
     fn authorized_player_input_uses_the_server_assigned_seat() {
-        let command = guest_input_command("player", Some(2), &[99, 0x34, 0x12]);
+        let command = guest_input_command("player", Some(2), 1, &[99, 0x34, 0x12]);
+
+        assert!(matches!(
+            command,
+            Some(crate::core_bridge::CoreCommand::SetInput {
+                port: 2,
+                state: 0x1234
+            })
+        ));
+    }
+
+    #[test]
+    fn guest_input_is_offset_past_all_host_local_players() {
+        let command = guest_input_command("player", Some(1), 2, &[0, 0x34, 0x12]);
 
         assert!(matches!(
             command,
@@ -1082,9 +1100,10 @@ mod tests {
 
     #[test]
     fn malformed_or_unproven_player_authority_fails_closed() {
-        assert!(guest_input_command("player", None, &[1, 0x34, 0x12]).is_none());
-        assert!(guest_input_command("host", Some(1), &[1, 0x34, 0x12]).is_none());
-        assert!(guest_input_command("player", Some(1), &[1, 0x34]).is_none());
+        assert!(guest_input_command("player", None, 1, &[1, 0x34, 0x12]).is_none());
+        assert!(guest_input_command("host", Some(1), 1, &[1, 0x34, 0x12]).is_none());
+        assert!(guest_input_command("player", Some(0), 1, &[1, 0x34, 0x12]).is_none());
+        assert!(guest_input_command("player", Some(1), 1, &[1, 0x34]).is_none());
     }
 
     #[tokio::test]
