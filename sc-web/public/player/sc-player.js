@@ -513,14 +513,14 @@ export class ScPlayer {
       }
 
       // Poll for the worker's SDP answer.
-      // Use the start_game pollToken if available (ties to the session),
-      // otherwise fall back to the sdp_offer's workerToken.
-      // Host reconnects get a short timeout — the session is either alive
-      // (answer in ~300ms) or dead (cancelled on DC close), no point waiting.
+      // Always use the fresh worker_token returned by the sdp_offer
+      // we just posted. The stale start_game / room join token must
+      // never shadow a fresh command token — on reconnect, the old
+      // token's SDP answer was already consumed.
       const isReconnect = !pollToken && !sdpAnswer && hostToken;
       const pollTimeout = isReconnect ? RECONNECT_RELAY_TIMEOUT_MS : undefined;
       const pollStart = Date.now();
-      let answerSdp = await this._pollForAnswer(serverId, pollToken || workerToken, pollTimeout);
+      let answerSdp = await this._pollForAnswer(serverId, workerToken, pollTimeout);
       this._phaseLog("relay", "answer", { ms: Date.now() - pollStart, chars: answerSdp.length });
 
       // Normalize extmap: webrtc-rs 0.17.1 sometimes assigns different extmap IDs
