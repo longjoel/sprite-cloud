@@ -856,7 +856,7 @@ export class ScPlayer {
         || (window.location.protocol === "http:"
           && window.location.port === "8787"
           && isPrivateIP(window.location.hostname)));
-    const timeout = isRelayOnly ? 8_000 : (isLanDirect ? 3_000 : this._iceTimeout);
+    const timeout = isRelayOnly ? 60_000 : (isLanDirect ? 3_000 : this._iceTimeout);
 
     console.log("[gv] _waitForIceGatheringComplete: waiting (state=" + this._pc.iceGatheringState + ", timeout=" + timeout + "ms, relay=" + isRelayOnly + ")");
 
