@@ -1,0 +1,97 @@
+name: Beta Report
+description: Report a limited-beta defect (release, route, stage, sanitized logs, severity)
+labels: [beta, bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Thanks for participating in the limited beta.** This template routes your report
+        to the beta defect pipeline. Before submitting, read the [beta brief](../docs/BETA.md)
+        to confirm your configuration is supported.
+
+        ⚠️ **Do NOT include:** ROM files or names you are not authorized to share, invite
+        links, credentials/tokens, cookies, or personal data. Sanitize all logs before pasting.
+  - type: input
+    id: release
+    attributes:
+      label: Release / commit
+      description: Paste `git rev-parse --short HEAD` (or the installer version, e.g. 0.12.x).
+      placeholder: e.g. 62c1fd0 or 0.12.10
+    validations:
+      required: true
+  - type: dropdown
+    id: host
+    attributes:
+      label: Host
+      description: What host is sc-server running on?
+      options:
+        - Bazzite / Steam Deck-class (x86-64)
+        - Debian/Ubuntu (x86-64)
+        - Raspberry Pi 5 / ARM64
+        - Other (not officially supported)
+    validations:
+      required: true
+  - type: dropdown
+    id: client
+    attributes:
+      label: Browser client
+      options:
+        - Chrome / Edge / Brave
+        - Firefox
+        - Other (not officially supported)
+    validations:
+      required: true
+  - type: dropdown
+    id: route
+    attributes:
+      label: Connection route
+      description: Which network path were you using?
+      options:
+        - Same LAN
+        - Remote direct ICE
+        - Forced TURN relay
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Failure stage
+      description: Where did the problem occur?
+      options:
+        - Install / setup / pairing
+        - Library load
+        - Game launch
+        - In-game (video, audio, input)
+        - Save / load
+        - Stop / second launch
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: See the beta brief §6 for definitions.
+      options:
+        - P0 — Security/data loss/corrupt install/unrecoverable outage
+        - P1 — Common workflow broken, no workaround
+        - P2 — Localized defect with workaround
+        - P3 — Polish or request
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Expected vs actual behavior. Include reproduction steps.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs
+      description: Paste relevant logs (sc-server / gateway / browser console). Remove all credentials, tokens, invite links, and personal data first.
+      render: shell
+    validations:
+      required: false
