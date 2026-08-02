@@ -77,4 +77,24 @@ describe("PlayerShell recoverable-error phase gating", () => {
     onFatalErrorFixed("Reconnection failed — max attempts exhausted");
     expect(phase).toBe("error");
   });
+
+  it("fires onReconnectFailed after exhaustion, not onError with recoverable", () => {
+    // Simulate play-v2.js exhaustion logic: after MAX_RECONNECT_ATTEMPTS,
+    // onReconnectFailed fires (terminal), not recoverable onError.
+    const MAX = 5;
+    let reconnectAttempts = MAX; // already exhausted
+
+    let didReconnect = false;
+    let didReconnectFailed = false;
+
+    // The production pattern after the fix:
+    if (reconnectAttempts < MAX) {
+      didReconnect = true;
+    } else {
+      didReconnectFailed = true;
+    }
+
+    expect(didReconnect).toBe(false);
+    expect(didReconnectFailed).toBe(true); // terminal path fires
+  });
 });

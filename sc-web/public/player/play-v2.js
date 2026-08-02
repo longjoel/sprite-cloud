@@ -400,6 +400,8 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
       callbacks.onError?.(msg, true /* recoverable — retry pending */);
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         doReconnect();
+      } else {
+        callbacks.onReconnectFailed?.();
       }
       return;
     }
@@ -428,6 +430,8 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
       callbacks.onError?.(msg, true /* recoverable — retry pending */);
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         doReconnect();
+      } else {
+        callbacks.onReconnectFailed?.();
       }
     }
     } finally { connecting = false; }
