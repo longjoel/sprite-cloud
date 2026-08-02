@@ -89,6 +89,12 @@ vi.mock("@/lib/server-auth", () => ({
 const mockWaitForSdpAnswer = vi.fn();
 vi.mock("@/lib/pending-sdp", () => ({ waitForSdpAnswer: mockWaitForSdpAnswer }));
 
+// TURN probe mock — health tests control the relay probe result directly.
+const mockRunTurnProbe = vi.fn();
+vi.mock("@/lib/turn-probe", () => ({
+  runTurnProbe: (...args: unknown[]) => mockRunTurnProbe(...args),
+}));
+
 // ── Helpers ────────────────────────────────────────────────────────────
 
 function authHeader(token = "scsk_test_api_key_12345") {
@@ -2238,6 +2244,12 @@ describe("GET /api/ice-config", () => {
 
 describe("GET /api/health", () => {
   it("returns ok when all components are healthy and reports connectivity mode", async () => {
+    mockRunTurnProbe.mockResolvedValueOnce({
+      state: "relayed",
+      probed_at: new Date().toISOString(),
+      latency_ms: 12,
+      relay_family: "ipv4",
+    });
     mockDb.execute.mockResolvedValueOnce(undefined); // db check
     // Check order: api_routes → sc_server → schema
     mockDb.select.mockReturnValueOnce(
@@ -2287,15 +2299,92 @@ describe("GET /api/health", () => {
     expect(body.phase4c_library_owner).toBe("sc-server");
     expect(body.components.db.status).toBe("ok");
     expect(body.components.sc_server.status).toBe("ok");
+    expect(body.components.turn.status).toBe("ok");
+    expect(body.components.turn.detail).toContain("verified");
     expect(body.connectivity.mode).toBe("turn-capable");
     expect(body.connectivity.transport_policy).toBe("all");
     expect(body.connectivity.turn_ready).toBe(true);
-    expect(body.connectivity.diagnostics.some((line: string) => line.includes("TURN is configured"))).toBe(true);
+    expect(body.connectivity.turn_state).toBe("relayed");
+    expect(body.connectivity.probe?.relay_family).toBe("ipv4");
+    expect(body.connectivity.diagnostics.some((line: string) => line.includes("relay allocation verified"))).toBe(true);
     expect(body.versions.web).toMatchObject({ package_version: "0.1.0", git_sha: "web-sha-123" });
     expect(body.versions.server).toMatchObject({ git_sha: "server-sha" });
     expect(body.versions.worker).toMatchObject({ git_sha: "worker-sha" });
     expect(body.versions.runner).toMatchObject({ git_sha: "runner-sha" });
     expect(body.versions.source_server).toMatchObject({ id: "server-1", name: "Home PC" });
+  });
+
+  it("fails closed when TURN is configured but the relay probe fails", async () => {
+    mockRunTurnProbe.mockResolvedValueOnce({
+      state: "failed",
+      probed_at: new Date().toISOString(),
+      error: "no response from turn.example.com:3478 within 3000ms",
+    });
+    mockDb.execute.mockResolvedValueOnce(undefined);
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{}]));
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{ id: "server-1", lastSeenAt: new Date() }]),
+    );
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{ roomToken: "x", maxSeats: 1, sdpAnswer: null }]),
+    );
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{ id: "server-1", lastSeenAt: new Date() }]),
+    );
+
+    const { GET } = await import("@/app/api/health/route");
+    const prevTurnUrls = process.env.GV_ICE_TURN_URLS;
+    const prevTurnUser = process.env.GV_ICE_TURN_USERNAME;
+    const prevTurnCred = process.env.GV_ICE_TURN_CREDENTIAL;
+    process.env.GV_ICE_TURN_URLS = "turn:turn.example.com:3478";
+    process.env.GV_ICE_TURN_USERNAME = "gv";
+    process.env.GV_ICE_TURN_CREDENTIAL = "secret";
+    const resp = await GET();
+    process.env.GV_ICE_TURN_URLS = prevTurnUrls;
+    process.env.GV_ICE_TURN_USERNAME = prevTurnUser;
+    process.env.GV_ICE_TURN_CREDENTIAL = prevTurnCred;
+    expect(resp.status).toBe(503);
+    const body = await resp.json();
+    expect(body.status).toBe("error");
+    expect(body.components.turn.status).toBe("error");
+    expect(body.connectivity.mode).toBe("turn-failed");
+    expect(body.connectivity.turn_ready).toBe(false);
+    expect(body.connectivity.turn_state).toBe("failed");
+  });
+
+  it("reports LAN mode without probing when TURN is unconfigured", async () => {
+    mockDb.execute.mockResolvedValueOnce(undefined);
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{}]));
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{ id: "server-1", lastSeenAt: new Date() }]),
+    );
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{ roomToken: "x", maxSeats: 1, sdpAnswer: null }]),
+    );
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{ id: "server-1", lastSeenAt: new Date() }]),
+    );
+
+    const { GET } = await import("@/app/api/health/route");
+    const prevStun = process.env.GV_ICE_STUN_URLS;
+    const prevTurnUrls = process.env.GV_ICE_TURN_URLS;
+    const prevTurnUser = process.env.GV_ICE_TURN_USERNAME;
+    const prevTurnCred = process.env.GV_ICE_TURN_CREDENTIAL;
+    delete process.env.GV_ICE_STUN_URLS;
+    delete process.env.GV_ICE_TURN_URLS;
+    delete process.env.GV_ICE_TURN_USERNAME;
+    delete process.env.GV_ICE_TURN_CREDENTIAL;
+    const resp = await GET();
+    process.env.GV_ICE_STUN_URLS = prevStun;
+    process.env.GV_ICE_TURN_URLS = prevTurnUrls;
+    process.env.GV_ICE_TURN_USERNAME = prevTurnUser;
+    process.env.GV_ICE_TURN_CREDENTIAL = prevTurnCred;
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.connectivity.mode).toBe("lan-only");
+    expect(body.connectivity.turn_ready).toBe(false);
+    expect(body.components.turn.status).toBe("ok");
+    expect(mockRunTurnProbe).not.toHaveBeenCalled();
   });
 
   it("returns 503 with per-component status when DB is down", async () => {
