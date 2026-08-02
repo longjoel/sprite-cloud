@@ -1,6 +1,6 @@
 [package]
 name = "sc-server"
-version = "0.12.10"
+version = "0.12.11"
 edition = "2024"
 description = "Sprite Cloud server — in-process game streaming with GStreamer + WebRTC"
 license = "AGPL-3.0-or-later"
