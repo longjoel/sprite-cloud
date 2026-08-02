@@ -574,9 +574,12 @@ pub(super) async fn handle_sdp_offer(
                 tracing::info!("[SDP] host reconnecting — swapping in fresh PC");
                 match pool.acquire().await {
                     Ok(fresh) => {
+                        let rebind_video = fresh.video_track.clone();
+                        let rebind_audio = fresh.audio_track.clone();
                         *session.video_track.lock().expect("mutex poisoned") = fresh.video_track;
                         *session.audio_track.lock().expect("mutex poisoned") = fresh.audio_track;
                         *session.pc.lock().expect("mutex poisoned") = fresh.pc;
+                        rebind_guest_tracks(session, rebind_video, rebind_audio).await;
                         dc_handler::wire_dc_handler(session);
 
                         let pc = session.pc.lock().expect("mutex poisoned").clone();
@@ -657,11 +660,14 @@ pub(super) async fn handle_sdp_offer(
                             match pool.acquire().await {
                                 Ok(fresh) => {
                                     tracing::info!("[SDP] retry: swapped in fresh PC from pool");
+                                    let rebind_video = fresh.video_track.clone();
+                                    let rebind_audio = fresh.audio_track.clone();
                                     *session.video_track.lock().expect("mutex poisoned") =
                                         fresh.video_track;
                                     *session.audio_track.lock().expect("mutex poisoned") =
                                         fresh.audio_track;
                                     *session.pc.lock().expect("mutex poisoned") = fresh.pc;
+                                    rebind_guest_tracks(session, rebind_video, rebind_audio).await;
                                     dc_handler::wire_dc_handler(session);
                                     tokio::time::sleep(Duration::from_millis(500)).await;
                                 }
@@ -1043,6 +1049,43 @@ pub(super) async fn wire_dc_handler_for_guest(
             }
         }
     });
+}
+
+/// After a host reconnect swaps session video/audio tracks, rebind every
+/// existing guest peer connection to the fresh tracks.  Without this
+/// rebind, the streaming loop writes to the new tracks (which the host
+/// PC can see) but existing guest PCs still hold the old track instances,
+/// permanently freezing connected guests.
+async fn rebind_guest_tracks(
+    session: &Arc<GameSession>,
+    video_track: Arc<dyn ::webrtc::track::track_local::TrackLocal + Send + Sync>,
+    audio_track: Arc<dyn ::webrtc::track::track_local::TrackLocal + Send + Sync>,
+) {
+    use ::webrtc::track::track_local::TrackLocal;
+    let guests = session.guests.lock().await;
+    if guests.is_empty() {
+        return;
+    }
+    tracing::info!(
+        "[DC] rebinding {} guest(s) to fresh host tracks",
+        guests.len()
+    );
+    for guest in guests.iter() {
+        if let Err(e) = guest
+            .pc
+            .add_track(video_track.clone() as Arc<dyn TrackLocal + Send + Sync>)
+            .await
+        {
+            tracing::error!("[DC] guest video rebind failed: {e}");
+        }
+        if let Err(e) = guest
+            .pc
+            .add_track(audio_track.clone() as Arc<dyn TrackLocal + Send + Sync>)
+            .await
+        {
+            tracing::error!("[DC] guest audio rebind failed: {e}");
+        }
+    }
 }
 
 fn guest_input_command(
