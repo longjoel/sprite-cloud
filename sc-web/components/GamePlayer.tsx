@@ -114,7 +114,7 @@ interface GamePlayerProps {
   seat?: number;            // guest seat number (1-based for player display)
   onClose?: () => void;
   onConnected?: () => void; // fired when WebRTC connects
-  onFatalError?: (msg: string) => void; // fired on connection failure — page can show error screen
+  onFatalError?: (msg: string, opts?: { recoverable?: boolean }) => void; // fired on connection failure (recoverable=false) — page can show error screen
   sessionId?: string;
   initialPipeline?: Record<string, StepState>;
   hidePipeline?: boolean;   // suppress internal pipeline loading (page has its own overlay)
@@ -349,13 +349,15 @@ export default function GamePlayer({
             onListSaves(entries: any[], _nextIndex: number) {
               setSaveEntries(entries);
             },
-            onError(msg: string) {
+            onError(msg: string, recoverable?: boolean) {
               setError(msg);
-              onFatalError?.(msg);
-              const activeStep = PIPELINE_STEPS.find(
-                (s) => pipeline[s.id] === "active",
-              );
-              if (activeStep) failStep(activeStep.id);
+              if (!recoverable) {
+                onFatalError?.(msg);
+                const activeStep = PIPELINE_STEPS.find(
+                  (s) => pipeline[s.id] === "active",
+                );
+                if (activeStep) failStep(activeStep.id);
+              }
             },
             onProgress(_msg: string) {},
             onReconnecting(_attempt: number) {},
