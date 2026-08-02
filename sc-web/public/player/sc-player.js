@@ -856,7 +856,7 @@ export class ScPlayer {
         || (window.location.protocol === "http:"
           && window.location.port === "8787"
           && isPrivateIP(window.location.hostname)));
-    const timeout = isRelayOnly ? 60_000 : (isLanDirect ? 3_000 : this._iceTimeout);
+    const timeout = isRelayOnly ? 8_000 : (isLanDirect ? 3_000 : this._iceTimeout);
 
     console.log("[gv] _waitForIceGatheringComplete: waiting (state=" + this._pc.iceGatheringState + ", timeout=" + timeout + "ms, relay=" + isRelayOnly + ")");
 
@@ -886,6 +886,16 @@ export class ScPlayer {
         }
         console.log("[gv] _waitForIceGatheringComplete: complete after " + (Date.now() - start) + "ms");
         return;
+      }
+      // Relay: exit as soon as one relay candidate is in the SDP — the
+      // browser continues ICE gathering in the background and will discover
+      // additional candidates via the trickle-ice path.
+      if (isRelayOnly) {
+        const sdp = this._pc.localDescription?.sdp || "";
+        if (sdp.includes("typ relay")) {
+          console.log("[gv] _waitForIceGatheringComplete: relay candidate ready after " + (Date.now() - start) + "ms");
+          return;
+        }
       }
     }
 
