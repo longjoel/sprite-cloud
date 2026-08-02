@@ -183,7 +183,7 @@ export default function PlayerShell({
           seat={gameMeta.seat}
           onClose={() => window.location.assign(homeUrl)}
           onConnected={onConnected}
-          onFatalError={(msg) => { setError(msg); setPhase("error"); }}
+          onFatalError={(msg, opts?: { recoverable?: boolean }) => { if (!opts?.recoverable) { setError(msg); setPhase("error"); } }}
           initialPipeline={initialPipeline}
           hidePipeline={hidePipeline}
           onPipelineChange={handlePipelineChange}
