@@ -887,6 +887,24 @@ export class ScPlayer {
         console.log("[gv] _waitForIceGatheringComplete: complete after " + (Date.now() - start) + "ms");
         return;
       }
+      // Exit as soon as a NAT-traversable candidate (srflx or relay) is in
+      // the SDP. The browser keeps gathering in the background and the
+      // prebaked/answer flow tolerates a partial offer — blocking here on a
+      // slow or unreachable TURN allocation added 15s to match start.
+      if (!isRelayOnly && !isLanDirect) {
+        const sdp = this._pc.localDescription?.sdp || "";
+        const elapsed = Date.now() - start;
+        if (/a=candidate:.* typ (?:srflx|relay)(?:\s|$)/m.test(sdp)) {
+          console.log("[gv] _waitForIceGatheringComplete: reachable candidate ready after " + elapsed + "ms");
+          return;
+        }
+        // Same-LAN fallback: host candidates suffice when the server is on
+        // the local network; don't block match start on the relay allocation.
+        if (elapsed >= 1500 && /a=candidate:.* typ host(?:\s|$)/m.test(sdp)) {
+          console.log("[gv] _waitForIceGatheringComplete: host candidate ready after " + elapsed + "ms");
+          return;
+        }
+      }
       // Relay: exit as soon as one relay candidate is in the SDP — the
       // browser continues ICE gathering in the background and will discover
       // additional candidates via the trickle-ice path.
