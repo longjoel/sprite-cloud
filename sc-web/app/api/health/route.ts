@@ -6,6 +6,7 @@ import { desc } from "drizzle-orm";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { getConnectivityDiagnostic, type ConnectivityDiagnostic } from "@/lib/connectivity-diagnostic";
+import { runTurnProbe } from "@/lib/turn-probe";
 
 interface VersionInfo {
   package_version: string;
@@ -43,6 +44,7 @@ interface HealthResponse {
     api_routes: ComponentStatus;
     sc_server: ComponentStatus;
     schema: ComponentStatus;
+    turn: ComponentStatus;
   };
   connectivity: ConnectivityDiagnostic;
   versions: VersionSnapshot;
@@ -242,20 +244,67 @@ function overallStatus(
   return "ok";
 }
 
+// ── Turn probe component ──────────────────────────────────────────────
+
+function turnComponent(connectivity: ConnectivityDiagnostic): ComponentStatus {
+  if (!connectivity.turn_configured) {
+    return { status: "ok", detail: "TURN not configured — LAN/friendly-NAT mode" };
+  }
+  switch (connectivity.turn_state) {
+    case "relayed":
+      return { status: "ok", detail: "TURN relay allocation verified by live probe" };
+    case "credential-issued":
+      return {
+        status: "degraded",
+        detail: "TURN listener reachable and credential mechanism active, but relay allocation not yet proven",
+      };
+    case "configured":
+      return { status: "degraded", detail: "TURN configured; probe pending" };
+    default:
+      return {
+        status: "error",
+        detail: connectivity.probe?.error || "TURN relay probe failed",
+      };
+  }
+}
+
 // ── Route ─────────────────────────────────────────────────────────────
 
 // GET /api/health — deep stack health check (no auth required)
 export async function GET() {
-  const components = {
+  const components: HealthResponse["components"] = {
     db: await checkDb(),
     api_routes: await checkApiRoutes(),
     sc_server: await checkScServer(),
     schema: await checkSchema(),
+    turn: { status: "ok", detail: "pending probe" },
   };
+
+  // Probe the production TURN path. The probe is cached (60s success / 15s
+  // failure TTL) so health stays fast and flapping relays are detected
+  // promptly. Failures fail closed: components.turn becomes error.
+  // When no TURN URL is configured there is nothing to probe.
+  let probe = null;
+  const turnUrls = (process.env.GV_ICE_TURN_URLS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (turnUrls.length > 0) {
+    try {
+      probe = await runTurnProbe();
+    } catch (e) {
+      probe = {
+        state: "failed" as const,
+        probed_at: new Date().toISOString(),
+        error: String(e),
+      };
+    }
+  }
+  const connectivity = getConnectivityDiagnostic(probe);
+  components.turn = turnComponent(connectivity);
 
   const status = overallStatus(components);
   const versions = await loadVersionSnapshot();
-  const connectivity = getConnectivityDiagnostic();
 
   const body: HealthResponse = {
     status,
