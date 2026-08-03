@@ -305,13 +305,28 @@ check that:
 
 ## 8. Production Checklist
 
-- [ ] coturn installed and running as a systemd service
-- [ ] Firewall: UDP 3478 + UDP 49152-65535 open
-- [ ] `GV_ICE_TURN_URLS` uses Docker bridge gateway (`172.17.0.1`) or works with host networking
-- [ ] `GV_ICE_TURN_USERNAME` and `GV_ICE_TURN_CREDENTIAL` match coturn config
-- [ ] `GV_ICE_STUN_URLS` set to Google STUN servers
-- [ ] `GV_ICE_TRANSPORT_POLICY: all` (or omitted)
+- [x] coturn installed and running as a systemd service
+- [x] Firewall: UDP 3478 + UDP 49152-65535 open
+- [x] `GV_ICE_TURN_URLS` set to the public coturn hostname (`turn:sprite-cloud.com:3478?transport=udp`)
+- [x] `GV_ICE_TURN_USERNAME` and `GV_ICE_TURN_CREDENTIAL` match coturn config
+- [x] `GV_ICE_STUN_URLS` set to Google STUN servers
+- [x] `GV_ICE_TRANSPORT_POLICY: all` (or omitted)
 - [ ] `GV_SERVER_LAN_IPS` set if you have LAN peers
+- [x] Verified with the operator probe: `node scripts/turn-probe.mjs` → `"state": "relayed"`
+- [x] `/api/health` reports `turn_state: relayed` (live probe proof)
+- [x] `/api/ice-config` advertises both STUN and TURN with credentials
+- [x] Old/exposed credential rotated out and confirmed dead (probe → 401)
+
+### 8.3 Credential rotation runbook (performed 2026-08-02)
+
+Rotated the exposed coturn long-term credential end-to-end:
+
+1. Generate: `openssl rand -hex 32` → keep in a 0600 temp file, never print it.
+2. coturn (`/etc/turnserver.conf`): `sed -i -E "s|^user=guest:.*|user=guest:${NEW}|"` → `systemctl restart coturn`.
+3. Game VPS systemd unit: **replace the whole `Environment="GV_ICE_TURN_CREDENTIAL=..."` line** — a greedy `.*` inside the line eats the closing quote (`s|(GV_ICE_TURN_CREDENTIAL=).*|\1${NEW}|` mangles the unit file, prewarm then fails with `turn server credentials required`). Use `s|^Environment=.*GV_ICE_TURN_CREDENTIAL.*|Environment="GV_ICE_TURN_CREDENTIAL=${NEW}"|` → `systemctl daemon-reload` + `systemctl restart sc-server`. Verify the line is exactly `Environment="GV_ICE_TURN_CREDENTIAL=<64-hex>"` (100 chars) before reloading.
+4. Gateway: rewrite the `GV_ICE_*` block in `$VPS_DEPLOY_DIR/.env`, then **`docker compose up -d web`** — plain `restart` does NOT re-read `env_file`.
+5. Verify: probe with new credential → `relayed`; probe with old credential → `401`; `/api/health` → `turn_state: relayed`; `/api/ice-config` → TURN advertised.
+6. `shred -u` the temp credential file.
 
 ### 8.1 TURN credentials are secrets
 
