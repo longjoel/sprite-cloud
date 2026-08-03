@@ -8,6 +8,7 @@ import { applyRateLimit } from "@/lib/rate-limit";
 import { recordLaunchEvent } from "@/lib/launch-events";
 import { waitForSdpAnswer } from "@/lib/pending-sdp";
 import { classifyCommandFlow, logSignalingStage, type SignalingFlow } from "@/lib/signaling";
+import { verifyBearerToken } from "@/lib/server-auth";
 import crypto from "crypto";
 import { hostCapabilities, type PlayerCapabilities } from "@/lib/capabilities";
 
@@ -35,6 +36,7 @@ async function resolveShortCodeHostUser(
   serverId: string,
   gameId: string,
   hostToken: string,
+  authHeader: string | null,
 ): Promise<string | null> {
   const [shortCode] = await db
     .select({ code: shortCodes.code, createdBy: shortCodes.createdBy })
@@ -73,7 +75,20 @@ async function resolveShortCodeHostUser(
     ))
     .orderBy(desc(sessions.createdAt))
     .limit(1);
-  return legacySession?.userId ?? null;
+  if (legacySession?.userId) return legacySession.userId;
+
+  // LAN proxy authority: when the paired server itself proxies start_game
+  // (server bearer matching this server), the server is the host authority for
+  // its own LAN — mirroring the resolve route, which grants host capability to
+  // the paired server bearer for codes it minted. This keeps the LAN player
+  // working when the LAN library (or persistUrl) created the code via the
+  // server-bearer proxy path (createdBy = NULL) instead of a browser session.
+  const bearerServer = await verifyBearerToken(authHeader);
+  if (bearerServer && bearerServer.id === serverId) {
+    return bearerServer.userId ?? null;
+  }
+
+  return null;
 }
 
 interface CommandBody {
@@ -216,6 +231,7 @@ export async function POST(request: NextRequest) {
       body.server_id,
       lanStartPayload.game_id,
       lanStartPayload.host_token,
+      request.headers.get("authorization"),
     );
     if (!ownerUserId) {
       return NextResponse.json({ error: "invalid LAN launch token" }, { status: 403 });
@@ -231,6 +247,7 @@ export async function POST(request: NextRequest) {
       body.server_id,
       lanStartPayload.game_id,
       lanStartPayload.host_token,
+      request.headers.get("authorization"),
     );
     if (!ownerUserId) {
       return NextResponse.json({ error: "invalid LAN stop token" }, { status: 403 });
@@ -249,6 +266,7 @@ export async function POST(request: NextRequest) {
         body.server_id,
         sdpPayload.game_id,
         hostToken,
+        request.headers.get("authorization"),
       );
       if (ownerUserId) {
         lanStartUserId = ownerUserId;
