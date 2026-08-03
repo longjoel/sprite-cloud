@@ -213,6 +213,7 @@ pub(super) async fn handle_start_game(
         guests: tokio::sync::Mutex::new(Vec::new()),
         host_connected: std::sync::atomic::AtomicBool::new(false),
         local_players: std::sync::atomic::AtomicU32::new(1),
+        account_id: tokio::sync::Mutex::new(None),
         core_loaded: std::sync::atomic::AtomicBool::new(false),
         core_loading: std::sync::atomic::AtomicBool::new(false),
         core_cmd_tx: tokio::sync::Mutex::new(None),
