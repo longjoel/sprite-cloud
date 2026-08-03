@@ -11,6 +11,40 @@ env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/sprite-cloud
 
 jobs:
+  fixture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cc65 (ca65/ld65 assembler)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cc65
+
+      - name: Install Python imaging for digit probe
+        run: sudo apt-get install -y python3-pil
+
+      - name: Build fixture (ROM + harness)
+        run: bash e2e/fixture/build.sh
+
+      - name: Download nestopia core (buildbot, same URL sc-server uses)
+        run: |
+          curl -sL -o "${RUNNER_TEMP}/nestopia.zip" \
+            "https://buildbot.libretro.com/nightly/linux/x86_64/latest/nestopia_libretro.so.zip"
+          unzip -o "${RUNNER_TEMP}/nestopia.zip" -d "${RUNNER_TEMP}/nestopia"
+
+      - name: Verify fixture determinism + behavior
+        run: |
+          export CORE="${RUNNER_TEMP}/nestopia/nestopia_libretro.so"
+          bash e2e/fixture/verify.sh
+
+      - name: Assert ROM matches provenance manifest
+        run: |
+          actual=$(sha256sum e2e/fixture/out/rom/counter.nes | cut -d' ' -f1)
+          expected=$(grep -E '^[0-9a-f]{64}  rom/counter\.nes' e2e/fixture/manifest.sha256 | cut -d' ' -f1)
+          echo "actual=$actual expected=$expected"
+          [ "$actual" = "$expected" ]
+
   rust:
     runs-on: ubuntu-latest
     permissions:
