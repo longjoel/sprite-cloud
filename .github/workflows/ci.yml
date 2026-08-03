@@ -60,6 +60,66 @@ jobs:
             /tmp/l1-*/artifacts
           if-no-files-found: ignore
 
+  e2e-l2:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cc65 + PIL (fixture build + digit probe)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cc65 python3-pil unzip
+
+      - name: Install GStreamer dev deps (sc-server build)
+        run: |
+          sudo apt-get install -y \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad \
+            libglib2.0-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build sc-server + sc-core release
+        run: cargo build --release -p sc-server -p sc-core
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install sc-web deps
+        run: pnpm install --frozen-lockfile
+        working-directory: sc-web
+
+      - name: L2 gateway-journey E2E (auth-gate smoke, #745)
+        env:
+          SC_SERVER_DIR: ${{ github.workspace }}/target/release
+          L2_CHROME_BIN: /usr/bin/google-chrome
+        run: |
+          # ubuntu-latest ships Google Chrome (H.264) + Docker (Postgres).
+          # run-l2.sh: Postgres → drizzle push → next build → sc-web →
+          # sc-server (standalone + GV_GATEWAY_URL) → Playwright.
+          bash e2e/l2/run-l2.sh
+
+      - name: Upload L2 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: l2-artifacts
+          path: |
+            /tmp/l2-*/artifacts
+          if-no-files-found: ignore
+
   fixture:
     runs-on: ubuntu-latest
     steps:
