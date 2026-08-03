@@ -1,0 +1,14 @@
+{
+  "name": "sprite-cloud-e2e-l1",
+  "version": "0.1.0",
+  "private": true,
+  "description": "L1 browser-to-emulator E2E harness (#662 slice 2): headless Chrome -> sc-server standalone -> nestopia -> counter ROM",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^26.1.2",
+    "typescript": "^7.0.2"
+  }
+}
