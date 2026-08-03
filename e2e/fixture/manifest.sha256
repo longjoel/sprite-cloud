@@ -1,0 +1,9 @@
+# E2E fixture provenance manifest
+# Generated from the committed sources by build.sh — the ROM hash proves
+# the binary derives from counter.s (no downloaded ROMs, no binary blobs).
+# Regenerate: ./build.sh && sha256sum out/rom/counter.nes
+
+f588517a41390084747c10fa2ce3b49b118326270b7a1d9c3c5c5926431d2b9a  rom/counter.nes
+4392893e62fbe67051923a3c8a1e9f55a1776312882bc07868b168e735522d0f  rom/counter.s
+429bea9040006fce14b475b7c0ee4e8775cd60c4e2376e1865cb2ec48cf850f0  harness/counter_harness.c
+d45613a8f10b57171aae70ff3a2016d2084802a8bbe8c659b84dac958faa3379  harness/libretro.h
