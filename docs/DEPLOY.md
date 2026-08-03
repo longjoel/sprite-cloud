@@ -81,6 +81,65 @@ cd /root/sc-source
 bash ./deploy-sc-web.sh
 ```
 
+### Immutable deployment provenance (#661)
+
+The production image is stamped at build time with exact provenance and the
+health endpoint reports it, so an incident can prove which code is running:
+
+| Field | Source | Set by |
+|---|---|---|
+| `web.package_version` | `sc-web/package.json` version | `.github/workflows/deploy.yml` / `ci.yml` build args |
+| `web.git_sha` | full `github.sha` of the workflow run | build arg `GV_WEB_GIT_SHA` |
+| `web.released_at_utc` | workflow start time | build arg `GV_WEB_RELEASED_AT_UTC` |
+
+The Dockerfiles (`docker/sc-web/Dockerfile.prod`, `Dockerfile.ci`) write these
+into `.next/runtime-version.json` in the image; `sc-web/app/api/health/route.ts`
+reads that file (falling back to `GV_WEB_*` env, then `"unknown"`).
+
+Deploy verification is fail-closed: the **Health check** step of the Deploy to
+VPS workflow fails unless the live health endpoint reports `git_sha` equal to
+the workflow's own `github.sha` and a non-unknown `package_version`.
+
+Correlating a report end-to-end:
+
+1. Browser report → note the gateway URL and time.
+2. `curl -s https://sprite-cloud.com/api/health` → `versions.web.git_sha` and
+   `versions.source_server` identify the exact web revision and which host
+   served the session.
+3. Host runtime → `sc-server --version` on the host; `versions.server.*` in
+   health comes from the paired server's own metadata.
+4. Workflow → `gh run list --workflow="Deploy to VPS"` — the run's `headSha`
+   must equal the reported `web.git_sha`.
+5. Release → the tagged GitHub release (`vX.Y.Z`) lists the `sc-server` /
+   `sc-core` binaries and SHA-256 checksums the auto-updater installs.
+6. Rollback → see below; the restored revision's `web.git_sha` proves the
+   rollback target.
+
+### Web rollback
+
+Every Deploy to VPS run snapshots the running web image before recreating it:
+
+```text
+✓ Snapshot: sc-web-prod:rollback-<UTC timestamp>
+```
+
+To roll back the gateway to the previous revision (no DB migration is
+reversed; rollback is image-only and safe):
+
+```bash
+ssh -i /root/.ssh/sprite-cloud-deploy root@2.25.89.76 '
+  cd /root/sc-deploy
+  docker tag sc-web-prod:rollback-<UTC timestamp> sc-web-prod:latest
+  docker compose up -d --no-deps --force-recreate web
+'
+# verify:
+docker compose exec -T web curl -fsS http://localhost:3000/api/health
+```
+
+The GHCR mirror also keeps every main-branch SHA:
+`ghcr.io/longjoel/sprite-cloud/sc-web:<short-sha>` — an alternative rollback
+source when local snapshots were pruned.
+
 ## Host deploy
 
 For normal user and Bazzite installations, follow **[SC-SERVER-INSTALL.md](SC-SERVER-INSTALL.md)**. The default service is user-scoped:

@@ -53,7 +53,14 @@ interface HealthResponse {
 
 // ── Version reporting ───────────────────────────────────────────────────
 
-const RUNTIME_VERSION_PATH = join(process.cwd(), ".next/runtime-version.json");
+// Overridable for tests; defaults to the stamped runtime metadata written
+// by the Docker build (see docker/sc-web/Dockerfile.prod + .ci).
+function runtimeVersionPath(): string {
+  return (
+    process.env.GV_RUNTIME_VERSION_PATH ||
+    join(process.cwd(), ".next/runtime-version.json")
+  );
+}
 
 interface RuntimeVersion {
   git_sha?: string;
@@ -65,7 +72,7 @@ interface RuntimeVersion {
 
 function readRuntimeVersion(): RuntimeVersion | null {
   try {
-    const raw = readFileSync(RUNTIME_VERSION_PATH, "utf-8");
+    const raw = readFileSync(runtimeVersionPath(), "utf-8");
     return JSON.parse(raw) as RuntimeVersion;
   } catch {
     return null;

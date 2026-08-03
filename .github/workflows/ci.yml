@@ -150,6 +150,11 @@ jobs:
         run: pnpm build
 
       # ── Docker: sc-web ──────────────────────────────────────────
+      - name: Prepare provenance build args
+        run: |
+          echo "WEB_VERSION=$(node -p "require('./sc-web/package.json').version")" >> "$GITHUB_ENV"
+          echo "WEB_RELEASED_AT_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -184,3 +189,7 @@ jobs:
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GV_WEB_GIT_SHA=${{ github.sha }}
+            GV_WEB_VERSION=${{ env.WEB_VERSION }}
+            GV_WEB_RELEASED_AT_UTC=${{ env.WEB_RELEASED_AT_UTC }}
