@@ -81,7 +81,8 @@ auth journey itself under test.
 
 | Scenario | Users | Asserts |
 |---|---|---|
-| A saves, B can't load | alice@test, bob@test | A: counter→0005, save. B: sees `0000`, `load_state` fails / empty list. A returns: loads `0005` |
+| A saves, B can't load | alice@test (owner), bob@test (invitee) | Bob sees Alice's game in the library and can play it; Bob's `list_saves` is empty; Alice's `list_saves` has her entry; Alice loads `0005` |
+| Shared library | alice, bob | Bob (invitee) launches Alice's game — library visible to members |
 | Play-time attribution | alice, bob | sessions recorded per user; per-user play time differs |
 | Invite → membership | admin@test, invitee@test | invitee becomes member, gains server access (already covered by #599 tests at unit level; L2 proves it end-to-end) |
 | Non-member blocked | stranger@test | stranger hits gateway server page → forbidden, no capability |
@@ -109,17 +110,21 @@ deleting required. CI's Postgres container is throwaway per run.
 4. **Play time**: session end records `(account_id, game_id, duration)`;
    gateway aggregates per user.
 
-### Isolation model (decided 2026-08-03)
+### Isolation model (decided 2026-08-03, refined)
 
-**Strict per-user isolation — no shared anything.** A user must not see
-other users' servers, saves, save states, play times, or any other artifact.
-No shared pseudo-account, no member-sees-everything. Concretely:
+**Shared: the library. Per-user: the artifacts.** A member can see and play
+every game on a server they're invited to; their saves, save states, and
+play time are strictly their own — even on someone else's server.
 
-- `list_saves` / `save_stack_*` filter by the session's account id — Bob's
-  request for Alice's game returns empty.
-- Server visibility stays membership-based (gateway `server_members`); the
-  auth gate (below) is what stops anonymous/foreign access at the LAN page.
-- Play-time aggregation keys by account; per-user views only.
+- **Library visibility**: membership-based. Invite → `server_members` row →
+  the invitee sees the server's game list and can launch any game (this is
+  the existing invite/member flow, #599/#610 — L2 proves it end-to-end).
+- **Save stack** (`save_stack_*`): keyed `(account_id, rom_hash)`. Bob's
+  `list_saves` on Alice's server returns only Bob's entries — Alice's saves
+  are invisible to him and vice versa.
+- **Play time**: per (account, game); per-user views only.
+- **The auth gate** (below) is what stops *non-members* — anonymous or
+  foreign users — from reaching the LAN page at all.
 
 ## 6. L2 harness surface (new `e2e/l2/`)
 
