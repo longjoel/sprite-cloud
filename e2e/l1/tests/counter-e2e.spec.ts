@@ -156,7 +156,9 @@ async function exposeDataChannel(page: Page) {
 test('browser -> emulator: launch, input, save/load, stop, relaunch', async ({ page }) => {
   // ── library ─────────────────────────────────────────────────────
   await page.goto('/');
-  await expect(page.locator('h1')).toContainText('VAULT');
+  // h1 is "<hostname>"/"🎮 <hostname>" — machine-specific; assert the
+  // standalone page marker instead.
+  await expect(page.locator('body')).toContainText('Standalone mode');
   await expect(page.locator('.play').first()).toBeVisible({ timeout: 15000 });
   const gameRow = page.locator('li', { hasText: 'counter' });
   await expect(gameRow).toBeVisible();
