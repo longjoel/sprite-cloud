@@ -109,6 +109,10 @@ fn app_router() -> Router<Arc<AppState>> {
         .route("/api/room/resolve/:code", get(proxy_server_authenticated))
         .route("/api/room/share", post(proxy_server_authenticated))
         .route("/api/room/shorten", post(proxy_server_authenticated))
+        // The LAN player's start_game / stop_game / sdp_offer commands are
+        // proxied with the server bearer so sc-web can attribute creator-less
+        // short codes (minted via this same proxy) to the paired server.
+        .route("/api/server/command", any(proxy_server_authenticated))
         .route("/health", get(health))
         .route("/api/*path", any(proxy))
         .route("/sdp", any(proxy))
