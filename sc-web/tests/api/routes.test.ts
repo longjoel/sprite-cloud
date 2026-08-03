@@ -867,6 +867,9 @@ describe("POST /api/server/command", () => {
 
   it("fails closed for a fresh LAN start using a legacy code without a creator", async () => {
     mockAuth.mockResolvedValueOnce(null);
+    // No bearer presented (or bearer does not match) — creator-less legacy
+    // codes cannot authorize a fresh start on their own.
+    mockVerifyBearerToken.mockResolvedValueOnce(null);
     mockDb.select
       .mockReturnValueOnce(mockQueryBuilder([{ code: "LEGACY", createdBy: null }]))
       .mockReturnValueOnce(mockQueryBuilder([]));
@@ -887,6 +890,81 @@ describe("POST /api/server/command", () => {
     const resp = await POST(req as any);
 
     expect(resp.status).toBe(403);
+  });
+
+  it("authorizes a creator-less LAN code when the paired server bearer matches (LAN proxy)", async () => {
+    // The LAN player's start_game is proxied by sc-server with the server
+    // bearer. A code minted through that same proxy has createdBy = NULL;
+    // the paired server bearer is the host authority for its own LAN.
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ code: "LANPROXY", createdBy: null }]))
+      .mockReturnValueOnce(mockQueryBuilder([]))   // legacy session lookup: none
+      .mockReturnValueOnce(mockQueryBuilder([]));  // server membership (server-1 owner)
+    mockVerifyBearerToken.mockResolvedValueOnce({ id: "server-1", userId: "owner-user" });
+
+    const { launchEvents, commands: commandsTable, sessions: sessionsTable, peerTokens: peerTokensTable } = await import("@/lib/db/schema");
+    const sessionValues = vi.fn().mockReturnThis();
+    mockDb.insert.mockImplementation((table: unknown) => {
+      if (table === commandsTable) return { values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([{ id: "cmd-lanproxy" }])) };
+      if (table === sessionsTable) return { values: sessionValues, returning: vi.fn(() => Promise.resolve([{ id: "sess-lanproxy" }])) };
+      if (table === peerTokensTable) return { values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([])) };
+      if (table === launchEvents) return mockQueryBuilder([{ id: "launch-lanproxy" }]);
+      return mockQueryBuilder([{ id: "fallback" }]);
+    });
+    mockDb.update.mockReturnValue({ set: vi.fn(() => ({ where: vi.fn(() => Promise.resolve(undefined)) })) });
+    mockWaitForSdpAnswer.mockResolvedValueOnce("v=0\r\nanswer");
+
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      method: "POST",
+      headers: { ...jsonBody({}).headers, ...authHeader("scsk_test_api_key_12345") },
+      body: JSON.stringify({
+        server_id: "server-1",
+        type: "start_game",
+        payload: {
+          game_id: "local_0123456789abcdef0123456789abcdef",
+          host_token: "proxy-minted-token",
+          lan: true,
+          sdp: "v=0\r\n",
+        },
+      }),
+    });
+
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(201);
+    expect(sessionValues).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "owner-user",
+    }));
+  });
+
+  it("keeps failing closed when the bearer does not match the target server", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ code: "LANPROXY", createdBy: null }]))
+      .mockReturnValueOnce(mockQueryBuilder([]))   // legacy session lookup: none
+      .mockReturnValueOnce(mockQueryBuilder([]));  // membership lookup
+    // Bearer belongs to a DIFFERENT server — not host authority here.
+    mockVerifyBearerToken.mockResolvedValueOnce({ id: "server-other", userId: "other-user" });
+
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      method: "POST",
+      headers: { ...jsonBody({}).headers, ...authHeader("scsk_test_api_key_12345") },
+      body: JSON.stringify({
+        server_id: "server-1",
+        type: "start_game",
+        payload: {
+          game_id: "local_0123456789abcdef0123456789abcdef",
+          host_token: "proxy-minted-token",
+          lan: true,
+        },
+      }),
+    });
+
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(403);
+    expect(await resp.json()).toMatchObject({ error: "invalid LAN launch token" });
   });
 
   it("rejects a private room capability used as a LAN host token", async () => {
