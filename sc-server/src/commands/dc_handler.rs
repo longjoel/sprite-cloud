@@ -2,6 +2,33 @@
 
 use super::*;
 
+/// Decide whether the ICE watcher should tear down the session.
+///
+/// The host DataChannel being open (`host_dc_open`) is ground truth that the
+/// browser is alive: SCTP heartbeats ride the same ICE transport, so if the
+/// browser were truly gone the DC would have closed (and `host_connected`
+/// would be false). ICE `disconnected` is a *recoverable* state — the agent
+/// keeps trying and may return to `connected` — so it must never cancel a
+/// session whose host DC is still open. This is the #735 regression: on
+/// same-machine play the server-side `last_received` goes stale (mDNS +
+/// QueryOnly consent-check misattribution) and the connection_state flips to
+/// `disconnected` ~3s after connect while the browser is happily streaming.
+///
+/// Guests always keep the session alive, matching prior behavior.
+pub(crate) fn should_cancel_ice_watch(
+    host_dc_open: bool,
+    ice_state: &str,
+    has_guests: bool,
+) -> bool {
+    if has_guests {
+        return false;
+    }
+    if host_dc_open {
+        return false;
+    }
+    ice_state == "failed" || ice_state == "disconnected"
+}
+
 // ── DC handler wiring ────────────────────────────────────────────────
 
 /// Wire the browser's non-negotiated DataChannel to core input commands.
@@ -18,35 +45,45 @@ pub(crate) fn wire_dc_handler(session: &Arc<GameSession>) {
     let pc = session.pc.lock().expect("mutex poisoned").clone();
 
     // ── ICE watcher for host PC ────────────────────────────────────
+    // Poll connection_state every 3s. Cancel only when the host
+    // DataChannel is closed (browser truly gone) AND the ICE state is
+    // bad. An open host DC means the browser is alive — `disconnected`
+    // is a recoverable state and must not tear down the session
+    // (#735: same-machine play flips server-side state to
+    // `disconnected` ~3s after connect while media flows fine).
     let pc_for_ice = Arc::clone(&pc);
     let session_for_ice = Arc::clone(&session);
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
             let state = pc_for_ice.connection_state().to_string();
-            if state == "failed" || state == "disconnected" {
-                tracing::warn!("[ICE] host PC {} — notifying browser", state);
-                session_for_ice
-                    .host_connected
-                    .store(false, std::sync::atomic::Ordering::Relaxed);
-                // Send error over DC so the browser triggers reconnection.
-                // Closing the DC alone doesn't change connectionState reliably.
-                if let Some(ref dc) = *session_for_ice.dc.lock().await {
-                    let msg = serde_json::json!({"cmd":"error","reason":"ice failed"});
-                    let _ = dc.send_text(msg.to_string()).await;
-                }
-                let has_guests = !session_for_ice.guests.lock().await.is_empty();
-                if !has_guests {
-                    tracing::info!("[ICE] host PC dead, no guests — cancelling session");
-                    session_for_ice.cancel.cancel();
-                } else {
-                    tracing::info!(
-                        "[ICE] host PC dead, {} guests present — keeping session alive",
-                        session_for_ice.guests.lock().await.len()
-                    );
-                }
+            let host_dc_open = session_for_ice
+                .host_connected
+                .load(std::sync::atomic::Ordering::Relaxed);
+            let has_guests = !session_for_ice.guests.lock().await.is_empty();
+            if !should_cancel_ice_watch(host_dc_open, &state, has_guests) {
+                continue;
+            }
+            tracing::warn!("[ICE] host PC {} — notifying browser", state);
+            session_for_ice
+                .host_connected
+                .store(false, std::sync::atomic::Ordering::Relaxed);
+            // Send error over DC so the browser triggers reconnection.
+            // Closing the DC alone doesn't change connectionState reliably.
+            if let Some(ref dc) = *session_for_ice.dc.lock().await {
+                let msg = serde_json::json!({"cmd":"error","reason":"ice failed"});
+                let _ = dc.send_text(msg.to_string()).await;
+            }
+            if has_guests {
+                tracing::info!(
+                    "[ICE] host PC dead, {} guests present — keeping session alive",
+                    session_for_ice.guests.lock().await.len()
+                );
                 break;
             }
+            tracing::info!("[ICE] host PC dead, no guests — cancelling session");
+            session_for_ice.cancel.cancel();
+            break;
         }
     });
 
@@ -152,4 +189,45 @@ pub(crate) fn wire_dc_handler(session: &Arc<GameSession>) {
             }));
         })
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_cancel_ice_watch;
+
+    #[test]
+    fn disconnected_with_open_host_dc_does_not_cancel() {
+        // #735 regression: same-machine play flips server-side
+        // connection_state to "disconnected" ~3s after connect while the
+        // browser is streaming fine. The host DC is open, so the session
+        // must NOT be cancelled.
+        assert!(!should_cancel_ice_watch(true, "disconnected", false));
+    }
+
+    #[test]
+    fn failed_with_open_host_dc_does_not_cancel() {
+        // Even a transient "failed" reading must not kill a session whose
+        // browser DataChannel is demonstrably open.
+        assert!(!should_cancel_ice_watch(true, "failed", false));
+    }
+
+    #[test]
+    fn connected_never_cancels() {
+        assert!(!should_cancel_ice_watch(true, "connected", false));
+        assert!(!should_cancel_ice_watch(false, "connected", false));
+    }
+
+    #[test]
+    fn closed_dc_with_bad_ice_cancels_when_no_guests() {
+        // Browser truly gone: DC closed AND ICE dead → clean up.
+        assert!(should_cancel_ice_watch(false, "failed", false));
+        assert!(should_cancel_ice_watch(false, "disconnected", false));
+    }
+
+    #[test]
+    fn guests_keep_session_alive_even_with_closed_dc() {
+        // Prior behavior preserved: guests present → never cancel.
+        assert!(!should_cancel_ice_watch(false, "failed", true));
+        assert!(!should_cancel_ice_watch(false, "disconnected", true));
+    }
 }
