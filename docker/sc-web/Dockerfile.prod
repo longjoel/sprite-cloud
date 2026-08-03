@@ -57,6 +57,16 @@ ENV HOSTNAME=0.0.0.0
 ENV GV_WEB_GIT_SHA=$GV_WEB_GIT_SHA
 ENV GV_WEB_VERSION=$GV_WEB_VERSION
 ENV GV_WEB_RELEASED_AT_UTC=$GV_WEB_RELEASED_AT_UTC
+
+# Stamp immutable runtime provenance. The health endpoint reads
+# .next/runtime-version.json (see sc-web/app/api/health/route.ts); writing it
+# here from the build ARGs bakes exact version + full Git SHA + build time
+# into the image so a beta incident can prove which code is running.
+RUN mkdir -p /app/sc-web/.next && \
+    printf '{"git_sha":"%s","package_version":"%s","built_at_utc":"%s"}\n' \
+      "$GV_WEB_GIT_SHA" "$GV_WEB_VERSION" "$GV_WEB_RELEASED_AT_UTC" \
+      > /app/sc-web/.next/runtime-version.json
+
 EXPOSE 3000
 
 CMD ["/entrypoint.sh"]
