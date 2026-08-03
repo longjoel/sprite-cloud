@@ -54,13 +54,26 @@ describe("production deploy workflow", () => {
     expect(workflow).toContain("name: vps-key");
     expect(workflow).not.toMatch(/\bssh -o StrictHostKeyChecking/);
     expect(workflow).not.toMatch(/\bscp -o StrictHostKeyChecking/);
-    expect(workflow.match(/-i ~\/\.ssh\/vps-key/g)?.length).toBe(8);
+    expect(workflow.match(/-i ~\/\.ssh\/vps-key/g)?.length).toBe(9);
   });
 
-  it("treats a successful health curl exit code as success without capturing its body", () => {
-    expect(workflow).toContain("if ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new");
-    expect(workflow).toContain("docker compose exec -T web curl -fsS http://localhost:3000/api/health >/dev/null");
-    expect(workflow).not.toContain("STATUS=$(ssh");
+  it("captures the health body and fails closed when deployed provenance does not match the workflow SHA (#661)", () => {
+    expect(workflow).toContain("HEALTH=$(ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new");
+    expect(workflow).toContain("docker compose exec -T web curl -fsS http://localhost:3000/api/health");
+    expect(workflow).toContain('EXPECTED_SHA="${{ github.sha }}"');
+    expect(workflow).toContain('grep -q "\\"git_sha\\":\\"$EXPECTED_SHA\\""');
+    expect(workflow).toContain('"package_version":"unknown"');
+  });
+
+  it("snapshots the running web image before recreating it for rollback (#661)", () => {
+    const snapshot = workflow.indexOf("Snapshot current web image (rollback point)");
+    const transfer = workflow.indexOf("Transfer image to VPS");
+    const restart = workflow.indexOf("Restart sc-web on VPS");
+    expect(snapshot).toBeGreaterThan(-1);
+    expect(transfer).toBeGreaterThan(snapshot);
+    expect(restart).toBeGreaterThan(transfer);
+    expect(workflow).toContain("sc-web-prod:rollback-");
+    expect(workflow).toContain("docker tag \"$OLD_IMAGE\" \"$ROLLBACK_TAG\"");
   });
 
   it("keeps the destructive migration explicitly disabled by default", () => {
@@ -81,6 +94,32 @@ describe("production deploy workflow", () => {
     expect(backup).toBeGreaterThan(health);
     expect(pgDump).toBeGreaterThan(backup);
     expect(migration).toBeGreaterThan(pgDump);
+  });
+
+  it("stamps immutable provenance into both sc-web Docker images (#661)", () => {
+    for (const dockerfile of [productionDockerfile, ciDockerfile]) {
+      expect(dockerfile).toContain("ARG GV_WEB_GIT_SHA");
+      expect(dockerfile).toContain("ARG GV_WEB_VERSION");
+      expect(dockerfile).toContain("ARG GV_WEB_RELEASED_AT_UTC");
+      expect(dockerfile).toContain(".next/runtime-version.json");
+    }
+  });
+
+  it("passes provenance build args in both the Deploy to VPS and CI workflows (#661)", () => {
+    expect(workflow).toContain("--build-arg GV_WEB_GIT_SHA=\"${{ github.sha }}\"");
+    expect(workflow).toContain("--build-arg GV_WEB_VERSION=\"$WEB_VERSION\"");
+    expect(workflow).toContain("--build-arg GV_WEB_RELEASED_AT_UTC=\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"");
+    expect(ciWorkflow).toContain("GV_WEB_GIT_SHA=${{ github.sha }}");
+    expect(ciWorkflow).toContain("GV_WEB_VERSION=${{ env.WEB_VERSION }}");
+    expect(ciWorkflow).toContain("GV_WEB_RELEASED_AT_UTC=${{ env.WEB_RELEASED_AT_UTC }}");
+    expect(ciWorkflow).toContain("Prepare provenance build args");
+  });
+
+  it("publishes a release identity manifest with server/core versions and checksums (#661)", () => {
+    expect(releaseWorkflow).toContain("release-manifest.json");
+    expect(releaseWorkflow).toContain("server_package_version");
+    expect(releaseWorkflow).toContain("core_package_version");
+    expect(releaseWorkflow).toContain("git_sha");
   });
 
   it("makes a verified backup mandatory in the canonical migration helper", () => {

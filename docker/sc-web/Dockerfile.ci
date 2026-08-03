@@ -2,7 +2,15 @@
 # Expects standalone Next.js output at ./sc-web-standalone/ in context.
 # CI places it there; public/ dir comes from the repo directly.
 
+ARG GV_WEB_GIT_SHA=unknown
+ARG GV_WEB_VERSION=unknown
+ARG GV_WEB_RELEASED_AT_UTC=unknown
+
 FROM node:22-slim
+
+ARG GV_WEB_GIT_SHA=unknown
+ARG GV_WEB_VERSION=unknown
+ARG GV_WEB_RELEASED_AT_UTC=unknown
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates \
@@ -37,6 +45,15 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
+ENV GV_WEB_GIT_SHA=$GV_WEB_GIT_SHA
+ENV GV_WEB_VERSION=$GV_WEB_VERSION
+ENV GV_WEB_RELEASED_AT_UTC=$GV_WEB_RELEASED_AT_UTC
+
+# Stamp immutable runtime provenance (health reads .next/runtime-version.json).
+RUN mkdir -p /app/sc-web/.next && \
+    printf '{"git_sha":"%s","package_version":"%s","built_at_utc":"%s"}\n' \
+      "$GV_WEB_GIT_SHA" "$GV_WEB_VERSION" "$GV_WEB_RELEASED_AT_UTC" \
+      > /app/sc-web/.next/runtime-version.json
 
 EXPOSE 3000
 CMD ["/entrypoint.sh"]

@@ -29,8 +29,12 @@ jobs:
 
       - name: Build production image
         run: |
+          WEB_VERSION=$(node -p "require('./sc-web/package.json').version")
           docker build \
             -f docker/sc-web/Dockerfile.prod \
+            --build-arg GV_WEB_GIT_SHA="${{ github.sha }}" \
+            --build-arg GV_WEB_VERSION="$WEB_VERSION" \
+            --build-arg GV_WEB_RELEASED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             -t sc-web-prod:latest .
 
       - name: Install SSH key
@@ -39,6 +43,20 @@ jobs:
           key: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
           known_hosts: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
           name: vps-key
+
+      - name: Snapshot current web image (rollback point)
+        run: |
+          ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new root@sprite-cloud.com '
+            set -e
+            if docker inspect sc-deploy-web-1 >/dev/null 2>&1; then
+              OLD_IMAGE=$(docker inspect sc-deploy-web-1 --format "{{.Image}}")
+              ROLLBACK_TAG="sc-web-prod:rollback-$(date -u +%Y%m%dT%H%M%SZ)"
+              docker tag "$OLD_IMAGE" "$ROLLBACK_TAG"
+              echo "✓ Snapshot: $ROLLBACK_TAG"
+            else
+              echo "No previous web container; skipping snapshot"
+            fi
+          '
 
       - name: Transfer image to VPS
         run: |
@@ -81,20 +99,36 @@ jobs:
             docker compose up -d --no-deps --force-recreate web
           '
 
-      - name: Health check
+      - name: Health check (verifies deployed provenance == workflow SHA)
         run: |
           sleep 10
+          HEALTH=""
           for i in $(seq 1 6); do
-            if ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new root@sprite-cloud.com \
-              'cd /root/sc-deploy && docker compose exec -T web curl -fsS http://localhost:3000/api/health >/dev/null'; then
-              echo "✓ Health check passed"
-              exit 0
+            if HEALTH=$(ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new root@sprite-cloud.com \
+              'cd /root/sc-deploy && docker compose exec -T web curl -fsS http://localhost:3000/api/health' 2>/dev/null); then
+              echo "✓ Health endpoint responded"
+              break
             fi
             echo "Waiting... ($i/6)"
             sleep 5
           done
-          echo "✗ Health check failed after 6 attempts"
-          exit 1
+          if [ -z "$HEALTH" ]; then
+            echo "✗ Health check failed after 6 attempts"
+            exit 1
+          fi
+          # Fail closed on provenance: the deployed image must report the
+          # exact workflow SHA and a non-unknown version/timestamp (#661).
+          EXPECTED_SHA="${{ github.sha }}"
+          echo "$HEALTH" | grep -q "\"git_sha\":\"$EXPECTED_SHA\"" || {
+            echo "✗ Provenance mismatch: expected web.git_sha=$EXPECTED_SHA"
+            echo "$HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin)['versions']['web'])"
+            exit 1
+          }
+          echo "$HEALTH" | grep -q '"package_version":"unknown"' && {
+            echo "✗ Provenance missing: package_version is unknown"
+            exit 1
+          }
+          echo "✓ Provenance verified: deployed SHA == workflow SHA"
 
       - name: Back up Postgres and apply Phase 4c migration
         if: github.event_name == 'workflow_dispatch' && inputs.apply_phase4c_migration

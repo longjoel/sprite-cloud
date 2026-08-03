@@ -102,6 +102,34 @@ jobs:
             done
           done
 
+          # Non-secret release identity manifest: version, git SHA, and
+          # artifact checksums so an incident can correlate release → binary
+          # (#661 scope item 4). Package versions come from Cargo.toml.
+          python3 - <<'EOF'
+          import hashlib, json, os
+          import tomllib
+
+          def cargo_version(path):
+              with open(path, "rb") as f:
+                  return tomllib.load(f)["package"]["version"]
+
+          manifest = {
+              "tag": os.environ.get("GITHUB_REF_NAME", ""),
+              "git_sha": os.environ.get("GITHUB_SHA", ""),
+              "server_package_version": cargo_version("sc-server/Cargo.toml"),
+              "core_package_version": cargo_version("sc-core/Cargo.toml"),
+              "artifacts": {},
+          }
+          for name in sorted(os.listdir("release-assets")):
+              if name.endswith(".sha256"):
+                  continue
+              with open(f"release-assets/{name}", "rb") as f:
+                  manifest["artifacts"][name] = hashlib.sha256(f.read()).hexdigest()
+          with open("release-assets/release-manifest.json", "w") as f:
+              json.dump(manifest, f, indent=2)
+              f.write("\n")
+          EOF
+
           ls -la release-assets/
 
       - name: Create Release

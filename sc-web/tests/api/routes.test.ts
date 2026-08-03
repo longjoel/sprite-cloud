@@ -10,6 +10,9 @@
 
 import { describe, it, expect, vi, beforeEach, type Mock } from "vitest";
 import { NextRequest } from "next/server";
+import { mkdtempSync, writeFileSync } from "fs";
+import { join } from "path";
+import { tmpdir } from "os";
 
 const mockWebVersionEnv = {
   GV_WEB_VERSION: "0.1.0",
@@ -2474,6 +2477,69 @@ describe("GET /api/health", () => {
     expect(body.status).toBe("error");
     expect(body.components.db.status).toBe("error");
     expect(body.versions.web).toMatchObject({ package_version: "0.1.0", git_sha: "web-sha-123" });
+  });
+
+  it("reports stamped runtime-version.json provenance when present (#661)", async () => {
+    mockDb.execute.mockResolvedValueOnce(undefined);
+    mockDb.select.mockReturnValue(mockQueryBuilder([{}]));
+    mockDb.select.mockReturnValue(mockQueryBuilder([]));
+
+    const dir = mkdtempSync(join(tmpdir(), "sc-web-runtime-version-"));
+    const stamped = join(dir, "runtime-version.json");
+    writeFileSync(
+      stamped,
+      JSON.stringify({
+        git_sha: "9fee9c0abcdef0123456789abcdef0123456789",
+        package_version: "0.3.0",
+        built_at_utc: "2026-08-03T00:00:00Z",
+      }),
+    );
+
+    const prevPath = process.env.GV_RUNTIME_VERSION_PATH;
+    const prevVersion = process.env.GV_WEB_VERSION;
+    const prevSha = process.env.GV_WEB_GIT_SHA;
+    process.env.GV_RUNTIME_VERSION_PATH = stamped;
+    process.env.GV_WEB_VERSION = "0.1.0";
+    process.env.GV_WEB_GIT_SHA = "web-sha-123";
+    const { GET } = await import("@/app/api/health/route");
+    const resp = await GET();
+    process.env.GV_RUNTIME_VERSION_PATH = prevPath;
+    process.env.GV_WEB_VERSION = prevVersion;
+    process.env.GV_WEB_GIT_SHA = prevSha;
+
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    // Stamped file wins over env vars: exact full SHA and non-unknown fields.
+    expect(body.versions.web.package_version).toBe("0.3.0");
+    expect(body.versions.web.git_sha).toBe("9fee9c0abcdef0123456789abcdef0123456789");
+    expect(body.versions.web.released_at_utc).toBe("2026-08-03T00:00:00Z");
+  });
+
+  it("fails closed (unknown provenance) when runtime-version.json is absent and env is unset (#661)", async () => {
+    mockDb.execute.mockResolvedValueOnce(undefined);
+    mockDb.select.mockReturnValue(mockQueryBuilder([{}]));
+    mockDb.select.mockReturnValue(mockQueryBuilder([]));
+
+    const prevPath = process.env.GV_RUNTIME_VERSION_PATH;
+    const prevVersion = process.env.GV_WEB_VERSION;
+    const prevSha = process.env.GV_WEB_GIT_SHA;
+    const prevReleased = process.env.GV_WEB_RELEASED_AT_UTC;
+    delete process.env.GV_RUNTIME_VERSION_PATH;
+    delete process.env.GV_WEB_VERSION;
+    delete process.env.GV_WEB_GIT_SHA;
+    delete process.env.GV_WEB_RELEASED_AT_UTC;
+    const { GET } = await import("@/app/api/health/route");
+    const resp = await GET();
+    process.env.GV_RUNTIME_VERSION_PATH = prevPath;
+    process.env.GV_WEB_VERSION = prevVersion;
+    process.env.GV_WEB_GIT_SHA = prevSha;
+    process.env.GV_WEB_RELEASED_AT_UTC = prevReleased;
+
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.versions.web.package_version).toBe("unknown");
+    expect(body.versions.web.git_sha).toBeUndefined();
+    expect(body.versions.web.released_at_utc).toBeUndefined();
   });
 });
 
