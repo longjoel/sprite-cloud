@@ -357,6 +357,20 @@ pub async fn build_session_pc_lan() -> Result<WebRtcStack, String> {
     se.set_ip_filter(Box::new(|ip: std::net::IpAddr| ip.is_ipv4()));
     se.set_network_types(vec![NetworkType::Udp4, NetworkType::Tcp4]);
     se.set_ice_multicast_dns_mode(MulticastDnsMode::QueryOnly);
+    // #735: LAN/localhost sessions get generous ICE liveness timeouts.
+    // On same-machine play the server-side remote candidate's last_received
+    // can go stale (mDNS-obfuscated host candidates + QueryOnly consent-check
+    // attribution), so the default 5s disconnected / 25s failed timeouts flip
+    // the state to disconnected ~3s after connect and the old watcher killed
+    // the session. The watcher now also refuses to cancel while the host DC
+    // is open; these timeouts give the ICE agent itself headroom. Keepalive
+    // stays at the default 2s so RFC 7675 consent pings keep firing — remote
+    // peers (and the LAN browser) rely on them.
+    se.set_ice_timeouts(
+        Some(Duration::from_secs(30)),
+        Some(Duration::from_secs(120)),
+        None,
+    );
     let api = APIBuilder::new()
         .with_setting_engine(se)
         .with_media_engine(media_engine)
