@@ -41,7 +41,7 @@ jobs:
       - name: Assert ROM matches provenance manifest
         run: |
           actual=$(sha256sum e2e/fixture/out/rom/counter.nes | cut -d' ' -f1)
-          expected=$(grep 'rom/counter.nes' e2e/fixture/manifest.sha256 | cut -d' ' -f1)
+          expected=$(grep -E '^[0-9a-f]{64}  rom/counter\.nes' e2e/fixture/manifest.sha256 | cut -d' ' -f1)
           echo "actual=$actual expected=$expected"
           [ "$actual" = "$expected" ]
 
