@@ -861,6 +861,7 @@ export class ScPlayer {
     console.log("[gv] _waitForIceGatheringComplete: waiting (state=" + this._pc.iceGatheringState + ", timeout=" + timeout + "ms, relay=" + isRelayOnly + ")");
 
     const start = Date.now();
+    let srflxSeenAt = null;
     while (Date.now() - start < timeout) {
       await new Promise((r) => setTimeout(r, 250));
       if (!this._pc) {
@@ -887,15 +888,26 @@ export class ScPlayer {
         console.log("[gv] _waitForIceGatheringComplete: complete after " + (Date.now() - start) + "ms");
         return;
       }
-      // Exit as soon as a NAT-traversable candidate (srflx or relay) is in
-      // the SDP. The browser keeps gathering in the background and the
-      // prebaked/answer flow tolerates a partial offer — blocking here on a
-      // slow or unreachable TURN allocation added 15s to match start.
+      // Exit as soon as a NAT-traversable candidate is in the SDP. The
+      // browser keeps gathering in the background and the prebaked/answer
+      // flow tolerates a partial offer — blocking here on a slow or
+      // unreachable TURN allocation added 15s to match start.
       if (!isRelayOnly && !isLanDirect) {
         const sdp = this._pc.localDescription?.sdp || "";
         const elapsed = Date.now() - start;
-        if (/a=candidate:.* typ (?:srflx|relay)(?:\s|$)/m.test(sdp)) {
-          console.log("[gv] _waitForIceGatheringComplete: reachable candidate ready after " + elapsed + "ms");
+        if (/a=candidate:.* typ relay(?:\s|$)/m.test(sdp)) {
+          console.log("[gv] _waitForIceGatheringComplete: relay candidate ready after " + elapsed + "ms");
+          return;
+        }
+        // Srflx is usually discovered before the TURN allocation lands. Hold
+        // a short relay grace so a healthy-but-slower relay isn't dropped
+        // from the one-shot offer (symmetric-NAT guests need it). When TURN
+        // is unreachable this costs only the grace window, not the 15s.
+        if (srflxSeenAt === null && /a=candidate:.* typ srflx(?:\s|$)/m.test(sdp)) {
+          srflxSeenAt = elapsed;
+        }
+        if (srflxSeenAt !== null && elapsed - srflxSeenAt >= 2000) {
+          console.log("[gv] _waitForIceGatheringComplete: srflx candidate ready after " + elapsed + "ms (relay grace elapsed)");
           return;
         }
         // Same-LAN fallback: host candidates suffice when the server is on
