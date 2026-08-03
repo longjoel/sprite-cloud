@@ -54,3 +54,9 @@ Env overrides: `SC_SERVER_DIR`, `CORE`, `L1_BASE_URL`, `CHANNEL`,
 `e2e-l1` job in `.github/workflows/ci.yml` (push to main + PRs): builds
 sc-server/sc-core, installs cc65 + Node, runs `run-l1.sh`, uploads artifacts
 even on failure.
+
+**GStreamer trap:** sc-server's H.264 pipeline needs the `h264parse` element,
+which lives in `gstreamer1.0-plugins-bad` — the CI job installs
+base/good/ugly/bad explicitly. A bare `plugins-good` install compiles and
+runs but silently fails encoder creation (`no element "h264parse"`), which
+shows up as "video track never attaches" in the test.
