@@ -104,9 +104,22 @@ deleting required. CI's Postgres container is throwaway per run.
    → account, stores it on the session; `auth_ok` includes it.
 3. **Save stack keys** become `(account_id, rom_hash)`:
    `saves::{save_stack_push, save_stack_load, save_stack_list}` gain an
-   account param. Migration: existing entries → `shared` pseudo-account.
+   account param. **No migration** — nobody has a working save yet, clean
+   break (decision 2026-08-03). Old entries simply become unreachable.
 4. **Play time**: session end records `(account_id, game_id, duration)`;
    gateway aggregates per user.
+
+### Isolation model (decided 2026-08-03)
+
+**Strict per-user isolation — no shared anything.** A user must not see
+other users' servers, saves, save states, play times, or any other artifact.
+No shared pseudo-account, no member-sees-everything. Concretely:
+
+- `list_saves` / `save_stack_*` filter by the session's account id — Bob's
+  request for Alice's game returns empty.
+- Server visibility stays membership-based (gateway `server_members`); the
+  auth gate (below) is what stops anonymous/foreign access at the LAN page.
+- Play-time aggregation keys by account; per-user views only.
 
 ## 6. L2 harness surface (new `e2e/l2/`)
 
@@ -128,21 +141,47 @@ smoke** (same time-guard philosophy as L1/L2 split).
 ## 7. Sequencing (what I'll build next)
 
 1. `#745` server-side: auth-gate page + DC account id + save-stack account
-   keys + migration (TDD: save-stack key tests RED→GREEN first)
+   keys (TDD: save-stack key tests RED→GREEN first — **no migration**)
 2. `e2e/l2` machinery: fabricate.ts, run-l2.sh, Postgres wiring
-3. `tests/auth-gate.spec.ts` — the #745 journey end-to-end
+3. `tests/auth-gate.spec.ts` — the #745 journey end-to-end (push-CI job)
 4. `tests/multi-user.spec.ts` + `play-time.spec.ts` — different users,
-   different artifacts
-5. CI `e2e-l2` job + docs
+   different artifacts (`workflow_dispatch` only)
+5. CI `e2e-l2` job (auth-gate smoke on push) + docs
 
-## 8. Risks / decisions to confirm
+## 8. CI cost — the honest tradeoff (decision 2026-08-03)
 
-- **Save visibility default**: beta = server members see all saves
-  (shared-console model). Per-user ACL deferred. — *needs Joel's sign-off*
-- **`shared` migration**: legacy saves readable by all members. Acceptable?
-- **L2 CI cost**: full-stack boot ~5-8 min/job. Push-CI runs auth-gate smoke
-  only; multi-user + play-time on demand.
-- **Gateway redirect target**: `signin?next=...` back to the server — exact
-  param contract to be defined in step 1; LAN proxy must preserve the return
-  URL without leaking the capability in logs (bearer redaction already
-  exists in run-l1.sh — carry it over).
+Joel's question: *L2 is a full-stack job; is it worth the CI time?*
+
+**The honest answer: a full L2 browser job on every push is NOT worth it.**
+Here's why, and what I propose instead.
+
+### Where the isolation logic actually lives
+
+The strict-per-user isolation (save keys, list filtering, play-time
+attribution) is **server-side Rust + gateway API logic** — testable at the
+unit/integration level with fabricated users, *without a browser*. The
+browser adds value for exactly two things:
+
+1. The **auth-gate journey** (direct hit → gate → gateway signin → back →
+   capability → play) — redirect/session behavior across two origins,
+   genuinely browser-only.
+2. One **multi-user browser sanity pass** (alice saves, bob sees nothing,
+   alice reloads) — proving the API-level isolation holds through the real
+   UI.
+
+### Proposed split (mirrors the existing L1/soak time-guard)
+
+| Layer | Where it runs | Cost |
+|---|---|---|
+| Save-stack account keys + isolation unit tests (Rust) | push CI (`rust` job) | ~free (already builds) |
+| Gateway API tests w/ fabricated users (vitest) | push CI (`web` job) | ~free (already runs) |
+| **L2 browser: auth-gate smoke** | push CI, ONE job | ~4-6 min (sc-server build dominates; reuses L1 pattern) |
+| **L2 browser: multi-user + play-time** | `workflow_dispatch` only | 0 min on push; on demand |
+
+That keeps push-CI bounded (~same as today + one L2 job) while the heavy
+multi-user matrix stays on-demand — exactly the philosophy of
+`e2e-soak.yml`.
+
+If even the auth-gate smoke feels heavy, the fallback is: auth-gate becomes
+on-demand too, and push-CI covers isolation purely at unit/API level. Your
+call — but the split above is my recommendation.
