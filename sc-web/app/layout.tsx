@@ -3,6 +3,7 @@ import "@/components/fluent/tiles.css";
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import MaterialThemeProvider from "@/components/MaterialThemeProvider";
+import PostHogProvider from "@/components/PostHogProvider";
 import { SessionProvider } from "next-auth/react";
 
 export const viewport: Viewport = {
@@ -40,9 +41,11 @@ export default function RootLayout({
       </head>
       <body>
         <SessionProvider>
-          <MaterialThemeProvider>
-            {children}
-          </MaterialThemeProvider>
+          <PostHogProvider>
+            <MaterialThemeProvider>
+              {children}
+            </MaterialThemeProvider>
+          </PostHogProvider>
         </SessionProvider>
         <script
           dangerouslySetInnerHTML={{

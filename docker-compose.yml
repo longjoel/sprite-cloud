@@ -36,6 +36,9 @@ services:
       GV_ICE_TURN_USERNAME: ${GV_ICE_TURN_USERNAME:-}
       GV_ICE_TURN_CREDENTIAL: ${GV_ICE_TURN_CREDENTIAL:-}
       GV_ICE_TRANSPORT_POLICY: ${GV_ICE_TRANSPORT_POLICY:-all}
+      # PostHog usage analytics (optional — blank disables tracking entirely)
+      NEXT_PUBLIC_POSTHOG_KEY: ${NEXT_PUBLIC_POSTHOG_KEY:-}
+      NEXT_PUBLIC_POSTHOG_HOST: ${NEXT_PUBLIC_POSTHOG_HOST:-}
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:3000/api/health"]
       interval: 10s
