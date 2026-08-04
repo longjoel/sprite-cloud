@@ -175,6 +175,7 @@ fn load_core(config: &CaptureConfig, save_dir: &TempDir) -> Result<Core, Capture
             system_dir: config.system_dir.clone(),
             save_dir: save_dir.path().to_path_buf(),
             audio_channels: 2,
+            mono: false,
         })
     }
     .map_err(CaptureError::LoadCore)
