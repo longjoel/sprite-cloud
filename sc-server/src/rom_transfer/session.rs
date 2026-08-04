@@ -51,7 +51,7 @@ pub trait Responder: Send + Sync {
 
 // ── TransferProtocol (pure state machine) ──────────────────────────────
 
-type CommitFuture = Pin<Box<dyn Future<Output = Result<(), String>> + Send>>;
+type CommitFuture = Pin<Box<dyn Future<Output = Result<String, String>> + Send>>;
 pub type CommitCallback = Arc<dyn Fn() -> CommitFuture + Send + Sync>;
 
 pub struct TransferProtocol {
@@ -275,23 +275,28 @@ impl TransferProtocol {
         };
         match result {
             Ok((hash, size)) => {
-                if let Some(ref cb) = self.on_commit
-                    && cb().await.is_err()
-                {
-                    tracing::error!("[ROM XFER] catalog refresh failed after commit");
-                    self.responder
-                        .send(&TransferMessage::TransferError {
-                            reason: "ROM committed, but catalog refresh failed".into(),
-                        })
-                        .await;
-                    *self.state.lock().await = ProtocolState::Done;
-                    return;
+                let mut game_id = None;
+                if let Some(ref cb) = self.on_commit {
+                    match cb().await {
+                        Ok(id) if !id.is_empty() => game_id = Some(id),
+                        Ok(_) => {} // empty string = no match, proceed
+                        Err(error) => {
+                            tracing::error!("[ROM XFER] catalog refresh failed after commit: {error}");
+                            self.responder
+                                .send(&TransferMessage::TransferError {
+                                    reason: "ROM committed, but catalog refresh failed".into(),
+                                })
+                                .await;
+                            *self.state.lock().await = ProtocolState::Done;
+                            return;
+                        }
+                    }
                 }
                 self.responder
                     .send(&TransferMessage::TransferOk {
                         hash,
                         size,
-                        game_id: None,
+                        game_id,
                     })
                     .await;
             }
@@ -671,15 +676,28 @@ pub(crate) async fn handle_rom_transfer(
 
     let refresh_client = client.clone();
     let refresh_roots = rom_roots.to_vec();
+    let uploaded_basename = constraints.basename.clone();
     let on_commit: CommitCallback = Arc::new(move || {
         let client = refresh_client.clone();
         let roots = refresh_roots.clone();
         let games = Arc::clone(&local_game_list);
         let preferences = Arc::clone(&library_preferences);
         let sync_lock = Arc::clone(&catalog_sync_lock);
+        let basename = uploaded_basename.clone();
         Box::pin(async move {
             let _guard = sync_lock.lock().await;
             let scanned = crate::commands::scan_library(&roots);
+            // Find the game we just committed by matching the basename
+            let game_id = scanned
+                .iter()
+                .find(|g| {
+                    g.content_path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n == basename)
+                })
+                .map(|g| g.id.clone())
+                .unwrap_or_default();
             {
                 let mut current = games.write().await;
                 *current = scanned;
@@ -688,6 +706,7 @@ pub(crate) async fn handle_rom_transfer(
             let preferences_snapshot = preferences.lock().await.snapshot();
             crate::commands::sync_catalog(&client, &games_snapshot, &preferences_snapshot)
                 .await
+                .map(|_| game_id)
                 .map_err(|error| format!("{error:#}"))
         })
     });
@@ -1062,7 +1081,7 @@ mod tests {
             let refreshed = Arc::clone(&refreshed_for_hook);
             Box::pin(async move {
                 refreshed.store(true, Ordering::SeqCst);
-                Ok(())
+                Ok("ok".into())
             })
         });
         let proto = TransferProtocol::new(
