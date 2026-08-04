@@ -31,6 +31,39 @@ pub(crate) fn should_cancel_ice_watch(
 
 // ── DC handler wiring ────────────────────────────────────────────────
 
+/// Parse an auth message's identity fields onto the session (#745).
+///
+/// Extracts `local_players` (multi-gamepad seat offset) and `account_id`
+/// (artifact attribution). Returns the parsed values for tests.
+pub(crate) async fn apply_auth_identity(
+    session: &Arc<GameSession>,
+    val: &serde_json::Value,
+) -> (u32, Option<String>) {
+    let local_players = val
+        .get("local_players")
+        .and_then(|v| v.as_u64())
+        .map(|lp| {
+            session
+                .local_players
+                .store(lp as u32, std::sync::atomic::Ordering::Relaxed);
+            tracing::info!("[DC] host reported local_players={}", lp);
+            lp as u32
+        })
+        .unwrap_or(1);
+
+    let account_id = val
+        .get("account_id")
+        .and_then(|v| v.as_str())
+        .map(|acct| acct.to_string());
+
+    if let Some(ref acct) = account_id {
+        *session.account_id.lock().await = Some(acct.clone());
+        tracing::info!("[DC] host account_id set ({})", acct);
+    }
+
+    (local_players, account_id)
+}
+
 /// Wire the browser's non-negotiated DataChannel to core input commands.
 ///
 /// The browser creates a DataChannel labeled "diagnostics" (non-negotiated).
@@ -138,14 +171,9 @@ pub(crate) fn wire_dc_handler(session: &Arc<GameSession>) {
                         match cmd {
                             "auth" => {
                                 tracing::info!("[DC] auth received, sending ack");
-                                // Extract local_players for multi-gamepad seat offset
-                                if let Some(lp) = val.get("local_players").and_then(|v| v.as_u64())
-                                {
-                                    session
-                                        .local_players
-                                        .store(lp as u32, std::sync::atomic::Ordering::Relaxed);
-                                    tracing::info!("[DC] host reported local_players={}", lp);
-                                }
+                                // Extract identity fields for seat offset + artifact
+                                // attribution (#745).
+                                apply_auth_identity(&session, &val).await;
                                 let ack = serde_json::json!({"cmd": "auth_ok"});
                                 let _ = dc.send_text(ack.to_string()).await;
                                 // Store DC for crash notification, mark host connected
@@ -193,7 +221,57 @@ pub(crate) fn wire_dc_handler(session: &Arc<GameSession>) {
 
 #[cfg(test)]
 mod tests {
-    use super::should_cancel_ice_watch;
+    use super::{apply_auth_identity, should_cancel_ice_watch};
+    use crate::session::GameSession;
+    use std::sync::Arc;
+
+    /// #745: an auth message with account_id attributes the session's
+    /// artifacts to that account; without it, the `shared` fallback applies.
+    #[tokio::test]
+    async fn auth_message_sets_account_id_for_artifact_attribution() {
+        let stack = crate::webrtc::build_session_pc_lan().await.unwrap();
+        let session = Arc::new(GameSession {
+            game_id: "g".to_string(),
+            cloud_session_id: None,
+            cancel: tokio_util::sync::CancellationToken::new(),
+            core_stopped: tokio_util::sync::CancellationToken::new(),
+            pc: std::sync::Mutex::new(stack.pc),
+            video_track: std::sync::Mutex::new(stack.video_track),
+            audio_track: std::sync::Mutex::new(stack.audio_track),
+            dc: tokio::sync::Mutex::new(None),
+            guests: tokio::sync::Mutex::new(Vec::new()),
+            host_connected: std::sync::atomic::AtomicBool::new(false),
+            local_players: std::sync::atomic::AtomicU32::new(1),
+            account_id: tokio::sync::Mutex::new(None),
+            core_loaded: std::sync::atomic::AtomicBool::new(false),
+            core_loading: std::sync::atomic::AtomicBool::new(false),
+            core_cmd_tx: tokio::sync::Mutex::new(None),
+            core_frame_rx: tokio::sync::Mutex::new(None),
+            core_response_rx: tokio::sync::Mutex::new(None),
+            video_enc: tokio::sync::Mutex::new(None),
+            audio_enc: tokio::sync::Mutex::new(None),
+            rom_hash: tokio::sync::Mutex::new(Some("abc".to_string())),
+            core_width: tokio::sync::Mutex::new(0),
+            core_height: tokio::sync::Mutex::new(0),
+            core_fps: tokio::sync::Mutex::new(0.0),
+            core_sample_rate: tokio::sync::Mutex::new(48_000.0),
+        });
+
+        // With account_id: session is attributed.
+        let val = serde_json::json!({"cmd":"auth","local_players":2,"account_id":"alice"});
+        let (lp, acct) = apply_auth_identity(&session, &val).await;
+        assert_eq!(lp, 2);
+        assert_eq!(acct.as_deref(), Some("alice"));
+        assert_eq!(session.effective_account_id().await, "alice");
+
+        // Without account_id: shared fallback, seat count still parsed.
+        let val2 = serde_json::json!({"cmd":"auth","local_players":1});
+        let (lp2, acct2) = apply_auth_identity(&session, &val2).await;
+        assert_eq!(lp2, 1);
+        assert_eq!(acct2, None);
+        // account_id from the earlier message persists.
+        assert_eq!(session.effective_account_id().await, "alice");
+    }
 
     #[test]
     fn disconnected_with_open_host_dc_does_not_cancel() {

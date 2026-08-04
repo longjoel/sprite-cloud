@@ -50,6 +50,10 @@ pub struct GameSession {
     /// Used to offset guest seat assignment so local multi-controller doesn't collide.
     /// Defaults to 1 (keyboard + gamepad[0] on seat 0). Set from host auth message.
     pub local_players: AtomicU32,
+    /// Authenticated account id for artifact attribution (#745). None until
+    /// the DC auth message resolves it; save/load calls fall back to
+    /// `"shared"` while unset.
+    pub account_id: tokio::sync::Mutex<Option<String>>,
 
     // ── Core (libretro) ─────────────────────────────────────────────
     pub core_loaded: AtomicBool,
@@ -72,4 +76,19 @@ pub struct GameSession {
     pub core_fps: Mutex<f64>,
     /// Core audio sample rate in Hz (from retro_get_system_av_info).
     pub core_sample_rate: Mutex<f64>,
+}
+
+impl GameSession {
+    /// Account id for artifact attribution (#745).
+    ///
+    /// Returns the authenticated account when the DC auth message has
+    /// resolved one; otherwise the `"shared"` fallback so pre-auth SRAM
+    /// auto-load/auto-save (core startup, session teardown) still works.
+    pub async fn effective_account_id(&self) -> String {
+        self.account_id
+            .lock()
+            .await
+            .clone()
+            .unwrap_or_else(|| "shared".to_string())
+    }
 }

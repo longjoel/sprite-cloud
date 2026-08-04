@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "node16",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["tests/**/*.ts", "lib/**/*.ts", "playwright.config.ts"]
+}
