@@ -136,6 +136,13 @@ log "sc-server healthy (gateway-gated)"
 
 # ── 6. Playwright ──────────────────────────────────────────────────────
 log "Running Playwright (gateway journey)"
+# Self-contained deps: install if absent, so the clean-checkout CI path
+# exercises EXACTLY the same code local runs do (no "works on my machine").
+# npm install (not ci) mirrors run-l1.sh and tolerates a dirty lockfile.
+if [ ! -d "$L2_DIR/node_modules" ]; then
+  log "installing L2 harness deps (first run)"
+  (cd "$L2_DIR" && npm install --no-audit --no-fund >/dev/null 2>&1)
+fi
 export GATEWAY_URL="http://127.0.0.1:$GATEWAY_PORT"
 export PLAYER_URL="http://127.0.0.1:$PLAYER_PORT"
 export GATEWAY_DATABASE_URL="$DATABASE_URL"

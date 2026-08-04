@@ -74,11 +74,54 @@ async function probeDigits(page: Page): Promise<string> {
   }, { reverse, DIGIT_ROW, DIGIT_COL, CELL });
 }
 
-/** Wait until the digits settle to an expected value (polling probe). */
+/**
+ * Wait until the digits settle to an expected value (polling probe).
+ *
+ * Determinism guard: each poll first waits for the decoded-frame counter to
+ * ADVANCE, then reads. Without this, a stalled/torn video element returns
+ * the same frozen frame on every poll — a cold CI runner hiccup would show
+ * `????` for the whole timeout even though the emulator is fine.
+ */
 async function expectDigits(page: Page, expected: string, timeoutMs = 15000) {
   await expect
-    .poll(async () => probeDigits(page), { timeout: timeoutMs, intervals: [250, 500] })
+    .poll(
+      async () => {
+        // Wait for a fresh frame before trusting any reading.
+        const before = await page.evaluate(() => (window as any).__decodedFrames ?? 0);
+        await page.waitForFunction(
+          (prev) => (window as any).__decodedFrames > prev,
+          before,
+          { timeout: 5000 },
+        ).catch(() => {});
+        return probeDigits(page);
+      },
+      { timeout: timeoutMs, intervals: [250, 500] },
+    )
     .toBe(expected);
+}
+
+/**
+ * Press A (x → libretro id 8 → NES A) and HOLD until the counter actually
+ * increments, then release. Deterministic against emulator pause timing:
+ * a press that lands while the core is (un)pausing (e.g. right after
+ * save_state) is simply held until it registers — no fixed 250ms windows
+ * that can drop input on a slow runner.
+ *
+ * After release we wait a frame: the ROM counts on the RISING edge of the
+ * button bit, so the keyup must be seen by the 60fps poll loop before the
+ * next press. Re-pressing in the same frame as the release would swallow
+ * the edge (counter stuck at 0002→0003 — the original flake).
+ */
+async function pressA(page: Page, from: string) {
+  const next = String(Number(from) + 1).padStart(4, '0');
+  await page.keyboard.down('x');
+  try {
+    await expectDigits(page, next);
+  } finally {
+    await page.keyboard.up('x');
+  }
+  // Let the ROM's poll loop observe the falling edge (one frame @60fps).
+  await page.waitForTimeout(100);
 }
 
 /** Count decoded video frames via requestVideoFrameCallback. */
@@ -194,23 +237,15 @@ test('browser -> emulator: launch, input, save/load, stop, relaunch', async ({ p
   await expectDigits(page, '0000');
 
   // ── input ───────────────────────────────────────────────────────
-  await page.keyboard.down('x'); // x -> libretro id 8 -> NES A
-  await page.waitForTimeout(250);
-  await page.keyboard.up('x');
-  await expectDigits(page, '0001');
+  await pressA(page, '0000');
 
   // ── save/load round trip ────────────────────────────────────────
   const save = await dcCommand(page, 'save_state');
   expect(save.ok).toBe(true);
   expect(typeof save.index).toBe('number');
 
-  await page.keyboard.down('x');
-  await page.waitForTimeout(250);
-  await page.keyboard.up('x');
-  await page.keyboard.down('x');
-  await page.waitForTimeout(250);
-  await page.keyboard.up('x');
-  await expectDigits(page, '0003');
+  await pressA(page, '0001');
+  await pressA(page, '0002');
 
   const load = await dcCommand(page, 'load_state', { index: save.index as number });
   expect(load.ok).toBe(true);
