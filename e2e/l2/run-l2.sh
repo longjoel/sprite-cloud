@@ -11,6 +11,8 @@
 #   SC_WEB_DIR       sc-web checkout (default repo sc-web)
 #   L2_CHROME_BIN    Chrome binary override (local: /snap/bin/chromium)
 #   KEEP_SERVER=1    leave Postgres + sc-web + sc-server running for inspection
+#   MULTI=1          paired-mode journey: fabricate server + write paired config,
+#                    start sc-server PAIRED (command polling), run multi-user spec
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -22,6 +24,7 @@ GATEWAY_PORT="${GATEWAY_PORT:-3000}"
 PLAYER_PORT="${PLAYER_PORT:-8787}"
 PG_PORT="${PG_PORT:-55432}"
 PG_PASSWORD="test-password"
+MULTI="${MULTI:-0}"
 
 WORK="$(mktemp -d /tmp/l2-XXXXXX)"
 CONTAINER=""
@@ -110,21 +113,40 @@ if ! kill -0 "$GATEWAY_PID" 2>/dev/null; then
 fi
 log "sc-web up (pid $GATEWAY_PID)"
 
-# ── 4. (no pairing — standalone + GV_GATEWAY_URL is the #745 flow) ─────
-
-# ── 5. sc-server (standalone + gateway URL = auth-gated) ──────────────
-# NOTE: standalone + GV_GATEWAY_URL is the #745 target flow — direct hits
-# get the auth gate, the gateway handles login. (Paired mode proxies `/`
-# to sc-web and is covered by unit tests.)
-log "Starting sc-server (standalone, gateway-gated) on :$PLAYER_PORT"
+# ── 4. sc-server (mode switch) ────────────────────────────────────────
+# Standalone + GV_GATEWAY_URL: the #745 auth-gate flow — direct hits get
+# the gate page, the gateway handles login. (auth-gate.spec.ts)
+#
+# Paired (MULTI=1): fabricate a server row + paired config, start sc-server
+# PAIRED so it polls commands — the full launch→play→save journey the
+# multi-user spec exercises. The server syncs its own catalog on startup
+# (POST /api/server/sync-games), so no game fabrication is needed.
 export GV_PLAYER_BIND="127.0.0.1:$PLAYER_PORT"
-export GV_ROM_ROOTS="$FIXTURE_DIR/rom"
+# build.sh writes the ROM to out/rom — scan THAT dir (the source rom/
+# holds only counter.s). L1 mirrors this with its own ROM_DIR copy.
+export GV_ROM_ROOTS="$FIXTURE_DIR/out/rom"
 export GV_CORES_DIR="$(dirname "$CORE")"
 export GV_SYSTEM_DIR="$WORK/state"
 export GV_CORE_BIN="$SC_SERVER_DIR/sc-core"
-export GV_GATEWAY_URL="http://127.0.0.1:$GATEWAY_PORT"
 mkdir -p "$WORK/state"
-nohup "$SC_SERVER_DIR/sc-server" start --standalone >"$WORK/sc-server.log" 2>&1 & echo $! >"$WORK/server.pid"
+
+if [ "$MULTI" = "1" ]; then
+  log "Fabricating paired server + writing config"
+  export L2_WORK_DIR="$WORK"
+  export GATEWAY_DATABASE_URL="$DATABASE_URL"
+  export GATEWAY_URL="http://127.0.0.1:$GATEWAY_PORT"
+  node --experimental-strip-types "$L2_DIR/lib/fabricate-paired.ts" \
+    || fail "paired-server fabrication failed"
+  # config.toml lives in $WORK/sprite-cloud — XDG_CONFIG_HOME points there.
+  export XDG_CONFIG_HOME="$WORK"
+
+  log "Starting sc-server (PAIRED, command polling) on :$PLAYER_PORT"
+  nohup "$SC_SERVER_DIR/sc-server" start >"$WORK/sc-server.log" 2>&1 & echo $! >"$WORK/server.pid"
+else
+  log "Starting sc-server (standalone, gateway-gated) on :$PLAYER_PORT"
+  export GV_GATEWAY_URL="http://127.0.0.1:$GATEWAY_PORT"
+  nohup "$SC_SERVER_DIR/sc-server" start --standalone >"$WORK/sc-server.log" 2>&1 & echo $! >"$WORK/server.pid"
+fi
 SERVER_PID="$(cat "$WORK/server.pid")"
 for i in $(seq 1 60); do
   curl -sf "http://127.0.0.1:$PLAYER_PORT/health" >/dev/null 2>&1 && break
@@ -132,7 +154,10 @@ for i in $(seq 1 60); do
 done
 curl -sf "http://127.0.0.1:$PLAYER_PORT/health" >/dev/null 2>&1 \
   || fail "sc-server did not come up (see $WORK/sc-server.log)"
-log "sc-server healthy (gateway-gated)"
+if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+  fail "sc-server (pid $SERVER_PID) died — see $WORK/sc-server.log"
+fi
+log "sc-server healthy ($([ "$MULTI" = "1" ] && echo paired || echo gateway-gated))"
 
 # ── 6. Playwright ──────────────────────────────────────────────────────
 log "Running Playwright (gateway journey)"
@@ -148,8 +173,16 @@ export PLAYER_URL="http://127.0.0.1:$PLAYER_PORT"
 export GATEWAY_DATABASE_URL="$DATABASE_URL"
 export ARTIFACTS_DIR="$WORK/artifacts"
 mkdir -p "$ARTIFACTS_DIR"
+if [ "$MULTI" = "1" ]; then
+  SPEC="tests/multi-user.spec.ts"
+  export L2_STATE_FILE="$WORK/state.json"
+  log "Running multi-user spec (paired journey)"
+else
+  SPEC="tests/auth-gate.spec.ts"
+  log "Running auth-gate spec (gateway journey)"
+fi
 set +e
-(cd "$L2_DIR" && npx playwright test --reporter=list 2>&1 | tee "$WORK/playwright.log")
+(cd "$L2_DIR" && npx playwright test "$SPEC" --reporter=list 2>&1 | tee "$WORK/playwright.log")
 PW_EXIT=$?
 set -e
 cp "$WORK/sc-server.log" "$ARTIFACTS_DIR/" 2>/dev/null || true
