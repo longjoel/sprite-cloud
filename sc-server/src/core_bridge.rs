@@ -566,9 +566,16 @@ pub async fn load_core_into_session(
     session: &Arc<GameSession>,
     core_path: Option<&std::path::Path>,
     content_path: Option<&str>,
-    _platform: Option<&str>,
+    platform: Option<&str>,
 ) -> Result<(), String> {
     let game_id = &session.game_id;
+
+    // Mono-hardware platforms get the live audio channel mirrored into both
+    // in sc-core, so a core that outputs mono one-sided can never stream
+    // one-channel audio (see libretro_runner::normalize_mono).
+    let mono_flag = platform
+        .map(crate::platform::platform_is_mono)
+        .unwrap_or(false);
 
     let core_path_str = match core_path {
         Some(p) => p.to_string_lossy().to_string(),
@@ -619,14 +626,20 @@ pub async fn load_core_into_session(
     );
     tracing::info!("[CORE] system_dir={}", system_dir);
 
+    let mut spawn_args: Vec<&str> = vec![
+        &core_path_str,
+        &actual_rom_path,
+        &out_name,
+        &in_name,
+        &system_dir,
+    ];
+    if mono_flag {
+        spawn_args.push("mono");
+        tracing::info!("[CORE] mono platform — audio channel mirroring enabled");
+    }
+
     let mut child = match std::process::Command::new(&core_bin)
-        .args([
-            &core_path_str,
-            &actual_rom_path,
-            &out_name,
-            &in_name,
-            &system_dir,
-        ])
+        .args(&spawn_args)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .spawn()

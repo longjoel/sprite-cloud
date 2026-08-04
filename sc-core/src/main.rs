@@ -64,6 +64,9 @@ fn main() {
     let out_name = &args[3];
     let in_name = &args[4];
     let system_dir = args.get(5).cloned().unwrap_or_else(|| "/tmp".into());
+    // Optional 6th arg: "mono" — mirror the live audio channel into both.
+    // Set by sc-server for platforms whose hardware is unconditionally mono.
+    let mono = args.get(6).is_some_and(|flag| flag == "mono");
     
     // Map shared memory
     let out_mmap = map_shm::<OutputShm>(out_name, OutputShm::size())
@@ -87,6 +90,7 @@ fn main() {
         system_dir: system_dir.into(),
         save_dir: "/tmp".into(),
         audio_channels: 2,
+        mono,
     };
     
     let mut core = match unsafe { libretro_runner::Core::load(core_config) } {
