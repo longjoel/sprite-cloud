@@ -40,6 +40,9 @@ fail() { printf '\n\033[1;31m[l2] FAIL\033[0m %s\n' "$*" >&2; exit 1; }
 cleanup() {
   [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true
   [ -n "$GATEWAY_PID" ] && kill "$GATEWAY_PID" 2>/dev/null || true
+  # pnpm start spawns next-server as a grandchild; killing the pnpm
+  # wrapper orphans it — pkill the actual server too.
+  pkill -f "next-server" 2>/dev/null || true
   if [ -n "$CONTAINER" ] && [ -z "${KEEP_SERVER:-}" ]; then
     docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
   fi
@@ -77,6 +80,14 @@ pkill -f "sc-server start" 2>/dev/null || true
 # Remove stale disposable Postgres containers so the new one can bind.
 docker ps -q --filter "ancestor=postgres:17-alpine" | xargs -r docker rm -f >/dev/null 2>&1 || true
 sleep 1
+# Verify the app ports are actually free. pkill above can't kill processes
+# owned by another user (e.g. root leftovers from manual testing), and a
+# stale gateway on the port would silently serve stale state — fail loudly.
+for port in "$GATEWAY_PORT" "$PLAYER_PORT"; do
+  if ss -tln | grep -q ":${port} "; then
+    fail "port ${port} is held by a process we cannot kill — check: ss -tlnp | grep :${port}"
+  fi
+done
 log "Starting disposable Postgres on :$PG_PORT"
 CONTAINER="$(docker run --rm -d -p "$PG_PORT":5432 \
   -e POSTGRES_PASSWORD="$PG_PASSWORD" -e POSTGRES_DB=sc_web_test \
@@ -104,7 +115,7 @@ export AUTH_SECRET="${AUTH_SECRET:-test-secret-l2-e2e}"
 export AUTH_TRUST_HOST="1"
 (cd "$SC_WEB_DIR" && PORT="$GATEWAY_PORT" nohup pnpm start >"$WORK/sc-web.log" 2>&1 & echo $! >"$WORK/gateway.pid")
 GATEWAY_PID="$(cat "$WORK/gateway.pid")"
-for i in $(seq 1 60); do
+for i in $(seq 1 90); do
   curl -sf "http://127.0.0.1:$GATEWAY_PORT/" >/dev/null 2>&1 && break
   sleep 1
 done
