@@ -135,6 +135,10 @@ pub struct Core {
     pixel_format: u32,
     /// Whether the core explicitly negotiated the pixel format.
     pixel_format_negotiated: bool,
+
+    /// Mirror the live channel into both for mono-hardware platforms.
+    /// See [`CoreConfig::mono`].
+    mono: bool,
 }
 
 impl Core {
@@ -352,6 +356,7 @@ impl Core {
             current_frame_dims: (0, 0),
             pixel_format,
             pixel_format_negotiated,
+            mono: config.mono,
         })
     }
 
@@ -414,13 +419,22 @@ impl Core {
 
     /// Drain accumulated audio samples, clearing the internal buffer.
     /// Returns interleaved stereo i16 PCM samples.
+    ///
+    /// When the core was loaded with `mono: true` (platform hardware is
+    /// unconditionally mono), the live channel is mirrored into both so a
+    /// core that outputs mono in one channel only cannot produce one-sided
+    /// audio downstream. Well-behaved cores (L == R) pass through unchanged.
     pub fn drain_audio(&self) -> Vec<i16> {
-        AUDIO_BUFFER.with(|buf| {
+        let mut samples = AUDIO_BUFFER.with(|buf| {
             let mut buf = buf.borrow_mut();
             let samples = buf.clone();
             buf.clear();
             samples
-        })
+        });
+        if self.mono {
+            normalize_mono(&mut samples);
+        }
+        samples
     }
 
     /// Set a joypad button state for a given port.
@@ -999,6 +1013,25 @@ unsafe extern "C" fn audio_batch_callback(data: *const i16, frames: usize) -> us
     frames
 }
 
+/// Mirror the live channel into both channels for mono-hardware platforms.
+///
+/// Libretro's ABI is always stereo, and well-behaved cores duplicate the mono
+/// sample to L and R. Some cores put the mono signal in one channel only,
+/// which streams as one-sided audio. For known-mono platforms this picks the
+/// louder channel per sample pair and duplicates it — a no-op when the core
+/// already duplicates (L == R), and a guaranteed fix when one channel is dead.
+pub fn normalize_mono(samples: &mut [i16]) {
+    for pair in samples.chunks_exact_mut(2) {
+        let live = if (pair[0] as i32).unsigned_abs() >= (pair[1] as i32).unsigned_abs() {
+            pair[0]
+        } else {
+            pair[1]
+        };
+        pair[0] = live;
+        pair[1] = live;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Input callback
 // ---------------------------------------------------------------------------
@@ -1065,5 +1098,39 @@ mod tests {
 
         assert_eq!(consumed, 2);
         assert_eq!(output, input);
+    }
+
+    #[test]
+    fn normalize_mono_mirrors_a_dead_right_channel() {
+        // A core that puts mono in the left channel only (the #686 class).
+        let mut samples = [100_i16, 0, -80, 0, 0, 0];
+        normalize_mono(&mut samples);
+        assert_eq!(samples, [100, 100, -80, -80, 0, 0]);
+    }
+
+    #[test]
+    fn normalize_mono_mirrors_a_dead_left_channel() {
+        // Some cores put mono in the right channel only.
+        let mut samples = [0_i16, 100, 0, -80];
+        normalize_mono(&mut samples);
+        assert_eq!(samples, [100, 100, -80, -80]);
+    }
+
+    #[test]
+    fn normalize_mono_is_a_noop_for_duplicated_mono() {
+        // Well-behaved cores already duplicate (L == R) — untouched.
+        let mut samples = [100_i16, 100, -80, -80, 0, 0];
+        let original = samples;
+        normalize_mono(&mut samples);
+        assert_eq!(samples, original);
+    }
+
+    #[test]
+    fn normalize_mono_keeps_real_stereo_phase() {
+        // Anti-phase stereo (L = -R) is preserved when a stereo signal is
+        // present on both channels; only dead-channel pairs collapse.
+        let mut samples = [100_i16, -100, 50, -50];
+        normalize_mono(&mut samples);
+        assert_eq!(samples, [100, 100, 50, 50]);
     }
 }
