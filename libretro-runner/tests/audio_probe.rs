@@ -146,14 +146,30 @@ fn probe_audio_channels() {
         total.sum_l, total.sum_r, total.nonzero_l, total.nonzero_r, total.unequal_pairs
     );
 
+    let rom_provided = rom_path.is_some();
+
     if total.pairs == 0 {
-        eprintln!("[PROBE] NO AUDIO — ROM produced no samples");
+        if rom_provided {
+            eprintln!("[PROBE] FAIL: ROM produced no audio at all");
+            panic!("no audio from core with a ROM loaded");
+        }
+        eprintln!("[PROBE] NO AUDIO — no ROM, core produced no samples");
         return;
+    }
+
+    // Fail-closed: a tone ROM must produce real signal in BOTH channels.
+    // An all-zero result means the fixture did not boot or the core muted —
+    // that is NOT a pass, it is a broken test.
+    if rom_provided && total.nonzero_l == 0 && total.nonzero_r == 0 {
+        eprintln!("[PROBE] FAIL: silent audio — fixture did not boot or core muted");
+        panic!("silent audio with a tone ROM loaded");
     }
 
     let l_dead = total.nonzero_l == 0 && total.nonzero_r > 0;
     let r_dead = total.nonzero_r == 0 && total.nonzero_l > 0;
     let balanced = total.unequal_pairs == 0;
+    // Strict mode (CI): mono-platform tone ROMs must have identical channels.
+    let strict = std::env::var("TEST_AUDIO_STRICT").is_ok_and(|v| v == "1");
 
     if l_dead || r_dead {
         let dead = if l_dead { "L" } else { "R" };
@@ -162,9 +178,13 @@ fn probe_audio_channels() {
     }
     if !balanced {
         eprintln!(
-            "[PROBE] WARN: {} pairs differ (core outputs non-identical channels)",
+            "[PROBE] {}: {} pairs differ (channels not identical)",
+            if strict { "FAIL" } else { "WARN" },
             total.unequal_pairs
         );
+        if strict {
+            panic!("channels differ in strict mode");
+        }
     } else {
         eprintln!("[PROBE] OK: channels identical (correct mono duplication)");
     }
