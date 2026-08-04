@@ -198,7 +198,8 @@ jobs:
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             gstreamer1.0-plugins-ugly \
-            libglib2.0-dev pkg-config
+            libglib2.0-dev pkg-config \
+            cc65
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
