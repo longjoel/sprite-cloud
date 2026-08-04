@@ -218,6 +218,11 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          # Explicit components: on self-hosted runners the toolchain can
+          # persist across runs, and a partially-installed stable (e.g. from
+          # a cancelled run) otherwise leaves clippy missing.
+          components: clippy, rustfmt
 
       - name: Build trusted libretro test core
         id: libretro_fixture
