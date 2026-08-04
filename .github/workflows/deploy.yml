@@ -18,7 +18,11 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    # Self-hosted on the Vault (lngnckr.tech): GitHub-hosted runners cannot
+    # reach the gateway's SSH port through the home firewall, but the Vault
+    # is on a path that can. No PR context here (main push + dispatch only),
+    # so no fork-guard expression is needed.
+    runs-on: self-hosted
     timeout-minutes: 15
 
     steps:
