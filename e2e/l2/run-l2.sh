@@ -13,6 +13,8 @@
 #   KEEP_SERVER=1    leave Postgres + sc-web + sc-server running for inspection
 #   MULTI=1          paired-mode journey: fabricate server + write paired config,
 #                    start sc-server PAIRED (command polling), run multi-user spec
+#   ROM_TRANSFER=1   ROM upload/download E2E (#631): paired mode + temp ROM root,
+#                    exercises WebRTC DataChannel transfer + HTTP download
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -25,6 +27,7 @@ PLAYER_PORT="${PLAYER_PORT:-8787}"
 PG_PORT="${PG_PORT:-55432}"
 PG_PASSWORD="test-password"
 MULTI="${MULTI:-0}"
+ROM_TRANSFER="${ROM_TRANSFER:-0}"
 
 WORK="$(mktemp -d /tmp/l2-XXXXXX)"
 CONTAINER=""
@@ -125,12 +128,19 @@ export GV_PLAYER_BIND="127.0.0.1:$PLAYER_PORT"
 # build.sh writes the ROM to out/rom — scan THAT dir (the source rom/
 # holds only counter.s). L1 mirrors this with its own ROM_DIR copy.
 export GV_ROM_ROOTS="$FIXTURE_DIR/out/rom"
+if [ "$ROM_TRANSFER" = "1" ]; then
+  # ROM transfer tests need a writable temp directory (uploads land here).
+  # Isolate from production ROMs entirely.
+  ROM_TRANSFER_ROOT="$WORK/rom-upload-root"
+  mkdir -p "$ROM_TRANSFER_ROOT"
+  export GV_ROM_ROOTS="$ROM_TRANSFER_ROOT"
+fi
 export GV_CORES_DIR="$(dirname "$CORE")"
 export GV_SYSTEM_DIR="$WORK/state"
 export GV_CORE_BIN="$SC_SERVER_DIR/sc-core"
 mkdir -p "$WORK/state"
 
-if [ "$MULTI" = "1" ]; then
+if [ "$MULTI" = "1" ] || [ "$ROM_TRANSFER" = "1" ]; then
   log "Fabricating paired server + writing config"
   export L2_WORK_DIR="$WORK"
   export GATEWAY_DATABASE_URL="$DATABASE_URL"
@@ -157,7 +167,7 @@ curl -sf "http://127.0.0.1:$PLAYER_PORT/health" >/dev/null 2>&1 \
 if ! kill -0 "$SERVER_PID" 2>/dev/null; then
   fail "sc-server (pid $SERVER_PID) died — see $WORK/sc-server.log"
 fi
-log "sc-server healthy ($([ "$MULTI" = "1" ] && echo paired || echo gateway-gated))"
+log "sc-server healthy ($([ "$MULTI" = "1" ] || [ "$ROM_TRANSFER" = "1" ] && echo paired || echo gateway-gated))"
 
 # ── 6. Playwright ──────────────────────────────────────────────────────
 log "Running Playwright (gateway journey)"
@@ -173,7 +183,10 @@ export PLAYER_URL="http://127.0.0.1:$PLAYER_PORT"
 export GATEWAY_DATABASE_URL="$DATABASE_URL"
 export ARTIFACTS_DIR="$WORK/artifacts"
 mkdir -p "$ARTIFACTS_DIR"
-if [ "$MULTI" = "1" ]; then
+if [ "$ROM_TRANSFER" = "1" ]; then
+  SPEC="tests/rom-transfer.spec.ts"
+  log "Running ROM transfer spec (upload + download E2E, #631)"
+elif [ "$MULTI" = "1" ]; then
   SPEC="tests/multi-user.spec.ts"
   export L2_STATE_FILE="$WORK/state.json"
   log "Running multi-user spec (paired journey)"
