@@ -255,9 +255,21 @@ jobs:
       - name: Audio channel probe (mono platforms, strict)
         run: |
           set -euo pipefail
-          # Build the deterministic fixtures, prove they match the committed
-          # provenance manifest, then probe real cores for one-sided audio.
-          (cd e2e/fixture && ./build.sh >/dev/null && sha256sum -c manifest.sha256 >/dev/null)
+          # Build the deterministic fixtures, then prove the built ROMs match
+          # the committed provenance manifest (same grep-per-artifact pattern
+          # as the fixture job), then probe real cores for one-sided audio.
+          bash e2e/fixture/build.sh >/dev/null
+          check_hash() { # <built_path> <manifest_pattern>
+            local actual expected
+            actual=$(sha256sum "$1" | cut -d' ' -f1)
+            expected=$(grep -E "^[0-9a-f]{64}  $2" e2e/fixture/manifest.sha256 | cut -d' ' -f1)
+            echo "manifest $1: $actual"
+            [ -n "$expected" ] || { echo "missing manifest entry for $2" >&2; exit 1; }
+            [ "$actual" = "$expected" ] || { echo "manifest mismatch for $2" >&2; exit 1; }
+          }
+          check_hash e2e/fixture/out/rom/counter.nes 'rom/counter\.nes'
+          check_hash e2e/fixture/out/audio/tone.nes 'audio/tone\.nes'
+          check_hash e2e/fixture/out/audio/gb-tone.gb 'audio/gb-tone\.gb'
           cores="${RUNNER_TEMP}/audio-cores"
           mkdir -p "$cores"
           for core in nestopia_libretro.so mgba_libretro.so; do
