@@ -5,6 +5,17 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "E2E suite to run (l2-auth-gate | l2-multi-user | all)"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - l2-auth-gate
+          - l2-multi-user
 
 env:
   REGISTRY: ghcr.io
@@ -105,14 +116,19 @@ jobs:
         run: npm ci
         working-directory: e2e/l2
 
-      - name: L2 gateway-journey E2E (auth-gate smoke, #745)
+      - name: L2 E2E (auth-gate smoke on push; suite selectable on dispatch)
         env:
           SC_SERVER_DIR: ${{ github.workspace }}/target/release
           L2_CHROME_BIN: /usr/bin/google-chrome
+          # Push/PR: auth-gate smoke only (CI-cost decision — the deep
+          # multi-user play journey runs on demand via workflow_dispatch).
+          MULTI: ${{ github.event_name == 'workflow_dispatch' && inputs.suite != 'l2-auth-gate' && '1' || '0' }}
         run: |
           # ubuntu-latest ships Google Chrome (H.264) + Docker (Postgres).
           # run-l2.sh: Postgres → drizzle push → next build → sc-web →
-          # sc-server (standalone + GV_GATEWAY_URL) → Playwright.
+          # sc-server (standalone+GV_GATEWAY_URL, or paired when MULTI=1)
+          # → Playwright. workflow_dispatch suite=input selects the spec:
+          #   all → multi-user (paired); l2-auth-gate → auth-gate smoke.
           bash e2e/l2/run-l2.sh
 
       - name: Upload L2 artifacts

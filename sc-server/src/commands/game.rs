@@ -31,6 +31,21 @@ async fn record_server_local_play(
 
 // ── Command handlers ────────────────────────────────────────────────
 
+/// The gateway-enriched account identity for a command payload (#745).
+///
+/// sc-web validates the launch capability (membership + short code) and
+/// attaches the authenticated session's `user_id` to `start_game` (and
+/// guest SDP) commands. This is the ONLY trusted identity source — a
+/// client-sent `account_id` in the DC auth message is advisory at best
+/// and never authoritative.
+pub(super) fn payload_account_id(cmd: &sc_web::Command) -> Option<String> {
+    cmd.payload
+        .get("user_id")
+        .and_then(|value| value.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+}
+
 pub(super) async fn handle_start_game(
     cmd: &sc_web::Command,
     client: &sc_web::ScWebClient,
@@ -213,7 +228,9 @@ pub(super) async fn handle_start_game(
         guests: tokio::sync::Mutex::new(Vec::new()),
         host_connected: std::sync::atomic::AtomicBool::new(false),
         local_players: std::sync::atomic::AtomicU32::new(1),
-        account_id: tokio::sync::Mutex::new(None),
+        // #745: identity comes from the gateway-enriched start_game payload
+        // (membership + short-code validated), never from the browser.
+        account_id: tokio::sync::Mutex::new(payload_account_id(cmd)),
         core_loaded: std::sync::atomic::AtomicBool::new(false),
         core_loading: std::sync::atomic::AtomicBool::new(false),
         core_cmd_tx: tokio::sync::Mutex::new(None),
@@ -1148,6 +1165,41 @@ mod tests {
         assert!(guest_input_command("host", Some(1), 1, &[1, 0x34, 0x12]).is_none());
         assert!(guest_input_command("player", Some(0), 1, &[1, 0x34, 0x12]).is_none());
         assert!(guest_input_command("player", Some(1), 1, &[1, 0x34]).is_none());
+    }
+
+    #[test]
+    fn start_game_payload_carries_gateway_authoritative_account_id() {
+        // #745: the gateway enriches start_game with the authenticated
+        // session's user_id — the ONLY trusted identity source.
+        let cmd = sc_web::Command {
+            id: "cmd-1".into(),
+            command_type: "start_game".into(),
+            payload: serde_json::json!({
+                "game_id": "counter",
+                "session_id": "sess-1",
+                "user_id": "alice-account",
+                "sdp": "v=0",
+            }),
+            lease_token: "lease-1".into(),
+            lease_expires_at: "2026-01-01T00:00:00Z".into(),
+            attempt: 1,
+        };
+        assert_eq!(payload_account_id(&cmd).as_deref(), Some("alice-account"));
+    }
+
+    #[test]
+    fn start_game_without_user_id_falls_back_to_shared() {
+        // Anonymous LAN play (L1): no gateway enrichment → no account →
+        // "shared" fallback keeps pre-auth SRAM working.
+        let cmd = sc_web::Command {
+            id: "cmd-2".into(),
+            command_type: "start_game".into(),
+            payload: serde_json::json!({ "game_id": "counter", "session_id": "sess-2" }),
+            lease_token: "lease-2".into(),
+            lease_expires_at: "2026-01-01T00:00:00Z".into(),
+            attempt: 1,
+        };
+        assert!(payload_account_id(&cmd).is_none());
     }
 
     #[tokio::test]
