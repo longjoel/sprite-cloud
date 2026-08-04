@@ -35,6 +35,8 @@ jobs:
             --build-arg GV_WEB_GIT_SHA="${{ github.sha }}" \
             --build-arg GV_WEB_VERSION="$WEB_VERSION" \
             --build-arg GV_WEB_RELEASED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --build-arg NEXT_PUBLIC_POSTHOG_KEY="${{ secrets.POSTHOG_KEY }}" \
+            --build-arg NEXT_PUBLIC_POSTHOG_HOST="${{ secrets.POSTHOG_HOST }}" \
             -t sc-web-prod:latest .
 
       - name: Install SSH key

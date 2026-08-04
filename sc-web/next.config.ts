@@ -1,10 +1,16 @@
 import type { NextConfig } from "next";
 
+// PostHog is strictly env-gated: the analytics host is only added to the
+// CSP when NEXT_PUBLIC_POSTHOG_HOST was present at build time. Unset → the
+// CSP stays fully closed (no external connect-src), matching the app's
+// fail-closed posture and the no-tracked-secrets CI guard.
+const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST;
+
 const CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
-  "connect-src 'self' ws: wss:",
+  `connect-src 'self' ws: wss:${posthogHost ? ` ${posthogHost}` : ""}`,
   "media-src 'self' blob:",
   "img-src 'self' data:",
   "font-src 'self'",

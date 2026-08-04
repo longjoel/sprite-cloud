@@ -12,6 +12,12 @@ FROM node:22-slim AS builder
 ARG GV_WEB_GIT_SHA=unknown
 ARG GV_WEB_VERSION=unknown
 ARG GV_WEB_RELEASED_AT_UTC=unknown
+# PostHog analytics is opt-in at build time: both args default to empty,
+# which keeps the bundle analytics-free (no keys, no host, no network
+# calls). The deploy workflow supplies them from GitHub secrets when the
+# owner enables metrics. NEXT_PUBLIC_* must be baked at build time.
+ARG NEXT_PUBLIC_POSTHOG_KEY=
+ARG NEXT_PUBLIC_POSTHOG_HOST=
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/sc-web/node_modules ./sc-web/node_modules
@@ -19,6 +25,8 @@ COPY --from=deps /app/sc-web/node_modules ./sc-web/node_modules
 COPY . .
 WORKDIR /app/sc-web
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY
+ENV NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST
 RUN npx next build
 
 FROM node:22-slim AS runner
