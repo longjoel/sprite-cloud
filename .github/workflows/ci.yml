@@ -22,10 +22,16 @@ env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/sprite-cloud
 
 jobs:
+  # Self-hosted fast path: same-repo PRs/pushes run on the vault runner
+  # (persistent workspace = warm cargo cache); fork PRs stay on public
+  # runners (a fork can't fake head.repo.full_name, so it can't route
+  # itself onto the self-hosted box).
   e2e-l1:
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
 
       - name: Install cc65 + PIL (fixture build + digit probe)
         run: |
@@ -44,6 +50,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
+        # Public runners only — on the vault runner the persistent
+        # workspace target/ IS the cache; rust-cache would tar it pointlessly.
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
         uses: Swatinem/rust-cache@v2
 
       - name: Build sc-server + sc-core release
@@ -72,9 +81,11 @@ jobs:
           if-no-files-found: ignore
 
   e2e-l2:
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
 
       - name: Install cc65 + PIL (fixture build + digit probe)
         run: |
@@ -93,6 +104,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo
+        # Public runners only — persistent workspace target/ on vault.
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
         uses: Swatinem/rust-cache@v2
 
       - name: Build sc-server + sc-core release
@@ -175,12 +188,14 @@ jobs:
           [ "$actual" = "$expected" ]
 
   rust:
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
 
       - name: Test installer path and secret contracts
         run: |
@@ -198,7 +213,8 @@ jobs:
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             gstreamer1.0-plugins-ugly \
-            libglib2.0-dev pkg-config
+            libglib2.0-dev pkg-config \
+            cc65
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -215,6 +231,8 @@ jobs:
           echo "core_path=${core_dir}/2048_libretro.so" >> "${GITHUB_OUTPUT}"
 
       - name: Cache cargo
+        # Public runners only — persistent workspace target/ on vault.
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
         uses: Swatinem/rust-cache@v2
 
       - name: Build Rust release binaries
@@ -233,6 +251,28 @@ jobs:
 
       - name: Smoke test libretro-runner
         run: cargo test -p libretro-runner --test smoke -- --test-threads=1
+
+      - name: Audio channel probe (mono platforms, strict)
+        run: |
+          set -euo pipefail
+          # Build the deterministic fixtures, prove they match the committed
+          # provenance manifest, then probe real cores for one-sided audio.
+          (cd e2e/fixture && ./build.sh >/dev/null && sha256sum -c manifest.sha256 >/dev/null)
+          cores="${RUNNER_TEMP}/audio-cores"
+          mkdir -p "$cores"
+          for core in nestopia_libretro.so mgba_libretro.so; do
+            curl -sL -o "$cores/$core.zip" \
+              "https://buildbot.libretro.com/nightly/linux/x86_64/latest/$core.zip"
+            unzip -o -q "$cores/$core.zip" -d "$cores"
+          done
+          TEST_AUDIO_STRICT=1 \
+            TEST_LIBRETRO_CORE="$cores/nestopia_libretro.so" \
+            TEST_LIBRETRO_ROM=e2e/fixture/out/audio/tone.nes \
+            cargo test -p libretro-runner --test audio_probe
+          TEST_AUDIO_STRICT=1 \
+            TEST_LIBRETRO_CORE="$cores/mgba_libretro.so" \
+            TEST_LIBRETRO_ROM=e2e/fixture/out/audio/gb-tone.gb \
+            cargo test -p libretro-runner --test audio_probe
 
       # ── Docker: sc-server ────────────────────────────────────────
       - name: Set up Docker Buildx
