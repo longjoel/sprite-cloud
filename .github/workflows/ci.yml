@@ -154,7 +154,7 @@ jobs:
           if-no-files-found: ignore
 
   fixture:
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -328,7 +328,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   web:
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     permissions:
       contents: read
       packages: write

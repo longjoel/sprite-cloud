@@ -8,7 +8,9 @@ on:
 jobs:
   build-x86_64:
     name: Build sc-server (x86_64)
-    runs-on: ubuntu-latest
+    # Self-hosted on the Vault — tag pushes are same-repo only, so no
+    # fork-guard expression is needed.
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
 
@@ -42,6 +44,8 @@ jobs:
 
   build-aarch64:
     name: Build sc-server (aarch64)
+    # Stays on GitHub's arm runner — the Vault is x64 and cannot build
+    # aarch64 binaries.
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
@@ -77,7 +81,7 @@ jobs:
   create-release:
     name: Create GitHub Release
     needs: [build-x86_64, build-aarch64]
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: write
     steps:
