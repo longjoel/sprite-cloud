@@ -1065,6 +1065,60 @@ describe("POST /api/server/command", () => {
     else delete process.env.GV_SERVER_LAN_IPS;
   });
 
+  it("attaches the authenticated user_id to the start_game payload (#745)", async () => {
+    // The gateway enriches the final start_game payload with the session
+    // owner's user_id — sc-server attributes artifacts to this account.
+    const { launchEvents, commands: commandsTable, sessions: sessionsTable, peerTokens: peerTokensTable } = await import("@/lib/db/schema");
+
+    const commandUpdates: Array<Record<string, unknown>> = [];
+    mockDb.select
+      .mockReturnValueOnce(
+        Object.assign(Promise.resolve([{ role: "admin" }]), {
+          from: vi.fn().mockReturnThis(),
+          innerJoin: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit: vi.fn(() => Promise.resolve([{ role: "admin" }])),
+            })),
+          })),
+        }),
+      )
+      .mockReturnValue(mockQueryBuilder([]));
+    mockDb.insert.mockImplementation((table: unknown) => {
+      if (table === commandsTable) return { values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([{ id: "cmd-123" }])) };
+      if (table === launchEvents) return mockQueryBuilder([{ id: "launch-1" }]);
+      if (table === sessionsTable) return { values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([{ id: "sess-123" }])) };
+      if (table === peerTokensTable) return { values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([])) };
+      return mockQueryBuilder([{ id: "fallback" }]);
+    });
+    mockDb.update.mockImplementation(() => ({
+      set: vi.fn((value: Record<string, unknown>) => {
+        commandUpdates.push(value);
+        return { where: vi.fn(() => Promise.resolve(undefined)) };
+      }),
+    }));
+
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      ...jsonBodyWithCsrf({ server_id: "server-1", type: "start_game", payload: { game_id: "local_0123456789abcdef0123456789abcdef" } }),
+      headers: {
+        "Content-Type": "application/json",
+        "x-csrf-token": "csrf-test-token",
+        cookie: "sc_csrf_token=csrf-test-token",
+        "x-forwarded-for": "192.0.2.55",
+        "x-real-ip": "192.0.2.55",
+      },
+    });
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(201);
+
+    // The payload update that publishes the session (finalPayload) must
+    // carry user_id — the server's authoritative identity source.
+    const finalPayload = commandUpdates
+      .map((u) => u.payload as Record<string, unknown>)
+      .find((p) => p.session_id === "sess-123");
+    expect(finalPayload?.user_id).toBe("user-1");
+  });
+
   it("keeps stale reconnect candidates active for transactional replacement", async () => {
     const { sessions: sessionsTable } = await import("@/lib/db/schema");
 

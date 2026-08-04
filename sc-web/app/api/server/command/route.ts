@@ -695,6 +695,10 @@ export async function POST(request: NextRequest) {
       const finalPayload = {
         ...enrichedPayload,
         session_id: newSession.id,
+        // #745: the authenticated user who owns this launch. sc-server
+        // attributes saves/states/play-time to this account — it is the
+        // ONLY trusted identity source (never a client-sent account_id).
+        user_id: uid,
         peer_tokens: [{ token: newHostPeerToken, seat: 0, role: "host" }],
       };
       await tx
