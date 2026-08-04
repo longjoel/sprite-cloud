@@ -47,7 +47,10 @@ pub(super) async fn handle_save_state(
         Some(core_bridge::CoreResponse::SaveStateResult { data, ok: true }) => {
             let hash = rom_hash.clone();
             let data_len = data.len();
-            match tokio::task::spawn_blocking(move || saves::save_stack_push(&hash, &data)).await {
+            let account = session.effective_account_id().await;
+            match tokio::task::spawn_blocking(move || saves::save_stack_push(&account, &hash, &data))
+                .await
+            {
                 Ok(Ok(index)) => {
                     tracing::info!("[SAVE] saved entry {} ({} bytes)", index, data_len);
                     let resp = serde_json::json!({"cmd":"save_result","ok":true,"index":index,"size":data_len});
@@ -102,10 +105,11 @@ pub(super) async fn handle_load_state(
 
     // Read state data from disk
     let hash = rom_hash.clone();
+    let account = session.effective_account_id().await;
     let data = match tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
         match index {
-            Some(i) => saves::save_stack_load(&hash, i).map_err(|e| e.to_string()),
-            None => saves::save_stack_load_latest(&hash)
+            Some(i) => saves::save_stack_load(&account, &hash, i).map_err(|e| e.to_string()),
+            None => saves::save_stack_load_latest(&account, &hash)
                 .map_err(|e| e.to_string())
                 .and_then(|opt| opt.map(|(_, d)| d).ok_or_else(|| "no saves".to_string())),
         }
@@ -192,7 +196,8 @@ pub(super) async fn handle_list_saves(
     };
 
     let hash = rom_hash.clone();
-    match tokio::task::spawn_blocking(move || saves::save_stack_list(&hash)).await {
+    let account = session.effective_account_id().await;
+    match tokio::task::spawn_blocking(move || saves::save_stack_list(&account, &hash)).await {
         Ok(Ok(stack)) => {
             let resp = serde_json::json!({
                 "cmd": "list_saves_result",

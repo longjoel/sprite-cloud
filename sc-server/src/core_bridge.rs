@@ -692,7 +692,9 @@ pub async fn load_core_into_session(
     // ── Auto-load SRAM if a battery save exists ──────────────────────
     let rom_hash = saves::hash_rom(std::path::Path::new(&actual_rom_path));
     if let Some(ref hash) = rom_hash {
-        let sram_file = saves::sram_path(hash);
+        // Pre-auth: core startup runs before the DC auth message resolves
+        // the account, so SRAM auto-load uses the `shared` slot (#745).
+        let sram_file = saves::sram_path("shared", hash);
         if sram_file.exists() {
             match std::fs::read(&sram_file) {
                 Ok(data) if !data.is_empty() => {
@@ -900,7 +902,10 @@ pub async fn load_core_into_session(
                     rom_hash_save.as_deref(),
                     Duration::from_millis(500),
                     |hash, data| {
-                        let sram_file = saves::sram_path(hash);
+                        // Teardown also runs pre/post-auth without account
+                        // resolution context — `shared` slot keeps it working
+                        // (#745).
+                        let sram_file = saves::sram_path("shared", hash);
                         match saves::write_atomic(&sram_file, data) {
                             Ok(()) => {
                                 tracing::info!(
@@ -1206,6 +1211,7 @@ mod tests {
             guests: tokio::sync::Mutex::new(Vec::new()),
             host_connected: std::sync::atomic::AtomicBool::new(false),
             local_players: std::sync::atomic::AtomicU32::new(1),
+            account_id: tokio::sync::Mutex::new(None),
             core_loaded: std::sync::atomic::AtomicBool::new(false),
             core_loading: std::sync::atomic::AtomicBool::new(false),
             core_cmd_tx: tokio::sync::Mutex::new(None),
