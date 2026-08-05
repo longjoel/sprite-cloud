@@ -18,6 +18,7 @@ err()  { printf "${RED}✗${NC} %s\n" "$*" >&2; exit 1; }
 
 ROOTLESS=false
 PRINT_PATHS=false
+PRINT_SERVICE=false
 WEB_URL=""
 ROM_DIR=""
 # TURN relay is disabled unless the operator explicitly injects a credential.
@@ -83,12 +84,14 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --rootless)           ROOTLESS=true; shift ;;
     --print-paths)        PRINT_PATHS=true; shift ;;
+    --print-service)      PRINT_SERVICE=true; shift ;;
     --web-url)            WEB_URL="$2"; shift 2 ;;
     --rom-dir)            ROM_DIR="$2"; shift 2 ;;
     --help|-h)
       printf "Usage: install.sh [--rootless] [--web-url URL] [--rom-dir PATH]\n"
       printf "  --rootless   Install as current user (no sudo)\n"
       printf "  --print-paths  Print resolved install paths without changing the system\n"
+      printf "  --print-service  Print the systemd service file without installing\n"
       printf "  --web-url    sc-web URL (skip prompt)\n"
       printf "  --rom-dir    ROM directory (skip prompt)\n"
       printf "  GV_TURN_CREDENTIAL  Explicit TURN credential (relay disabled when unset)\n"
@@ -191,6 +194,68 @@ if $PRINT_PATHS; then
   printf 'DATA_DIR=%s\n' "$DATA_DIR"
   printf 'CONFIG_DIR=%s\n' "$CONFIG_DIR"
   printf 'SYSTEMD_DIR=%s\n' "$SYSTEMD_DIR"
+  exit 0
+fi
+
+if $PRINT_SERVICE; then
+  if $ROOTLESS; then
+    cat << EOF
+[Unit]
+Description=Sprite Cloud Server (user)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment="XDG_CONFIG_HOME=${HOME}/.config"
+Environment="GV_CORES_DIR=${CORES_DIR}"
+Environment="GV_DATA_DIR=${DATA_DIR}"
+Environment="RUST_LOG=info"
+Environment="GV_ICE_STUN_URLS=stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"
+EnvironmentFile=-${TURN_ENV_FILE}
+ExecStart=${BIN_PATH} start
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=default.target
+EOF
+  else
+    cat << EOF
+[Unit]
+Description=Sprite Cloud Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=sprite-cloud
+Group=sprite-cloud
+Environment="XDG_CONFIG_HOME=/etc"
+Environment="GV_CORES_DIR=${CORES_DIR}"
+Environment="GV_DATA_DIR=${DATA_DIR}"
+Environment="RUST_LOG=info"
+Environment="GV_ICE_STUN_URLS=stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302"
+EnvironmentFile=-${TURN_ENV_FILE}
+ExecStart=${MANAGED_BIN_PATH} start
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=${DATA_DIR} ${ROM_DIR} /tmp/sc-sessions
+PrivateTmp=yes
+PrivateDevices=no
+DeviceAllow=/dev/dri rw
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  fi
   exit 0
 fi
 
@@ -347,6 +412,24 @@ if ! $ROOTLESS; then
   ok "symlink created: /usr/local/bin/sc-server → $BIN_PATH"
 fi
 
+# ── Verify binary ownership and modes ───────────────────────────────────
+if ! $ROOTLESS; then
+  for bin_path in "$BIN_PATH" "$CORE_BIN_PATH"; do
+    if ! $SUDO test -e "$bin_path"; then
+      continue
+    fi
+    owner="$($SUDO stat -c '%U:%G' "$bin_path")"
+    if [[ "$owner" != "sprite-cloud:sprite-cloud" ]]; then
+      err "$bin_path owned by $owner — expected sprite-cloud:sprite-cloud"
+    fi
+    mode="$($SUDO stat -c '%a' "$bin_path")"
+    if [[ "$mode" != "755" ]]; then
+      err "$bin_path mode is $mode — expected 755"
+    fi
+  done
+  ok "binary ownership and modes verified"
+fi
+
 # ── ROM root (system-wide only) ────────────────────────────────────────
 if ! $ROOTLESS && [[ -n "$ROM_DIR" ]] && [[ ! -d "$ROM_DIR" ]]; then
   $SUDO mkdir -p "$ROM_DIR"
@@ -356,12 +439,12 @@ fi
 
 # ── Preflight: verify service can write to its binary directory ────────
 if ! $ROOTLESS; then
-  PROBE_FILE="${MANAGED_BIN_DIR}/.sc-install-write-probe-$$"
-  if ! $SUDO touch "$PROBE_FILE" 2>/dev/null; then
-    err "${MANAGED_BIN_DIR} is not writable — check filesystem permissions"
+  PROBE_FILE=".sc-install-write-probe-$$"
+  if ! $SUDO runuser -u sprite-cloud -- touch "${MANAGED_BIN_DIR}/${PROBE_FILE}" 2>/dev/null; then
+    err "service account sprite-cloud cannot write to ${MANAGED_BIN_DIR} — check filesystem permissions and ReadWritePaths"
   fi
-  $SUDO rm -f "$PROBE_FILE"
-  ok "managed binary directory writable: ${MANAGED_BIN_DIR}"
+  $SUDO runuser -u sprite-cloud -- rm -f "${MANAGED_BIN_DIR}/${PROBE_FILE}"
+  ok "service account can write to managed binary directory: ${MANAGED_BIN_DIR}"
 fi
 
 # ── Config ─────────────────────────────────────────────────────────────
