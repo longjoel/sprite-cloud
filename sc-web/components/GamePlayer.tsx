@@ -680,8 +680,12 @@ export default function GamePlayer({
     <div className={styles.shell} onMouseMove={wakeControls} onPointerDown={wakeControls} onKeyDown={wakeControls}>
 
       <Script src="/player/touch-gamepad-v2.js" />
-      {/* Canonical browser player bootstrap path. Standalone legacy harness removed. */}
-      <Script src="/player/play-v2.js" type="module" onLoad={() => setScriptReady(true)} />
+      {/* Canonical browser player bootstrap path. Standalone legacy harness removed.
+          Plain module tag + explicit crossOrigin preload: Next's <Script> emits a
+          preload without crossorigin, which module fetches can't reuse (browser
+          discards it and warns). */}
+      <link rel="preload" as="script" crossOrigin="anonymous" href="/player/play-v2.js" />
+      <script type="module" src="/player/play-v2.js" onLoad={() => setScriptReady(true)} />
 
       <video
         ref={videoRef}

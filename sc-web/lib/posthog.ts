@@ -38,6 +38,11 @@ export function initPostHog(): void {
     // calls are made anywhere, so events stay anonymous (DAU only).
     disable_session_recording: true,
     person_profiles: "identified_only",
+    // Host-only cookies: no cross-subdomain probing. PostHog's subdomain
+    // discovery sets dmn_chk_* cookies with Domain suffixes, which browsers
+    // reject outright on LAN IP pages (Domain=IP is invalid) and which we
+    // don't need — analytics never cross subdomains here.
+    cross_subdomain_cookie: false,
   });
 }
 
