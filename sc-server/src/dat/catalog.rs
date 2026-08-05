@@ -11,6 +11,7 @@
 //! atomically; see the reload task in `commands/mod.rs`.
 
 use std::collections::HashSet;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -129,13 +130,30 @@ pub(crate) fn load_catalog(paths: &[PathBuf]) -> CatalogLoad {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.display().to_string());
 
-        let data = match std::fs::read(path) {
-            Ok(data) => data,
+        // Bound the read BEFORE allocation: the parser's 64 MiB document cap
+        // only applies after the file is in memory, so an unbounded read of a
+        // multi-GB .dat (or a symlink pointing at one) would OOM the server.
+        // `take()` caps the allocation even if the file grows mid-read.
+        let max_document = crate::dat::parser::ParseLimits::default().max_document_bytes;
+        let file = match std::fs::File::open(path) {
+            Ok(file) => file,
             Err(error) => {
                 failures.push((name, format!("read failed: {error}")));
                 continue;
             }
         };
+        let mut data = Vec::new();
+        if let Err(error) = file.take(max_document + 1).read_to_end(&mut data) {
+            failures.push((name, format!("read failed: {error}")));
+            continue;
+        }
+        if data.len() as u64 > max_document {
+            failures.push((
+                name,
+                format!("size {} exceeds max {max_document}", data.len()),
+            ));
+            continue;
+        }
 
         let parsed = match parse_dat(&data, None) {
             Ok(parsed) => parsed,
