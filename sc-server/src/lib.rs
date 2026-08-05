@@ -23,4 +23,5 @@ pub mod scan;
 pub mod session;
 pub mod streaming;
 pub mod upgrade;
+pub mod verification;
 pub mod webrtc;

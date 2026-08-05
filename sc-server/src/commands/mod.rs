@@ -117,6 +117,10 @@ pub(crate) async fn cmd_start(
     }
     let library_preferences = crate::player_server::open_library_preferences()
         .context("load local library preferences")?;
+    let verification_store = Arc::new(tokio::sync::Mutex::new(
+        crate::verification::VerificationStore::load(crate::verification::state_path())
+            .context("load DAT verification state")?,
+    ));
 
     if let Some(url) = sc_web_url {
         cfg.sc_web.url = url;
@@ -194,7 +198,10 @@ pub(crate) async fn cmd_start(
     {
         let prefs_snapshot = library_preferences.lock().await.snapshot();
         let games_snapshot = local_game_list.read().await;
-        if let Err(error) = sync_catalog(&client, &games_snapshot, &prefs_snapshot).await {
+        let verifications_snapshot = verification_store.lock().await.snapshot();
+        if let Err(error) =
+            sync_catalog(&client, &games_snapshot, &prefs_snapshot, &verifications_snapshot).await
+        {
             tracing::warn!("[SYNC] initial catalog push failed: {error:#}");
         }
     }
@@ -362,6 +369,8 @@ pub(crate) async fn cmd_start(
                                         Arc::clone(&local_game_list),
                                         Arc::clone(&library_preferences),
                                         Arc::clone(&catalog_sync_lock),
+                                        Arc::clone(&dat_catalog_state),
+                                        Arc::clone(&verification_store),
                                     ).await;
                                 } else if cmd.command_type == "delete_game" {
                                     handle_delete_game(
@@ -372,6 +381,7 @@ pub(crate) async fn cmd_start(
                                         Arc::clone(&local_game_list),
                                         Arc::clone(&library_preferences),
                                         Arc::clone(&catalog_sync_lock),
+                                        Arc::clone(&verification_store),
                                     ).await;
                                 } else if cmd.command_type == "rom_download" {
                                     crate::rom_transfer::download::handle_rom_download(
@@ -513,6 +523,7 @@ pub(crate) fn scan_library(rom_roots: &[String]) -> Vec<crate::player_server::Lo
 /// - The game exists and resolves under a configured ROM root.
 /// - No active session is playing it.
 /// - The file is a regular file (not symlink/device).
+#[allow(clippy::too_many_arguments)]
 async fn handle_delete_game(
     cmd: &sc_web::Command,
     client: &sc_web::ScWebClient,
@@ -521,6 +532,7 @@ async fn handle_delete_game(
     local_game_list: Arc<tokio::sync::RwLock<Vec<crate::player_server::LocalGame>>>,
     library_preferences: crate::player_server::SharedLibraryState,
     catalog_sync_lock: Arc<tokio::sync::Mutex<()>>,
+    verification_store: Arc<tokio::sync::Mutex<crate::verification::VerificationStore>>,
 ) {
     let game_id = match cmd.payload.get("game_id").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
@@ -588,6 +600,11 @@ async fn handle_delete_game(
 
     tracing::info!("[DELETE] game_id={game_id} removed");
 
+    // Drop verification evidence for the deleted game.
+    if let Err(error) = verification_store.lock().await.remove(&game_id) {
+        tracing::warn!("[DELETE] failed to remove verification for {game_id}: {error}");
+    }
+
     // ── Rescan and sync ─────────────────────────────────────────────
     let _guard = catalog_sync_lock.lock().await;
     let scanned = scan_library(rom_roots);
@@ -597,8 +614,9 @@ async fn handle_delete_game(
     }
     let games_snapshot = local_game_list.read().await.clone();
     let prefs_snapshot = library_preferences.lock().await.snapshot();
+    let verifications_snapshot = verification_store.lock().await.snapshot();
     if let Err(e) =
-        sync_catalog(client, &games_snapshot, &prefs_snapshot).await
+        sync_catalog(client, &games_snapshot, &prefs_snapshot, &verifications_snapshot).await
     {
         tracing::error!("[DELETE] catalog sync after deletion failed: {e:#}");
         let _ = client
@@ -622,25 +640,46 @@ async fn handle_delete_game(
 
 /// Push the current game catalog to sc-web for cloud library search.
 ///
-/// Sends only metadata (id, name, platform, max_players).
-/// ROM paths and library preferences stay local.
+/// Sends only metadata (id, name, platform, max_players) plus DAT
+/// verification evidence when present. ROM paths and library preferences
+/// stay local.
 pub(crate) async fn sync_catalog(
     client: &crate::sc_web::ScWebClient,
     games: &[crate::player_server::LocalGame],
     preferences: &crate::library_state::LibraryPreferences,
+    verifications: &std::collections::BTreeMap<String, crate::verification::GameVerification>,
 ) -> Result<()> {
     let entries: Vec<serde_json::Value> = games
         .iter()
         .map(|game| {
             let fallback = crate::player_server::local_game_name(game);
             let name = preferences.display_name(&game.id, &fallback);
-            serde_json::json!({
+            let mut entry = serde_json::json!({
                 "id": game.id,
                 "name": name,
                 "source_name": fallback,
                 "platform": game.discovered.platform.as_deref().unwrap_or("Unknown"),
                 "max_players": 4,
-            })
+            });
+            if let Some(v) = verifications
+                .get(&game.id)
+                .filter(|v| v.state != crate::verification::VerificationState::None)
+            {
+                entry["verification"] = serde_json::json!({
+                        "state": v.state,
+                        "canonical_title": v.canonical_title,
+                        "canonical_platform": v.canonical_platform,
+                        "region": v.region,
+                        "revision": v.revision,
+                        "confidence": v.confidence,
+                        "catalog_name": v.catalog_name,
+                        "catalog_version": v.catalog_version,
+                        "catalog_sha256": v.catalog_sha256,
+                        "source_name": v.source_name,
+                        "enriched_at": v.enriched_at,
+                    });
+            }
+            entry
         })
         .collect();
 
