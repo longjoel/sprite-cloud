@@ -39,7 +39,7 @@ async function resolveShortCodeHostUser(
   authHeader: string | null,
 ): Promise<string | null> {
   const [shortCode] = await db
-    .select({ code: shortCodes.code, createdBy: shortCodes.createdBy })
+    .select({ code: shortCodes.code, createdBy: shortCodes.createdBy, mintedViaProxy: shortCodes.mintedViaProxy })
     .from(shortCodes)
     .where(and(
       eq(shortCodes.serverId, serverId),
@@ -79,13 +79,23 @@ async function resolveShortCodeHostUser(
 
   // LAN proxy authority: when the paired server itself proxies start_game
   // (server bearer matching this server), the server is the host authority for
-  // its own LAN — mirroring the resolve route, which grants host capability to
-  // the paired server bearer for codes it minted. This keeps the LAN player
-  // working when the LAN library (or persistUrl) created the code via the
-  // server-bearer proxy path (createdBy = NULL) instead of a browser session.
-  const bearerServer = await verifyBearerToken(authHeader);
-  if (bearerServer && bearerServer.id === serverId) {
-    return bearerServer.userId ?? null;
+  // its own LAN — but ONLY for codes explicitly minted through that proxy.
+  // This keeps the LAN player working when the LAN library created the code
+  // via the server-bearer proxy path (createdBy = NULL, mintedViaProxy = true).
+  if (shortCode.mintedViaProxy) {
+    const bearerServer = await verifyBearerToken(authHeader);
+    if (bearerServer && bearerServer.id === serverId) {
+      // Verify the bearer server's owner is still a member of this server
+      const [owningMember] = await db
+        .select({ userId: serverMembers.userId })
+        .from(serverMembers)
+        .where(and(
+          eq(serverMembers.serverId, serverId),
+          eq(serverMembers.userId, bearerServer.userId),
+        ))
+        .limit(1);
+      if (owningMember) return bearerServer.userId;
+    }
   }
 
   return null;

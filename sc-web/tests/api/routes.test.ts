@@ -862,6 +862,7 @@ describe("POST /api/server/command", () => {
     expect(mockDb.select).toHaveBeenNthCalledWith(1, {
       code: shortCodesTable.code,
       createdBy: shortCodesTable.createdBy,
+      mintedViaProxy: shortCodesTable.mintedViaProxy,
     });
     expect(sessionValues).toHaveBeenCalledWith(expect.objectContaining({
       userId: "member-user",
@@ -872,9 +873,9 @@ describe("POST /api/server/command", () => {
     mockAuth.mockResolvedValueOnce(null);
     // No bearer presented (or bearer does not match) — creator-less legacy
     // codes cannot authorize a fresh start on their own.
-    mockVerifyBearerToken.mockResolvedValueOnce(null);
+    mockVerifyBearerToken.mockReset().mockResolvedValueOnce(null).mockResolvedValue({ id: "server-1", userId: "user-1", name: "sc-server", apiKeyHash: "hashed_key" });
     mockDb.select
-      .mockReturnValueOnce(mockQueryBuilder([{ code: "LEGACY", createdBy: null }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ code: "LEGACY", createdBy: null, mintedViaProxy: false }]))
       .mockReturnValueOnce(mockQueryBuilder([]));
 
     const { POST } = await import("@/app/api/server/command/route");
@@ -897,14 +898,15 @@ describe("POST /api/server/command", () => {
 
   it("authorizes a creator-less LAN code when the paired server bearer matches (LAN proxy)", async () => {
     // The LAN player's start_game is proxied by sc-server with the server
-    // bearer. A code minted through that same proxy has createdBy = NULL;
-    // the paired server bearer is the host authority for its own LAN.
+    // bearer. A code minted through that same proxy has createdBy = NULL,
+    // mintedViaProxy = true; the paired server bearer is the host authority
+    // for its own LAN.
     mockAuth.mockResolvedValueOnce(null);
     mockDb.select
-      .mockReturnValueOnce(mockQueryBuilder([{ code: "LANPROXY", createdBy: null }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ code: "LANPROXY", createdBy: null, mintedViaProxy: true }]))
       .mockReturnValueOnce(mockQueryBuilder([]))   // legacy session lookup: none
-      .mockReturnValueOnce(mockQueryBuilder([]));  // server membership (server-1 owner)
-    mockVerifyBearerToken.mockResolvedValueOnce({ id: "server-1", userId: "owner-user" });
+      .mockReturnValueOnce(mockQueryBuilder([{ userId: "owner-user" }])); // serverMembers check
+    mockVerifyBearerToken.mockReset().mockResolvedValueOnce({ id: "server-1", userId: "owner-user" }).mockResolvedValue({ id: "server-1", userId: "user-1", name: "sc-server", apiKeyHash: "hashed_key" });
 
     const { launchEvents, commands: commandsTable, sessions: sessionsTable, peerTokens: peerTokensTable } = await import("@/lib/db/schema");
     const sessionValues = vi.fn().mockReturnThis();
@@ -944,11 +946,11 @@ describe("POST /api/server/command", () => {
   it("keeps failing closed when the bearer does not match the target server", async () => {
     mockAuth.mockResolvedValueOnce(null);
     mockDb.select
-      .mockReturnValueOnce(mockQueryBuilder([{ code: "LANPROXY", createdBy: null }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ code: "LANPROXY", createdBy: null, mintedViaProxy: true }]))
       .mockReturnValueOnce(mockQueryBuilder([]))   // legacy session lookup: none
       .mockReturnValueOnce(mockQueryBuilder([]));  // membership lookup
     // Bearer belongs to a DIFFERENT server — not host authority here.
-    mockVerifyBearerToken.mockResolvedValueOnce({ id: "server-other", userId: "other-user" });
+    mockVerifyBearerToken.mockReset().mockResolvedValueOnce({ id: "server-other", userId: "other-user" }).mockResolvedValue({ id: "server-1", userId: "user-1", name: "sc-server", apiKeyHash: "hashed_key" });
 
     const { POST } = await import("@/app/api/server/command/route");
     const req = mkReq("http://localhost/api/server/command", {
@@ -960,6 +962,103 @@ describe("POST /api/server/command", () => {
         payload: {
           game_id: "local_0123456789abcdef0123456789abcdef",
           host_token: "proxy-minted-token",
+          lan: true,
+        },
+      }),
+    });
+
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(403);
+    expect(await resp.json()).toMatchObject({ error: "invalid LAN launch token" });
+  });
+
+  it("authorizes a proxy-minted LAN stop_game via server bearer", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ code: "LANSTOP", createdBy: null, mintedViaProxy: true }]))
+      .mockReturnValueOnce(mockQueryBuilder([]))   // legacy session: none
+      .mockReturnValueOnce(mockQueryBuilder([{ userId: "owner-user" }])); // serverMembers
+    mockVerifyBearerToken.mockReset().mockResolvedValueOnce({ id: "server-1", userId: "owner-user" }).mockResolvedValue({ id: "server-1", userId: "user-1", name: "sc-server", apiKeyHash: "hashed_key" });
+
+    // stop_game needs an active session to resolve session_id
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ id: "sess-lanstop" }])); // active session lookup
+
+    const { commands: commandsTable } = await import("@/lib/db/schema");
+    mockDb.insert.mockReturnValue({ values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([{ id: "cmd-lanstop" }])) });
+
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      method: "POST",
+      headers: { ...jsonBody({}).headers, ...authHeader("scsk_test_api_key_12345") },
+      body: JSON.stringify({
+        server_id: "server-1",
+        type: "stop_game",
+        payload: {
+          game_id: "local_0123456789abcdef0123456789abcdef",
+          host_token: "proxy-minted-token",
+        },
+      }),
+    });
+
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(201);
+  });
+
+  it("authorizes a proxy-minted LAN sdp_offer via server bearer", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ code: "LANSDP", createdBy: null, mintedViaProxy: true }]))
+      .mockReturnValueOnce(mockQueryBuilder([]))   // legacy session: none
+      .mockReturnValueOnce(mockQueryBuilder([{ userId: "owner-user" }])); // serverMembers
+    mockVerifyBearerToken.mockReset().mockResolvedValueOnce({ id: "server-1", userId: "owner-user" }).mockResolvedValue({ id: "server-1", userId: "user-1", name: "sc-server", apiKeyHash: "hashed_key" });
+
+    // sdp_offer host reconnect needs an active session
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ id: "sess-lansdp" }])); // host session lookup
+
+    const { commands: commandsTable } = await import("@/lib/db/schema");
+    mockDb.insert.mockReturnValue({ values: vi.fn().mockReturnThis(), returning: vi.fn(() => Promise.resolve([{ id: "cmd-lansdp" }])) });
+
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      method: "POST",
+      headers: { ...jsonBody({}).headers, ...authHeader("scsk_test_api_key_12345") },
+      body: JSON.stringify({
+        server_id: "server-1",
+        type: "sdp_offer",
+        payload: {
+          game_id: "local_0123456789abcdef0123456789abcdef",
+          host_token: "proxy-minted-token",
+          sdp: "v=0\r\n",
+        },
+      }),
+    });
+
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(201);
+  });
+
+  it("rejects bearer override for legacy codes not minted via proxy", async () => {
+    // A code with createdBy = NULL but mintedViaProxy = false (legacy or
+    // browser-minted) must NOT grant authority to the server bearer.
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ code: "LEGACY2", createdBy: null, mintedViaProxy: false }]))
+      .mockReturnValueOnce(mockQueryBuilder([]));  // legacy session: none
+    // verifyBearerToken should NOT be called — bearer override is gated
+    mockVerifyBearerToken.mockReset().mockResolvedValueOnce({ id: "server-1", userId: "owner-user" }).mockResolvedValue({ id: "server-1", userId: "user-1", name: "sc-server", apiKeyHash: "hashed_key" });
+
+    const { POST } = await import("@/app/api/server/command/route");
+    const req = mkReq("http://localhost/api/server/command", {
+      method: "POST",
+      headers: { ...jsonBody({}).headers, ...authHeader("scsk_test_api_key_12345") },
+      body: JSON.stringify({
+        server_id: "server-1",
+        type: "start_game",
+        payload: {
+          game_id: "local_0123456789abcdef0123456789abcdef",
+          host_token: "legacy-token",
           lan: true,
         },
       }),
@@ -1177,7 +1276,7 @@ describe("POST /api/room/shorten", () => {
 
   it("rejects unauthenticated callers without a server bearer token", async () => {
     mockAuth.mockResolvedValueOnce(null);
-    mockVerifyBearerToken.mockResolvedValueOnce(null);
+    mockVerifyBearerToken.mockReset().mockResolvedValueOnce(null).mockResolvedValue({ id: "server-1", userId: "user-1", name: "sc-server", apiKeyHash: "hashed_key" });
     const { POST } = await import("@/app/api/room/shorten/route");
 
     const resp = await POST(mkReq("http://localhost/api/room/shorten", jsonBody(body)));
