@@ -10,6 +10,8 @@ import {
   Delete,
   Download,
   MoreVert,
+  Public,
+  Power,
 } from "@mui/icons-material";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -42,6 +44,12 @@ interface GameTileContextMenuProps {
   onDelete?: () => void;
   /** Download callback (admin only). */
   onDownload?: () => void;
+  /** Public-wall toggle (admin only, #762). */
+  isPublic?: boolean;
+  onTogglePublic?: () => void;
+  /** Always-on toggle (admin only, #762). */
+  isAlwaysOn?: boolean;
+  onToggleAlwaysOn?: () => void;
   /** Label for the trigger button. */
   triggerAriaLabel?: string;
 }
@@ -92,6 +100,10 @@ export default function GameTileContextMenu({
   onChooseHost,
   onDelete,
   onDownload,
+  isPublic,
+  onTogglePublic,
+  isAlwaysOn,
+  onToggleAlwaysOn,
   triggerAriaLabel,
 }: GameTileContextMenuProps) {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -153,6 +165,28 @@ export default function GameTileContextMenu({
       onClick: () => {
         handleClose();
         onChooseHost();
+      },
+    });
+  }
+  if (onTogglePublic) {
+    actions.push({
+      id: "public-wall",
+      label: isPublic ? "Remove from public wall" : "Put on the public wall",
+      icon: <Public fontSize="small" />,
+      onClick: () => {
+        handleClose();
+        onTogglePublic();
+      },
+    });
+  }
+  if (onToggleAlwaysOn) {
+    actions.push({
+      id: "always-on",
+      label: isAlwaysOn ? "Always on — turn off" : "Always on",
+      icon: <Power fontSize="small" />,
+      onClick: () => {
+        handleClose();
+        onToggleAlwaysOn();
       },
     });
   }

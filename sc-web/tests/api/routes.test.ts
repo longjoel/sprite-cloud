@@ -3209,3 +3209,193 @@ describe("POST /api/server/sync-games", () => {
     }));
   });
 });
+
+// ── PATCH /api/games/flags (Living Cabinet wall, #762) ────────────────
+
+function jsonPatchWithCsrf(body: unknown, csrf = "csrf-test-token") {
+  return {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "x-csrf-token": csrf,
+      cookie: `sc_csrf_token=${csrf}`,
+    },
+    body: JSON.stringify(body),
+  };
+}
+
+describe("PATCH /api/games/flags", () => {
+  it("rejects unauthenticated requests", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    const { PATCH } = await import("@/app/api/games/flags/route");
+    const resp = await PATCH(
+      mkReq("http://localhost/api/games/flags", jsonPatchWithCsrf({ serverId: "server-1", gameId: "game-1", public: true })),
+    );
+    expect(resp.status).toBe(401);
+  });
+
+  it("rejects requests without a valid CSRF token", async () => {
+    const { PATCH } = await import("@/app/api/games/flags/route");
+    const resp = await PATCH(
+      mkReq("http://localhost/api/games/flags", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serverId: "server-1", gameId: "game-1", public: true }),
+      }),
+    );
+    expect(resp.status).toBe(403);
+    expect((await resp.json()).error).toContain("csrf");
+  });
+
+  it("rejects members who are not admins", async () => {
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([{ role: "member" }]));
+    const { PATCH } = await import("@/app/api/games/flags/route");
+    const resp = await PATCH(
+      mkReq("http://localhost/api/games/flags", jsonPatchWithCsrf({ serverId: "server-1", gameId: "game-1", public: true })),
+    );
+    expect(resp.status).toBe(403);
+    expect((await resp.json()).error).toContain("administrator");
+  });
+
+  it("returns 404 when the server is not a member server", async () => {
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([]));
+    const { PATCH } = await import("@/app/api/games/flags/route");
+    const resp = await PATCH(
+      mkReq("http://localhost/api/games/flags", jsonPatchWithCsrf({ serverId: "server-1", gameId: "game-1", public: true })),
+    );
+    expect(resp.status).toBe(404);
+  });
+
+  it("returns 404 when the game is not in the catalog", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "admin" }]))
+      .mockReturnValueOnce(mockQueryBuilder([]));
+    const { PATCH } = await import("@/app/api/games/flags/route");
+    const resp = await PATCH(
+      mkReq("http://localhost/api/games/flags", jsonPatchWithCsrf({ serverId: "server-1", gameId: "game-1", public: true })),
+    );
+    expect(resp.status).toBe(404);
+  });
+
+  it("rejects malformed bodies", async () => {
+    const { PATCH } = await import("@/app/api/games/flags/route");
+    for (const body of [
+      { serverId: "server-1" }, // missing gameId
+      { gameId: "game-1" }, // missing serverId
+      { serverId: "server-1", gameId: "game-1" }, // nothing to update
+      { serverId: "server-1", gameId: "game-1", public: "yes" }, // non-boolean
+    ]) {
+      const resp = await PATCH(mkReq("http://localhost/api/games/flags", jsonPatchWithCsrf(body)));
+      expect(resp.status).toBe(400);
+    }
+  });
+
+  it("upserts flags for an admin and returns the saved flags", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "admin" }])) // membership
+      .mockReturnValueOnce(mockQueryBuilder([{ gameId: "game-1" }])) // catalog row
+      .mockReturnValueOnce(mockQueryBuilder([])); // no existing flags
+    mockDb.insert.mockReturnValueOnce(
+      mockQueryBuilder([{ alwaysOn: true, public: true, updatedAt: new Date("2026-08-05T00:00:00Z") }]),
+    );
+    const { PATCH } = await import("@/app/api/games/flags/route");
+    const resp = await PATCH(
+      mkReq("http://localhost/api/games/flags", jsonPatchWithCsrf({ serverId: "server-1", gameId: "game-1", alwaysOn: true, public: true })),
+    );
+    expect(resp.status).toBe(200);
+    const data = await resp.json();
+    expect(data.flags.alwaysOn).toBe(true);
+    expect(data.flags.public).toBe(true);
+    // The insert carried the gateway-owned payload (host syncs can't wipe it).
+    const insertPayload = mockDb.insert.mock.results[0].value.values.mock.calls[0][0];
+    expect(insertPayload).toMatchObject({ serverId: "server-1", gameId: "game-1", alwaysOn: true, public: true });
+  });
+
+  it("preserves unspecified flags from an existing row", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "admin" }])) // membership
+      .mockReturnValueOnce(mockQueryBuilder([{ gameId: "game-1" }])) // catalog row
+      .mockReturnValueOnce(mockQueryBuilder([{ alwaysOn: true, public: false }])); // existing flags
+    mockDb.insert.mockReturnValueOnce(
+      mockQueryBuilder([{ alwaysOn: true, public: true, updatedAt: new Date("2026-08-05T00:00:00Z") }]),
+    );
+    const { PATCH } = await import("@/app/api/games/flags/route");
+    const resp = await PATCH(
+      mkReq("http://localhost/api/games/flags", jsonPatchWithCsrf({ serverId: "server-1", gameId: "game-1", public: true })),
+    );
+    expect(resp.status).toBe(200);
+    const insertPayload = mockDb.insert.mock.results[0].value.values.mock.calls[0][0];
+    expect(insertPayload).toMatchObject({ alwaysOn: true, public: true });
+  });
+});
+
+// ── GET /api/games carries gateway-owned flags ────────────────────────
+
+describe("GET /api/games includes flags", () => {
+  const baseRow = {
+    verificationState: null,
+    canonicalTitle: null,
+    canonicalPlatform: null,
+    region: null,
+    revision: null,
+    confidence: null,
+    catalogName: null,
+    catalogVersion: null,
+    catalogSha256: null,
+    verificationSourceName: null,
+    enrichedAt: null,
+  };
+
+  it("returns alwaysOn/public per game row", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ serverId: "server-1" }])) // memberships
+      .mockReturnValueOnce(mockQueryBuilder([])) // platform facets
+      .mockReturnValueOnce(mockQueryBuilder([{ count: 1 }])) // total
+      .mockReturnValueOnce(
+        mockQueryBuilder([
+          {
+            id: "game-1",
+            name: "Gauntlet",
+            platform: "Arcade",
+            serverId: "server-1",
+            maxPlayers: 4,
+            alwaysOn: true,
+            public: true,
+            ...baseRow,
+          },
+        ]),
+      ); // rows
+    const { GET } = await import("@/app/api/games/route");
+    const resp = await GET(mkReq("http://localhost/api/games"));
+    expect(resp.status).toBe(200);
+    const data = await resp.json();
+    expect(data.games[0].alwaysOn).toBe(true);
+    expect(data.games[0].public).toBe(true);
+  });
+
+  it("defaults missing flags to false", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ serverId: "server-1" }])) // memberships
+      .mockReturnValueOnce(mockQueryBuilder([])) // platform facets
+      .mockReturnValueOnce(mockQueryBuilder([{ count: 1 }])) // total
+      .mockReturnValueOnce(
+        mockQueryBuilder([
+          {
+            id: "game-2",
+            name: "Tetris",
+            platform: "Game Boy",
+            serverId: "server-1",
+            maxPlayers: 1,
+            alwaysOn: null,
+            public: null,
+            ...baseRow,
+          },
+        ]),
+      ); // rows
+    const { GET } = await import("@/app/api/games/route");
+    const resp = await GET(mkReq("http://localhost/api/games"));
+    const data = await resp.json();
+    expect(data.games[0].alwaysOn).toBe(false);
+    expect(data.games[0].public).toBe(false);
+  });
+});
