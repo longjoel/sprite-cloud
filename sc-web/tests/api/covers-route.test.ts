@@ -41,14 +41,17 @@ function request() {
 }
 
 describe("GET /api/covers/:server_id/:game_id", () => {
-  it("rejects an unauthenticated request before catalog lookup", async () => {
+  it("fails closed: unauthenticated + non-public game → 404 (no disclosure)", async () => {
     mockAuth.mockResolvedValue(null);
 
     const { GET } = await import("@/app/api/covers/[server_id]/[game_id]/route");
     const response = await GET(request(), { params: Promise.resolve({ server_id: "server-a", game_id: "game-a" }) });
 
-    expect(response.status).toBe(401);
-    expect(mockDb.select).not.toHaveBeenCalled();
+    // The public carve-out (#762) allows unauthenticated covers only for
+    // games flagged `public`; everything else is 404 — indistinguishable
+    // from a nonexistent game.
+    expect(response.status).toBe(404);
+    expect(mockDb.select).toHaveBeenCalled();
   });
 
   it("does not disclose a game that is outside the caller membership", async () => {
