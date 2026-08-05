@@ -46,6 +46,7 @@ function mockQueryBuilder(returnValue: unknown) {
     returning: vi.fn().mockReturnThis(),
     values: vi.fn().mockReturnThis(),
     set: vi.fn().mockReturnThis(),
+    onConflictDoUpdate: vi.fn().mockReturnThis(),
     for: vi.fn().mockReturnThis(),
   };
   const thenable = Promise.resolve(returnValue);
@@ -3090,5 +3091,96 @@ describe("PUT /api/servers/[server_id]/core-overrides", () => {
 
     expect(resp.status).toBe(200);
     expect(mockDb.update).toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/server/sync-games", () => {
+  beforeEach(() => {
+    mockVerifyBearerToken.mockReset();
+    mockVerifyBearerToken.mockResolvedValue({
+      id: "server-1",
+      userId: "user-1",
+      name: "sc-server",
+      apiKeyHash: "hashed_key",
+    });
+    mockDb.delete.mockReset();
+    mockDb.insert.mockReset();
+    mockDb.insert.mockReturnValue(mockQueryBuilder(undefined));
+  });
+
+  function syncReq(body: unknown) {
+    return new NextRequest("http://localhost/api/server/sync-games", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer scsk_test_api_key_12345",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("stores DAT verification evidence with the game", async () => {
+    const { POST } = await import("@/app/api/server/sync-games/route");
+    const resp = await POST(syncReq({
+      games: [{
+        id: "local_abc",
+        name: "Super Mario World (USA)",
+        source_name: "smw.sfc",
+        platform: "SNES",
+        max_players: 2,
+        verification: {
+          state: "verified",
+          canonical_title: "Super Mario World (USA)",
+          canonical_platform: "SNES",
+          region: "USA",
+          revision: "Rev 1",
+          confidence: "sha1",
+          catalog_name: "Nintendo - Super Nintendo Entertainment System",
+          catalog_version: "20240115",
+          catalog_sha256: "cafe0123",
+          source_name: "smw.sfc",
+          enriched_at: "2026-08-05T00:00:00Z",
+        },
+      }],
+    }));
+
+    expect(resp.status).toBe(200);
+    const insertBuilder = mockDb.insert.mock.results[0].value;
+    expect(insertBuilder.values).toHaveBeenCalledWith(expect.objectContaining({
+      verificationState: "verified",
+      canonicalTitle: "Super Mario World (USA)",
+      region: "USA",
+      revision: "Rev 1",
+      confidence: "sha1",
+      catalogName: "Nintendo - Super Nintendo Entertainment System",
+      catalogVersion: "20240115",
+      catalogSha256: "cafe0123",
+      verificationSourceName: "smw.sfc",
+      enrichedAt: "2026-08-05T00:00:00Z",
+    }));
+  });
+
+  it("rejects invalid verification payloads fail-closed to no evidence", async () => {
+    const { POST } = await import("@/app/api/server/sync-games/route");
+    const resp = await POST(syncReq({
+      games: [{
+        id: "local_abc",
+        name: "Some Game",
+        platform: "NES",
+        max_players: 2,
+        verification: {
+          state: "admin-approved",
+          canonical_title: "x".repeat(999),
+        },
+      }],
+    }));
+
+    expect(resp.status).toBe(200);
+    const insertBuilder = mockDb.insert.mock.results[0].value;
+    expect(insertBuilder.values).toHaveBeenCalledWith(expect.objectContaining({
+      verificationState: null,
+      canonicalTitle: null,
+      catalogSha256: null,
+    }));
   });
 });

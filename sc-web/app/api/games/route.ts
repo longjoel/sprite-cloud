@@ -88,6 +88,17 @@ export async function GET(request: NextRequest) {
       platform: serverGames.platform,
       serverId: serverGames.serverId,
       maxPlayers: serverGames.maxPlayers,
+      verificationState: serverGames.verificationState,
+      canonicalTitle: serverGames.canonicalTitle,
+      canonicalPlatform: serverGames.canonicalPlatform,
+      region: serverGames.region,
+      revision: serverGames.revision,
+      confidence: serverGames.confidence,
+      catalogName: serverGames.catalogName,
+      catalogVersion: serverGames.catalogVersion,
+      catalogSha256: serverGames.catalogSha256,
+      verificationSourceName: serverGames.verificationSourceName,
+      enrichedAt: serverGames.enrichedAt,
     })
     .from(serverGames)
     .where(pageWhere)
@@ -96,7 +107,29 @@ export async function GET(request: NextRequest) {
     .offset(offset);
 
   return NextResponse.json({
-    games: rows.map((r) => ({ id: r.id, name: r.name, platform: r.platform, serverId: r.serverId, maxPlayers: r.maxPlayers, coverUrl: `/api/covers/${r.serverId}/${encodeURIComponent(r.id)}` })),
+    games: rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      platform: r.platform,
+      serverId: r.serverId,
+      maxPlayers: r.maxPlayers,
+      coverUrl: `/api/covers/${r.serverId}/${encodeURIComponent(r.id)}`,
+      verification: r.verificationState
+        ? {
+            state: r.verificationState,
+            canonicalTitle: r.canonicalTitle,
+            canonicalPlatform: r.canonicalPlatform,
+            region: r.region,
+            revision: r.revision,
+            confidence: r.confidence,
+            catalogName: r.catalogName,
+            catalogVersion: r.catalogVersion,
+            catalogSha256: r.catalogSha256,
+            sourceName: r.verificationSourceName,
+            enrichedAt: r.enrichedAt,
+          }
+        : null,
+    })),
     total: Number(total),
     platforms: platformRows.map((r) => ({ name: r.name, count: Number(r.count) })),
   });

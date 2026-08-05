@@ -12,6 +12,7 @@ interface TileGame {
   platform: string;
   maxPlayers: number;
   coverUrl?: string | null;
+  verification?: { state: "verified" | "unverified" } | null;
 }
 
 interface GameTileProps {
@@ -87,6 +88,17 @@ export default function GameTile({
         className="game-tile-platform"
         sx={{ position: "absolute", top: 6, left: 6, zIndex: 1 }}
       />
+
+      {game.verification?.state && (
+        <Chip
+          label={game.verification.state === "verified" ? "✓ Verified" : "Unverified"}
+          size="small"
+          color={game.verification.state === "verified" ? "success" : "warning"}
+          variant="filled"
+          className={`game-tile-verification game-tile-verification-${game.verification.state}`}
+          sx={{ position: "absolute", top: 30, left: 6, zIndex: 1 }}
+        />
+      )}
 
       {/* Context menu (replaces individual action buttons and ⋮ overflow) */}
       {hasContextActions && (
