@@ -198,6 +198,7 @@ pub async fn run() -> Result<()> {
             policy: ice_policy,
             turn: None,
         }),
+        dat: None,
     };
 
     config::save(&cfg).context("save config")?;

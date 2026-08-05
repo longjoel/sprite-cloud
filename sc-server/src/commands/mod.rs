@@ -40,6 +40,7 @@ fn apply_pairing(
         cores: None,
         system: None,
         ice: None,
+        dat: None,
     });
     cfg.sc_web.url = sc_web_url.to_string();
     cfg.auth.api_key = api_key;
@@ -122,6 +123,14 @@ pub(crate) async fn cmd_start(
     }
 
     let client = sc_web::ScWebClient::new(cfg.sc_web.url.clone(), cfg.auth.clone());
+
+    // DAT catalog: loaded at startup; SIGHUP reloads it atomically (a failed
+    // replacement keeps the last known-good index).
+    let dat_catalog_state: Arc<
+        tokio::sync::RwLock<Option<Arc<crate::dat::catalog::LoadedCatalog>>>,
+    > = Arc::new(tokio::sync::RwLock::new(
+        crate::dat::catalog::load_from_config(&cfg),
+    ));
 
     let ice_runtime = config::runtime_ice_config();
     let ice_log = ice_runtime.startup_log_fields();
@@ -230,6 +239,61 @@ pub(crate) async fn cmd_start(
     const POLL_ERROR_BACKOFF_MS: u64 = 5_000;
     let mut sessions: HashMap<String, Arc<GameSession>> = HashMap::new();
 
+    // SIGHUP → re-read config and atomically replace the DAT catalog index.
+    // Any rejected catalog file keeps the last known-good index in place.
+    {
+        let dat_catalog_state = Arc::clone(&dat_catalog_state);
+        tokio::spawn(async move {
+            let mut hangup =
+                match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()) {
+                    Ok(signal) => signal,
+                    Err(error) => {
+                        tracing::warn!("[DAT] SIGHUP reload unavailable: {error}");
+                        return;
+                    }
+                };
+            loop {
+                hangup.recv().await;
+                tracing::info!("[DAT] reload requested (SIGHUP)");
+                let cfg = match config::load() {
+                    Ok(cfg) => cfg,
+                    Err(error) => {
+                        tracing::warn!(
+                            "[DAT] reload rejected — config unreadable, keeping last known-good: {error}"
+                        );
+                        continue;
+                    }
+                };
+                let gathered = crate::dat::catalog::configured_paths(&cfg);
+                let loaded = crate::dat::catalog::load_catalog(&gathered.paths);
+                let mut failures = gathered.failures;
+                failures.extend(loaded.failures);
+                if !failures.is_empty() {
+                    for (name, reason) in &failures {
+                        tracing::warn!(
+                            "[DAT] reload rejected — keeping last known-good: {name}: {reason}"
+                        );
+                    }
+                    continue;
+                }
+                match loaded.catalog {
+                    Some(catalog) => {
+                        tracing::info!(
+                            "[DAT] reload complete — {} catalog(s), {} entries",
+                            catalog.sources.len(),
+                            catalog.index.len(),
+                        );
+                        *dat_catalog_state.write().await = Some(Arc::new(catalog));
+                    }
+                    None => {
+                        tracing::info!("[DAT] reload complete — no catalogs configured");
+                        *dat_catalog_state.write().await = None;
+                    }
+                }
+            }
+        });
+    }
+
     loop {
         tokio::select! {
             _ = shutdown_signal() => {
@@ -294,10 +358,14 @@ pub(crate) async fn cmd_start(
                                         Arc::clone(&local_game_list),
                                     ).await;
                                 } else if cmd.command_type == "stage_rom" {
+                                    // Clone the Arc (cheap) so the catalog stays
+                                    // alive across the await without holding the
+                                    // lock guard.
+                                    let catalog = dat_catalog_state.read().await.clone();
                                     crate::commands::stage_rom::handle_stage_rom(
                                         cmd,
                                         &client,
-                                        None, // DAT catalog wired in a follow-up
+                                        catalog.as_ref().map(|loaded| &loaded.index),
                                     ).await;
                                 } else if cmd.command_type == "upgrade_server" {
                                     if !sessions.is_empty() {
@@ -700,6 +768,7 @@ mod tests {
                 policy: "all".into(),
                 turn: None,
             }),
+            dat: None,
         };
 
         let paired = apply_pairing(
