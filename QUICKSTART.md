@@ -1,10 +1,14 @@
 # Sprite Cloud — Quickstart
 
+The full, evidence-driven setup and connectivity journey is in
+**[docs/SELF-HOSTING.md](docs/SELF-HOSTING.md)** — start there if you are
+setting up a game host or a gateway. This page is the role picker.
+
 Three roles. Pick yours.
 
 | You want to… | You need | Time |
 |---|---|---|
-| **Play** games | A browser | 30 seconds |
+| **Play** games | An invitation + a browser | 30 seconds |
 | **Host** games (share your ROMs) | A Linux machine with ROMs | 5 minutes |
 | **Admin** (run the gateway) | A server with Docker | 10 minutes |
 
@@ -13,9 +17,9 @@ Three roles. Pick yours.
 ## 🎮 Play
 
 ```
-1. Open your browser
-2. Go to the gateway URL (your admin sends this)
-3. Sign up with email + password
+1. Get an invitation from the gateway admin (limited beta is invite-only)
+2. Open the invite link in your browser
+3. Create your account
 4. Click a game → Play
 ```
 
@@ -42,7 +46,7 @@ This also needs GStreamer (VP8 + Opus encoding):
 
 ```bash
 # Debian/Ubuntu
-sudo apt install gstreamer1.0-plugins-bad gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly
+sudo apt install gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav
 
 # Fedora
 sudo dnf install gstreamer1-plugins-bad-free gstreamer1-plugins-good gstreamer1-plugins-ugly-free
@@ -53,7 +57,7 @@ sudo pacman -S gst-plugins-bad gst-plugins-good gst-plugins-ugly
 
 Setup saves the ROM root and core directory in `~/.config/sprite-cloud/config.toml`. Those values survive pairing, service restarts, and binary upgrades.
 
-Full installation, upgrade, systemd, persistence, and troubleshooting documentation: **[docs/SC-SERVER-INSTALL.md](docs/SC-SERVER-INSTALL.md)**.
+Full installation, upgrade, systemd, persistence, and troubleshooting documentation: **[docs/SC-SERVER-INSTALL.md](docs/SC-SERVER-INSTALL.md)**. The complete setup-to-recovery journey (local play, remote direct/TURN verification, upgrade, recovery): **[docs/SELF-HOSTING.md](docs/SELF-HOSTING.md)**.
 
 ### 2. Pair with a gateway
 
