@@ -91,8 +91,19 @@ impl VerificationStore {
     pub fn load(path: PathBuf) -> io::Result<Self> {
         let state = if path.exists() {
             let data = std::fs::read(&path)?;
-            serde_json::from_slice(&data)
-                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?
+            match serde_json::from_slice::<BTreeMap<String, GameVerification>>(&data) {
+                Ok(state) => state,
+                Err(error) => {
+                    // A corrupt state file must never brick startup: verification
+                    // evidence is derived data (worst case: badges come back on
+                    // the next commit). Degrade to empty with a loud warning.
+                    tracing::warn!(
+                        "verification state at {} is corrupt ({error}); starting with no evidence",
+                        path.display()
+                    );
+                    BTreeMap::new()
+                }
+            }
         } else {
             BTreeMap::new()
         };
@@ -214,6 +225,28 @@ mod tests {
             Some("Super Mario World (USA)")
         );
         assert_eq!(v.catalog_sha256.as_deref(), Some("cafe"));
+    }
+
+    #[test]
+    fn corrupt_state_file_degrades_to_empty_not_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("verification-state.json");
+        std::fs::write(&path, b"{ this is not valid json !!!").unwrap();
+
+        let store = VerificationStore::load(path).unwrap();
+        assert!(store.snapshot().is_empty(), "corrupt state starts empty");
+        // And the store remains usable afterwards.
+        let mut store = store;
+        store
+            .record(
+                "local_abc".into(),
+                GameVerification {
+                    state: VerificationState::Unverified,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(store.get("local_abc").is_some());
     }
 
     #[test]

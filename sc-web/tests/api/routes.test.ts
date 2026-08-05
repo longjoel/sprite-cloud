@@ -3183,4 +3183,29 @@ describe("POST /api/server/sync-games", () => {
       catalogSha256: null,
     }));
   });
+
+  it("bounds over-long fields even when the state is valid", async () => {
+    const { POST } = await import("@/app/api/server/sync-games/route");
+    const resp = await POST(syncReq({
+      games: [{
+        id: "local_abc",
+        name: "Some Game",
+        platform: "NES",
+        max_players: 2,
+        verification: {
+          state: "unverified",
+          canonical_title: "x".repeat(999),
+          catalog_name: "ok",
+        },
+      }],
+    }));
+
+    expect(resp.status).toBe(200);
+    const insertBuilder = mockDb.insert.mock.results[0].value;
+    expect(insertBuilder.values).toHaveBeenCalledWith(expect.objectContaining({
+      verificationState: "unverified",
+      canonicalTitle: null,
+      catalogName: "ok",
+    }));
+  });
 });
