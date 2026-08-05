@@ -138,7 +138,7 @@ pub(crate) fn load_catalog(paths: &[PathBuf]) -> CatalogLoad {
         let file = match std::fs::File::open(path) {
             Ok(file) => file,
             Err(error) => {
-                failures.push((name, format!("open failed: {error}")));
+                failures.push((name, format!("read failed: {error}")));
                 continue;
             }
         };
