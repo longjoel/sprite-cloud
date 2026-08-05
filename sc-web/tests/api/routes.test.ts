@@ -873,9 +873,9 @@ describe("POST /api/server/command", () => {
     mockAuth.mockResolvedValueOnce(null);
     // No bearer presented (or bearer does not match) — creator-less legacy
     // codes cannot authorize a fresh start on their own.
-    mockVerifyBearerToken.mockResolvedValueOnce(null);
+    mockVerifyBearerToken.mockReset().mockResolvedValueOnce(null).mockResolvedValue({ id: "server-1", userId: "user-1", name: "sc-server", apiKeyHash: "hashed_key" });
     mockDb.select
-      .mockReturnValueOnce(mockQueryBuilder([{ code: "LEGACY", createdBy: null }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ code: "LEGACY", createdBy: null, mintedViaProxy: false }]))
       .mockReturnValueOnce(mockQueryBuilder([]));
 
     const { POST } = await import("@/app/api/server/command/route");
@@ -906,7 +906,7 @@ describe("POST /api/server/command", () => {
       .mockReturnValueOnce(mockQueryBuilder([{ code: "LANPROXY", createdBy: null, mintedViaProxy: true }]))
       .mockReturnValueOnce(mockQueryBuilder([]))   // legacy session lookup: none
       .mockReturnValueOnce(mockQueryBuilder([{ userId: "owner-user" }])); // serverMembers check
-    mockVerifyBearerToken.mockResolvedValueOnce({ id: "server-1", userId: "owner-user" });
+    mockVerifyBearerToken.mockReset().mockResolvedValueOnce({ id: "server-1", userId: "owner-user" }).mockResolvedValue({ id: "server-1", userId: "user-1", name: "sc-server", apiKeyHash: "hashed_key" });
 
     const { launchEvents, commands: commandsTable, sessions: sessionsTable, peerTokens: peerTokensTable } = await import("@/lib/db/schema");
     const sessionValues = vi.fn().mockReturnThis();
@@ -950,7 +950,7 @@ describe("POST /api/server/command", () => {
       .mockReturnValueOnce(mockQueryBuilder([]))   // legacy session lookup: none
       .mockReturnValueOnce(mockQueryBuilder([]));  // membership lookup
     // Bearer belongs to a DIFFERENT server — not host authority here.
-    mockVerifyBearerToken.mockResolvedValueOnce({ id: "server-other", userId: "other-user" });
+    mockVerifyBearerToken.mockReset().mockResolvedValueOnce({ id: "server-other", userId: "other-user" }).mockResolvedValue({ id: "server-1", userId: "user-1", name: "sc-server", apiKeyHash: "hashed_key" });
 
     const { POST } = await import("@/app/api/server/command/route");
     const req = mkReq("http://localhost/api/server/command", {
@@ -978,7 +978,7 @@ describe("POST /api/server/command", () => {
       .mockReturnValueOnce(mockQueryBuilder([{ code: "LANSTOP", createdBy: null, mintedViaProxy: true }]))
       .mockReturnValueOnce(mockQueryBuilder([]))   // legacy session: none
       .mockReturnValueOnce(mockQueryBuilder([{ userId: "owner-user" }])); // serverMembers
-    mockVerifyBearerToken.mockResolvedValueOnce({ id: "server-1", userId: "owner-user" });
+    mockVerifyBearerToken.mockReset().mockResolvedValueOnce({ id: "server-1", userId: "owner-user" }).mockResolvedValue({ id: "server-1", userId: "user-1", name: "sc-server", apiKeyHash: "hashed_key" });
 
     // stop_game needs an active session to resolve session_id
     mockDb.select
@@ -1011,7 +1011,7 @@ describe("POST /api/server/command", () => {
       .mockReturnValueOnce(mockQueryBuilder([{ code: "LANSDP", createdBy: null, mintedViaProxy: true }]))
       .mockReturnValueOnce(mockQueryBuilder([]))   // legacy session: none
       .mockReturnValueOnce(mockQueryBuilder([{ userId: "owner-user" }])); // serverMembers
-    mockVerifyBearerToken.mockResolvedValueOnce({ id: "server-1", userId: "owner-user" });
+    mockVerifyBearerToken.mockReset().mockResolvedValueOnce({ id: "server-1", userId: "owner-user" }).mockResolvedValue({ id: "server-1", userId: "user-1", name: "sc-server", apiKeyHash: "hashed_key" });
 
     // sdp_offer host reconnect needs an active session
     mockDb.select
@@ -1047,7 +1047,7 @@ describe("POST /api/server/command", () => {
       .mockReturnValueOnce(mockQueryBuilder([{ code: "LEGACY2", createdBy: null, mintedViaProxy: false }]))
       .mockReturnValueOnce(mockQueryBuilder([]));  // legacy session: none
     // verifyBearerToken should NOT be called — bearer override is gated
-    mockVerifyBearerToken.mockResolvedValueOnce({ id: "server-1", userId: "owner-user" });
+    mockVerifyBearerToken.mockReset().mockResolvedValueOnce({ id: "server-1", userId: "owner-user" }).mockResolvedValue({ id: "server-1", userId: "user-1", name: "sc-server", apiKeyHash: "hashed_key" });
 
     const { POST } = await import("@/app/api/server/command/route");
     const req = mkReq("http://localhost/api/server/command", {
@@ -1276,7 +1276,7 @@ describe("POST /api/room/shorten", () => {
 
   it("rejects unauthenticated callers without a server bearer token", async () => {
     mockAuth.mockResolvedValueOnce(null);
-    mockVerifyBearerToken.mockResolvedValueOnce(null);
+    mockVerifyBearerToken.mockReset().mockResolvedValueOnce(null).mockResolvedValue({ id: "server-1", userId: "user-1", name: "sc-server", apiKeyHash: "hashed_key" });
     const { POST } = await import("@/app/api/room/shorten/route");
 
     const resp = await POST(mkReq("http://localhost/api/room/shorten", jsonBody(body)));
