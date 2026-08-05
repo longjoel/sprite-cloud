@@ -388,7 +388,7 @@ pub(crate) async fn cmd_start(
                                     crate::commands::stage_rom::handle_stage_rom(
                                         cmd,
                                         &client,
-                                        catalog.as_ref().map(|loaded| &loaded.index),
+                                        catalog.as_deref(),
                                     ).await;
                                 } else if cmd.command_type == "upgrade_server" {
                                     if !sessions.is_empty() {

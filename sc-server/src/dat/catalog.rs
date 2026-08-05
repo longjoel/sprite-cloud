@@ -120,7 +120,7 @@ pub(crate) fn load_catalog(paths: &[PathBuf]) -> CatalogLoad {
     }
 
     let mut sources: Vec<DatProvenance> = Vec::new();
-    let mut entries: Vec<RomEntry> = Vec::new();
+    let mut entries: Vec<(RomEntry, usize)> = Vec::new();
     let mut total_entries = 0usize;
     let mut failures: Vec<(String, String)> = Vec::new();
 
@@ -174,7 +174,16 @@ pub(crate) fn load_catalog(paths: &[PathBuf]) -> CatalogLoad {
             continue;
         }
 
-        entries.extend(parsed.index.entries().cloned());
+        // Record the source index BEFORE pushing the provenance so each
+        // entry points at the catalog it came from.
+        let source_index = sources.len();
+        entries.extend(
+            parsed
+                .index
+                .entries()
+                .cloned()
+                .map(|entry| (entry, source_index)),
+        );
         total_entries += file_entries;
         sources.push(parsed.provenance);
     }
@@ -183,7 +192,7 @@ pub(crate) fn load_catalog(paths: &[PathBuf]) -> CatalogLoad {
         None
     } else {
         Some(LoadedCatalog {
-            index: DatIndex::from_entries(entries),
+            index: DatIndex::from_sourced_entries(entries),
             sources,
         })
     };
@@ -347,6 +356,48 @@ mod tests {
             524288,
         );
         assert_eq!(m.entry.unwrap().name, "Super Mario World (USA)");
+    }
+
+    #[test]
+    fn matches_resolve_to_their_source_catalog() {
+        let dir = tempfile::tempdir().unwrap();
+        // Two catalogs with distinct entries; the second one owns the ROM.
+        write(
+            &dir.path().join("a.dat"),
+            br#"<?xml version="1.0"?>
+<datafile><header><name>Catalog A</name><version>1</version></header>
+<game name="Only in A (USA)"><rom name="a.sfc" size="1024" crc="AAAAAAAA" sha1="1111111111111111111111111111111111111111"/></game>
+</datafile>"#,
+        );
+        write(
+            &dir.path().join("b.dat"),
+            br#"<?xml version="1.0"?>
+<datafile><header><name>Catalog B</name><version>2</version></header>
+<game name="Only in B (USA)"><rom name="b.sfc" size="2048" crc="BBBBBBBB" sha1="2222222222222222222222222222222222222222"/></game>
+</datafile>"#,
+        );
+        let paths = vec![dir.path().join("a.dat"), dir.path().join("b.dat")];
+
+        let loaded = load_catalog(&paths);
+        assert!(loaded.failures.is_empty());
+        let catalog = loaded.catalog.expect("catalog loads");
+        assert_eq!(catalog.sources.len(), 2);
+
+        // Entry from the second catalog resolves back to source index 1.
+        let m =
+            catalog
+                .index
+                .find_match("2222222222222222222222222222222222222222", "bbbbbbbb", 2048);
+        assert_eq!(m.source, Some(1));
+        assert_eq!(m.entry.unwrap().name, "Only in B (USA)");
+
+        // A miss carries no source.
+        let miss =
+            catalog
+                .index
+                .find_match("ffffffffffffffffffffffffffffffffffffffff", "00000000", 1);
+        assert_eq!(miss.source, None);
+        assert_eq!(miss.confidence, crate::dat::MatchConfidence::None);
     }
 
     #[test]
