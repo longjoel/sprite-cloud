@@ -27,6 +27,10 @@ Thumbs.db
 # Node
 node_modules/
 dist/
+# npm lockfile is a stray artifact — this repo uses pnpm (pnpm-lock.yaml)
+package-lock.json
+npm-shrinkwrap.json
+yarn.lock
 
 # Rust
 target/
