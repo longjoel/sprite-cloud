@@ -14,6 +14,7 @@ fn save_and_load_roundtrip() {
         cores: None,
         system: None,
         ice: None,
+        dat: None,
     };
 
     let content = toml::to_string_pretty(&cfg).unwrap();

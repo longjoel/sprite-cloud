@@ -57,6 +57,8 @@ export const config = {
     "/api/:path*",
     "/covers/:path*",
     "/p/:path*",
+    "/r/:path*",
+    "/servers/:path*",
     "/signin",
     "/setup",
     "/invite/:path*",

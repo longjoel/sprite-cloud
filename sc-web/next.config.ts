@@ -5,12 +5,16 @@ import type { NextConfig } from "next";
 // CSP stays fully closed (no external connect-src), matching the app's
 // fail-closed posture and the no-tracked-secrets CI guard.
 const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST;
+// posthog-js loads its runtime config (config.js) from the PostHog assets
+// CDN (e.g. https://us-assets.i.posthog.com) when api_host is a regional
+// host like https://us.i.posthog.com. Derive it so the CSP stays in sync.
+const posthogAssetsHost = posthogHost?.replace(".i.posthog.com", "-assets.i.posthog.com");
 
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  `script-src 'self' 'unsafe-inline' 'unsafe-eval'${posthogAssetsHost ? ` ${posthogAssetsHost}` : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  `connect-src 'self' ws: wss:${posthogHost ? ` ${posthogHost}` : ""}`,
+  `connect-src 'self' ws: wss:${posthogHost ? ` ${posthogHost}` : ""}${posthogAssetsHost ? ` ${posthogAssetsHost}` : ""}`,
   "media-src 'self' blob:",
   "img-src 'self' data:",
   "font-src 'self'",
