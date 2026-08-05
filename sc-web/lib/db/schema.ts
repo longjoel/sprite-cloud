@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid, integer, index } from "drizzle-orm/pg-core";
+import { check, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid, integer, index, boolean } from "drizzle-orm/pg-core";
 
 // ── Users (created via OAuth) ────────────────────────────────────────
 
@@ -269,5 +269,5 @@ export const shortCodes = pgTable("short_codes", {
   hostToken: text("host_token").notNull(),
   serverId: text("server_id").notNull(),
   createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  mintedViaProxy: boolean("minted_via_proxy").default(false).notNull(),
 });
