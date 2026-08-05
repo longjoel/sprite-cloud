@@ -255,17 +255,31 @@ pub(crate) async fn cmd_start(
             loop {
                 hangup.recv().await;
                 tracing::info!("[DAT] reload requested (SIGHUP)");
-                let cfg = match config::load() {
-                    Ok(cfg) => cfg,
-                    Err(error) => {
+                // Config read + XML parsing are synchronous; up to 256 × 64 MiB
+                // of parsing must not stall a tokio worker thread, so the whole
+                // reload runs in spawn_blocking.
+                let (gathered, loaded) = match tokio::task::spawn_blocking(|| {
+                    let cfg = config::load()?;
+                    let gathered = crate::dat::catalog::configured_paths(&cfg);
+                    let loaded = crate::dat::catalog::load_catalog(&gathered.paths);
+                    Ok::<_, anyhow::Error>((gathered, loaded))
+                })
+                .await
+                {
+                    Ok(Ok(pair)) => pair,
+                    Ok(Err(error)) => {
                         tracing::warn!(
                             "[DAT] reload rejected — config unreadable, keeping last known-good: {error}"
                         );
                         continue;
                     }
+                    Err(join_error) => {
+                        tracing::warn!(
+                            "[DAT] reload task panicked — keeping last known-good: {join_error}"
+                        );
+                        continue;
+                    }
                 };
-                let gathered = crate::dat::catalog::configured_paths(&cfg);
-                let loaded = crate::dat::catalog::load_catalog(&gathered.paths);
                 let mut failures = gathered.failures;
                 failures.extend(loaded.failures);
                 if !failures.is_empty() {
@@ -286,7 +300,16 @@ pub(crate) async fn cmd_start(
                         *dat_catalog_state.write().await = Some(Arc::new(catalog));
                     }
                     None => {
-                        tracing::info!("[DAT] reload complete — no catalogs configured");
+                        // A reload that yields no catalogs while one was live is
+                        // usually a config edit that dropped the [dat] section —
+                        // call it out instead of silently disabling verification.
+                        if dat_catalog_state.read().await.is_some() {
+                            tracing::warn!(
+                                "[DAT] reload complete — no catalogs configured; previous index dropped"
+                            );
+                        } else {
+                            tracing::info!("[DAT] reload complete — no catalogs configured");
+                        }
                         *dat_catalog_state.write().await = None;
                     }
                 }
