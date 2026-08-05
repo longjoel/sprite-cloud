@@ -42,6 +42,9 @@ pub(crate) struct DatIndex {
     entries: Vec<RomEntry>,
     by_sha1: HashMap<String, Vec<usize>>,
     by_crc32_size: HashMap<(String, u64), Vec<usize>>,
+    /// Parallel to `entries`: index of the source catalog (into the
+    /// owning catalog's `sources`) each entry came from.
+    entry_source: Vec<usize>,
 }
 
 /// Information about the source DAT file.
@@ -96,11 +99,15 @@ pub(crate) struct DatMatch {
     pub confidence: MatchConfidence,
     /// Human-readable provenance string (e.g. "Exact SHA-1 match")
     pub provenance: String,
+    /// Index of the source catalog this entry came from (into the owning
+    /// catalog's `sources`). `None` when there was no match.
+    pub source: Option<usize>,
 }
 
 impl DatIndex {
     /// Build an index from parsed entries.
     pub(crate) fn from_entries(entries: Vec<RomEntry>) -> Self {
+        let entry_count = entries.len();
         let mut by_sha1: HashMap<String, Vec<usize>> = HashMap::new();
         let mut by_crc32_size: HashMap<(String, u64), Vec<usize>> = HashMap::new();
 
@@ -120,7 +127,22 @@ impl DatIndex {
             entries,
             by_sha1,
             by_crc32_size,
+            entry_source: vec![0; entry_count],
         }
+    }
+
+    /// Build an index from (entry, source-catalog-index) pairs, recording
+    /// which source catalog each entry belongs to.
+    pub(crate) fn from_sourced_entries(entries: Vec<(RomEntry, usize)>) -> Self {
+        let mut roms = Vec::with_capacity(entries.len());
+        let mut sources = Vec::with_capacity(entries.len());
+        for (entry, source) in entries {
+            roms.push(entry);
+            sources.push(source);
+        }
+        let mut index = DatIndex::from_entries(roms);
+        index.entry_source = sources;
+        index
     }
 
     /// Look up by SHA-1 hash.
@@ -142,22 +164,26 @@ impl DatIndex {
     /// Full match: try SHA-1 first, fall back to CRC32+size, return best result.
     pub(crate) fn find_match(&self, sha1: &str, crc32: &str, size: u64) -> DatMatch {
         // Prefer SHA-1 exact match
-        let sha1_matches = self.find_by_sha1(sha1);
-        if let Some(entry) = sha1_matches.first() {
+        if let Some(&i) = self.by_sha1.get(sha1).and_then(|indices| indices.first()) {
             return DatMatch {
-                entry: Some((*entry).clone()),
+                entry: Some(self.entries[i].clone()),
                 confidence: MatchConfidence::Sha1,
                 provenance: "Exact SHA-1 match".to_string(),
+                source: Some(self.entry_source[i]),
             };
         }
 
         // Fall back to CRC32 + size
-        let crc_matches = self.find_by_crc32_size(crc32, size);
-        if let Some(entry) = crc_matches.first() {
+        if let Some(&i) = self
+            .by_crc32_size
+            .get(&(crc32.to_string(), size))
+            .and_then(|indices| indices.first())
+        {
             return DatMatch {
-                entry: Some((*entry).clone()),
+                entry: Some(self.entries[i].clone()),
                 confidence: MatchConfidence::Crc32Size,
                 provenance: "CRC32 + size match".to_string(),
+                source: Some(self.entry_source[i]),
             };
         }
 
@@ -165,6 +191,7 @@ impl DatIndex {
             entry: None,
             confidence: MatchConfidence::None,
             provenance: "No DAT match; extension heuristic only".to_string(),
+            source: None,
         }
     }
 

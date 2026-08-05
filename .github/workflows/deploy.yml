@@ -81,6 +81,7 @@ jobs:
             sc-web/drizzle/0021_add_source_name.sql \
             sc-web/drizzle/0022_add_thumbnail_name.sql \
             sc-web/drizzle/0023_add_minted_via_proxy.sql \
+            sc-web/drizzle/0024_add_verification_fields.sql \
           ; do
             if [ ! -f "$migration" ]; then
               echo "  skip (not present): $migration"

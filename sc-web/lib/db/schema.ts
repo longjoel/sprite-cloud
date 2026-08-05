@@ -39,6 +39,18 @@ export const serverGames = pgTable("server_games", {
   sourceName: text("source_name"),
   // Trusted canonical DAT identity supplied by the paired server. UI renames never change it.
   thumbnailName: text("thumbnail_name"),
+  // DAT verification evidence (canonical identity + source-catalog provenance).
+  verificationState: text("verification_state"),
+  canonicalTitle: text("canonical_title"),
+  canonicalPlatform: text("canonical_platform"),
+  region: text("region"),
+  revision: text("revision"),
+  confidence: text("confidence"),
+  catalogName: text("catalog_name"),
+  catalogVersion: text("catalog_version"),
+  catalogSha256: text("catalog_sha256"),
+  verificationSourceName: text("verification_source_name"),
+  enrichedAt: text("enriched_at"),
   platform: text("platform").notNull().default("Unknown"),
   maxPlayers: integer("max_players").notNull().default(1),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

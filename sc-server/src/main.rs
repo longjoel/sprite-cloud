@@ -27,6 +27,7 @@ mod session;
 mod setup;
 mod streaming;
 mod upgrade;
+mod verification;
 mod webrtc;
 
 use anyhow::Result;
