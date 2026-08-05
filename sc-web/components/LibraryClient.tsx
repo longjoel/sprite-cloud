@@ -27,6 +27,7 @@ interface Game {
   maxPlayers: number;
   playedAt?: string;
   coverUrl?: string | null;
+  verification?: { state: "verified" | "unverified" } | null;
 }
 
 interface GameActionModel {

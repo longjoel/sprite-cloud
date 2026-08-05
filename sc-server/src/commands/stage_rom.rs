@@ -10,7 +10,7 @@ use crate::sc_web;
 pub(crate) async fn handle_stage_rom(
     cmd: &sc_web::Command,
     client: &sc_web::ScWebClient,
-    dat_index: Option<&crate::dat::DatIndex>,
+    catalog: Option<&crate::dat::catalog::LoadedCatalog>,
 ) {
     let file_path = match cmd.payload.get("file_path").and_then(|v| v.as_str()) {
         Some(p) => std::path::PathBuf::from(p),
@@ -80,7 +80,7 @@ pub(crate) async fn handle_stage_rom(
     };
 
     // Enrich with DAT identity when available
-    manifest.enrich(dat_index);
+    manifest.enrich(catalog);
 
     tracing::info!(
         "[stage] manifest ready — sha256={} classification={:?} dat_match={}",
