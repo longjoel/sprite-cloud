@@ -4,6 +4,10 @@ This is the operator guide for issue #522.
 
 Goal: answer the question *"is my Sprite Cloud multiplayer setup healthy?"* without making you reason about STUN, TURN, ICE, or NAT internals.
 
+> The canonical setup + connectivity journey (install → pair → verify → play →
+> remote → upgrade → recover) is **[SELF-HOSTING.md](SELF-HOSTING.md)**; this
+> page is the health-mode reference for the `/api/health` `connectivity` block.
+
 ## The 4 modes Sprite Cloud can be in
 
 ### 1. LAN-only
