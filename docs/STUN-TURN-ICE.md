@@ -4,24 +4,32 @@
 This guide covers everything you need so peers can connect through NATs, firewalls,
 and Docker containers — the stuff that makes you mutter *"this is bananas."*
 
+> The canonical operator journey (which machine gets what, symptom-first
+> troubleshooting, and the plain-language explainer) is
+> **[SELF-HOSTING.md](SELF-HOSTING.md)**. This page is the coturn
+> configuration reference.
+
 ---
 
 ## Quick Reference: What Goes Where
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  Internet                                             │
-│    │                                                   │
-│    ▼                                                   │
-│  Your Server (YOUR_SERVER_IP)                            │
-│    ├─ coturn         :3478  (STUN + TURN)              │
-│    ├─ Docker bridge  :172.17.0.1                       │
-│    │   └─ sc-web container                             │
-│    │       ├─ Next.js on :3000                         │
-│    │       └─ sc-server (Rust) inside                  │
-│    └─ Firewall: UDP 3478, UDP 49152-65535              │
+│  Gateway server                                      │
+│    ├─ coturn         :3478  (STUN + TURN)            │
+│    ├─ Docker bridge  :172.17.0.1                     │
+│    │   └─ sc-web container                           │
+│    │       └─ Next.js on :3000                       │
+│    └─ Firewall: UDP 3478, UDP 49152-65535            │
+├──────────────────────────────────────────────────────┤
+│  Game host (the machine with the ROMs)               │
+│    └─ sc-server (systemd service or foreground)      │
 └──────────────────────────────────────────────────────┘
 ```
+
+`sc-server` runs on the game host, not inside the gateway container. The
+browser (player) and `sc-server` (host) are the two WebRTC peers; the gateway
+only relays commands/signaling and (optionally) hosts TURN.
 
 ---
 
