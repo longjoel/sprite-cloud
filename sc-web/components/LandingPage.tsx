@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import WallClient from "@/components/WallClient";
 
 // ── LandingPage — public hero + setup guide for unauthenticated visitors
 
@@ -64,49 +65,32 @@ export default function LandingPage() {
         </div>
       </nav>
 
-      {/* ── Hero ────────────────────────────────────────────────────── */}
+      {/* ── Hero: the living wall ──────────────────────────────────── */}
       <section style={s.hero}>
         <div style={s.heroInner}>
           <h1 style={s.title}>
-            Your games.
+            The Arcade
             <br />
-            <span style={{ color: CLOUD_ACCENT }}>Any screen.</span>
+            <span style={{ color: CLOUD_ACCENT }}>is open.</span>
           </h1>
           <p style={s.subtitle}>
-            Stream your retro game library from your own hardware to any
-            device — browser, phone, or tablet. No cloud subscription, no
-            monthly fees. Just your ROMs, your server, your games.
+            Live games streaming from servers on this gateway — right now.
+            No account, no install: click a live game and you're in the seat,
+            playing with strangers in your browser.
           </p>
           <div style={s.ctaRow}>
             <a href="#guide" onClick={scrollToGuide} style={s.ctaPrimary}>
-              Get Started
+              Run your own
             </a>
             <Link href="/signin" style={s.ctaSecondary}>
               Sign In
             </Link>
           </div>
         </div>
-        <div style={s.heroVisual}>
-          <div style={s.visualStack}>
-            {[
-              "#bf2a36","#5a3d8a","#1e3660","#1e3460","#6b8e1e",
-              "#c46a1a","#6a2c8a","#2d6b2d","#c64a1e",
-            ].map((c, i) => (
-              <div
-                key={i}
-                style={{
-                  width: `${120 - i * 8}px`,
-                  height: "12px",
-                  background: c,
-                  borderRadius: 2,
-                  opacity: 0.85 - i * 0.06,
-                  transform: `translateX(${i % 2 === 0 ? "-" : ""}${i * 3}px) rotate(${i % 2 === 0 ? "-" : ""}${i * 0.8}deg)`,
-                }}
-              />
-            ))}
-          </div>
-        </div>
       </section>
+
+      {/* ── The Living Cabinet wall (#762) ──────────────────────────── */}
+      <WallClient />
 
       {/* ── Features ────────────────────────────────────────────────── */}
       <section id="features" style={s.features}>
