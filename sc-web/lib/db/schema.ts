@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid, integer, index, boolean } from "drizzle-orm/pg-core";
+import { check, jsonb, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid, integer, index, boolean } from "drizzle-orm/pg-core";
 
 // ── Users (created via OAuth) ────────────────────────────────────────
 
@@ -59,6 +59,31 @@ export const serverGames = pgTable("server_games", {
   serverIdx: index("idx_server_games_server").on(table.serverId),
   nameIdx: index("idx_server_games_name").on(table.name),
 }));
+
+// ── Gateway-owned per-game flags (Living Cabinet wall, #762) ──────────
+//
+// Admin-toggled on sc-web. Kept OUT of server_games — a full-replace cache
+// pushed by sc-server — so a host sync can never wipe an admin's toggle.
+// always_on: the host keeps a resident session for this game.
+// public: broadcast on the gateway's public wall (watchable + joinable).
+
+export const gameFlags = pgTable(
+  "game_flags",
+  {
+    serverId: uuid("server_id")
+      .references(() => servers.id, { onDelete: "cascade" })
+      .notNull(),
+    gameId: text("game_id").notNull(),
+    alwaysOn: boolean("always_on").notNull().default(false),
+    public: boolean("public").notNull().default(false),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.serverId, table.gameId] }),
+    publicIdx: index("idx_game_flags_public").on(table.public),
+  }),
+);
 
 // ── Server members (which users can play on which servers) ───────────
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { serverGames, serverMembers } from "@/lib/db/schema";
+import { gameFlags, serverGames, serverMembers } from "@/lib/db/schema";
 import { and, eq, ilike, sql, inArray } from "drizzle-orm";
 
 // ── GET /api/games ─────────────────────────────────────────────────────
@@ -29,6 +29,9 @@ interface GameEntry {
   serverId: string;
   maxPlayers: number;
   coverUrl?: string | null;
+  // Gateway-owned flags (#762): resident session + public wall broadcast.
+  alwaysOn?: boolean;
+  public?: boolean;
 }
 
 export async function GET(request: NextRequest) {
@@ -88,6 +91,8 @@ export async function GET(request: NextRequest) {
       platform: serverGames.platform,
       serverId: serverGames.serverId,
       maxPlayers: serverGames.maxPlayers,
+      alwaysOn: gameFlags.alwaysOn,
+      public: gameFlags.public,
       verificationState: serverGames.verificationState,
       canonicalTitle: serverGames.canonicalTitle,
       canonicalPlatform: serverGames.canonicalPlatform,
@@ -101,6 +106,13 @@ export async function GET(request: NextRequest) {
       enrichedAt: serverGames.enrichedAt,
     })
     .from(serverGames)
+    .leftJoin(
+      gameFlags,
+      and(
+        eq(gameFlags.serverId, serverGames.serverId),
+        eq(gameFlags.gameId, serverGames.gameId),
+      ),
+    )
     .where(pageWhere)
     .orderBy(serverGames.name)
     .limit(limit)
@@ -113,6 +125,8 @@ export async function GET(request: NextRequest) {
       platform: r.platform,
       serverId: r.serverId,
       maxPlayers: r.maxPlayers,
+      alwaysOn: r.alwaysOn ?? false,
+      public: r.public ?? false,
       coverUrl: `/api/covers/${r.serverId}/${encodeURIComponent(r.id)}`,
       verification: r.verificationState
         ? {

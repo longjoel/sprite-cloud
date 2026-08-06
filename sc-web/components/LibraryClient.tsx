@@ -28,6 +28,8 @@ interface Game {
   playedAt?: string;
   coverUrl?: string | null;
   verification?: { state: "verified" | "unverified" } | null;
+  alwaysOn?: boolean;
+  public?: boolean;
 }
 
 interface GameActionModel {
@@ -44,6 +46,10 @@ interface GameActionModel {
   onChooseHost?: (game: Game) => void;
   onDelete?: (game: Game) => void;
   onDownload?: (game: Game) => void;
+  /** Admin flag toggles (Living Cabinet wall, #762). */
+  canToggleFlags: boolean;
+  onTogglePublic?: (game: Game) => void;
+  onToggleAlwaysOn?: (game: Game) => void;
 }
 
 interface PlayableHost {
@@ -548,7 +554,40 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
     onChooseHost: hasServers ? chooseHost : undefined,
     onDelete: isAdmin ? handleDelete : undefined,
     onDownload: isAdmin ? handleDownload : undefined,
+    canToggleFlags: isAdmin,
+    onTogglePublic: isAdmin ? handleToggleFlag("public") : undefined,
+    onToggleAlwaysOn: isAdmin ? handleToggleFlag("alwaysOn") : undefined,
   };
+
+  // ── Flag toggle handler (Living Cabinet wall, #762) ─────────────
+
+  function handleToggleFlag(flag: "public" | "alwaysOn") {
+    return async (game: Game) => {
+      const serverId = game.serverId ?? adminServers[0]?.id;
+      if (!serverId) return;
+
+      try {
+        const res = await fetch("/api/games/flags", {
+          method: "PATCH",
+          headers: csrfHeaders(),
+          body: JSON.stringify({
+            serverId,
+            gameId: game.id,
+            [flag]: !(flag === "public" ? game.public : game.alwaysOn),
+          }),
+        });
+        const data = await res.json() as { error?: string };
+        if (!res.ok) {
+          alert(data.error ?? "Update failed");
+          return;
+        }
+        // Refresh the library so the new flag state is reflected
+        window.location.reload();
+      } catch {
+        alert("Network error — flag update may not have been applied");
+      }
+    };
+  }
 
   // ── Delete handler ──────────────────────────────────────────────
 
@@ -652,7 +691,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
           >
             {launchingGame === libraryGameKey(game) ? "Launching…" : "Play"}
           </Button>
-          {(gameActions.canFavorite || gameActions.canRename || gameActions.canDelete || !!gameActions.onChooseHost || !!gameActions.onDownload) && (
+          {(gameActions.canFavorite || gameActions.canRename || gameActions.canDelete || !!gameActions.onChooseHost || !!gameActions.onDownload || gameActions.canToggleFlags) && (
             <GameTileContextMenu
               game={game}
               isFavorite={gameActions.isFavorite(game)}
@@ -661,6 +700,10 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
               onChooseHost={gameActions.onChooseHost ? () => gameActions.onChooseHost?.(game) : undefined}
               onDelete={gameActions.canDelete ? () => gameActions.onDelete?.(game) : undefined}
               onDownload={gameActions.onDownload ? () => gameActions.onDownload?.(game) : undefined}
+              isPublic={game.public}
+              onTogglePublic={gameActions.canToggleFlags ? () => gameActions.onTogglePublic?.(game) : undefined}
+              isAlwaysOn={game.alwaysOn}
+              onToggleAlwaysOn={gameActions.canToggleFlags ? () => gameActions.onToggleAlwaysOn?.(game) : undefined}
               triggerAriaLabel={`More actions for ${game.name}`}
             />
           )}
