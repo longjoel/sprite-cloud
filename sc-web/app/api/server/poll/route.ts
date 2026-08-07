@@ -223,6 +223,7 @@ async function convergeResidents(serverId: string): Promise<void> {
         host_token: hostToken,
         session_id: sessionId,
         resident: true,
+        max_seats: 4,
       },
       status: STATUS_PENDING,
       createdAt: now,

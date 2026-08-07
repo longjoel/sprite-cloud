@@ -235,7 +235,7 @@ export const sessions = pgTable("sessions", {
   workerUrl: text("worker_url"),
   sdpAnswer: text("sdp_answer"),
   roomToken: text("room_token").unique(),
-  maxSeats: integer("max_seats").notNull().default(1),
+  maxSeats: integer("max_seats").notNull().default(4),
   generation: integer("generation").notNull().default(1),
   status: text("status").notNull().default("spawning"),
   // spawning → ready → connected → playing → ended | timed_out
