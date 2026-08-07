@@ -3399,3 +3399,152 @@ describe("GET /api/games includes flags", () => {
     expect(data.games[0].public).toBe(false);
   });
 });
+
+// ── GET /api/wall (Living Cabinet wall, #762) ─────────────────────────
+
+describe("GET /api/wall", () => {
+  it("is public (no auth) and returns only public games with live state", async () => {
+    mockDb.select
+      .mockReturnValueOnce(
+        mockQueryBuilder([
+          {
+            gameId: "gauntlet",
+            name: "Gauntlet",
+            platform: "Arcade",
+            maxPlayers: 4,
+            serverId: "server-1",
+            serverName: "arcade-1",
+            serverOnline: true,
+            sessionId: "sess-1",
+            sessionStatus: "playing",
+            roomToken: "room-tok-1",
+            sessionMaxSeats: 2,
+            stateEnteredAt: new Date(),
+          },
+          {
+            gameId: "tetris",
+            name: "Tetris",
+            platform: "Game Boy",
+            maxPlayers: 1,
+            serverId: "server-1",
+            serverName: "arcade-1",
+            serverOnline: true,
+            sessionId: null,
+            sessionStatus: null,
+            roomToken: null,
+            sessionMaxSeats: null,
+            stateEnteredAt: null,
+          },
+        ]),
+      ) // wall rows
+      .mockReturnValueOnce(
+        mockQueryBuilder([
+          { sessionId: "sess-1", role: "player", count: 1 },
+          { sessionId: "sess-1", role: "viewer", count: 2 },
+        ]),
+      ); // peer counts
+    const { GET } = await import("@/app/api/wall/route");
+    const resp = await GET();
+    expect(resp.status).toBe(200);
+    const data = await resp.json();
+    expect(data.games).toHaveLength(2);
+
+    const live = data.games.find((g: { id: string }) => g.id === "gauntlet");
+    expect(live.live).toBe(true);
+    expect(live.players).toBe(1);
+    expect(live.viewers).toBe(2);
+    expect(live.roomUrl).toContain("/r/room-tok-1");
+    expect(live.roomUrl).toContain("game_id=gauntlet");
+    expect(live.roomUrl).toContain("server_id=server-1");
+    expect(live.coverUrl).toBe("/api/covers/server-1/gauntlet");
+
+    const idle = data.games.find((g: { id: string }) => g.id === "tetris");
+    expect(idle.live).toBe(false);
+    expect(idle.roomUrl).toBeUndefined();
+    expect(idle.players).toBe(0);
+  });
+
+  it("exposes no server metadata or tokens beyond the wall fields", async () => {
+    mockDb.select
+      .mockReturnValueOnce(
+        mockQueryBuilder([
+          {
+            gameId: "gauntlet",
+            name: "Gauntlet",
+            platform: "Arcade",
+            maxPlayers: 4,
+            serverId: "server-1",
+            serverName: "arcade-1",
+            serverOnline: false,
+            sessionId: null,
+            sessionStatus: null,
+            roomToken: null,
+            sessionMaxSeats: null,
+            stateEnteredAt: null,
+          },
+        ]),
+      ) // wall rows
+      .mockReturnValueOnce(mockQueryBuilder([])); // peer counts (no live sessions)
+    const { GET } = await import("@/app/api/wall/route");
+    const data = await (await GET()).json();
+    const raw = JSON.stringify(data);
+    expect(raw).not.toContain("host_token");
+    expect(raw).not.toContain("api_key");
+    expect(raw).not.toContain("metadata");
+  });
+});
+
+// ── GET /api/covers public carve-out (#762) ───────────────────────────
+
+const PNG_1PX =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+describe("GET /api/covers/[server_id]/[game_id] public carve-out", () => {
+  it("fails closed: unauthenticated + non-public game → 404", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([])); // public flag lookup
+    const { GET } = await import("@/app/api/covers/[server_id]/[game_id]/route");
+    const resp = await GET(
+      mkReq("http://localhost/api/covers/server-1/game-1"),
+      { params: Promise.resolve({ server_id: "server-1", game_id: "game-1" }) },
+    );
+    expect(resp.status).toBe(404);
+  });
+
+  it("serves covers for public games without a session", async () => {
+    mockAuth.mockResolvedValueOnce(null);
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ public: true }])) // public flag lookup
+      .mockReturnValueOnce(
+        mockQueryBuilder([
+          { name: "Gauntlet", sourceName: "gauntlet", thumbnailName: null, platform: "Arcade" },
+        ]),
+      ); // game row
+    const previousFetch = global.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(Uint8Array.from(atob(PNG_1PX), (c) => c.charCodeAt(0)), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+      ),
+    );
+    const previousCoversDir = process.env.GV_COVERS_DIR;
+    process.env.GV_COVERS_DIR = "/tmp/sc-covers-test";
+    try {
+      const { GET } = await import("@/app/api/covers/[server_id]/[game_id]/route");
+      const resp = await GET(
+        mkReq("http://localhost/api/covers/server-1/gauntlet"),
+        { params: Promise.resolve({ server_id: "server-1", game_id: "gauntlet" }) },
+      );
+      expect(resp.status).toBe(200);
+      expect(resp.headers.get("content-type")).toBe("image/png");
+    } finally {
+      if (previousCoversDir === undefined) delete process.env.GV_COVERS_DIR;
+      else process.env.GV_COVERS_DIR = previousCoversDir;
+      vi.unstubAllGlobals();
+      (global.fetch as unknown) = previousFetch;
+    }
+  });
+});
