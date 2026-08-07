@@ -1122,7 +1122,17 @@ pub(super) async fn wire_dc_handler_for_guest(
                         };
 
                     if let Some(command) =
-                        guest_input_command(&effective_role, authoritative_seat, local_players, &data)
+                        guest_input_command(
+                            &effective_role,
+                            // Arcade promoted viewers always map to player 1 (port 0)
+                            if effective_role == "player" && peer_role != "player" {
+                                Some(1u32)
+                            } else {
+                                authoritative_seat
+                            },
+                            local_players,
+                            &data,
+                        )
                     {
                         let guard = session.core_cmd_tx.lock().await;
                         if let Some(ref tx) = *guard {
