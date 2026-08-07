@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { gameFlags, serverGames, serverMembers } from "@/lib/db/schema";
-import { and, eq, ilike, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 // ── GET /api/games ─────────────────────────────────────────────────────
 //
@@ -58,7 +58,10 @@ export async function GET(request: NextRequest) {
 
   const baseWhere = and(
     inArray(serverGames.serverId, serverIds),
-    ne(serverGames.verificationState, "BiosVerified"),
+    or(
+      isNull(serverGames.verificationState),
+      ne(serverGames.verificationState, "BiosVerified"),
+    ),
   );
 
   // Platform facets: count across all unfiltered games (obeys search only)
