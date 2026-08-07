@@ -869,6 +869,7 @@ async fn launch_game(
         core_height: tokio::sync::Mutex::new(0),
         core_fps: tokio::sync::Mutex::new(0.0),
         core_sample_rate: tokio::sync::Mutex::new(48_000.0),
+        resident: std::sync::atomic::AtomicBool::new(false),
     });
 
     if let Err(message) = crate::core_bridge::load_core_into_session(
