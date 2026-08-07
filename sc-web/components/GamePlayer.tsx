@@ -271,10 +271,19 @@ export default function GamePlayer({
 
   // ── Player script ─────────────────────────────────────────────────
 
+  // Poll for window.scPlay — the <script type="module"> onLoad callback
+  // is unreliable after React SSR hydration (React may not bind the
+  // handler to the hydrated DOM node).  Poll every 100ms until scPlay
+  // appears; give up after a generous timeout.
   useEffect(() => {
-    if (window.scPlay) {
-      setScriptReady(true);
-    }
+    if (window.scPlay) { setScriptReady(true); return; }
+    let attempts = 0;
+    const MAX_ATTEMPTS = 150; // 15 s
+    const id = setInterval(() => {
+      if (window.scPlay) { setScriptReady(true); clearInterval(id); return; }
+      if (++attempts >= MAX_ATTEMPTS) { clearInterval(id); }
+    }, 100);
+    return () => clearInterval(id);
   }, []);
 
   // ── Player init ───────────────────────────────────────────────────
