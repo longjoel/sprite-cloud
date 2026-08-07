@@ -107,6 +107,8 @@ export default function GameTileContextMenu({
   onTogglePublic,
   isAlwaysOn,
   onToggleAlwaysOn,
+  isFreePlay,
+  onToggleFreePlay,
   triggerAriaLabel,
 }: GameTileContextMenuProps) {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -190,6 +192,17 @@ export default function GameTileContextMenu({
       onClick: () => {
         handleClose();
         onToggleAlwaysOn();
+      },
+    });
+  }
+  if (onToggleFreePlay) {
+    actions.push({
+      id: "free-play",
+      label: isFreePlay ? "Free play — turn off" : "Free play",
+      icon: <Power fontSize="small" />,
+      onClick: () => {
+        handleClose();
+        onToggleFreePlay();
       },
     });
   }

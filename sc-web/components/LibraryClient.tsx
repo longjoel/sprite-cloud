@@ -29,6 +29,7 @@ interface Game {
   coverUrl?: string | null;
   verification?: { state: "verified" | "unverified" } | null;
   alwaysOn?: boolean;
+  freePlay?: boolean;
   public?: boolean;
 }
 
@@ -50,6 +51,7 @@ interface GameActionModel {
   canToggleFlags: boolean;
   onTogglePublic?: (game: Game) => void;
   onToggleAlwaysOn?: (game: Game) => void;
+  onToggleFreePlay?: (game: Game) => void;
 }
 
 interface PlayableHost {
@@ -709,6 +711,8 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
               onTogglePublic={gameActions.canToggleFlags ? () => gameActions.onTogglePublic?.(game) : undefined}
               isAlwaysOn={game.alwaysOn}
               onToggleAlwaysOn={gameActions.canToggleFlags ? () => gameActions.onToggleAlwaysOn?.(game) : undefined}
+              isFreePlay={game.freePlay}
+              onToggleFreePlay={gameActions.canToggleFlags ? () => gameActions.onToggleFreePlay?.(game) : undefined}
               triggerAriaLabel={`More actions for ${game.name}`}
             />
           )}
