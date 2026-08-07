@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import WallPreview from "./WallPreview";
 import {
   Box,
   Button,
