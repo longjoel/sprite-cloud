@@ -60,32 +60,38 @@ export default function WallPreview({ roomToken, gameId, serverId, active }: Wal
         const pc = new RTCPeerConnection(pcConfig);
         pcRef.current = pc;
 
-        // Collect stream tracks
+        // Collect stream tracks — set srcObject ONCE, play after ICE connects
         const stream = new MediaStream();
         streamRef.current = stream;
-        let hasVideo = false;
+        let ontrackFired = false;
         pc.ontrack = (ev) => {
           const tracks = ev.streams[0]?.getTracks() ?? [];
-          console.log("[wall-preview] ontrack:", tracks.map(t => t.kind).join(","), ev.streams.length);
+          console.log("[wall-preview] ontrack:", tracks.map(t => t.kind).join(","));
           for (const track of tracks) {
             stream.addTrack(track);
-            if (track.kind === "video") hasVideo = true;
           }
-          if (videoRef.current) {
+          if (!ontrackFired && videoRef.current) {
+            ontrackFired = true;
             videoRef.current.srcObject = stream;
             videoRef.current.muted = true;
             videoRef.current.playsInline = true;
-            videoRef.current.play().then(() => {
-              console.log("[wall-preview] playing, video track:", hasVideo);
-            }).catch((e: Error) => {
-              console.warn("[wall-preview] play rejected:", e.message);
-            });
-            setConnected(true);
+            // Defer play() until ICE is connected so frames can flow
+            if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+              videoRef.current.play().catch((e: Error) => console.warn("[wall-preview] play:", e.message));
+              setConnected(true);
+            }
           }
         };
 
         pc.oniceconnectionstatechange = () => {
-          console.log("[wall-preview] ICE state:", pc.iceConnectionState);
+          console.log("[wall-preview] ICE:", pc.iceConnectionState);
+          if ((pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed")
+            && videoRef.current && ontrackFired && !connected) {
+            videoRef.current.play().then(() => {
+              console.log("[wall-preview] playing");
+              setConnected(true);
+            }).catch((e: Error) => console.warn("[wall-preview] play:", e.message));
+          }
         };
 
         // 3. Create SDP offer and send via gateway command relay
