@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { gameFlags, peerTokens, serverGames, servers, sessions } from "@/lib/db/schema";
 import { ACTIVE_SESSION_STATES } from "@/lib/constants";
@@ -57,7 +57,10 @@ export async function GET() {
         inArray(sessions.status, [...ACTIVE_SESSION_STATES]),
       ),
     )
-    .where(eq(gameFlags.public, true))
+    .where(and(
+      eq(gameFlags.public, true),
+      ne(serverGames.verificationState, "BiosVerified"),
+    ))
     .orderBy(serverGames.name);
 
   // Player/viewer counts for the live sessions.

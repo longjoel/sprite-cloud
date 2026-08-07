@@ -76,6 +76,8 @@ pub struct GameSession {
     pub core_fps: Mutex<f64>,
     /// Core audio sample rate in Hz (from retro_get_system_av_info).
     pub core_sample_rate: Mutex<f64>,
+    /// Resident session — never idle-killed, periodically checkpointed.
+    pub resident: AtomicBool,
 }
 
 impl GameSession {

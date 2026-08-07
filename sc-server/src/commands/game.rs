@@ -46,6 +46,12 @@ pub(super) fn payload_account_id(cmd: &sc_web::Command) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// Whether the command requests a resident session (never idle-killed,
+/// periodically checkpointed). Driven by the gateway's always_on flag.
+fn is_resident(cmd: &sc_web::Command) -> bool {
+    cmd.payload.get("resident").and_then(|v| v.as_bool()).unwrap_or(false)
+}
+
 pub(super) async fn handle_start_game(
     cmd: &sc_web::Command,
     client: &sc_web::ScWebClient,
@@ -243,6 +249,7 @@ pub(super) async fn handle_start_game(
         core_height: tokio::sync::Mutex::new(0),
         core_fps: tokio::sync::Mutex::new(0.0),
         core_sample_rate: tokio::sync::Mutex::new(48000.0),
+        resident: AtomicBool::new(is_resident(cmd)),
     });
 
     // Load libretro core
@@ -429,6 +436,30 @@ pub(super) async fn handle_start_game(
     }
 
     record_server_local_play(library_preferences, game_id, launch_ready, server_local).await;
+
+    // ── Resident checkpoint timer ────────────────────────────────────
+    // Resident sessions save state every 5 minutes so crash recovery
+    // resumes near where playback left off.
+    // TODO: send CoreCommand::SaveState + persist via save_stack_push.
+    if session.resident.load(std::sync::atomic::Ordering::Relaxed) {
+        let chk_session = Arc::clone(&session);
+        let chk_cancel = session.cancel.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(300));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    _ = chk_cancel.cancelled() => break,
+                    _ = interval.tick() => {
+                        tracing::debug!(
+                            "[CHKPT] resident tick for {} — checkpoint TODO",
+                            chk_session.game_id,
+                        );
+                    }
+                }
+            }
+        });
+    }
 
     let total = t_total.elapsed();
     tracing::info!(
