@@ -123,23 +123,26 @@ export default function WallPreview({ roomToken, gameId, serverId, active }: Wal
         if (!cmdRes.ok) throw new Error(`command failed: ${cmdRes.status}`);
         const cmd = await cmdRes.json() as { id: string; worker_token: string };
 
-        // 5. Poll for SDP answer
+        // 5. Poll for SDP answer via notify/poll
+        const workerToken = cmd.worker_token;
         for (let i = 0; i < 60; i++) {
           if (cleanup || controller.signal.aborted) break;
           await new Promise((r) => setTimeout(r, 500));
-          const pollRes = await fetch(`/api/server/command?id=${encodeURIComponent(cmd.id)}`, {
+          const pollRes = await fetch("/api/server/notify/poll", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ server_id: serverId, worker_token: workerToken }),
             signal: controller.signal,
           });
           if (!pollRes.ok) continue;
-          const poll = await pollRes.json() as { sdp_answer?: string; status?: string; error?: string };
-          if (poll.error) throw new Error(poll.error);
+          const poll = await pollRes.json() as { sdp_answer?: string; error?: string; message?: string };
+          if (poll.error) throw new Error(poll.error + (poll.message ? ": " + poll.message : ""));
           if (poll.sdp_answer) {
             await pc.setRemoteDescription(
               new RTCSessionDescription({ type: "answer", sdp: poll.sdp_answer })
             );
             return; // ontrack will fire
           }
-          if (poll.status === "completed" || poll.status === "cancelled") break;
         }
       } catch (err) {
         if (!cleanup && !controller.signal.aborted) {
