@@ -33,11 +33,11 @@ export default function WallPreview({ roomToken, gameId, serverId, active }: Wal
 
     (async () => {
       try {
-        // 1. Join room → get peer_token + ice_servers
+        // 1. Get room metadata (no client_id = no seat consumption)
         const joinRes = await fetch("/api/room/join", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ room_token: roomToken, client_id: `wall-${crypto.randomUUID().slice(0, 8)}` }),
+          body: JSON.stringify({ room_token: roomToken }),
           signal: controller.signal,
         });
         if (!joinRes.ok) throw new Error(`join failed: ${joinRes.status}`);
