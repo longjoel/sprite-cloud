@@ -94,13 +94,24 @@ export default function WallClient() {
                   disabled={!playable}
                 >
                   <Box sx={{ position: "relative" }}>
-                    <CardMedia
-                      component="img"
-                      height={150}
-                      image={game.coverUrl ?? ""}
-                      alt={game.name}
-                      sx={{ bgcolor: "grey.900", objectFit: "cover" }}
-                    />
+                    {game.live && game.roomUrl ? (
+                      <Box sx={{ height: 150, overflow: "hidden" }}>
+                        <WallPreview
+                          roomToken={game.roomUrl!.split("/").pop()!.split("?")[0]!}
+                          gameId={game.id}
+                          serverId={game.serverId}
+                          active
+                        />
+                      </Box>
+                    ) : (
+                      <CardMedia
+                        component="img"
+                        height={150}
+                        image={game.coverUrl ?? ""}
+                        alt={game.name}
+                        sx={{ bgcolor: "grey.900", objectFit: "cover" }}
+                      />
+                    )}
                     <Box sx={{ position: "absolute", top: 8, left: 8 }}>
                       {game.live ? (
                         <Chip

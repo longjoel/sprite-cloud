@@ -114,6 +114,14 @@ pub(crate) fn wire_dc_handler(session: &Arc<GameSession>) {
                 );
                 break;
             }
+            // Resident sessions (always_on) stay alive indefinitely.
+            if session_for_ice
+                .resident
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
+                tracing::info!("[ICE] host PC dead, no guests — but resident session stays alive");
+                break;
+            }
             tracing::info!("[ICE] host PC dead, no guests — cancelling session");
             session_for_ice.cancel.cancel();
             break;
