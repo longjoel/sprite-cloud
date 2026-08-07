@@ -508,8 +508,12 @@ export async function POST(request: NextRequest) {
       // A leased start command may create its initial session as a legacy edge case.
       try {
         const hostToken = typeof commandPayload.host_token === "string" ? commandPayload.host_token : null;
+        const sessionId = typeof commandPayload.session_id === "string"
+          ? commandPayload.session_id
+          : crypto.randomUUID();
         await db.transaction(async (tx) => {
           await tx.insert(sessions).values({
+            id: sessionId,
             userId: server.userId,
             serverId: server.id,
             gameId: body.game_id!,
@@ -518,6 +522,7 @@ export async function POST(request: NextRequest) {
             workerUrl: body.worker_url,
             status: targetStatus,
             roomToken,
+            maxSeats: 4,
             sdpAnswer: body.sdp_answer ?? null,
             stateEnteredAt: new Date(),
           });
