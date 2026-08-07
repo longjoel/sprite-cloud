@@ -233,7 +233,8 @@ pub(super) async fn handle_start_game(
         audio_track: std::sync::Mutex::new(stack.audio_track),
         dc: tokio::sync::Mutex::new(None),
         guests: tokio::sync::Mutex::new(Vec::new()),
-        host_connected: std::sync::atomic::AtomicBool::new(false),
+        host_connected: AtomicBool::new(false),
+        player_claimed: AtomicBool::new(false),
         local_players: std::sync::atomic::AtomicU32::new(1),
         // #745: identity comes from the gateway-enriched start_game payload
         // (membership + short-code validated), never from the browser.
@@ -1091,15 +1092,38 @@ pub(super) async fn wire_dc_handler_for_guest(
                     let local_players = session
                         .local_players
                         .load(std::sync::atomic::Ordering::Relaxed);
+
+                    // Arcade mode: promote first viewer to player on first button press
+                    let effective_role: std::borrow::Cow<'_, str> =
+                        if peer_role != "player"
+                            && session
+                                .resident
+                                .load(std::sync::atomic::Ordering::Relaxed)
+                            && !session
+                                .host_connected
+                                .load(std::sync::atomic::Ordering::Relaxed)
+                            && !session
+                                .player_claimed
+                                .swap(true, std::sync::atomic::Ordering::Relaxed)
+                        {
+                            tracing::info!("[DC] arcade: promoting viewer to player (first input)");
+                            session
+                                .player_claimed
+                                .store(true, std::sync::atomic::Ordering::Relaxed);
+                            std::borrow::Cow::Borrowed("player")
+                        } else {
+                            std::borrow::Cow::Borrowed(&peer_role)
+                        };
+
                     if let Some(command) =
-                        guest_input_command(&peer_role, authoritative_seat, local_players, &data)
+                        guest_input_command(&effective_role, authoritative_seat, local_players, &data)
                     {
                         let guard = session.core_cmd_tx.lock().await;
                         if let Some(ref tx) = *guard {
                             let _ = tx.try_send(command);
                         }
-                    } else if data.len() >= 3 && peer_role != "player" {
-                        tracing::trace!("[DC] ignored input from role={peer_role}");
+                    } else if data.len() >= 3 && effective_role != "player" {
+                        tracing::trace!("[DC] ignored input from role={effective_role}");
                     }
                 })
             }));
@@ -1114,6 +1138,12 @@ pub(super) async fn wire_dc_handler_for_guest(
             if state == "failed" || state == "disconnected" {
                 let mut guests = session_for_ice.guests.lock().await;
                 guests.retain(|g| g.peer_token != pt_for_ice);
+                if guests.is_empty() {
+                    // Arcade: release the claimed seat so next viewer can grab it
+                    session_for_ice
+                        .player_claimed
+                        .store(false, std::sync::atomic::Ordering::Relaxed);
+                }
                 if guests.is_empty()
                     && !session_for_ice
                         .host_connected
