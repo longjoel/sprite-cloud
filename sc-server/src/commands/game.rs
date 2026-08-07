@@ -1093,23 +1093,29 @@ pub(super) async fn wire_dc_handler_for_guest(
                         .local_players
                         .load(std::sync::atomic::Ordering::Relaxed);
 
-                    // Arcade mode: promote first viewer to player on first button press
+                    // Arcade mode: first viewer button press claims player 1.
+                    // Once claimed (player_claimed=true), all inputs from any viewer
+                    // are treated as player input until the guest list empties.
                     let effective_role: std::borrow::Cow<'_, str> =
-                        if peer_role != "player"
-                            && session
+                        if peer_role == "player"
+                            || (session
                                 .resident
                                 .load(std::sync::atomic::Ordering::Relaxed)
-                            && !session
-                                .host_connected
-                                .load(std::sync::atomic::Ordering::Relaxed)
-                            && !session
-                                .player_claimed
-                                .swap(true, std::sync::atomic::Ordering::Relaxed)
+                                && !session
+                                    .host_connected
+                                    .load(std::sync::atomic::Ordering::Relaxed)
+                                && {
+                                    let was_claimed = session
+                                        .player_claimed
+                                        .swap(true, std::sync::atomic::Ordering::Relaxed);
+                                    if !was_claimed {
+                                        tracing::info!(
+                                            "[DC] arcade: promoting viewer to player (first input)"
+                                        );
+                                    }
+                                    true
+                                })
                         {
-                            tracing::info!("[DC] arcade: promoting viewer to player (first input)");
-                            session
-                                .player_claimed
-                                .store(true, std::sync::atomic::Ordering::Relaxed);
                             std::borrow::Cow::Borrowed("player")
                         } else {
                             std::borrow::Cow::Borrowed(&peer_role)
