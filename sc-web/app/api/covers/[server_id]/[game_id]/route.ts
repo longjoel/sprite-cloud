@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { serverGames, serverMembers } from "@/lib/db/schema";
+import { gameFlags, serverGames, serverMembers } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { mkdir, rename, writeFile } from "fs/promises";
@@ -122,27 +122,55 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ server_id: string; game_id: string }> },
 ) {
-  const session = await auth();
-  if (!session?.user?.id) return new NextResponse("sign in first", { status: 401 });
-
   const { server_id: serverId, game_id: gameId } = await params;
-  const [game] = await db
-    .select({
-      name: serverGames.name,
-      sourceName: serverGames.sourceName,
-      thumbnailName: serverGames.thumbnailName,
-      platform: serverGames.platform,
-    })
-    .from(serverGames)
-    .innerJoin(
-      serverMembers,
-      and(
-        eq(serverMembers.serverId, serverGames.serverId),
-        eq(serverMembers.userId, session.user.id),
-      ),
-    )
-    .where(and(eq(serverGames.serverId, serverId), eq(serverGames.gameId, gameId)))
-    .limit(1);
+  const session = await auth();
+
+  let game: { name: string; sourceName: string | null; thumbnailName: string | null; platform: string } | undefined;
+
+  if (!session?.user?.id) {
+    // Unauthenticated: only games flagged `public` (Living Cabinet wall, #762).
+    // Fail-closed: a non-public game is invisible to the public cover path.
+    const [flag] = await db
+      .select({ public: gameFlags.public })
+      .from(gameFlags)
+      .where(
+        and(
+          eq(gameFlags.serverId, serverId),
+          eq(gameFlags.gameId, gameId),
+          eq(gameFlags.public, true),
+        ),
+      )
+      .limit(1);
+    if (!flag) return new NextResponse("not found", { status: 404 });
+    [game] = await db
+      .select({
+        name: serverGames.name,
+        sourceName: serverGames.sourceName,
+        thumbnailName: serverGames.thumbnailName,
+        platform: serverGames.platform,
+      })
+      .from(serverGames)
+      .where(and(eq(serverGames.serverId, serverId), eq(serverGames.gameId, gameId)))
+      .limit(1);
+  } else {
+    [game] = await db
+      .select({
+        name: serverGames.name,
+        sourceName: serverGames.sourceName,
+        thumbnailName: serverGames.thumbnailName,
+        platform: serverGames.platform,
+      })
+      .from(serverGames)
+      .innerJoin(
+        serverMembers,
+        and(
+          eq(serverMembers.serverId, serverGames.serverId),
+          eq(serverMembers.userId, session.user.id),
+        ),
+      )
+      .where(and(eq(serverGames.serverId, serverId), eq(serverGames.gameId, gameId)))
+      .limit(1);
+  }
 
   if (!game) return new NextResponse("game not found", { status: 404 });
 
