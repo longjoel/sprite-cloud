@@ -1,13 +1,12 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { serverMembers, servers, users } from "@/lib/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { users } from "@/lib/db/schema";
+import { sql } from "drizzle-orm";
 import LandingPage from "@/components/LandingPage";
 import LibraryClient from "@/components/LibraryClient";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { verifyBearerToken } from "@/lib/server-auth";
-import { extractLanLibraryLinks } from "@/lib/lan/library-handoff";
 
 // ── Home page — Living Cabinet wall for everyone
 // Authenticated users are redirected to /library.
@@ -34,11 +33,19 @@ export default async function Home() {
     if (Number(row?.count ?? 0) === 0) {
       redirect("/setup");
     }
-    // Show the living cabinet wall
-    return <LandingPage />;
+    return (
+      <LandingPage
+        userName={null}
+        authenticated={false}
+      />
+    );
   }
 
-  // Authenticated — show the wall. LandingPage detects auth state
-  // and can offer a link to the library.
-  return <LandingPage />;
+  // Authenticated
+  return (
+    <LandingPage
+      userName={session.user.name || session.user.email || null}
+      authenticated
+    />
+  );
 }

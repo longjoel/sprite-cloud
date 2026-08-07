@@ -4,140 +4,57 @@ import { useState } from "react";
 import Link from "next/link";
 import WallClient from "@/components/WallClient";
 
-// ── LandingPage — public hero + setup guide for unauthenticated visitors
+// ── LandingPage — the Living Cabinet wall
 
 const CLOUD_ACCENT = "#38bdf8";
-const STEP_COLORS = [CLOUD_ACCENT, "#a78bfa", "#34d399"];
 
-interface Step {
-  num: number;
-  title: string;
-  desc: string;
-  code?: string;
-  link?: { label: string; href: string };
+interface LandingPageProps {
+  userName?: string | null;
+  authenticated?: boolean;
 }
 
-const STEPS: Step[] = [
-  {
-    num: 1,
-    title: "Install the server",
-    desc: "Run this one-liner on your gaming machine (Linux, Bazzite, Steam Deck, Raspberry Pi):",
-    code: "curl -fsSL https://sprite-cloud.com/install.sh | bash",
-  },
-  {
-    num: 2,
-    title: "Create an account",
-    desc: "Sign in with an email and password. This gives you a personal library, favorites, and access to your game servers.",
-    link: { label: "Sign In →", href: "/signin?callbackUrl=/library" },
-  },
-  {
-    num: 3,
-    title: "Pair and play",
-    desc: "Go to your dashboard, generate a pairing code. Run sc-server pair <code> on your machine to link it to your account. Point it at your ROM directory, open your library, and start streaming.",
-  },
-];
-
-const FEATURES = [
-  { icon: "🎮", title: "Your library", desc: "Browse and search your full retro game collection from any device." },
-  { icon: "📺", title: "Browser streaming", desc: "No apps, no plugins. Your games stream directly to any modern browser." },
-  { icon: "🔒", title: "Self-hosted", desc: "Your ROMs, your hardware, your rules. No cloud subscription, no monthly fees." },
-  { icon: "👥", title: "Multiplayer ready", desc: "Share a link and play together. Multiple players can join your game session." },
-  { icon: "📱", title: "Any device", desc: "Desktop, phone, tablet — the responsive player adapts to any screen." },
-  { icon: "🎛️", title: "Touch gamepad", desc: "On-screen touch controls for phones and tablets. No controller required." },
-];
-
-export default function LandingPage() {
+export default function LandingPage({ userName, authenticated = false }: LandingPageProps) {
   const [cookieDismissed, setCookieDismissed] = useState(false);
-
-  const scrollToGuide = (e: React.MouseEvent) => {
-    e.preventDefault();
-    document.getElementById("guide")?.scrollIntoView({ behavior: "smooth" });
-  };
 
   return (
     <main style={s.page}>
-      {/* ── Nav bar ─────────────────────────────────────────────────── */}
+      {/* ── Nav bar — auth-aware ─────────────────────────────────────── */}
       <nav style={s.nav}>
-        <span style={s.logo}>Sprite Cloud</span>
+        <Link href="/" style={s.logo}>Sprite Cloud</Link>
         <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-          <a href="#features" onClick={scrollToGuide} style={s.navLink}>Features</a>
-          <Link href="/signin?callbackUrl=/library" style={s.navLink}>Sign In →</Link>
+          <Link href="/help" style={s.navLink}>Help</Link>
+          {authenticated ? (
+            <>
+              <Link href="/library" style={s.navLink}>Library</Link>
+              <Link href="/servers" style={s.navLink}>Dashboard</Link>
+              <Link href="/api/auth/signout" style={s.navLink}>Sign out</Link>
+            </>
+          ) : (
+            <>
+              <Link href="/help" style={s.navLink}>Help</Link>
+              <Link href="/signin?callbackUrl=/library" style={s.navLink}>Sign In →</Link>
+            </>
+          )}
         </div>
       </nav>
 
-      {/* ── Hero: the living wall ──────────────────────────────────── */}
+      {/* ── Hero: the living wall ────────────────────────────────────── */}
       <section style={s.hero}>
-        <div style={s.heroInner}>
-          <h1 style={s.title}>
-            The Arcade
-            <br />
-            <span style={{ color: CLOUD_ACCENT }}>is open.</span>
-          </h1>
-          <p style={s.subtitle}>
-            Live games streaming from servers on this gateway — right now.
-            No account, no install: click a live game and you're in the seat,
-            playing with strangers in your browser.
-          </p>
-          <div style={s.ctaRow}>
-            <a href="#guide" onClick={scrollToGuide} style={s.ctaPrimary}>
-              Run your own
-            </a>
-            <Link href="/signin?callbackUrl=/library" style={s.ctaSecondary}>
-              Sign In
-            </Link>
-          </div>
-        </div>
+        <h1 style={s.title}>
+          The Arcade
+          <br />
+          <span style={{ color: CLOUD_ACCENT }}>is open.</span>
+        </h1>
+        <p style={s.subtitle}>
+          Live games streaming from servers on this gateway — right now.
+          No account, no install: click a live game and you&apos;re in the seat.
+        </p>
       </section>
 
-      {/* ── The Living Cabinet wall (#762) ──────────────────────────── */}
+      {/* ── The Living Cabinet wall (#762) ────────────────────────────── */}
       <WallClient />
 
-      {/* ── Features ────────────────────────────────────────────────── */}
-      <section id="features" style={s.features}>
-        <h2 style={s.featuresH2}>What you get</h2>
-        <div style={s.featuresGrid}>
-          {FEATURES.map((f) => (
-            <div key={f.title} style={s.featureCard}>
-              <span style={s.featureIcon}>{f.icon}</span>
-              <h3 style={s.featureTitle}>{f.title}</h3>
-              <p style={s.featureDesc}>{f.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── Setup Guide ─────────────────────────────────────────────── */}
-      <section id="guide" style={s.guide}>
-        <h2 style={s.guideH2}>How to set up Sprite Cloud</h2>
-        <div style={s.stepsList}>
-          {STEPS.map((step) => (
-            <div key={step.num} style={s.stepRow}>
-              <div style={{ ...s.stepBadge, background: STEP_COLORS[step.num - 1] }}>
-                {step.num}
-              </div>
-              <div style={s.stepContent}>
-                <h3 style={s.stepTitle}>{step.title}</h3>
-                <p style={s.stepDesc}>{step.desc}</p>
-                {step.code && <pre style={s.stepCode}>{step.code}</pre>}
-                {step.link && (
-                  <Link href={step.link.href} style={s.stepLink}>{step.link.label}</Link>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── Bottom CTA ──────────────────────────────────────────────── */}
-      <section style={s.bottomCta}>
-        <h2 style={s.bottomTitle}>Ready to play?</h2>
-        <p style={s.bottomSub}>Create an account, pair your server, and stream your own library.</p>
-        <div style={{ display: "flex", gap: 14, justifyContent: "center" }}>
-          <Link href="/signin?callbackUrl=/library" style={s.ctaPrimary}>Sign In</Link>
-        </div>
-      </section>
-
-      {/* ── Footer ──────────────────────────────────────────────────── */}
+      {/* ── Footer ───────────────────────────────────────────────────── */}
       <footer style={s.footer}>
         <div style={s.footerCol}>
           <span style={s.footerText}>Sprite Cloud</span>
@@ -146,7 +63,7 @@ export default function LandingPage() {
         <div style={s.footerLinks}>
           <span style={s.footerDim}>© {new Date().getFullYear()} Sprite Cloud</span>
           <span style={s.footerDot}>·</span>
-          <a href="https://github.com/longjoel/sprite-cloud/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" style={s.footerLink}>License</a>
+          <Link href="/help" style={s.footerLink}>Setup Guide</Link>
           <span style={s.footerDot}>·</span>
           <a href="https://github.com/longjoel/sprite-cloud" target="_blank" rel="noopener noreferrer" style={s.footerLink}>Source</a>
           <span style={s.footerDot}>·</span>
@@ -154,7 +71,7 @@ export default function LandingPage() {
         </div>
       </footer>
 
-      {/* ── Cookie consent ──────────────────────────────────────────── */}
+      {/* ── Cookie consent ───────────────────────────────────────────── */}
       {!cookieDismissed && (
         <div style={s.cookieBanner}>
           <span style={s.cookieText}>
@@ -167,7 +84,7 @@ export default function LandingPage() {
   );
 }
 
-// ── Styles ────────────────────────────────────────────────────────────
+// ── Styles ────────────────────────────────────────────────────────────────
 
 const s: Record<string, React.CSSProperties> = {
   page: {
@@ -177,7 +94,6 @@ const s: Record<string, React.CSSProperties> = {
     fontFamily: "var(--font-mono)",
     display: "flex",
     flexDirection: "column",
-    scrollBehavior: "smooth",
   },
   // Nav
   nav: {
@@ -186,7 +102,7 @@ const s: Record<string, React.CSSProperties> = {
   },
   logo: {
     fontSize: "var(--font-size-lg)", fontWeight: 700, color: "var(--color-accent)",
-    textTransform: "uppercase", letterSpacing: "0.05em",
+    textTransform: "uppercase", letterSpacing: "0.05em", textDecoration: "none",
   },
   navLink: {
     color: "var(--color-cloud-dim)", fontSize: "var(--font-size-sm)", textDecoration: "none",
@@ -195,78 +111,17 @@ const s: Record<string, React.CSSProperties> = {
   },
   // Hero
   hero: {
-    display: "flex", alignItems: "center", justifyContent: "center",
-    gap: 64, padding: "80px 32px", maxWidth: 1100, margin: "0 auto",
-    width: "100%", flexWrap: "wrap",
+    display: "flex", flexDirection: "column", alignItems: "center",
+    padding: "48px 32px 32px", maxWidth: 640, margin: "0 auto",
+    textAlign: "center", width: "100%",
   },
-  heroInner: { flex: "1 1 400px", maxWidth: 540 },
-  title: { fontSize: "clamp(36px, 6vw, 56px)", fontWeight: 800, lineHeight: 1.08, margin: 0, letterSpacing: "-0.02em" },
-  subtitle: { fontSize: "var(--font-size-md)", color: "var(--color-cloud-dim)", lineHeight: 1.65, marginTop: 24, maxWidth: 460 },
-  ctaRow: { display: "flex", gap: 14, marginTop: 36 },
-  ctaPrimary: {
-    padding: "12px 32px", background: "var(--color-accent)", color: "var(--color-sky-deep)",
-    fontSize: "var(--font-size-md)", fontWeight: 700, border: "none", borderRadius: 2,
-    cursor: "pointer", textDecoration: "none", textTransform: "uppercase", letterSpacing: "0.05em",
-  },
-  ctaSecondary: {
-    padding: "12px 32px", background: "transparent", color: "var(--color-accent)",
-    fontSize: "var(--font-size-md)", fontWeight: 600, border: "1px solid rgba(56,189,248,0.3)",
-    borderRadius: 2, cursor: "pointer", textDecoration: "none",
-  },
-  heroVisual: { flex: "0 0 260px", display: "flex", alignItems: "center", justifyContent: "center" },
-  visualStack: {
-    display: "flex", flexDirection: "column", gap: 6, padding: "40px 20px",
-    background: "rgba(17,24,39,0.6)", border: "1px solid rgba(56,189,248,0.1)", borderRadius: 4,
-  },
-  // Features
-  features: { maxWidth: 1000, margin: "0 auto", padding: "80px 32px", width: "100%" },
-  featuresH2: { fontSize: "var(--font-size-xl)", fontWeight: 700, textAlign: "center", margin: "0 0 48px" },
-  featuresGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 },
-  featureCard: {
-    padding: 24, border: "1px solid rgba(56,189,248,0.08)", borderRadius: 2,
-    background: "rgba(17,24,39,0.4)",
-  },
-  featureIcon: { fontSize: 28, display: "block", marginBottom: 12 },
-  featureTitle: { margin: "0 0 6px", fontSize: "var(--font-size-md)", fontWeight: 700, color: "var(--color-cloud)" },
-  featureDesc: { margin: 0, fontSize: "var(--font-size-sm)", color: "var(--color-cloud-dim)", lineHeight: 1.6 },
-  // Guide
-  guide: { maxWidth: 800, margin: "0 auto", padding: "80px 32px", width: "100%" },
-  guideH2: { fontSize: "var(--font-size-xl)", fontWeight: 700, margin: "0 0 48px", textAlign: "center" },
-  stepsList: { display: "flex", flexDirection: "column", gap: 0 },
-  stepRow: { display: "flex", gap: 24, padding: "28px 0", borderBottom: "1px solid rgba(56,189,248,0.08)" },
-  stepBadge: {
-    flex: "0 0 44px", width: 44, height: 44, borderRadius: 2,
-    display: "flex", alignItems: "center", justifyContent: "center",
-    fontSize: "var(--font-size-lg)", fontWeight: 800, color: "var(--color-sky-deep)",
-  },
-  stepContent: { flex: 1, minWidth: 0 },
-  stepTitle: { fontSize: "var(--font-size-md)", fontWeight: 700, margin: "0 0 6px", color: "var(--color-cloud)" },
-  stepDesc: { fontSize: "var(--font-size-sm)", color: "var(--color-cloud-dim)", lineHeight: 1.65, margin: 0 },
-  stepCode: {
-    marginTop: 12, padding: "10px 14px", background: "rgba(17,24,39,0.6)",
-    border: "1px solid var(--color-sky-high)", borderRadius: 2,
-    fontSize: "var(--font-size-xs)", color: "var(--color-accent)",
-    overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all",
-  },
-  stepLink: {
-    display: "inline-block", marginTop: 12, padding: "8px 20px",
-    background: "var(--color-sky-high)", color: "var(--color-accent)",
-    fontSize: "var(--font-size-sm)", fontWeight: 600, textDecoration: "none",
-    borderRadius: 2, textTransform: "uppercase", letterSpacing: "0.05em",
-  },
-  // Bottom CTA
-  bottomCta: {
-    textAlign: "center", padding: "80px 32px",
-    borderTop: "1px solid rgba(56,189,248,0.08)",
-    borderBottom: "1px solid rgba(56,189,248,0.08)",
-    background: "rgba(17,24,39,0.4)",
-  },
-  bottomTitle: { fontSize: "var(--font-size-xl)", fontWeight: 700, margin: 0 },
-  bottomSub: { fontSize: "var(--font-size-md)", color: "var(--color-cloud-dim)", marginTop: 8 },
+  title: { fontSize: "clamp(28px, 5vw, 44px)", fontWeight: 800, lineHeight: 1.08, margin: 0, letterSpacing: "-0.02em" },
+  subtitle: { fontSize: "var(--font-size-md)", color: "var(--color-cloud-dim)", lineHeight: 1.65, marginTop: 16 },
   // Footer
   footer: {
     display: "flex", justifyContent: "space-between", alignItems: "flex-start",
     padding: "24px 32px 80px", marginTop: "auto", gap: 24, flexWrap: "wrap",
+    borderTop: "1px solid rgba(56,189,248,0.08)",
   },
   footerCol: { display: "flex", flexDirection: "column", gap: 4 },
   footerText: {
@@ -275,7 +130,7 @@ const s: Record<string, React.CSSProperties> = {
   },
   footerDim: { fontSize: "var(--font-size-xs)", color: "var(--color-cloud-dim)", opacity: 0.5 },
   footerLinks: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
-  footerLink: { fontSize: "var(--font-size-xs)", color: "var(--color-cloud-dim)", textDecoration: "none", opacity: 0.6, transition: "opacity 0.15s" },
+  footerLink: { fontSize: "var(--font-size-xs)", color: "var(--color-cloud-dim)", textDecoration: "none", opacity: 0.6 },
   footerDot: { color: "var(--color-cloud-dim)", opacity: 0.25, fontSize: "var(--font-size-xs)" },
   // Cookie
   cookieBanner: {
