@@ -465,11 +465,38 @@ pub(super) async fn handle_stop_game(
             stopped = true;
         } else if sessions.contains_key(game_id) {
             tracing::warn!("[POLL] ignoring stale stop for a superseded game session");
+            // Command is valid (a session exists for this game_id) but the
+            // cloud session ID no longer matches — mark completed so it
+            // doesn't cycle in the poll loop forever.
+            let _ = client
+                .command_result(
+                    &cmd.id,
+                    &cmd.lease_token,
+                    &serde_json::json!({"ok": true, "reason": "session superseded"}),
+                )
+                .await;
         } else {
             tracing::info!("[POLL] stop_game for already-ended session {game_id}, skipping notify");
+            // Session already gone — desired outcome is already achieved.
+            // Mark completed so the gateway doesn't re-issue it forever.
+            let _ = client
+                .command_result(
+                    &cmd.id,
+                    &cmd.lease_token,
+                    &serde_json::json!({"ok": true, "reason": "session already ended"}),
+                )
+                .await;
         }
     } else {
         tracing::warn!("[POLL] stop_game command missing exact cloud session id");
+        // Can't act without a session ID — mark failed so it doesn't retry.
+        let _ = client
+            .command_result(
+                &cmd.id,
+                &cmd.lease_token,
+                &serde_json::json!({"ok": false, "error": "missing session_id"}),
+            )
+            .await;
     }
     if stopped {
         let _ = client
