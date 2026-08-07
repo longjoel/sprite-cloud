@@ -213,15 +213,17 @@ async function convergeResidents(serverId: string): Promise<void> {
   for (const gameId of missing) {
     const cmdId = crypto.randomUUID();
     const hostToken = crypto.randomUUID();
+    const sessionId = crypto.randomUUID();
     await db.insert(commands).values({
       id: cmdId,
       serverId,
       type: "start_game",
-      payload: JSON.stringify({
+      payload: {
         game_id: gameId,
         host_token: hostToken,
+        session_id: sessionId,
         resident: true,
-      }),
+      },
       status: STATUS_PENDING,
       createdAt: now,
     });

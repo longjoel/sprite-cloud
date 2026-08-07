@@ -320,11 +320,11 @@ export async function POST(request: NextRequest) {
       .limit(1);
   }
 
-  if (
-    bySession?.serverId !== server.id
-    || bySession?.gameId !== body.game_id
-    || bySession?.id !== commandSessionId
-  ) {
+  if (bySession && (
+    bySession.serverId !== server.id
+    || bySession.gameId !== body.game_id
+    || bySession.id !== commandSessionId
+  )) {
     return NextResponse.json({ error: "session does not match callback command" }, { status: 409 });
   }
 
@@ -492,7 +492,10 @@ export async function POST(request: NextRequest) {
         throw error;
       }
     } else {
-      if (byGame) {
+      if (byGame && byGame.status !== SESSION_ENDED) {
+        // Only reject if the existing session is still active. Ended sessions
+        // are dead — a new start_game (resident or otherwise) should create a
+        // fresh session row.
         return NextResponse.json({ error: "session does not match callback command" }, { status: 409 });
       }
       logSignalingStage(notifyFlow, "session_missing_creating_legacy_row", {
