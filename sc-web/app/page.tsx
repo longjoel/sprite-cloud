@@ -38,26 +38,7 @@ export default async function Home() {
     return <LandingPage />;
   }
 
-  // Authenticated — redirect to library
-  if (!isLanProxy) {
-    redirect("/library");
-  }
-
-  // LAN proxy — show library
-  const memberships = await db
-    .select({ serverId: servers.id, name: servers.name, metadata: servers.metadata, role: serverMembers.role })
-    .from(serverMembers)
-    .innerJoin(servers, eq(serverMembers.serverId, servers.id))
-    .where(eq(serverMembers.userId, session.user.id));
-  const serverIds = memberships.map((m) => m.serverId);
-  const lanLibraries = extractLanLibraryLinks(memberships);
-
-  return (
-    <LibraryClient
-      serverIds={serverIds}
-      lanLibraries={lanLibraries}
-      session={{ user: session.user }}
-      isLanProxy
-    />
-  );
+  // Authenticated — show the wall. LandingPage detects auth state
+  // and can offer a link to the library.
+  return <LandingPage />;
 }
