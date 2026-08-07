@@ -28,7 +28,7 @@ const STEPS: Step[] = [
     num: 2,
     title: "Create an account",
     desc: "Sign in with an email and password. This gives you a personal library, favorites, and access to your game servers.",
-    link: { label: "Sign In →", href: "/signin" },
+    link: { label: "Sign In →", href: "/signin?callbackUrl=/library" },
   },
   {
     num: 3,
@@ -61,7 +61,7 @@ export default function LandingPage() {
         <span style={s.logo}>Sprite Cloud</span>
         <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
           <a href="#features" onClick={scrollToGuide} style={s.navLink}>Features</a>
-          <Link href="/signin" style={s.navLink}>Sign In →</Link>
+          <Link href="/signin?callbackUrl=/library" style={s.navLink}>Sign In →</Link>
         </div>
       </nav>
 
@@ -82,7 +82,7 @@ export default function LandingPage() {
             <a href="#guide" onClick={scrollToGuide} style={s.ctaPrimary}>
               Run your own
             </a>
-            <Link href="/signin" style={s.ctaSecondary}>
+            <Link href="/signin?callbackUrl=/library" style={s.ctaSecondary}>
               Sign In
             </Link>
           </div>
@@ -133,7 +133,7 @@ export default function LandingPage() {
         <h2 style={s.bottomTitle}>Ready to play?</h2>
         <p style={s.bottomSub}>Create an account, pair your server, and stream your own library.</p>
         <div style={{ display: "flex", gap: 14, justifyContent: "center" }}>
-          <Link href="/signin" style={s.ctaPrimary}>Sign In</Link>
+          <Link href="/signin?callbackUrl=/library" style={s.ctaPrimary}>Sign In</Link>
         </div>
       </section>
 
