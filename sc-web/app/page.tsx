@@ -9,7 +9,10 @@ import { redirect } from "next/navigation";
 import { verifyBearerToken } from "@/lib/server-auth";
 import { extractLanLibraryLinks } from "@/lib/lan/library-handoff";
 
-// ── Server component — landing page or library ────────────────────────
+// ── Home page — Living Cabinet wall for everyone
+// Authenticated users are redirected to /library.
+// Unauthenticated visitors see the wall (LandingPage).
+// LAN proxy requests get LibraryClient.
 
 export default async function Home() {
   const session = await auth();
@@ -31,11 +34,16 @@ export default async function Home() {
     if (Number(row?.count ?? 0) === 0) {
       redirect("/setup");
     }
-    // Show the landing page for unauthenticated visitors
+    // Show the living cabinet wall
     return <LandingPage />;
   }
 
-  // Authenticated: find all servers the user is a member of
+  // Authenticated — redirect to library
+  if (!isLanProxy) {
+    redirect("/library");
+  }
+
+  // LAN proxy — show library
   const memberships = await db
     .select({ serverId: servers.id, name: servers.name, metadata: servers.metadata, role: serverMembers.role })
     .from(serverMembers)
@@ -44,22 +52,12 @@ export default async function Home() {
   const serverIds = memberships.map((m) => m.serverId);
   const lanLibraries = extractLanLibraryLinks(memberships);
 
-  // Admin servers (for ROM upload dropzone)
-  const adminServers = memberships
-    .filter((m) => m.role === "admin")
-    .map((m) => ({
-      id: m.serverId,
-      name: m.name,
-      status: ((m.metadata as Record<string, unknown> | null)?.status as string) ?? "unknown",
-    }));
-
   return (
     <LibraryClient
       serverIds={serverIds}
       lanLibraries={lanLibraries}
       session={{ user: session.user }}
-      isLanProxy={false}
-      adminServers={adminServers}
+      isLanProxy
     />
   );
 }

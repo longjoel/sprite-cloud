@@ -507,12 +507,14 @@ export async function POST(request: NextRequest) {
       }
       // A leased start command may create its initial session as a legacy edge case.
       try {
+        const hostToken = typeof commandPayload.host_token === "string" ? commandPayload.host_token : null;
         await db.transaction(async (tx) => {
           await tx.insert(sessions).values({
             userId: server.userId,
             serverId: server.id,
             gameId: body.game_id!,
             commandId: body.command_id,
+            hostToken,
             workerUrl: body.worker_url,
             status: targetStatus,
             roomToken,

@@ -721,6 +721,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
         userName={session?.user?.name || session?.user?.email || undefined}
         links={[
           { label: "Home", href: "/" },
+          { label: "Library", href: "/library" },
           ...(session ? [{ label: "Dashboard", href: "/servers" }] : []),
           ...(session
             ? [{ label: "Sign out", href: "/api/auth/signout" }]
