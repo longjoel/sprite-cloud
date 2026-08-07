@@ -50,6 +50,9 @@ interface GameTileContextMenuProps {
   /** Always-on toggle (admin only, #762). */
   isAlwaysOn?: boolean;
   onToggleAlwaysOn?: () => void;
+  /** Free-play toggle (admin only, #762). */
+  isFreePlay?: boolean;
+  onToggleFreePlay?: () => void;
   /** Label for the trigger button. */
   triggerAriaLabel?: string;
 }

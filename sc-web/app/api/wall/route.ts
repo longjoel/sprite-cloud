@@ -39,6 +39,8 @@ export async function GET() {
       roomToken: sessions.roomToken,
       sessionMaxSeats: sessions.maxSeats,
       stateEnteredAt: sessions.stateEnteredAt,
+      freePlay: gameFlags.freePlay,
+      alwaysOn: gameFlags.alwaysOn,
     })
     .from(serverGames)
     .innerJoin(
@@ -116,6 +118,8 @@ export async function GET() {
       players: counts?.players ?? 0,
       viewers: counts?.viewers ?? 0,
       maxSeats: r.sessionMaxSeats ?? r.maxPlayers,
+      freePlay: r.freePlay === true,
+      alwaysOn: r.alwaysOn === true,
       ...(live && r.roomToken
         ? {
             roomUrl: `/r/${encodeURIComponent(r.roomToken)}?game_id=${encodeURIComponent(r.gameId)}&server_id=${encodeURIComponent(r.serverId)}`,

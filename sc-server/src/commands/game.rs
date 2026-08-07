@@ -1124,8 +1124,14 @@ pub(super) async fn wire_dc_handler_for_guest(
                     if let Some(command) =
                         guest_input_command(
                             &effective_role,
-                            // Arcade promoted viewers always map to player 1 (port 0)
-                            if effective_role == "player" && peer_role != "player" {
+                            // Arcade guests (no host) always map to port 0 (player 1)
+                            if session
+                                .resident
+                                .load(std::sync::atomic::Ordering::Relaxed)
+                                && !session
+                                    .host_connected
+                                    .load(std::sync::atomic::Ordering::Relaxed)
+                            {
                                 Some(1u32)
                             } else {
                                 authoritative_seat

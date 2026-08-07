@@ -557,11 +557,12 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
     canToggleFlags: isAdmin,
     onTogglePublic: isAdmin ? handleToggleFlag("public") : undefined,
     onToggleAlwaysOn: isAdmin ? handleToggleFlag("alwaysOn") : undefined,
+    onToggleFreePlay: isAdmin ? handleToggleFlag("freePlay") : undefined,
   };
 
   // ── Flag toggle handler (Living Cabinet wall, #762) ─────────────
 
-  function handleToggleFlag(flag: "public" | "alwaysOn") {
+  function handleToggleFlag(flag: "public" | "alwaysOn" | "freePlay") {
     return async (game: Game) => {
       const serverId = game.serverId ?? adminServers[0]?.id;
       if (!serverId) return;
@@ -573,7 +574,11 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
           body: JSON.stringify({
             serverId,
             gameId: game.id,
-            [flag]: !(flag === "public" ? game.public : game.alwaysOn),
+            [flag]: !(
+              flag === "public" ? game.public
+              : flag === "freePlay" ? game.freePlay
+              : game.alwaysOn
+            ),
           }),
         });
         const data = await res.json() as { error?: string };

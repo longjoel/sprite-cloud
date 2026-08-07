@@ -6,13 +6,11 @@ import { gameFlags, serverGames, serverMembers } from "@/lib/db/schema";
 
 // ── PATCH /api/games/flags ────────────────────────────────────────────
 //
-// Gateway-owned per-game flags (Living Cabinet wall, #762): always_on and
-// public. Admin-only for the game's server. Flags live outside server_games
-// (a full-replace cache pushed by the host) so a host sync can never wipe an
-// admin's toggle.
+// Gateway-owned per-game flags (Living Cabinet wall, #762): alwaysOn,
+// freePlay, and public. Admin-only for the game's server.
 //
-// Body: { serverId, gameId, alwaysOn?, public? }  (at least one flag)
-// Response: { flags: { alwaysOn, public, updatedAt } }
+// Body: { serverId, gameId, alwaysOn?, freePlay?, public? }  (at least one flag)
+// Response: { flags: { alwaysOn, freePlay, public, updatedAt } }
 
 function cookieValue(header: string | null, name: string): string | null {
   if (!header) return null;
@@ -40,7 +38,7 @@ export async function PATCH(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: "invalid json body" }, { status: 400 });
   }
-  const { serverId, gameId, alwaysOn, public: isPublic } = (body ?? {}) as Record<string, unknown>;
+  const { serverId, gameId, alwaysOn, freePlay, public: isPublic } = (body ?? {}) as Record<string, unknown>;
 
   if (typeof serverId !== "string" || typeof gameId !== "string" || !serverId || !gameId) {
     return NextResponse.json({ error: "serverId and gameId are required" }, { status: 400 });
@@ -51,7 +49,10 @@ export async function PATCH(request: NextRequest) {
   if (isPublic !== undefined && typeof isPublic !== "boolean") {
     return NextResponse.json({ error: "public must be a boolean" }, { status: 400 });
   }
-  if (alwaysOn === undefined && isPublic === undefined) {
+  if (freePlay !== undefined && typeof freePlay !== "boolean") {
+    return NextResponse.json({ error: "freePlay must be a boolean" }, { status: 400 });
+  }
+  if (alwaysOn === undefined && isPublic === undefined && freePlay === undefined) {
     return NextResponse.json({ error: "nothing to update" }, { status: 400 });
   }
 
@@ -74,13 +75,14 @@ export async function PATCH(request: NextRequest) {
 
   // Preserve unspecified flags from any existing row (defaults false).
   const [existing] = await db
-    .select({ alwaysOn: gameFlags.alwaysOn, public: gameFlags.public })
+    .select({ alwaysOn: gameFlags.alwaysOn, freePlay: gameFlags.freePlay, public: gameFlags.public })
     .from(gameFlags)
     .where(and(eq(gameFlags.serverId, serverId), eq(gameFlags.gameId, gameId)))
     .limit(1);
 
   const next = {
     alwaysOn: alwaysOn ?? existing?.alwaysOn ?? false,
+    freePlay: freePlay ?? existing?.freePlay ?? false,
     public: isPublic ?? existing?.public ?? false,
   };
 
@@ -91,7 +93,7 @@ export async function PATCH(request: NextRequest) {
       target: [gameFlags.serverId, gameFlags.gameId],
       set: { ...next, updatedBy: session.user.id, updatedAt: new Date() },
     })
-    .returning({ alwaysOn: gameFlags.alwaysOn, public: gameFlags.public, updatedAt: gameFlags.updatedAt });
+    .returning({ alwaysOn: gameFlags.alwaysOn, freePlay: gameFlags.freePlay, public: gameFlags.public, updatedAt: gameFlags.updatedAt });
 
   return NextResponse.json({ flags: saved ?? next });
 }

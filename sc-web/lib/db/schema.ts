@@ -75,6 +75,7 @@ export const gameFlags = pgTable(
       .notNull(),
     gameId: text("game_id").notNull(),
     alwaysOn: boolean("always_on").notNull().default(false),
+    freePlay: boolean("free_play").notNull().default(false),
     public: boolean("public").notNull().default(false),
     updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
