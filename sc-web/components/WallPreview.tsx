@@ -177,7 +177,7 @@ export default function WallPreview({ roomToken, gameId, serverId, active }: Wal
       pcRef.current?.close();
       pcRef.current = null;
     };
-  }, [active, roomToken, gameId, serverId, connected]);
+  }, [active, roomToken, gameId, serverId]); // removed 'connected' — don't kill PC on state change
 
   return (
     <video
