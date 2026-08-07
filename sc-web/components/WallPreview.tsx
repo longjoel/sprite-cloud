@@ -63,17 +63,29 @@ export default function WallPreview({ roomToken, gameId, serverId, active }: Wal
         // Collect stream tracks
         const stream = new MediaStream();
         streamRef.current = stream;
+        let hasVideo = false;
         pc.ontrack = (ev) => {
-          for (const track of ev.streams[0]?.getTracks() ?? []) {
+          const tracks = ev.streams[0]?.getTracks() ?? [];
+          console.log("[wall-preview] ontrack:", tracks.map(t => t.kind).join(","), ev.streams.length);
+          for (const track of tracks) {
             stream.addTrack(track);
+            if (track.kind === "video") hasVideo = true;
           }
-          if (videoRef.current && !videoRef.current.srcObject) {
+          if (videoRef.current) {
             videoRef.current.srcObject = stream;
             videoRef.current.muted = true;
             videoRef.current.playsInline = true;
-            videoRef.current.play().catch(() => {});
+            videoRef.current.play().then(() => {
+              console.log("[wall-preview] playing, video track:", hasVideo);
+            }).catch((e: Error) => {
+              console.warn("[wall-preview] play rejected:", e.message);
+            });
             setConnected(true);
           }
+        };
+
+        pc.oniceconnectionstatechange = () => {
+          console.log("[wall-preview] ICE state:", pc.iceConnectionState);
         };
 
         // 3. Create SDP offer and send via gateway command relay

@@ -1,6 +1,7 @@
 //! Game lifecycle and WebRTC SDP handlers.
 
 use super::*;
+use std::sync::atomic::AtomicBool;
 
 fn signal_log(flow: &str, stage: &str, details: &str) {
     if details.is_empty() {
@@ -1116,6 +1117,9 @@ pub(super) async fn wire_dc_handler_for_guest(
                 if guests.is_empty()
                     && !session_for_ice
                         .host_connected
+                        .load(std::sync::atomic::Ordering::Relaxed)
+                    && !session_for_ice
+                        .resident
                         .load(std::sync::atomic::Ordering::Relaxed)
                 {
                     tracing::info!("[ICE] last guest left, host gone — cancelling session");
