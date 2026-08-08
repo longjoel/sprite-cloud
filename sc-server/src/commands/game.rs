@@ -1126,7 +1126,7 @@ pub(super) async fn wire_dc_handler_for_guest(
                     let effective_role: std::borrow::Cow<'_, str> =
                         if peer_role == "player" {
                             std::borrow::Cow::Borrowed("player")
-                        } else if resident_no_host && actual_press {
+                        } else if resident_no_host {
                             let player_guest_present = {
                                 let guests = session.guests.lock().await;
                                 guests.iter().any(|g| g.role == "player")
@@ -1136,7 +1136,7 @@ pub(super) async fn wire_dc_handler_for_guest(
                             } else {
                                 let mut claimed = session.claimed_peer.lock().await;
                                 match claimed.as_deref() {
-                                    None => {
+                                    None if actual_press => {
                                         tracing::info!(
                                             "[DC] arcade: viewer {} claimed player 1 (first input)",
                                             pt
@@ -1144,10 +1144,16 @@ pub(super) async fn wire_dc_handler_for_guest(
                                         *claimed = Some(pt.clone());
                                         std::borrow::Cow::Borrowed("player")
                                     }
+                                    // Once claimed, the claimer's FULL input stream
+                                    // (including zero-state key releases) must reach
+                                    // the core. Dropping state=0 here leaves the key
+                                    // permanently pressed in the game — the exact
+                                    // "phantom input layered on top of my input"
+                                    // symptom on public arcades.
                                     Some(existing) if existing == pt => {
                                         std::borrow::Cow::Borrowed("player")
                                     }
-                                    Some(_) => std::borrow::Cow::Borrowed("viewer"),
+                                    _ => std::borrow::Cow::Borrowed("viewer"),
                                 }
                             }
                         } else {
@@ -1176,6 +1182,11 @@ pub(super) async fn wire_dc_handler_for_guest(
                     ) {
                         let guard = session.core_cmd_tx.lock().await;
                         if let Some(ref tx) = *guard {
+                            tracing::debug!(
+                                "[DC] guest input forwarded role={effective_role} seat={} state=0x{:04x}",
+                                data[0],
+                                (data[1] as u16) | ((data[2] as u16) << 8),
+                            );
                             let _ = tx.try_send(command);
                         }
                     } else if data.len() >= 3 && effective_role != "player" {
