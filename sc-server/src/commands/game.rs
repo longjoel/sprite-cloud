@@ -1,6 +1,7 @@
 //! Game lifecycle and WebRTC SDP handlers.
 
 use super::*;
+use std::sync::atomic::AtomicBool;
 
 fn signal_log(flow: &str, stage: &str, details: &str) {
     if details.is_empty() {
@@ -44,6 +45,12 @@ pub(super) fn payload_account_id(cmd: &sc_web::Command) -> Option<String> {
         .and_then(|value| value.as_str())
         .filter(|s| !s.is_empty())
         .map(str::to_owned)
+}
+
+/// Whether the command requests a resident session (never idle-killed,
+/// periodically checkpointed). Driven by the gateway's always_on flag.
+fn is_resident(cmd: &sc_web::Command) -> bool {
+    cmd.payload.get("resident").and_then(|v| v.as_bool()).unwrap_or(false)
 }
 
 pub(super) async fn handle_start_game(
@@ -226,7 +233,8 @@ pub(super) async fn handle_start_game(
         audio_track: std::sync::Mutex::new(stack.audio_track),
         dc: tokio::sync::Mutex::new(None),
         guests: tokio::sync::Mutex::new(Vec::new()),
-        host_connected: std::sync::atomic::AtomicBool::new(false),
+        host_connected: AtomicBool::new(false),
+        player_claimed: AtomicBool::new(false),
         local_players: std::sync::atomic::AtomicU32::new(1),
         // #745: identity comes from the gateway-enriched start_game payload
         // (membership + short-code validated), never from the browser.
@@ -243,6 +251,7 @@ pub(super) async fn handle_start_game(
         core_height: tokio::sync::Mutex::new(0),
         core_fps: tokio::sync::Mutex::new(0.0),
         core_sample_rate: tokio::sync::Mutex::new(48000.0),
+        resident: AtomicBool::new(is_resident(cmd)),
     });
 
     // Load libretro core
@@ -429,6 +438,30 @@ pub(super) async fn handle_start_game(
     }
 
     record_server_local_play(library_preferences, game_id, launch_ready, server_local).await;
+
+    // ── Resident checkpoint timer ────────────────────────────────────
+    // Resident sessions save state every 5 minutes so crash recovery
+    // resumes near where playback left off.
+    // TODO: send CoreCommand::SaveState + persist via save_stack_push.
+    if session.resident.load(std::sync::atomic::Ordering::Relaxed) {
+        let chk_session = Arc::clone(&session);
+        let chk_cancel = session.cancel.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(300));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    _ = chk_cancel.cancelled() => break,
+                    _ = interval.tick() => {
+                        tracing::debug!(
+                            "[CHKPT] resident tick for {} — checkpoint TODO",
+                            chk_session.game_id,
+                        );
+                    }
+                }
+            }
+        });
+    }
 
     let total = t_total.elapsed();
     tracing::info!(
@@ -1059,15 +1092,73 @@ pub(super) async fn wire_dc_handler_for_guest(
                     let local_players = session
                         .local_players
                         .load(std::sync::atomic::Ordering::Relaxed);
+
+                    // Arcade mode: first viewer button press claims player 1.
+                    // Once claimed (player_claimed=true), all inputs from any viewer
+                    // are treated as player input until the guest list empties.
+                    let effective_role: std::borrow::Cow<'_, str> =
+                        if peer_role == "player"
+                            || (session
+                                .resident
+                                .load(std::sync::atomic::Ordering::Relaxed)
+                                && !session
+                                    .host_connected
+                                    .load(std::sync::atomic::Ordering::Relaxed)
+                                && {
+                                    let was_claimed = session
+                                        .player_claimed
+                                        .swap(true, std::sync::atomic::Ordering::Relaxed);
+                                    if !was_claimed {
+                                        tracing::info!(
+                                            "[DC] arcade: promoting viewer to player (first input)"
+                                        );
+                                    }
+                                    true
+                                })
+                        {
+                            std::borrow::Cow::Borrowed("player")
+                        } else {
+                            std::borrow::Cow::Borrowed(&peer_role)
+                        };
+
                     if let Some(command) =
-                        guest_input_command(&peer_role, authoritative_seat, local_players, &data)
+                        guest_input_command(
+                            &effective_role,
+                            // Arcade guests (no host) always map to port 0 (player 1).
+                            // A resident session has no host browser, so port 0 is
+                            // free — the default local_players=1 (host keyboard)
+                            // would shift the first guest to port 1 (player 2).
+                            if session
+                                .resident
+                                .load(std::sync::atomic::Ordering::Relaxed)
+                                && !session
+                                    .host_connected
+                                    .load(std::sync::atomic::Ordering::Relaxed)
+                            {
+                                Some(1u32)
+                            } else {
+                                authoritative_seat
+                            },
+                            if session
+                                .resident
+                                .load(std::sync::atomic::Ordering::Relaxed)
+                                && !session
+                                    .host_connected
+                                    .load(std::sync::atomic::Ordering::Relaxed)
+                            {
+                                0
+                            } else {
+                                local_players
+                            },
+                            &data,
+                        )
                     {
                         let guard = session.core_cmd_tx.lock().await;
                         if let Some(ref tx) = *guard {
                             let _ = tx.try_send(command);
                         }
-                    } else if data.len() >= 3 && peer_role != "player" {
-                        tracing::trace!("[DC] ignored input from role={peer_role}");
+                    } else if data.len() >= 3 && effective_role != "player" {
+                        tracing::trace!("[DC] ignored input from role={effective_role}");
                     }
                 })
             }));
@@ -1082,9 +1173,18 @@ pub(super) async fn wire_dc_handler_for_guest(
             if state == "failed" || state == "disconnected" {
                 let mut guests = session_for_ice.guests.lock().await;
                 guests.retain(|g| g.peer_token != pt_for_ice);
+                if guests.is_empty() {
+                    // Arcade: release the claimed seat so next viewer can grab it
+                    session_for_ice
+                        .player_claimed
+                        .store(false, std::sync::atomic::Ordering::Relaxed);
+                }
                 if guests.is_empty()
                     && !session_for_ice
                         .host_connected
+                        .load(std::sync::atomic::Ordering::Relaxed)
+                    && !session_for_ice
+                        .resident
                         .load(std::sync::atomic::Ordering::Relaxed)
                 {
                     tracing::info!("[ICE] last guest left, host gone — cancelling session");
@@ -1181,6 +1281,21 @@ mod tests {
             command,
             Some(crate::core_bridge::CoreCommand::SetInput {
                 port: 2,
+                state: 0x1234
+            })
+        ));
+    }
+
+    #[test]
+    fn arcade_resident_guest_without_host_maps_to_port_zero() {
+        // #762: a resident session has no host browser, so local_players
+        // offset is 0 — the first guest must land on port 0 (player 1).
+        let command = guest_input_command("player", Some(1), 0, &[1, 0x34, 0x12]);
+
+        assert!(matches!(
+            command,
+            Some(crate::core_bridge::CoreCommand::SetInput {
+                port: 0,
                 state: 0x1234
             })
         ));

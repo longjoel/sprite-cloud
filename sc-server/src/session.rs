@@ -46,6 +46,10 @@ pub struct GameSession {
     /// True while the host DataChannel is open. Guest leave only
     /// cancels the session if this is false (host already gone).
     pub host_connected: AtomicBool,
+    /// For arcade/resident sessions: set to true when the first viewer
+    /// claims the player slot by pressing a button. Released when they
+    /// disconnect (guest list empty), so the next viewer can claim it.
+    pub player_claimed: AtomicBool,
     /// Number of local player ports on the host machine (gamepads + keyboard on seat 0).
     /// Used to offset guest seat assignment so local multi-controller doesn't collide.
     /// Defaults to 1 (keyboard + gamepad[0] on seat 0). Set from host auth message.
@@ -76,6 +80,8 @@ pub struct GameSession {
     pub core_fps: Mutex<f64>,
     /// Core audio sample rate in Hz (from retro_get_system_av_info).
     pub core_sample_rate: Mutex<f64>,
+    /// Resident session — never idle-killed, periodically checkpointed.
+    pub resident: AtomicBool,
 }
 
 impl GameSession {

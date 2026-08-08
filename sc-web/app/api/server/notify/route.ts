@@ -320,11 +320,11 @@ export async function POST(request: NextRequest) {
       .limit(1);
   }
 
-  if (
-    bySession?.serverId !== server.id
-    || bySession?.gameId !== body.game_id
-    || bySession?.id !== commandSessionId
-  ) {
+  if (bySession && (
+    bySession.serverId !== server.id
+    || bySession.gameId !== body.game_id
+    || bySession.id !== commandSessionId
+  )) {
     return NextResponse.json({ error: "session does not match callback command" }, { status: 409 });
   }
 
@@ -492,7 +492,10 @@ export async function POST(request: NextRequest) {
         throw error;
       }
     } else {
-      if (byGame) {
+      if (byGame && byGame.status !== SESSION_ENDED) {
+        // Only reject if the existing session is still active. Ended sessions
+        // are dead — a new start_game (resident or otherwise) should create a
+        // fresh session row.
         return NextResponse.json({ error: "session does not match callback command" }, { status: 409 });
       }
       logSignalingStage(notifyFlow, "session_missing_creating_legacy_row", {
@@ -504,15 +507,22 @@ export async function POST(request: NextRequest) {
       }
       // A leased start command may create its initial session as a legacy edge case.
       try {
+        const hostToken = typeof commandPayload.host_token === "string" ? commandPayload.host_token : null;
+        const sessionId = typeof commandPayload.session_id === "string"
+          ? commandPayload.session_id
+          : crypto.randomUUID();
         await db.transaction(async (tx) => {
           await tx.insert(sessions).values({
+            id: sessionId,
             userId: server.userId,
             serverId: server.id,
             gameId: body.game_id!,
             commandId: body.command_id,
+            hostToken,
             workerUrl: body.worker_url,
             status: targetStatus,
             roomToken,
+            maxSeats: typeof commandPayload.max_seats === "number" ? commandPayload.max_seats : 4,
             sdpAnswer: body.sdp_answer ?? null,
             stateEnteredAt: new Date(),
           });

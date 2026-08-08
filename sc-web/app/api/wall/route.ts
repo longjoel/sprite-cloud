@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { gameFlags, peerTokens, serverGames, servers, sessions } from "@/lib/db/schema";
 import { ACTIVE_SESSION_STATES } from "@/lib/constants";
@@ -39,6 +39,8 @@ export async function GET() {
       roomToken: sessions.roomToken,
       sessionMaxSeats: sessions.maxSeats,
       stateEnteredAt: sessions.stateEnteredAt,
+      freePlay: gameFlags.freePlay,
+      alwaysOn: gameFlags.alwaysOn,
     })
     .from(serverGames)
     .innerJoin(
@@ -57,7 +59,13 @@ export async function GET() {
         inArray(sessions.status, [...ACTIVE_SESSION_STATES]),
       ),
     )
-    .where(eq(gameFlags.public, true))
+    .where(and(
+      eq(gameFlags.public, true),
+      or(
+        isNull(serverGames.verificationState),
+        ne(serverGames.verificationState, "BiosVerified"),
+      ),
+    ))
     .orderBy(serverGames.name);
 
   // Player/viewer counts for the live sessions.
@@ -110,6 +118,8 @@ export async function GET() {
       players: counts?.players ?? 0,
       viewers: counts?.viewers ?? 0,
       maxSeats: r.sessionMaxSeats ?? r.maxPlayers,
+      freePlay: r.freePlay === true,
+      alwaysOn: r.alwaysOn === true,
       ...(live && r.roomToken
         ? {
             roomUrl: `/r/${encodeURIComponent(r.roomToken)}?game_id=${encodeURIComponent(r.gameId)}&server_id=${encodeURIComponent(r.serverId)}`,

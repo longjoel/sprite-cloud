@@ -234,7 +234,9 @@ fn capture_sram_and_terminate<C, P>(
 
 /// Extract the first ROM file from a .zip archive to a temp file.
 /// Caches by game_id in /tmp/sc-workers/. Second play skips extraction entirely.
-fn ensure_extracted_rom(rom_path: &str, game_id: &str) -> String {
+/// Arcade platforms (FBNeo) use the .zip as-is — the core reads the full
+/// ROM set directly from the archive.
+fn ensure_extracted_rom(rom_path: &str, game_id: &str, platform: Option<&str>) -> String {
     let path = std::path::Path::new(rom_path);
     if !path
         .extension()
@@ -242,6 +244,13 @@ fn ensure_extracted_rom(rom_path: &str, game_id: &str) -> String {
         .map(|e| e.eq_ignore_ascii_case("zip"))
         .unwrap_or(false)
     {
+        return rom_path.to_string();
+    }
+
+    // Arcade / FBNeo ROMs are multi-file sets inside .zip — the core
+    // reads the full archive, so extracting a single entry breaks it.
+    if platform == Some("Arcade") {
+        tracing::info!("[CORE] arcade zip passed through as-is: {}", rom_path);
         return rom_path.to_string();
     }
 
@@ -588,8 +597,9 @@ pub async fn load_core_into_session(
     };
 
     let rom_path = content_path.unwrap_or("");
-    // Extract zip ROMs so sc-core gets raw ROM data
-    let actual_rom_path = ensure_extracted_rom(rom_path, game_id);
+    // Extract zip ROMs so sc-core gets raw ROM data — except Arcade
+    // (FBNeo) where the zip IS the ROM set and must be passed whole.
+    let actual_rom_path = ensure_extracted_rom(rom_path, game_id, platform);
     let out_name = format!("sc-out-{game_id}");
     let in_name = format!("sc-in-{game_id}");
 
@@ -1224,6 +1234,8 @@ mod tests {
             guests: tokio::sync::Mutex::new(Vec::new()),
             host_connected: std::sync::atomic::AtomicBool::new(false),
             local_players: std::sync::atomic::AtomicU32::new(1),
+            player_claimed: std::sync::atomic::AtomicBool::new(false),
+            resident: std::sync::atomic::AtomicBool::new(false),
             account_id: tokio::sync::Mutex::new(None),
             core_loaded: std::sync::atomic::AtomicBool::new(false),
             core_loading: std::sync::atomic::AtomicBool::new(false),

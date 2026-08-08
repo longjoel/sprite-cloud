@@ -60,7 +60,9 @@ export async function issueRoomPeer<TSchema extends Record<string, unknown>>(
       .from(peerTokens)
       .where(eq(peerTokens.sessionId, input.sessionId));
     const seat = (maxResult?.max ?? 0) + 1;
-    const role = seat < input.maxSeats ? "player" : "viewer";
+    // maxSeats is the player capacity: seats 1..maxSeats are players,
+    // any further seats are spectators (#762).
+    const role = seat <= input.maxSeats ? "player" : "viewer";
     const token = randomBytes(16).toString("hex");
 
     await tx.insert(peerTokens).values({

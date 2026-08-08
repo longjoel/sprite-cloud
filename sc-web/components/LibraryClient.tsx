@@ -29,6 +29,7 @@ interface Game {
   coverUrl?: string | null;
   verification?: { state: "verified" | "unverified" } | null;
   alwaysOn?: boolean;
+  freePlay?: boolean;
   public?: boolean;
 }
 
@@ -50,6 +51,7 @@ interface GameActionModel {
   canToggleFlags: boolean;
   onTogglePublic?: (game: Game) => void;
   onToggleAlwaysOn?: (game: Game) => void;
+  onToggleFreePlay?: (game: Game) => void;
 }
 
 interface PlayableHost {
@@ -557,11 +559,12 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
     canToggleFlags: isAdmin,
     onTogglePublic: isAdmin ? handleToggleFlag("public") : undefined,
     onToggleAlwaysOn: isAdmin ? handleToggleFlag("alwaysOn") : undefined,
+    onToggleFreePlay: isAdmin ? handleToggleFlag("freePlay") : undefined,
   };
 
   // ── Flag toggle handler (Living Cabinet wall, #762) ─────────────
 
-  function handleToggleFlag(flag: "public" | "alwaysOn") {
+  function handleToggleFlag(flag: "public" | "alwaysOn" | "freePlay") {
     return async (game: Game) => {
       const serverId = game.serverId ?? adminServers[0]?.id;
       if (!serverId) return;
@@ -573,7 +576,11 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
           body: JSON.stringify({
             serverId,
             gameId: game.id,
-            [flag]: !(flag === "public" ? game.public : game.alwaysOn),
+            [flag]: !(
+              flag === "public" ? game.public
+              : flag === "freePlay" ? game.freePlay
+              : game.alwaysOn
+            ),
           }),
         });
         const data = await res.json() as { error?: string };
@@ -649,6 +656,12 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
       onChooseHost={gameActions.onChooseHost}
       onDelete={gameActions.canDelete ? gameActions.onDelete : undefined}
       onDownload={gameActions.onDownload ? gameActions.onDownload : undefined}
+      isPublic={game.public}
+      onTogglePublic={gameActions.canToggleFlags ? () => gameActions.onTogglePublic?.(game) : undefined}
+      isAlwaysOn={game.alwaysOn}
+      onToggleAlwaysOn={gameActions.canToggleFlags ? () => gameActions.onToggleAlwaysOn?.(game) : undefined}
+      isFreePlay={game.freePlay}
+      onToggleFreePlay={gameActions.canToggleFlags ? () => gameActions.onToggleFreePlay?.(game) : undefined}
       launching={launchingGame === libraryGameKey(game)}
     />
   );
@@ -704,6 +717,8 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
               onTogglePublic={gameActions.canToggleFlags ? () => gameActions.onTogglePublic?.(game) : undefined}
               isAlwaysOn={game.alwaysOn}
               onToggleAlwaysOn={gameActions.canToggleFlags ? () => gameActions.onToggleAlwaysOn?.(game) : undefined}
+              isFreePlay={game.freePlay}
+              onToggleFreePlay={gameActions.canToggleFlags ? () => gameActions.onToggleFreePlay?.(game) : undefined}
               triggerAriaLabel={`More actions for ${game.name}`}
             />
           )}
@@ -721,6 +736,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
         userName={session?.user?.name || session?.user?.email || undefined}
         links={[
           { label: "Home", href: "/" },
+          { label: "Library", href: "/library" },
           ...(session ? [{ label: "Dashboard", href: "/servers" }] : []),
           ...(session
             ? [{ label: "Sign out", href: "/api/auth/signout" }]
