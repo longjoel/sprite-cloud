@@ -27,6 +27,15 @@ interface GameTileProps {
   onChooseHost?: (game: TileGame) => void;
   onDelete?: (game: TileGame) => void;
   onDownload?: (game: TileGame) => void;
+  /** Public-wall toggle (admin only, #762). */
+  isPublic?: boolean;
+  onTogglePublic?: (game: TileGame) => void;
+  /** Always-on toggle (admin only, #762). */
+  isAlwaysOn?: boolean;
+  onToggleAlwaysOn?: (game: TileGame) => void;
+  /** Free-play toggle (admin only, #762). */
+  isFreePlay?: boolean;
+  onToggleFreePlay?: (game: TileGame) => void;
   launching?: boolean;
 }
 
@@ -42,6 +51,12 @@ export default function GameTile({
   onChooseHost,
   onDelete,
   onDownload,
+  isPublic,
+  onTogglePublic,
+  isAlwaysOn,
+  onToggleAlwaysOn,
+  isFreePlay,
+  onToggleFreePlay,
   launching = false,
 }: GameTileProps) {
   const nameRef = useRef<HTMLSpanElement>(null);
@@ -53,7 +68,10 @@ export default function GameTile({
   }, [game.name]);
 
   // Detect whether the context menu has any actions to show
-  const hasContextActions = !!(onToggleFavorite || onEdit || onChooseHost || onDelete || onDownload);
+  const hasContextActions = !!(
+    onToggleFavorite || onEdit || onChooseHost || onDelete || onDownload ||
+    onTogglePublic || onToggleAlwaysOn || onToggleFreePlay
+  );
 
   return (
     <MuiCard
@@ -112,6 +130,12 @@ export default function GameTile({
           onChooseHost={onChooseHost ? () => onChooseHost(game) : undefined}
           onDelete={onDelete ? () => onDelete(game) : undefined}
           onDownload={onDownload ? () => onDownload(game) : undefined}
+          isPublic={isPublic}
+          onTogglePublic={onTogglePublic ? () => onTogglePublic(game) : undefined}
+          isAlwaysOn={isAlwaysOn}
+          onToggleAlwaysOn={onToggleAlwaysOn ? () => onToggleAlwaysOn(game) : undefined}
+          isFreePlay={isFreePlay}
+          onToggleFreePlay={onToggleFreePlay ? () => onToggleFreePlay(game) : undefined}
           triggerAriaLabel={`More actions for ${game.name}`}
         />
       )}

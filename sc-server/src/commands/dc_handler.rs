@@ -114,6 +114,14 @@ pub(crate) fn wire_dc_handler(session: &Arc<GameSession>) {
                 );
                 break;
             }
+            // Resident sessions (always_on) stay alive indefinitely.
+            if session_for_ice
+                .resident
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
+                tracing::info!("[ICE] host PC dead, no guests — but resident session stays alive");
+                break;
+            }
             tracing::info!("[ICE] host PC dead, no guests — cancelling session");
             session_for_ice.cancel.cancel();
             break;
@@ -242,6 +250,8 @@ mod tests {
             guests: tokio::sync::Mutex::new(Vec::new()),
             host_connected: std::sync::atomic::AtomicBool::new(false),
             local_players: std::sync::atomic::AtomicU32::new(1),
+            player_claimed: std::sync::atomic::AtomicBool::new(false),
+            resident: std::sync::atomic::AtomicBool::new(false),
             account_id: tokio::sync::Mutex::new(None),
             core_loaded: std::sync::atomic::AtomicBool::new(false),
             core_loading: std::sync::atomic::AtomicBool::new(false),

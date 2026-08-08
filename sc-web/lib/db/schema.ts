@@ -75,7 +75,10 @@ export const gameFlags = pgTable(
       .notNull(),
     gameId: text("game_id").notNull(),
     alwaysOn: boolean("always_on").notNull().default(false),
+    freePlay: boolean("free_play").notNull().default(false),
     public: boolean("public").notNull().default(false),
+    /** Resident session seat cap (#762). NULL → host default (4). */
+    maxSeats: integer("max_seats"),
     updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -235,7 +238,7 @@ export const sessions = pgTable("sessions", {
   workerUrl: text("worker_url"),
   sdpAnswer: text("sdp_answer"),
   roomToken: text("room_token").unique(),
-  maxSeats: integer("max_seats").notNull().default(1),
+  maxSeats: integer("max_seats").notNull().default(4),
   generation: integer("generation").notNull().default(1),
   status: text("status").notNull().default("spawning"),
   // spawning → ready → connected → playing → ended | timed_out

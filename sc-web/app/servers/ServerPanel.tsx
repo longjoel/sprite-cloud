@@ -30,6 +30,17 @@ interface ServerMetadata {
   };
 }
 
+interface GameEntry {
+  game_id: string;
+  name: string;
+  platform: string;
+}
+
+interface GameFlagEntry {
+  always_on: boolean;
+  free_play: boolean;
+}
+
 interface Props {
   serverId: string;
 }
@@ -62,6 +73,9 @@ export default function ServerPanel({ serverId }: Props) {
   const [updateState, setUpdateState] = useState<"idle" | ServerUpdateState>("idle");
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [games, setGames] = useState<GameEntry[]>([]);
+  const [gameFlags, setGameFlags] = useState<Record<string, GameFlagEntry>>({});
+  const [flagLoading, setFlagLoading] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     Promise.all([
@@ -73,6 +87,34 @@ export default function ServerPanel({ serverId }: Props) {
         if (overridesResponse?.overrides) setCoreOverrides(overridesResponse.overrides);
       })
       .catch(() => setError("Unable to load server details."));
+  }, [serverId]);
+
+  // Load server games and their flags
+  useEffect(() => {
+    fetch(`/api/servers/${serverId}/games`)
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        const list: GameEntry[] = data?.games ?? [];
+        setGames(list);
+        // Batch-load flags for all games
+        return Promise.all(
+          list.map((g: GameEntry) =>
+            fetch(`/api/servers/${serverId}/game-flags/${encodeURIComponent(g.game_id)}`)
+              .then((r) => r.ok ? r.json() : { alwaysOn: false, freePlay: false })
+              .then((flags) => [g.game_id, flags] as const),
+          ),
+        );
+      })
+      .then((flagPairs) => {
+        if (flagPairs) {
+          const flagMap: Record<string, GameFlagEntry> = {};
+          for (const [gid, flags] of flagPairs) {
+            flagMap[gid] = flags;
+          }
+          setGameFlags(flagMap);
+        }
+      })
+      .catch(() => {});
   }, [serverId]);
 
   async function setCore(platform: string, core: string) {
@@ -88,6 +130,41 @@ export default function ServerPanel({ serverId }: Props) {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
     } catch {
       setError("Unable to save core override.");
+    }
+  }
+
+  async function toggleFlag(gameId: string, flag: "always_on" | "free_play") {
+    const current = gameFlags[gameId];
+    if (!current) return;
+    const newVal = !current[flag === "always_on" ? "always_on" : "free_play"];
+    // Optimistic update
+    setGameFlags((prev) => ({
+      ...prev,
+      [gameId]: { ...prev[gameId], [flag === "always_on" ? "always_on" : "free_play"]: newVal },
+    }));
+    setFlagLoading((prev) => new Set(prev).add(`${gameId}:${flag}`));
+    try {
+      const resp = await fetch(
+        `/api/servers/${serverId}/game-flags/${encodeURIComponent(gameId)}`,
+        {
+          method: "PATCH",
+          headers: csrfHeaders(),
+          body: JSON.stringify({ [flag]: newVal }),
+        },
+      );
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    } catch {
+      // Revert on error
+      setGameFlags((prev) => ({
+        ...prev,
+        [gameId]: { ...prev[gameId], [flag === "always_on" ? "always_on" : "free_play"]: !newVal },
+      }));
+    } finally {
+      setFlagLoading((prev) => {
+        const next = new Set(prev);
+        next.delete(`${gameId}:${flag}`);
+        return next;
+      });
     }
   }
 
@@ -141,6 +218,53 @@ export default function ServerPanel({ serverId }: Props) {
           ))}
         </div>
       </section>
+
+      <section style={S.section}>
+        <h2 style={S.heading}>Arcade & Free Play</h2>
+        <p style={S.note}>
+          Enable always-on to keep the game running as a living cabinet
+          on the wall. Free play auto-inserts a credit at startup.
+        </p>
+        {games.length === 0 ? (
+          <p style={S.empty}>No games synced yet from this server.</p>
+        ) : (
+          <div style={S.flagGrid}>
+            {games.map((g) => {
+              const flags = gameFlags[g.game_id] ?? { always_on: false, free_play: false };
+              const aLoading = flagLoading.has(`${g.game_id}:always_on`);
+              const fLoading = flagLoading.has(`${g.game_id}:free_play`);
+              return (
+                <div key={g.game_id} style={S.flagRow}>
+                  <div style={S.flagGame}>
+                    <span style={S.flagName}>{g.name}</span>
+                    <span style={S.flagPlatform}>{g.platform}</span>
+                  </div>
+                  <label style={S.toggleLabel}>
+                    <input
+                      type="checkbox"
+                      checked={flags.always_on}
+                      disabled={aLoading}
+                      onChange={() => toggleFlag(g.game_id, "always_on")}
+                      style={S.toggleCheck}
+                    />
+                    Always on
+                  </label>
+                  <label style={S.toggleLabel}>
+                    <input
+                      type="checkbox"
+                      checked={flags.free_play}
+                      disabled={fLoading}
+                      onChange={() => toggleFlag(g.game_id, "free_play")}
+                      style={S.toggleCheck}
+                    />
+                    Free play
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -157,4 +281,12 @@ const S: Record<string, React.CSSProperties> = {
   select: { minHeight: 36, border: "1px solid var(--color-sky-high)", borderRadius: 2, background: "var(--color-sky-deep)", color: "var(--color-cloud)", padding: "0 var(--space-3)", fontFamily: "var(--font-mono)" },
   updateButton: { marginTop: "var(--space-2)", minHeight: 36, border: "1px solid var(--color-accent)", borderRadius: 2, background: "var(--color-accent)", color: "var(--color-sky-deep)", padding: "0 var(--space-3)", fontWeight: 700, cursor: "pointer" },
   error: { margin: 0, border: "1px solid var(--color-danger)", color: "var(--color-danger)", padding: "var(--space-3)" },
+  flagGrid: { display: "grid", gap: "var(--space-3)" },
+  flagRow: { display: "flex", alignItems: "center", gap: "var(--space-4)", padding: "var(--space-3)", border: "1px solid var(--color-sky-high)", borderRadius: 2 },
+  flagGame: { flex: 1, display: "flex", flexDirection: "column", gap: 2 },
+  flagName: { fontWeight: 700, fontSize: "var(--font-size-base)" },
+  flagPlatform: { color: "var(--color-cloud-dim)", fontSize: "var(--font-size-sm)" },
+  toggleLabel: { display: "flex", alignItems: "center", gap: "var(--space-2)", color: "var(--color-cloud-dim)", fontSize: "var(--font-size-sm)", cursor: "pointer", whiteSpace: "nowrap" },
+  toggleCheck: { cursor: "pointer", accentColor: "var(--color-accent)" },
+  empty: { color: "var(--color-cloud-dim)", fontSize: "var(--font-size-sm)", margin: 0 },
 };

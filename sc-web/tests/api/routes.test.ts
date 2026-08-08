@@ -2205,7 +2205,7 @@ describe("POST /api/room/join", () => {
         commandWorkerToken: "worker-123",
       }]))
       .mockReturnValueOnce(mockQueryBuilder([]))
-      .mockReturnValueOnce(mockQueryBuilder([{ max: 3 }]));
+      .mockReturnValueOnce(mockQueryBuilder([{ max: 4 }]));
 
     const { POST } = await import("@/app/api/room/join/route");
     const req = mkReq("http://localhost/api/room/join", {
@@ -2215,7 +2215,7 @@ describe("POST /api/room/join", () => {
     const body = await resp.json();
 
     expect(resp.status).toBe(200);
-    expect(body.seat).toBe(4);
+    expect(body.seat).toBe(5);
     expect(body.role).toBe("viewer");
     expect(body.capabilities.role).toBe("spectator");
   });

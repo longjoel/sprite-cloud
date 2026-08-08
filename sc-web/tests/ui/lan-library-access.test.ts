@@ -20,7 +20,7 @@ describe("LAN-owned library access", () => {
   });
 
   it("hands cloud users to the server-owned LAN library", () => {
-    const page = readFileSync("app/page.tsx", "utf8");
+    const page = readFileSync("app/library/page.tsx", "utf8");
     const client = readFileSync("components/LibraryClient.tsx", "utf8");
     expect(page).toContain("extractLanLibraryLinks");
     expect(page).toContain("lanLibraries={lanLibraries}");

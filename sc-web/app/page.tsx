@@ -1,15 +1,17 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { serverMembers, servers, users } from "@/lib/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { users } from "@/lib/db/schema";
+import { sql } from "drizzle-orm";
 import LandingPage from "@/components/LandingPage";
 import LibraryClient from "@/components/LibraryClient";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { verifyBearerToken } from "@/lib/server-auth";
-import { extractLanLibraryLinks } from "@/lib/lan/library-handoff";
 
-// ── Server component — landing page or library ────────────────────────
+// ── Home page — Living Cabinet wall for everyone
+// Authenticated users are redirected to /library.
+// Unauthenticated visitors see the wall (LandingPage).
+// LAN proxy requests get LibraryClient.
 
 export default async function Home() {
   const session = await auth();
@@ -23,7 +25,28 @@ export default async function Home() {
   // First-run: if no users exist, show setup
   if (!session?.user?.id) {
     if (isLanProxy) {
-      return <LibraryClient serverIds={[]} session={null} isLanProxy />;
+      // LAN proxy: bearer-authenticated server owner is admin by claim semantics —
+      // pass adminServers so the wall toggles render in the library context menu.
+      return (
+        <LibraryClient
+          serverIds={[]}
+          session={null}
+          isLanProxy
+          adminServers={
+            lanServer
+              ? [
+                  {
+                    id: lanServer.id,
+                    name: lanServer.name,
+                    status:
+                      ((lanServer.metadata as Record<string, unknown> | null)
+                        ?.status as string) ?? "unknown",
+                  },
+                ]
+              : []
+          }
+        />
+      );
     }
     const [row] = await db
       .select({ count: sql<number>`count(*)` })
@@ -31,35 +54,19 @@ export default async function Home() {
     if (Number(row?.count ?? 0) === 0) {
       redirect("/setup");
     }
-    // Show the landing page for unauthenticated visitors
-    return <LandingPage />;
+    return (
+      <LandingPage
+        userName={null}
+        authenticated={false}
+      />
+    );
   }
 
-  // Authenticated: find all servers the user is a member of
-  const memberships = await db
-    .select({ serverId: servers.id, name: servers.name, metadata: servers.metadata, role: serverMembers.role })
-    .from(serverMembers)
-    .innerJoin(servers, eq(serverMembers.serverId, servers.id))
-    .where(eq(serverMembers.userId, session.user.id));
-  const serverIds = memberships.map((m) => m.serverId);
-  const lanLibraries = extractLanLibraryLinks(memberships);
-
-  // Admin servers (for ROM upload dropzone)
-  const adminServers = memberships
-    .filter((m) => m.role === "admin")
-    .map((m) => ({
-      id: m.serverId,
-      name: m.name,
-      status: ((m.metadata as Record<string, unknown> | null)?.status as string) ?? "unknown",
-    }));
-
+  // Authenticated
   return (
-    <LibraryClient
-      serverIds={serverIds}
-      lanLibraries={lanLibraries}
-      session={{ user: session.user }}
-      isLanProxy={false}
-      adminServers={adminServers}
+    <LandingPage
+      userName={session.user.name || session.user.email || null}
+      authenticated
     />
   );
 }

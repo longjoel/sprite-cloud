@@ -855,6 +855,7 @@ async fn launch_game(
         dc: tokio::sync::Mutex::new(None),
         guests: tokio::sync::Mutex::new(Vec::new()),
         host_connected: std::sync::atomic::AtomicBool::new(false),
+        player_claimed: std::sync::atomic::AtomicBool::new(false),
         local_players: std::sync::atomic::AtomicU32::new(1),
         account_id: tokio::sync::Mutex::new(None),
         core_loaded: std::sync::atomic::AtomicBool::new(false),
@@ -869,6 +870,7 @@ async fn launch_game(
         core_height: tokio::sync::Mutex::new(0),
         core_fps: tokio::sync::Mutex::new(0.0),
         core_sample_rate: tokio::sync::Mutex::new(48_000.0),
+        resident: std::sync::atomic::AtomicBool::new(false),
     });
 
     if let Err(message) = crate::core_bridge::load_core_into_session(
