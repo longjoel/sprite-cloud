@@ -1124,7 +1124,10 @@ pub(super) async fn wire_dc_handler_for_guest(
                     if let Some(command) =
                         guest_input_command(
                             &effective_role,
-                            // Arcade guests (no host) always map to port 0 (player 1)
+                            // Arcade guests (no host) always map to port 0 (player 1).
+                            // A resident session has no host browser, so port 0 is
+                            // free — the default local_players=1 (host keyboard)
+                            // would shift the first guest to port 1 (player 2).
                             if session
                                 .resident
                                 .load(std::sync::atomic::Ordering::Relaxed)
@@ -1136,7 +1139,17 @@ pub(super) async fn wire_dc_handler_for_guest(
                             } else {
                                 authoritative_seat
                             },
-                            local_players,
+                            if session
+                                .resident
+                                .load(std::sync::atomic::Ordering::Relaxed)
+                                && !session
+                                    .host_connected
+                                    .load(std::sync::atomic::Ordering::Relaxed)
+                            {
+                                0
+                            } else {
+                                local_players
+                            },
                             &data,
                         )
                     {
@@ -1268,6 +1281,21 @@ mod tests {
             command,
             Some(crate::core_bridge::CoreCommand::SetInput {
                 port: 2,
+                state: 0x1234
+            })
+        ));
+    }
+
+    #[test]
+    fn arcade_resident_guest_without_host_maps_to_port_zero() {
+        // #762: a resident session has no host browser, so local_players
+        // offset is 0 — the first guest must land on port 0 (player 1).
+        let command = guest_input_command("player", Some(1), 0, &[1, 0x34, 0x12]);
+
+        assert!(matches!(
+            command,
+            Some(crate::core_bridge::CoreCommand::SetInput {
+                port: 0,
                 state: 0x1234
             })
         ));
