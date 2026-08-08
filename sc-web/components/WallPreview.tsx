@@ -33,11 +33,13 @@ export default function WallPreview({ roomToken, gameId, serverId, active }: Wal
 
     (async () => {
       try {
-        // 1. Get room metadata (no client_id = no seat consumption)
+        // 1. Mint a viewer-only preview peer token. `preview: true` +
+        //    stable client_id → spectator seat beyond maxSeats (never
+        //    consumes a player slot), idempotent across re-renders.
         const joinRes = await fetch("/api/room/join", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ room_token: roomToken }),
+          body: JSON.stringify({ room_token: roomToken, preview: true, client_id: `preview:${roomToken}` }),
           signal: controller.signal,
         });
         if (!joinRes.ok) throw new Error(`join failed: ${joinRes.status}`);

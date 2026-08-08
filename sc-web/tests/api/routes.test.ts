@@ -2136,6 +2136,45 @@ describe("POST /api/room/join", () => {
     expect(mockDb.insert).not.toHaveBeenCalled();
   });
 
+  it("mints a viewer-only preview token without consuming a player seat", async () => {
+    // #762 wall preview: preview:true must mint a peer token with
+    // role=viewer and a spectator seat (maxSeats+1) so the tile can open
+    // a WebRTC leg without stealing a playable slot.
+    mockDb.select.mockReturnValueOnce(
+      mockQueryBuilder([{
+        id: "sess-1",
+        workerUrl: "http://localhost:9999",
+        gameId: "local_0123456789abcdef0123456789abcdef",
+        serverId: "server-1",
+        status: "ready",
+        maxSeats: 2,
+        commandWorkerToken: "worker-123",
+      }]),
+    );
+    mockDb.select.mockReturnValueOnce(mockQueryBuilder([])); // tx existing-peer lookup
+    const insertBuilder = mockQueryBuilder(undefined);
+    mockDb.insert.mockReturnValueOnce(insertBuilder);
+    const valuesSpy = vi.spyOn(insertBuilder, "values");
+
+    const { POST } = await import("@/app/api/room/join/route");
+    const req = mkReq("http://localhost/api/room/join", {
+      ...jsonBody({ room_token: "room-123", preview: true }),
+    });
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.peer_token).toBeTruthy();
+    expect(body.role).toBe("viewer");
+    expect(body.seat).toBe(3); // maxSeats(2) + 1 — spectator, not a player slot
+    expect(valuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        seat: 3,
+        role: "viewer",
+        clientId: "preview:room-123",
+      }),
+    );
+  });
+
   it("reuses an existing peer token for the same client_id", async () => {
     mockDb.select
       .mockReturnValueOnce(

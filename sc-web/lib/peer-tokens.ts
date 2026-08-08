@@ -7,6 +7,9 @@ export interface RoomPeerInput {
   sessionId: string;
   clientId: string;
   maxSeats: number;
+  /** Wall-tile preview: mint a viewer token with a spectator seat beyond
+   *  maxSeats — never consumes a player slot, always spectator capabilities. */
+  preview?: boolean;
 }
 
 export interface IssuedRoomPeer {
@@ -53,6 +56,23 @@ export async function issueRoomPeer<TSchema extends Record<string, unknown>>(
         role: existingPeer.role === "player" ? "player" : "viewer",
         reused: true,
       };
+    }
+
+    // Preview joins are always spectators: they get a seat beyond the
+    // player capacity so the wall tile's WebRTC leg never occupies a
+    // playable slot. Reuse the same spectator seat for all previews so
+    // preview tokens don't push real viewers' seats higher over time.
+    if (input.preview) {
+      const seat = input.maxSeats + 1;
+      const token = randomBytes(16).toString("hex");
+      await tx.insert(peerTokens).values({
+        sessionId: input.sessionId,
+        token,
+        seat,
+        role: "viewer",
+        clientId: input.clientId,
+      });
+      return { token, seat, role: "viewer", reused: false };
     }
 
     const [maxResult] = await tx

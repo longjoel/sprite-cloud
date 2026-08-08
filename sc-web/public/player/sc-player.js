@@ -1187,6 +1187,14 @@ export class ScPlayer {
 
     this._gamepadActive = true;
     this._gamepadStates = [];
+    // Activation gate: a gamepad only contributes after the user has
+    // deliberately pressed a real button or thrown a stick hard
+    // (|axis| > 0.9). Idle or drifting controllers — which commonly
+    // cross the axis threshold and flicker a D-pad/A bit — never inject
+    // phantom input. Bits 4-7 (D-pad) can come from axes, so they do not
+    // count as deliberate button presses (mask = face+shoulder+system).
+    const BUTTON_PRESS_MASK = 0x0F0F; // bits 0-3, 8-11: B,Y,Sel,St,A,X,L,R
+    this._gamepadEngaged = [];
 
     const sendSeat = (localSeat, state) => {
       if (localSeat === 0) {
@@ -1218,6 +1226,15 @@ export class ScPlayer {
 
       for (let localSeat = 0; localSeat < seatCount; localSeat++) {
         const state = nextStates[localSeat] ?? 0;
+        if (!this._gamepadEngaged[localSeat]) {
+          // Not engaged yet: require a deliberate button press or a hard
+          // stick deflection before this gamepad may send anything.
+          const gp = connected[localSeat];
+          const hardStick = gp && gp.axes && gp.axes.some((a) => Math.abs(a) > 0.9);
+          if ((state & BUTTON_PRESS_MASK) === 0 && !hardStick) continue;
+          this._gamepadEngaged[localSeat] = true;
+          console.log("[GPAD] engaged seat", localSeat);
+        }
         const prev = this._gamepadStates[localSeat] ?? 0;
         if (state !== prev) sendSeat(localSeat, state);
       }
