@@ -522,7 +522,7 @@ export async function POST(request: NextRequest) {
             workerUrl: body.worker_url,
             status: targetStatus,
             roomToken,
-            maxSeats: 4,
+            maxSeats: typeof commandPayload.max_seats === "number" ? commandPayload.max_seats : 4,
             sdpAnswer: body.sdp_answer ?? null,
             stateEnteredAt: new Date(),
           });
