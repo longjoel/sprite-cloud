@@ -2,6 +2,7 @@ import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { gameFlags, peerTokens, serverGames, servers, sessions } from "@/lib/db/schema";
 import { ACTIVE_SESSION_STATES } from "@/lib/constants";
+import { slugify, type WallGame } from "@/lib/wall-shared";
 
 // ── Shared wall data (Living Cabinet wall, #762) ─────────────────────
 //
@@ -11,37 +12,13 @@ import { ACTIVE_SESSION_STATES } from "@/lib/constants";
 // A live game's room token is exposed intentionally — a public game is
 // a public room; the token is the capability that lets a guest watch or
 // join it.
+//
+// NOTE: the WallGame type + slugify/pickFeatured helpers live in
+// lib/wall-shared.ts (client-safe, no DB imports). This module is
+// server-only (Postgres).
 
-export interface WallGame {
-  id: string;
-  name: string;
-  platform: string;
-  maxPlayers: number;
-  coverUrl: string;
-  serverId: string;
-  serverName: string;
-  serverOnline: boolean;
-  live: boolean;
-  players: number;
-  viewers: number;
-  maxSeats: number;
-  freePlay: boolean;
-  alwaysOn: boolean;
-  /** Stable, human-readable identifier for shareable /watch/<slug> links. */
-  slug: string;
-  watchUrl: string;
-  roomUrl?: string; // present only when live
-}
-
-/** Slugify a game name into a stable shareable identifier. */
-export function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
-}
+export type { WallGame } from "@/lib/wall-shared";
+export { slugify } from "@/lib/wall-shared";
 
 export async function getWallGames(): Promise<WallGame[]> {
   const rows = await db
@@ -142,6 +119,7 @@ export async function getWallGames(): Promise<WallGame[]> {
       alwaysOn: r.alwaysOn === true,
       slug,
       watchUrl: `/watch/${slug}`,
+      key: `${r.serverId}:${r.gameId}`,
       ...(live && r.roomToken
         ? {
             roomUrl: `/r/${encodeURIComponent(r.roomToken)}?game_id=${encodeURIComponent(r.gameId)}&server_id=${encodeURIComponent(r.serverId)}`,

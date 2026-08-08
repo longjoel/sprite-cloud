@@ -12,8 +12,32 @@ let _dbUrl: string | null = null;
 let _pgClient: postgres.Sql | null = null;
 let _db: ReturnType<typeof drizzle> | null = null;
 
+/**
+ * Pick a free host port for the disposable Postgres container.
+ * Random ports can collide with unrelated daemons on the runner box
+ * (observed 2026-08-08: transmission-daemon's web UI binds 9091,
+ * which is inside the random range — vitest failed with "address
+ * already in use"). Verify with `ss` before returning; retry up to
+ * 20 times, then fall back to letting Docker pick (-p with no host
+ * port is not supported by the postgres image flow here, so fail
+ * loudly instead of guessing again).
+ */
 function randomPort(): number {
-  return 9000 + Math.floor(Math.random() * 999);
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const port = 9000 + Math.floor(Math.random() * 999);
+    try {
+      const inUse = execSync(
+        `ss -ltn | grep -qE "[:.]${port} "`,
+        { stdio: "pipe" },
+      );
+      // exit 0 = grep matched = port in use → try another
+      void inUse;
+    } catch {
+      // grep exit 1 = no match = port free
+      return port;
+    }
+  }
+  throw new Error("could not find a free host port for the test Postgres container");
 }
 
 
