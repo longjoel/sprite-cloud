@@ -656,6 +656,12 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
       onChooseHost={gameActions.onChooseHost}
       onDelete={gameActions.canDelete ? gameActions.onDelete : undefined}
       onDownload={gameActions.onDownload ? gameActions.onDownload : undefined}
+      isPublic={game.public}
+      onTogglePublic={gameActions.canToggleFlags ? () => gameActions.onTogglePublic?.(game) : undefined}
+      isAlwaysOn={game.alwaysOn}
+      onToggleAlwaysOn={gameActions.canToggleFlags ? () => gameActions.onToggleAlwaysOn?.(game) : undefined}
+      isFreePlay={game.freePlay}
+      onToggleFreePlay={gameActions.canToggleFlags ? () => gameActions.onToggleFreePlay?.(game) : undefined}
       launching={launchingGame === libraryGameKey(game)}
     />
   );

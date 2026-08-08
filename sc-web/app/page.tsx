@@ -25,7 +25,28 @@ export default async function Home() {
   // First-run: if no users exist, show setup
   if (!session?.user?.id) {
     if (isLanProxy) {
-      return <LibraryClient serverIds={[]} session={null} isLanProxy />;
+      // LAN proxy: bearer-authenticated server owner is admin by claim semantics —
+      // pass adminServers so the wall toggles render in the library context menu.
+      return (
+        <LibraryClient
+          serverIds={[]}
+          session={null}
+          isLanProxy
+          adminServers={
+            lanServer
+              ? [
+                  {
+                    id: lanServer.id,
+                    name: lanServer.name,
+                    status:
+                      ((lanServer.metadata as Record<string, unknown> | null)
+                        ?.status as string) ?? "unknown",
+                  },
+                ]
+              : []
+          }
+        />
+      );
     }
     const [row] = await db
       .select({ count: sql<number>`count(*)` })
