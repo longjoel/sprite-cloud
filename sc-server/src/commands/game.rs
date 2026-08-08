@@ -234,7 +234,7 @@ pub(super) async fn handle_start_game(
         dc: tokio::sync::Mutex::new(None),
         guests: tokio::sync::Mutex::new(Vec::new()),
         host_connected: AtomicBool::new(false),
-        player_claimed: AtomicBool::new(false),
+        claimed_peer: tokio::sync::Mutex::new(None),
         local_players: std::sync::atomic::AtomicU32::new(1),
         // #745: identity comes from the gateway-enriched start_game payload
         // (membership + short-code validated), never from the browser.
@@ -953,6 +953,7 @@ pub(super) async fn handle_guest_sdp(
     let guest = Arc::new(crate::session::GuestPeer {
         pc,
         peer_token: peer_token.to_string(),
+        role: peer_role.clone(),
     });
     session.guests.lock().await.push(Arc::clone(&guest));
 
@@ -1056,6 +1057,13 @@ pub(super) async fn wire_dc_handler_for_guest(
                     tracing::info!("[DC] guest disconnected");
                     let mut guests = session.guests.lock().await;
                     guests.retain(|g| g.peer_token != pt);
+                    // If the departing peer was the claimer, release the claim
+                    // so the next viewer can grab the cabinet.
+                    let mut claimed = session.claimed_peer.lock().await;
+                    if claimed.as_deref() == Some(pt.as_str()) {
+                        tracing::info!("[DC] arcade: claim released (claimer left)");
+                        *claimed = None;
+                    }
                 })
             }));
 
@@ -1064,6 +1072,7 @@ pub(super) async fn wire_dc_handler_for_guest(
                 let session = Arc::clone(&session_for_msg);
                 let dc = Arc::clone(&dc_for_move);
                 let peer_role = peer_role.clone();
+                let pt = pt.clone();
                 Box::pin(async move {
                     let data = if msg.is_string {
                         String::from_utf8_lossy(&msg.data).into_owned().into_bytes()
@@ -1093,66 +1102,78 @@ pub(super) async fn wire_dc_handler_for_guest(
                         .local_players
                         .load(std::sync::atomic::Ordering::Relaxed);
 
-                    // Arcade mode: first viewer button press claims player 1.
-                    // Once claimed (player_claimed=true), all inputs from any viewer
-                    // are treated as player input until the guest list empties.
+                    let resident_no_host = session
+                        .resident
+                        .load(std::sync::atomic::Ordering::Relaxed)
+                        && !session
+                            .host_connected
+                            .load(std::sync::atomic::Ordering::Relaxed);
+
+                    // Only a real button press (non-zero state) may claim the
+                    // cabinet — idle gamepad polls send [seat, 0, 0] every
+                    // frame and must not grab the seat for a spectator.
+                    let actual_press = data.len() >= 3 && (data[1] != 0 || data[2] != 0);
+
+                    // Arcade mode: the FIRST viewer button press claims the
+                    // player slot for THAT peer only (deferred input), and
+                    // ONLY when no gateway-assigned player is connected —
+                    // a spectator must never hijack an active player's seat
+                    // or inject input into a game someone is already playing.
+                    // After the claim, only the claiming peer's input is
+                    // treated as player input; other viewers remain
+                    // spectators and their input is dropped. The claim is
+                    // released when the claimer disconnects.
                     let effective_role: std::borrow::Cow<'_, str> =
-                        if peer_role == "player"
-                            || (session
-                                .resident
-                                .load(std::sync::atomic::Ordering::Relaxed)
-                                && !session
-                                    .host_connected
-                                    .load(std::sync::atomic::Ordering::Relaxed)
-                                && {
-                                    let was_claimed = session
-                                        .player_claimed
-                                        .swap(true, std::sync::atomic::Ordering::Relaxed);
-                                    if !was_claimed {
-                                        tracing::info!(
-                                            "[DC] arcade: promoting viewer to player (first input)"
-                                        );
-                                    }
-                                    true
-                                })
-                        {
+                        if peer_role == "player" {
                             std::borrow::Cow::Borrowed("player")
+                        } else if resident_no_host && actual_press {
+                            let player_guest_present = {
+                                let guests = session.guests.lock().await;
+                                guests.iter().any(|g| g.role == "player")
+                            };
+                            if player_guest_present {
+                                std::borrow::Cow::Borrowed("viewer")
+                            } else {
+                                let mut claimed = session.claimed_peer.lock().await;
+                                match claimed.as_deref() {
+                                    None => {
+                                        tracing::info!(
+                                            "[DC] arcade: viewer {} claimed player 1 (first input)",
+                                            pt
+                                        );
+                                        *claimed = Some(pt.clone());
+                                        std::borrow::Cow::Borrowed("player")
+                                    }
+                                    Some(existing) if existing == pt => {
+                                        std::borrow::Cow::Borrowed("player")
+                                    }
+                                    Some(_) => std::borrow::Cow::Borrowed("viewer"),
+                                }
+                            }
                         } else {
                             std::borrow::Cow::Borrowed(&peer_role)
                         };
 
-                    if let Some(command) =
-                        guest_input_command(
-                            &effective_role,
-                            // Arcade guests (no host) always map to port 0 (player 1).
-                            // A resident session has no host browser, so port 0 is
-                            // free — the default local_players=1 (host keyboard)
-                            // would shift the first guest to port 1 (player 2).
-                            if session
-                                .resident
-                                .load(std::sync::atomic::Ordering::Relaxed)
-                                && !session
-                                    .host_connected
-                                    .load(std::sync::atomic::Ordering::Relaxed)
-                            {
-                                Some(1u32)
-                            } else {
+                    if let Some(command) = guest_input_command(
+                        &effective_role,
+                        // Seat-correct mapping. A resident session has no host
+                        // browser, so local_players=0: guest seat 1 → port 0
+                        // (player 1), seat 2 → port 1 (player 2). A claiming
+                        // viewer is the first player → port 0. Previously every
+                        // guest was forced to Some(1)/0, so player 2's inputs
+                        // also drove player 1 (phantom input).
+                        if resident_no_host {
+                            if peer_role == "player" {
                                 authoritative_seat
-                            },
-                            if session
-                                .resident
-                                .load(std::sync::atomic::Ordering::Relaxed)
-                                && !session
-                                    .host_connected
-                                    .load(std::sync::atomic::Ordering::Relaxed)
-                            {
-                                0
                             } else {
-                                local_players
-                            },
-                            &data,
-                        )
-                    {
+                                Some(1u32)
+                            }
+                        } else {
+                            authoritative_seat
+                        },
+                        if resident_no_host { 0 } else { local_players },
+                        &data,
+                    ) {
                         let guard = session.core_cmd_tx.lock().await;
                         if let Some(ref tx) = *guard {
                             let _ = tx.try_send(command);
@@ -1175,9 +1196,15 @@ pub(super) async fn wire_dc_handler_for_guest(
                 guests.retain(|g| g.peer_token != pt_for_ice);
                 if guests.is_empty() {
                     // Arcade: release the claimed seat so next viewer can grab it
-                    session_for_ice
-                        .player_claimed
-                        .store(false, std::sync::atomic::Ordering::Relaxed);
+                    *session_for_ice.claimed_peer.lock().await = None;
+                } else {
+                    // The claimer left but other viewers remain — release the
+                    // claim only if THIS peer was the claimer, so the next
+                    // viewer can claim.
+                    let mut claimed = session_for_ice.claimed_peer.lock().await;
+                    if claimed.as_deref() == Some(pt_for_ice.as_str()) {
+                        *claimed = None;
+                    }
                 }
                 if guests.is_empty()
                     && !session_for_ice
@@ -1292,6 +1319,44 @@ mod tests {
         // offset is 0 — the first guest must land on port 0 (player 1).
         let command = guest_input_command("player", Some(1), 0, &[1, 0x34, 0x12]);
 
+        assert!(matches!(
+            command,
+            Some(crate::core_bridge::CoreCommand::SetInput {
+                port: 0,
+                state: 0x1234
+            })
+        ));
+    }
+
+    #[test]
+    fn second_player_seat_maps_to_port_one_not_zero() {
+        // #762 phantom input: every resident guest was forced to
+        // authoritative_seat=Some(1)/local_players=0, so player 2's
+        // inputs also drove player 1. Seat 2 must map to port 1.
+        let command = guest_input_command("player", Some(2), 0, &[2, 0x34, 0x12]);
+
+        assert!(matches!(
+            command,
+            Some(crate::core_bridge::CoreCommand::SetInput {
+                port: 1,
+                state: 0x1234
+            })
+        ));
+    }
+
+    #[test]
+    fn non_claiming_viewer_input_is_dropped_not_promoted() {
+        // #762 phantom input: the old claim block `{ ...; true }` promoted
+        // EVERY viewer's input to "player" on resident sessions. A viewer
+        // who is not the claimer must produce no input command.
+        assert!(guest_input_command("viewer", Some(1), 0, &[1, 0x34, 0x12]).is_none());
+    }
+
+    #[test]
+    fn claiming_viewer_maps_to_port_zero() {
+        // The deferred-claim feature: a viewer who claims becomes player 1
+        // → port 0 (the claim path passes Some(1)/0 to guest_input_command).
+        let command = guest_input_command("player", Some(1), 0, &[1, 0x34, 0x12]);
         assert!(matches!(
             command,
             Some(crate::core_bridge::CoreCommand::SetInput {
