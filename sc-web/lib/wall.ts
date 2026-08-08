@@ -18,7 +18,7 @@ import { slugify, type WallGame } from "@/lib/wall-shared";
 // server-only (Postgres).
 
 export type { WallGame } from "@/lib/wall-shared";
-export { pickFeatured, slugify } from "@/lib/wall-shared";
+export { slugify } from "@/lib/wall-shared";
 
 export async function getWallGames(): Promise<WallGame[]> {
   const rows = await db
