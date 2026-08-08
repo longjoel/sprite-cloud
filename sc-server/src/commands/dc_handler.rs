@@ -205,7 +205,18 @@ pub(crate) fn wire_dc_handler(session: &Arc<GameSession>) {
                                 save_handlers::handle_list_saves(&session, &dc).await;
                                 return;
                             }
-                            _ => {}
+                            // Heartbeat / any other JSON control message must
+                            // never fall through to the binary input path —
+                            // JSON leading bytes would be misread as
+                            // [seat, state_lo, state_hi] and inject phantom
+                            // button presses (e.g. ping → port 123).
+                            // Discriminate on the transport: text frames are
+                            // commands; binary frames are input.
+                            _ => {
+                                if msg.is_string {
+                                    return;
+                                }
+                            }
                         }
                     }
 

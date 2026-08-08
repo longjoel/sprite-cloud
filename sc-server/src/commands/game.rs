@@ -1096,6 +1096,19 @@ pub(super) async fn wire_dc_handler_for_guest(
                         {
                             return;
                         }
+                        // Heartbeat / any other JSON control message (ping,
+                        // state queries, etc.) must NEVER be interpreted as
+                        // binary input — a JSON doc's leading bytes would
+                        // otherwise be parsed as [seat, state_lo, state_hi]
+                        // and inject phantom button presses into the core
+                        // (e.g. {"cmd":"ping",...} → 0x6322 = 6 buttons).
+                        // Discriminate on the transport: text frames are
+                        // commands; binary frames are input. A binary input
+                        // frame may coincidentally parse as a JSON array, so
+                        // only swallow STRING messages here.
+                        if !is_binary_input_frame(msg.is_string, &data) {
+                            return;
+                        }
                     }
 
                     let local_players = session
@@ -1287,6 +1300,22 @@ fn guest_input_command(
     Some(crate::core_bridge::CoreCommand::SetInput { port: seat, state })
 }
 
+/// Classify a DataChannel frame: JSON control messages (ping, auth,
+/// save/load, …) are handled separately and must NEVER reach the binary
+/// input parser — their leading bytes (`{`, `"`, …) would be decoded as a
+/// bogus [seat, state_lo, state_hi] and inject phantom button presses into
+/// the core. Binary frames (ArrayBuffer) are game input.
+fn is_binary_input_frame(is_string: bool, data: &[u8]) -> bool {
+    if is_string {
+        return false;
+    }
+    // Binary input frames are 3+ bytes; JSON docs always start with a
+    // structural byte (`{`, `[`, `"`, digit…). A binary input frame can
+    // coincidentally look like JSON (e.g. [4, 0x34, 0x12] parses as an
+    // array) — so only treat text frames as commands, never binary.
+    data.len() >= 3
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1296,6 +1325,23 @@ mod tests {
         let command = guest_input_command("viewer", Some(4), 2, &[4, 0x34, 0x12]);
 
         assert!(command.is_none());
+    }
+
+    #[test]
+    fn json_ping_bytes_are_not_forwarded_as_player_input() {
+        // Regression: the browser sends {"cmd":"ping",...} on the same DC
+        // every 2s (PING_INTERVAL_MS). If those text bytes reach the binary
+        // input parser, the leading `{"c` (0x7B 0x22 0x63) is decoded as
+        // state=0x6322 — six phantom button presses injected into the core
+        // every 2 seconds on public arcades. Text frames (JSON commands)
+        // must be classified as control messages, never binary input.
+        let ping = b"{\"cmd\":\"ping\",\"seq\":1,\"client_ts\":123.45}".to_vec();
+        assert!(!is_binary_input_frame(true, &ping), "ping text must not be input");
+
+        // A binary input frame is still input even if its bytes happen to
+        // parse as a JSON array.
+        let input = [4u8, 0x34, 0x12];
+        assert!(is_binary_input_frame(false, &input));
     }
 
     #[test]
