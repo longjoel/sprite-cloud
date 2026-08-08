@@ -3,40 +3,40 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import WallPreview from "./WallPreview";
+import { pickFeatured, type WallGame } from "@/lib/wall-shared";
 
 // ── FeaturedLive — home-page hero embed (#781) ────────────────────────
 //
-// Picks the best live game (prefers always-on residents) and shows its
-// live video with a "Watch live" CTA. Reuses the WallPreview spectator
-// path — read-only, no input, no player-seat consumption.
+// Shows one live game big at the top and ROTATES through live games
+// every FEATURE_ROTATE_MS (~60s). The currently featured game is
+// excluded from the wall tiles below (LandingPage passes its key down
+// to WallClient as excludeKey), so the live video never appears twice
+// on the page. Reuses the WallPreview spectator path — read-only, no
+// input, no player-seat consumption.
 
-interface FeaturedGame {
-  id: string;
-  name: string;
-  platform: string;
-  serverId: string;
-  live: boolean;
-  alwaysOn: boolean;
-  watchUrl: string;
-  roomUrl?: string;
+export const FEATURE_ROTATE_MS = 60_000;
+
+interface FeaturedLiveProps {
+  onFeatured?: (key: string | null) => void;
 }
 
-export default function FeaturedLive() {
-  const [game, setGame] = useState<FeaturedGame | null>(null);
+export default function FeaturedLive({ onFeatured }: FeaturedLiveProps) {
+  const [games, setGames] = useState<WallGame[] | null>(null);
+  const [featuredKey, setFeaturedKey] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
+  // Load the wall once; the hero is a snapshot — the tiles below
+  // poll on their own cadence.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const res = await fetch("/api/wall");
         if (!res.ok) return;
-        const data = (await res.json()) as { games: FeaturedGame[] };
+        const data = (await res.json()) as { games: WallGame[] };
         if (cancelled) return;
-        const live = data.games.filter((g) => g.live && g.roomUrl);
-        const pick =
-          live.find((g) => g.alwaysOn) ?? live[0] ?? null;
-        setGame(pick);
+        setGames(data.games);
+        setFeaturedKey((prev) => pickFeatured(data.games, prev)?.key ?? null);
       } catch {
         // wall unavailable — hide the embed silently
       } finally {
@@ -48,9 +48,26 @@ export default function FeaturedLive() {
     };
   }, []);
 
-  if (!loaded || !game) return null;
+  // Rotate the featured game on an interval.
+  useEffect(() => {
+    if (!games) return;
+    const timer = setInterval(() => {
+      setFeaturedKey((prev) => pickFeatured(games, prev)?.key ?? null);
+    }, FEATURE_ROTATE_MS);
+    return () => clearInterval(timer);
+  }, [games]);
 
-  const roomToken = game.roomUrl!.split("/").pop()!.split("?")[0]!;
+  // Report the current featured key up to the parent (for the wall
+  // exclusion) whenever it changes.
+  useEffect(() => {
+    onFeatured?.(featuredKey);
+  }, [featuredKey, onFeatured]);
+
+  const game = games?.find((g) => g.key === featuredKey) ?? null;
+
+  if (!loaded || !game || !game.roomUrl) return null;
+
+  const roomToken = game.roomUrl.split("/").pop()!.split("?")[0]!;
 
   return (
     <section style={s.section}>
@@ -65,7 +82,7 @@ export default function FeaturedLive() {
         </div>
         <div style={s.actions}>
           <Link href={game.watchUrl} style={s.watchLink}>Watch</Link>
-          <Link href={game.roomUrl!} style={s.playLink}>Play</Link>
+          <Link href={game.roomUrl} style={s.playLink}>Play</Link>
         </div>
       </div>
       <Link href={game.watchUrl} style={s.videoLink} aria-label={`Watch ${game.name} live`}>
