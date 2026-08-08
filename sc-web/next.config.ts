@@ -66,6 +66,20 @@ const nextConfig: NextConfig = {
           { key: "Cache-Control", value: "no-store" },
         ],
       },
+      // Embeddable watch pages (#781): /embed/<slug> is designed to be
+      // iframed on third-party sites, so relax frame-ancestors to '*'.
+      // This header rule wins over the global CSP below (Next.js matches
+      // the most specific source).
+      {
+        source: "/embed/:path*",
+        headers: [
+          {
+            key: "Content-Security-Policy",
+            value: CSP.replace("frame-ancestors 'none'", "frame-ancestors *"),
+          },
+          { key: "Cache-Control", value: "no-store, no-cache, must-revalidate" },
+        ],
+      },
       {
         source: "/(.*)",
         headers: [
