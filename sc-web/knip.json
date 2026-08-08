@@ -9,5 +9,6 @@
   "ignoreExportsUsedInFile": true,
   "ignoreIssues": {
     "public/player/input-mapping.js": ["duplicates"]
-  }
+  },
+  "ignoreBinaries": ["ss"]
 }
