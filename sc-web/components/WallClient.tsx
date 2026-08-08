@@ -40,12 +40,18 @@ interface WallGame {
   maxSeats: number;
   slug: string;
   watchUrl: string;
+  key: string;
   roomUrl?: string;
 }
 
 const POLL_MS = 15_000;
 
-export default function WallClient() {
+interface WallClientProps {
+  /** Key (`serverId:gameId`) of the hero-featured game to exclude from the grid. */
+  excludeKey?: string | null;
+}
+
+export default function WallClient({ excludeKey }: WallClientProps) {
   const [games, setGames] = useState<WallGame[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -101,10 +107,12 @@ export default function WallClient() {
         </Typography>
       ) : (
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
-          {games!.map((game) => {
-            const playable = game.live && !!game.roomUrl;
-            return (
-              <Card key={`${game.serverId}:${game.id}`} sx={{ width: 240 }}>
+          {games!
+            .filter((game) => game.key !== excludeKey)
+            .map((game) => {
+              const playable = game.live && !!game.roomUrl;
+              return (
+                <Card key={`${game.serverId}:${game.id}`} sx={{ width: 240 }}>
                 <CardActionArea
                   component={playable ? Link : "div"}
                   {...(playable ? { href: game.roomUrl, underline: "none" } : {})}

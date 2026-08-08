@@ -16,6 +16,7 @@ interface LandingPageProps {
 
 export default function LandingPage({ userName, authenticated = false }: LandingPageProps) {
   const [cookieDismissed, setCookieDismissed] = useState(false);
+  const [featuredKey, setFeaturedKey] = useState<string | null>(null);
 
   return (
     <main style={s.page}>
@@ -52,11 +53,11 @@ export default function LandingPage({ userName, authenticated = false }: Landing
         </p>
       </section>
 
-      {/* ── Live now: home-page hero embed (#781) ──────────────────── */}
-      <FeaturedLive />
+      {/* ── Live now: rotating hero embed (#781) — excluded from tiles ── */}
+      <FeaturedLive onFeatured={setFeaturedKey} />
 
-      {/* ── The Living Cabinet wall (#762) ────────────────────────────── */}
-      <WallClient />
+      {/* ── The Living Cabinet wall (#762) — featured game excluded ──── */}
+      <WallClient excludeKey={featuredKey} />
 
       {/* ── Footer ───────────────────────────────────────────────────── */}
       <footer style={s.footer}>
