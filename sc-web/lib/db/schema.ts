@@ -77,6 +77,8 @@ export const gameFlags = pgTable(
     alwaysOn: boolean("always_on").notNull().default(false),
     freePlay: boolean("free_play").notNull().default(false),
     public: boolean("public").notNull().default(false),
+    /** Resident session seat cap (#762). NULL → host default (4). */
+    maxSeats: integer("max_seats"),
     updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

@@ -151,6 +151,7 @@ async function convergeResidents(serverId: string): Promise<void> {
   const wantedGames = await db
     .select({
       gameId: gameFlags.gameId,
+      maxSeats: gameFlags.maxSeats,
     })
     .from(gameFlags)
     .where(
@@ -210,6 +211,7 @@ async function convergeResidents(serverId: string): Promise<void> {
   }
 
   const now = new Date();
+  const maxSeatsByGame = new Map(wantedGames.map((g) => [g.gameId, g.maxSeats]));
   for (const gameId of missing) {
     const cmdId = crypto.randomUUID();
     const hostToken = crypto.randomUUID();
@@ -223,7 +225,7 @@ async function convergeResidents(serverId: string): Promise<void> {
         host_token: hostToken,
         session_id: sessionId,
         resident: true,
-        max_seats: 4,
+        max_seats: maxSeatsByGame.get(gameId) ?? 4,
       },
       status: STATUS_PENDING,
       createdAt: now,
