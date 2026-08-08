@@ -3496,6 +3496,9 @@ describe("GET /api/wall", () => {
     expect(live.roomUrl).toContain("game_id=gauntlet");
     expect(live.roomUrl).toContain("server_id=server-1");
     expect(live.coverUrl).toBe("/api/covers/server-1/gauntlet");
+    // #781: stable shareable watch link (slug from name, not room token)
+    expect(live.slug).toBe("gauntlet");
+    expect(live.watchUrl).toBe("/watch/gauntlet");
 
     const idle = data.games.find((g: { id: string }) => g.id === "tetris");
     expect(idle.live).toBe(false);
