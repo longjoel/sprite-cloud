@@ -67,9 +67,10 @@ const nextConfig: NextConfig = {
         ],
       },
       // Embeddable watch pages (#781): /embed/<slug> is designed to be
-      // iframed on third-party sites, so relax frame-ancestors to '*'.
-      // This header rule wins over the global CSP below (Next.js matches
-      // the most specific source).
+      // iframed on third-party sites. The global CSP below would otherwise
+      // set frame-ancestors 'none' (last matching rule wins for the same
+      // header key), so the global rule EXCLUDES /embed and this dedicated
+      // rule supplies the relaxed CSP instead.
       {
         source: "/embed/:path*",
         headers: [
@@ -81,7 +82,7 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        source: "/(.*)",
+        source: "/:path((?!embed).*)",
         headers: [
           {
             key: "Content-Security-Policy",
