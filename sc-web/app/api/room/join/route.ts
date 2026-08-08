@@ -12,7 +12,7 @@ import { issueRoomPeer } from "@/lib/peer-tokens";
 // Returns worker_url + game info + peer_token so the guest can connect.
 
 export async function POST(request: NextRequest) {
-  let body: { room_token: string; client_id?: string };
+  let body: { room_token: string; client_id?: string; preview?: boolean };
   try {
     body = await request.json();
   } catch {
@@ -30,6 +30,14 @@ export async function POST(request: NextRequest) {
   const clientId = typeof body.client_id === "string" && body.client_id.length <= 64
     ? body.client_id
     : undefined;
+  // Explicit preview-signaling flag: the wall tile needs a peer token to
+  // open a WebRTC leg (unlike metadata-only resolution, which must NOT
+  // mint tokens). Preview tokens are always role=viewer and never consume
+  // a player seat (#762 wall preview).
+  const preview = body.preview === true;
+  // Preview joins always mint (and reuse by) a deterministic client id so
+  // the same wall tile doesn't accumulate tokens on re-renders.
+  const effectiveClientId = clientId ?? (preview ? `preview:${body.room_token}` : undefined);
 
   logSignalingStage("guest_join", "request_received", {
     client_id: clientId,
@@ -78,7 +86,7 @@ export async function POST(request: NextRequest) {
   // Without a client_id, this is a preview call (e.g. PlayPage resolving
   // the session to show the UI). Don't create a peer_token — the actual
   // join happens via play.js which always sends a client_id.
-  if (!clientId) {
+  if (!clientId && !preview) {
     // Invariant: preview requests resolve room metadata only. They MUST NOT mint
     // a peer token because no actual signaling leg has started yet.
     logSignalingStage("guest_join", "preview_resolved", {
@@ -98,8 +106,12 @@ export async function POST(request: NextRequest) {
 
   const peer = await issueRoomPeer(db, {
     sessionId: session.id,
-    clientId,
+    clientId: effectiveClientId!,
     maxSeats: session.maxSeats,
+    // Preview joins mint a viewer token WITHOUT consuming a player seat:
+    // they get a spectator seat beyond maxSeats so the wall tile can open
+    // a WebRTC leg without stealing a playable slot (#762).
+    preview,
   });
 
   logSignalingStage("guest_join", peer.reused ? "peer_reused" : "peer_issued", {
