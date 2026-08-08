@@ -256,7 +256,7 @@ async function stopDefunctResidents(
       and(
         eq(sessions.serverId, serverId),
         ...(wantedIds.length
-          ? [sql`${sessions.gameId} NOT IN (${sql.join(wantedIds)})`]
+          ? [sql`${sessions.gameId} NOT IN (${sql.join(wantedIds, sql`, `)})`]
           : [sql`TRUE`]),
         inArray(sessions.status, [...ACTIVE_SESSION_STATES]),
       ),
