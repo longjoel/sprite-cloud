@@ -200,7 +200,9 @@ describe("Peer tokens", () => {
     ]);
 
     expect(peers.map((peer) => peer.seat).sort((a, b) => a - b)).toEqual([3, 4]);
-    expect(peers.map((peer) => peer.role).sort()).toEqual(["player", "viewer"]);
+    // maxSeats is the full player capacity: seat 4 is the final player
+    // seat, not a viewer (#762).
+    expect(peers.map((peer) => peer.role).sort()).toEqual(["player", "player"]);
     expect(new Set(peers.map((peer) => peer.token))).toHaveLength(2);
   });
 
