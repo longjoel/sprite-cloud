@@ -11,10 +11,12 @@ import {
   CardMedia,
   Chip,
   Container,
+  IconButton,
   Link,
+  Tooltip,
   Typography,
 } from "@mui/material";
-import { PlayArrow, LiveTv, WifiOff } from "@mui/icons-material";
+import { PlayArrow, LiveTv, Share, WifiOff } from "@mui/icons-material";
 
 // ── The Living Cabinet wall (#762) ─────────────────────────────────────
 //
@@ -36,6 +38,8 @@ interface WallGame {
   players: number;
   viewers: number;
   maxSeats: number;
+  slug: string;
+  watchUrl: string;
   roomUrl?: string;
 }
 
@@ -44,6 +48,18 @@ const POLL_MS = 15_000;
 export default function WallClient() {
   const [games, setGames] = useState<WallGame[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const copyWatchLink = async (game: WallGame) => {
+    const url = `${window.location.origin}${game.watchUrl}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedKey(`${game.serverId}:${game.id}`);
+      setTimeout(() => setCopiedKey(null), 2000);
+    } catch {
+      // clipboard unavailable — ignore silently
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -140,7 +156,7 @@ export default function WallClient() {
                     </Typography>
                   </CardContent>
                 </CardActionArea>
-                <Box sx={{ p: 1.5, pt: 0 }}>
+                <Box sx={{ p: 1.5, pt: 0, display: "flex", gap: 1, alignItems: "center" }}>
                   <Button
                     fullWidth
                     variant={playable ? "contained" : "outlined"}
@@ -151,6 +167,18 @@ export default function WallClient() {
                   >
                     {game.live ? "Play" : game.serverOnline ? "Not live" : "Offline"}
                   </Button>
+                  <Tooltip title={copiedKey === `${game.serverId}:${game.id}` ? "Copied!" : "Copy watch link"}>
+                    <span>
+                      <IconButton
+                        size="small"
+                        onClick={() => copyWatchLink(game)}
+                        disabled={!game.live}
+                        aria-label={`Share ${game.name}`}
+                      >
+                        <Share fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
                 </Box>
               </Card>
             );

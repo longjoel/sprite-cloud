@@ -9,9 +9,10 @@ interface WallPreviewProps {
   gameId: string;
   serverId: string;
   active: boolean; // only connect when card is visible/hovered
+  onConnected?: () => void; // fired once when video starts playing
 }
 
-export default function WallPreview({ roomToken, gameId, serverId, active }: WallPreviewProps) {
+export default function WallPreview({ roomToken, gameId, serverId, active, onConnected }: WallPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [connected, setConnected] = useState(false);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -81,6 +82,7 @@ export default function WallPreview({ roomToken, gameId, serverId, active }: Wal
             if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
               videoRef.current.play().catch((e: Error) => console.warn("[wall-preview] play:", e.message));
               setConnected(true);
+              onConnected?.();
             }
           }
         };
@@ -92,6 +94,7 @@ export default function WallPreview({ roomToken, gameId, serverId, active }: Wal
             videoRef.current.play().then(() => {
               console.log("[wall-preview] playing");
               setConnected(true);
+              onConnected?.();
             }).catch((e: Error) => console.warn("[wall-preview] play:", e.message));
           }
         };
@@ -179,7 +182,7 @@ export default function WallPreview({ roomToken, gameId, serverId, active }: Wal
       pcRef.current?.close();
       pcRef.current = null;
     };
-  }, [active, roomToken, gameId, serverId]); // removed 'connected' — don't kill PC on state change
+  }, [active, roomToken, gameId, serverId, onConnected]); // removed 'connected' — don't kill PC on state change
 
   return (
     <video

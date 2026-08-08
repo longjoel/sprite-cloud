@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import WallClient from "@/components/WallClient";
+import FeaturedLive from "@/components/FeaturedLive";
 
 // ── LandingPage — the Living Cabinet wall
 
@@ -50,6 +51,9 @@ export default function LandingPage({ userName, authenticated = false }: Landing
           No account, no install: click a live game and you&apos;re in the seat.
         </p>
       </section>
+
+      {/* ── Live now: home-page hero embed (#781) ──────────────────── */}
+      <FeaturedLive />
 
       {/* ── The Living Cabinet wall (#762) ────────────────────────────── */}
       <WallClient />
