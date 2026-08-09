@@ -296,15 +296,12 @@ export default function DashboardClient({ memberships }: Props) {
                         <Fragment key={s.id}>
                           <tr style={isOpen ? S.rowExpanded : undefined}>
                             <td style={S.tdStatus}>
-                              <div style={S.statusStack}>
-                                <span
-                                  style={{
-                                    ...S.statusDot,
-                                    background: status.color,
-                                  }}
-                                />
-                                <span style={S.statusLabel}>{status.label}</span>
-                              </div>
+                              <Chip
+                                label={status.label}
+                                size="small"
+                                variant="outlined"
+                                sx={{ borderColor: status.color, color: status.color, textTransform: "uppercase" }}
+                              />
                             </td>
                             <td style={S.tdServer}>
                               <div style={S.serverCell}>
@@ -430,10 +427,12 @@ export default function DashboardClient({ memberships }: Props) {
                 return (
                   <div key={s.id} style={S.card}>
                     <div style={S.cardHeader}>
-                      <div style={S.statusStack}>
-                        <span style={{ ...S.statusDot, background: status.color }} />
-                        <span style={S.statusLabel}>{status.label}</span>
-                      </div>
+                      <Chip
+                        label={status.label}
+                        size="small"
+                        variant="outlined"
+                        sx={{ borderColor: status.color, color: status.color, textTransform: "uppercase" }}
+                      />
                       <span style={S.seenSub}>
                         {s.lastSeenAt ? timeAgo(s.lastSeenAt) : "No heartbeat"}
                       </span>
