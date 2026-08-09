@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
+import { Chip, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
 import { Button } from "@/components/ui";
 import ServerPanel from "./ServerPanel";
 import InviteManager from "./InviteManager";
@@ -201,9 +201,12 @@ export default function DashboardClient({ memberships }: Props) {
     return (
       <div style={S.pillRow}>
         {pills.map((pill) => (
-          <span key={pill.label} style={{ ...S.pill, ...(pill.tone ? S.pillTones[pill.tone] : {}) }}>
-            {pill.label}
-          </span>
+          <Chip
+            key={pill.label}
+            label={pill.label}
+            size="small"
+            color={pill.tone === "muted" ? "default" : pill.tone ?? "default"}
+          />
         ))}
       </div>
     );
