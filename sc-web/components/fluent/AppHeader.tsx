@@ -30,8 +30,9 @@ export default function AppHeader({ userName, links = [] }: AppHeaderProps) {
       <AppBar
         position="sticky"
         sx={{
-          background: "var(--color-sky-mid)",
-          borderBottom: "2px solid var(--color-accent)",
+          backgroundColor: "background.paper",
+          borderBottom: 1,
+          borderColor: "divider",
           boxShadow: "none",
         }}
       >
@@ -54,8 +55,7 @@ export default function AppHeader({ userName, links = [] }: AppHeaderProps) {
             href="/"
             variant="h6"
             sx={{
-              fontFamily: "var(--font-mono)",
-              color: "var(--color-accent)",
+              color: "primary.main",
               textDecoration: "none",
               fontWeight: 700,
               letterSpacing: "0.02em",
@@ -76,9 +76,7 @@ export default function AppHeader({ userName, links = [] }: AppHeaderProps) {
                   component={Link}
                   href={link.href}
                   sx={{
-                    color: "var(--color-accent)",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: "var(--font-size-sm)",
+                    color: "text.secondary",
                     textTransform: "none",
                   }}
                 >
@@ -92,7 +90,7 @@ export default function AppHeader({ userName, links = [] }: AppHeaderProps) {
           {!isNarrow && userName && (
             <Typography
               variant="body2"
-              sx={{ color: "var(--color-cloud-dim)", mr: 1, fontFamily: "var(--font-mono)" }}
+              sx={{ color: "text.secondary", mr: 1 }}
             >
               {userName}
             </Typography>
@@ -105,14 +103,14 @@ export default function AppHeader({ userName, links = [] }: AppHeaderProps) {
         anchor="left"
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        slotProps={{ paper: { sx: { background: "var(--color-sky-mid)", color: "var(--color-cloud)", minWidth: 220 } } }}
+        slotProps={{ paper: { sx: { minWidth: 220 } } }}
       >
-        <Box sx={{ p: 2, borderBottom: "1px solid var(--color-border-default)" }}>
-          <Typography sx={{ fontFamily: "var(--font-mono)", color: "var(--color-accent)", fontWeight: 700 }}>
+        <Box sx={{ p: 2, borderBottom: 1, borderColor: "divider" }}>
+          <Typography sx={{ color: "primary.main", fontWeight: 700 }}>
             Sprite Cloud
           </Typography>
           {userName && (
-            <Typography variant="body2" sx={{ color: "var(--color-cloud-dim)", mt: 0.5, fontFamily: "var(--font-mono)" }}>
+            <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.5 }}>
               {userName}
             </Typography>
           )}
@@ -127,7 +125,7 @@ export default function AppHeader({ userName, links = [] }: AppHeaderProps) {
               >
                 <ListItemText
                   primary={link.label}
-                  slotProps={{ primary: { sx: { fontFamily: "var(--font-mono)", fontSize: "var(--font-size-sm)", color: "var(--color-accent)" } } }}
+                  slotProps={{ primary: { sx: { color: "text.secondary" } } }}
                 />
               </ListItemButton>
             </ListItem>
