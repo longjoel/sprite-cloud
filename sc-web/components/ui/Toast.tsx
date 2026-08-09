@@ -37,10 +37,7 @@ export default function Toast({
         role={role}
         variant="outlined"
         onClose={onDone}
-        sx={{
-          fontFamily: "var(--font-mono)",
-          borderRadius: "2px",
-        }}
+        sx={{ borderRadius: 1 }}
       >
         {children}
       </Alert>
