@@ -1,6 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  Alert,
+  Box,
+  Button,
+  FormControl,
+  FormControlLabel,
+  InputLabel,
+  MenuItem,
+  Paper,
+  Select,
+  Stack,
+  Switch,
+  Typography,
+} from "@mui/material";
 import { Badge } from "@/components/ui";
 import { csrfHeaders } from "./dashboard-utils";
 import { runServerUpgrade, type ServerUpdateState } from "@/lib/server-upgrade-client";
@@ -176,117 +190,104 @@ export default function ServerPanel({ serverId }: Props) {
   }
 
   return (
-    <div style={S.wrapper}>
-      {error && <p style={S.error}>{error}</p>}
-      <section style={S.section}>
-        <h2 style={S.heading}>Runtime</h2>
-        <div style={S.badges}>
-          <Badge>{metadata?.version ? `sc-server ${metadata.version}` : "Version unavailable"}</Badge>
-          <Badge>{metadata?.ice?.turn_configured ? "TURN ready" : "TURN not configured"}</Badge>
-          {metadata?.ice?.transport_policy && <Badge>{`ICE ${metadata.ice.transport_policy}`}</Badge>}
-          {metadata?.runtime?.pc_pool_size !== undefined && <Badge>{`Pool ${metadata.runtime.pc_pool_size}`}</Badge>}
-        </div>
-        <p style={S.note}>Updates verify and install both sc-server and sc-core, then restart this server. Updates are blocked while a game is active.</p>
-        <button
-          type="button"
-          style={S.updateButton}
-          disabled={updateState === "queued" || updateState === "running"}
-          onClick={requestUpdate}
-        >
-          {updateState === "queued" ? "Update queued" : updateState === "running" ? "Updating…" : "Update server"}
-        </button>
-        {updateMessage && <p style={updateState === "failed" ? S.error : S.note}>{updateMessage}</p>}
-      </section>
+    <Stack spacing={3}>
+      {error && <Alert severity="error">{error}</Alert>}
 
-      <section style={S.section}>
-        <h2 style={S.heading}>Core overrides</h2>
-        <p style={S.note}>Game discovery, library metadata, and ROM paths stay on sc-server.</p>
-        <div style={S.coreGrid}>
-          {PLATFORM_CORES.map(({ platform, defaultCore }) => (
-            <label key={platform} style={S.field}>
-              <span style={S.label}>{platform}</span>
-              <select
-                style={S.select}
-                value={coreOverrides[platform] || defaultCore}
-                onChange={(event) => setCore(platform, event.target.value)}
-              >
-                {CORE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </label>
-          ))}
-        </div>
-      </section>
+      <Paper component="section" variant="outlined" sx={{ p: { xs: 2, sm: 3 } }}>
+        <Stack spacing={2}>
+          <Typography component="h2" variant="h5">Runtime</Typography>
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+            <Badge>{metadata?.version ? `sc-server ${metadata.version}` : "Version unavailable"}</Badge>
+            <Badge>{metadata?.ice?.turn_configured ? "TURN ready" : "TURN not configured"}</Badge>
+            {metadata?.ice?.transport_policy && <Badge>{`ICE ${metadata.ice.transport_policy}`}</Badge>}
+            {metadata?.runtime?.pc_pool_size !== undefined && <Badge>{`Pool ${metadata.runtime.pc_pool_size}`}</Badge>}
+          </Box>
+          <Typography variant="body2" color="text.secondary">
+            Updates verify and install both sc-server and sc-core, then restart this server. Updates are blocked while a game is active.
+          </Typography>
+          <Box>
+            <Button
+              type="button"
+              variant="contained"
+              disabled={updateState === "queued" || updateState === "running"}
+              onClick={requestUpdate}
+            >
+              {updateState === "queued" ? "Update queued" : updateState === "running" ? "Updating…" : "Update server"}
+            </Button>
+          </Box>
+          {updateMessage && (
+            <Alert severity={updateState === "failed" ? "error" : "info"}>{updateMessage}</Alert>
+          )}
+        </Stack>
+      </Paper>
 
-      <section style={S.section}>
-        <h2 style={S.heading}>Arcade & Free Play</h2>
-        <p style={S.note}>
-          Enable always-on to keep the game running as a living cabinet
-          on the wall. Free play auto-inserts a credit at startup.
-        </p>
-        {games.length === 0 ? (
-          <p style={S.empty}>No games synced yet from this server.</p>
-        ) : (
-          <div style={S.flagGrid}>
-            {games.map((g) => {
-              const flags = gameFlags[g.game_id] ?? { always_on: false, free_play: false };
-              const aLoading = flagLoading.has(`${g.game_id}:always_on`);
-              const fLoading = flagLoading.has(`${g.game_id}:free_play`);
+      <Paper component="section" variant="outlined" sx={{ p: { xs: 2, sm: 3 } }}>
+        <Stack spacing={2}>
+          <Typography component="h2" variant="h5">Core overrides</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Game discovery, library metadata, and ROM paths stay on sc-server.
+          </Typography>
+          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 2 }}>
+            {PLATFORM_CORES.map(({ platform, defaultCore }) => {
+              const labelId = `core-label-${platform.replace(/\s+/g, "-").toLowerCase()}`;
               return (
-                <div key={g.game_id} style={S.flagRow}>
-                  <div style={S.flagGame}>
-                    <span style={S.flagName}>{g.name}</span>
-                    <span style={S.flagPlatform}>{g.platform}</span>
-                  </div>
-                  <label style={S.toggleLabel}>
-                    <input
-                      type="checkbox"
-                      checked={flags.always_on}
-                      disabled={aLoading}
-                      onChange={() => toggleFlag(g.game_id, "always_on")}
-                      style={S.toggleCheck}
-                    />
-                    Always on
-                  </label>
-                  <label style={S.toggleLabel}>
-                    <input
-                      type="checkbox"
-                      checked={flags.free_play}
-                      disabled={fLoading}
-                      onChange={() => toggleFlag(g.game_id, "free_play")}
-                      style={S.toggleCheck}
-                    />
-                    Free play
-                  </label>
-                </div>
+                <FormControl key={platform} size="small" fullWidth>
+                  <InputLabel id={labelId}>{platform}</InputLabel>
+                  <Select
+                    labelId={labelId}
+                    label={platform}
+                    value={coreOverrides[platform] || defaultCore}
+                    onChange={(event) => setCore(platform, event.target.value)}
+                  >
+                    {CORE_OPTIONS.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               );
             })}
-          </div>
-        )}
-      </section>
-    </div>
+          </Box>
+        </Stack>
+      </Paper>
+
+      <Paper component="section" variant="outlined" sx={{ p: { xs: 2, sm: 3 } }}>
+        <Stack spacing={2}>
+          <Typography component="h2" variant="h5">Arcade & Free Play</Typography>
+          <Typography variant="body2" color="text.secondary">
+            Enable always-on to keep the game running as a living cabinet
+            on the wall. Free play auto-inserts a credit at startup.
+          </Typography>
+          {games.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">No games synced yet from this server.</Typography>
+          ) : (
+            <Stack spacing={1.5}>
+              {games.map((g) => {
+                const flags = gameFlags[g.game_id] ?? { always_on: false, free_play: false };
+                const aLoading = flagLoading.has(`${g.game_id}:always_on`);
+                const fLoading = flagLoading.has(`${g.game_id}:free_play`);
+                return (
+                  <Paper key={g.game_id} variant="outlined" sx={{ p: 1.5 }}>
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ alignItems: { sm: "center" } }}>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography noWrap sx={{ fontWeight: 700 }}>{g.name}</Typography>
+                        <Typography variant="body2" color="text.secondary">{g.platform}</Typography>
+                      </Box>
+                      <FormControlLabel
+                        control={<Switch size="small" checked={flags.always_on} disabled={aLoading} onChange={() => toggleFlag(g.game_id, "always_on")} />}
+                        label="Always on"
+                      />
+                      <FormControlLabel
+                        control={<Switch size="small" checked={flags.free_play} disabled={fLoading} onChange={() => toggleFlag(g.game_id, "free_play")} />}
+                        label="Free play"
+                      />
+                    </Stack>
+                  </Paper>
+                );
+              })}
+            </Stack>
+          )}
+        </Stack>
+      </Paper>
+    </Stack>
   );
 }
-
-const S: Record<string, React.CSSProperties> = {
-  wrapper: { display: "grid", gap: "var(--space-5)" },
-  section: { border: "1px solid var(--color-sky-high)", background: "var(--color-sky-mid)", padding: "var(--space-5)" },
-  heading: { margin: "0 0 var(--space-3)", color: "var(--color-accent)", fontSize: "var(--font-size-lg)" },
-  note: { margin: "0 0 var(--space-4)", color: "var(--color-cloud-dim)", fontSize: "var(--font-size-sm)" },
-  badges: { display: "flex", flexWrap: "wrap", gap: "var(--space-2)" },
-  coreGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "var(--space-3)" },
-  field: { display: "grid", gap: "var(--space-2)" },
-  label: { color: "var(--color-cloud-dim)", fontSize: "var(--font-size-sm)" },
-  select: { minHeight: 36, border: "1px solid var(--color-sky-high)", borderRadius: 2, background: "var(--color-sky-deep)", color: "var(--color-cloud)", padding: "0 var(--space-3)", fontFamily: "var(--font-mono)" },
-  updateButton: { marginTop: "var(--space-2)", minHeight: 36, border: "1px solid var(--color-accent)", borderRadius: 2, background: "var(--color-accent)", color: "var(--color-sky-deep)", padding: "0 var(--space-3)", fontWeight: 700, cursor: "pointer" },
-  error: { margin: 0, border: "1px solid var(--color-danger)", color: "var(--color-danger)", padding: "var(--space-3)" },
-  flagGrid: { display: "grid", gap: "var(--space-3)" },
-  flagRow: { display: "flex", alignItems: "center", gap: "var(--space-4)", padding: "var(--space-3)", border: "1px solid var(--color-sky-high)", borderRadius: 2 },
-  flagGame: { flex: 1, display: "flex", flexDirection: "column", gap: 2 },
-  flagName: { fontWeight: 700, fontSize: "var(--font-size-base)" },
-  flagPlatform: { color: "var(--color-cloud-dim)", fontSize: "var(--font-size-sm)" },
-  toggleLabel: { display: "flex", alignItems: "center", gap: "var(--space-2)", color: "var(--color-cloud-dim)", fontSize: "var(--font-size-sm)", cursor: "pointer", whiteSpace: "nowrap" },
-  toggleCheck: { cursor: "pointer", accentColor: "var(--color-accent)" },
-  empty: { color: "var(--color-cloud-dim)", fontSize: "var(--font-size-sm)", margin: 0 },
-};
