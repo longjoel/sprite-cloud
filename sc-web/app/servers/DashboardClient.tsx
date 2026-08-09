@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Chip, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
+import { Alert, Box, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, TextField, Typography } from "@mui/material";
 import { Button } from "@/components/ui";
 import ServerPanel from "./ServerPanel";
 import InviteManager from "./InviteManager";
@@ -231,7 +231,7 @@ export default function DashboardClient({ memberships }: Props) {
           .sc-dashboard-cards { display: none !important; }
         }
       `}</style>
-      {error && <div style={S.error}>{error}</div>}
+      {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
 
       <section style={S.section}>
         <div style={S.sectionHeader}>
@@ -253,23 +253,21 @@ export default function DashboardClient({ memberships }: Props) {
         </div>
 
         {pairingCode && (
-          <div style={S.pairingCommand}>
-            <div style={S.pairingTopRow}>
-              <span style={S.pairingLabel}>Pairing code</span>
-              <code style={S.pairingCode}>{pairingCode}</code>
-            </div>
-            <p style={S.pairingHint}>
+          <Paper variant="outlined" sx={{ mb: 3, p: 2, borderColor: "primary.main" }}>
+            <Typography variant="overline" color="text.secondary">Pairing code</Typography>
+            <Typography component="code" variant="h6" color="success.main" sx={{ display: "block", letterSpacing: "0.15em", mb: 1 }}>
+              {pairingCode}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               Run this on the machine with your ROMs:
-            </p>
-            <code style={S.pairingCmd}>
+            </Typography>
+            <Paper component="code" variant="outlined" sx={{ display: "block", p: 1.5, bgcolor: "background.default", wordBreak: "break-all" }}>
               sc-server pair {pairingCode} --sc-web-url {window.location.origin}
-            </code>
-          </div>
+            </Paper>
+          </Paper>
         )}
 
-        {pairingError && (
-          <div style={S.pairingError}>Error: {pairingError}</div>
-        )}
+        {pairingError && <Alert severity="error" sx={{ mb: 3 }}>Error: {pairingError}</Alert>}
 
         {sorted.length === 0 ? (
           <p style={S.empty}>
@@ -544,21 +542,23 @@ export default function DashboardClient({ memberships }: Props) {
       </Dialog>
 
       {deleting && (
-        <section style={S.section}>
-          <h2 style={S.h2}>Confirm removal</h2>
-          <div style={S.confirmBox}>
-            <p style={S.confirmText}>
+        <Paper component="section" variant="outlined" sx={{ mb: 3, p: { xs: 2, sm: 3 }, borderColor: "error.main" }}>
+          <Typography component="h2" variant="h5" sx={{ mb: 2 }}>Confirm removal</Typography>
+          <Stack spacing={2}>
+            <Typography color="error.main">
               This permanently deletes the server, its ROM roots,
               game files, sessions, and commands. Type DELETE to
               confirm.
-            </p>
-            <div style={S.confirmRow}>
-              <input
-                style={S.confirmInput}
+            </Typography>
+            <Box sx={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
+              <TextField
+                size="small"
                 value={deleteConfirm}
                 onChange={(e) => setDeleteConfirm(e.target.value)}
-                placeholder='Type "DELETE"'
+                placeholder="Type DELETE"
+                label="Confirmation"
                 autoFocus
+                sx={{ width: 180 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") doDelete(deleting);
                   if (e.key === "Escape") setDeleting(null);
@@ -570,9 +570,9 @@ export default function DashboardClient({ memberships }: Props) {
               <Button variant="secondary" size="sm" onClick={() => setDeleting(null)}>
                 Cancel
               </Button>
-            </div>
-          </div>
-        </section>
+            </Box>
+          </Stack>
+        </Paper>
       )}
     </>
   );
