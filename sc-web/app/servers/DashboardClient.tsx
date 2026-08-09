@@ -314,16 +314,18 @@ export default function DashboardClient({ memberships }: Props) {
                                       }}
                                       style={S.inlineForm}
                                     >
-                                      <input
-                                        style={S.inlineInput}
+                                      <TextField
+                                        size="small"
+                                        variant="outlined"
                                         value={editName}
                                         onChange={(e) => setEditName(e.target.value)}
                                         autoFocus
+                                        slotProps={{ input: { "aria-label": `Rename ${s.name || s.id.slice(0, 8)}` }}}
+                                        sx={{ width: 220 }}
                                         onBlur={() => setEditing(null)}
                                         onKeyDown={(e) => {
                                           if (e.key === "Escape") setEditing(null);
                                         }}
-                                        aria-label={`Rename ${s.name || s.id.slice(0, 8)}`}
                                       />
                                     </form>
                                   ) : s.role === "admin" ? (
@@ -444,14 +446,15 @@ export default function DashboardClient({ memberships }: Props) {
                           onSubmit={(e) => { e.preventDefault(); doRename(s.id); }}
                           style={S.inlineForm}
                         >
-                          <input
-                            style={{ ...S.inlineInput, width: "100%" }}
+                          <TextField
+                            size="small"
+                            fullWidth
                             value={editName}
                             onChange={(e) => setEditName(e.target.value)}
                             autoFocus
+                            slotProps={{ input: { "aria-label": `Rename ${s.name || s.id.slice(0, 8)}` }}}
                             onBlur={() => setEditing(null)}
                             onKeyDown={(e) => { if (e.key === "Escape") setEditing(null); }}
-                            aria-label={`Rename ${s.name || s.id.slice(0, 8)}`}
                           />
                         </form>
                       ) : s.role === "admin" ? (
