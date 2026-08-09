@@ -57,8 +57,8 @@ mkdir -p /docker/sc-web
 cp ops/vps/docker-compose.yml /docker/sc-web/
 
 # environment (fill in real values from secrets)
-cp ops/vps/.env.example $VPS_ENV_FILE
-$EDITOR $VPS_ENV_FILE
+cp ops/vps/.env.example "$VPS_ENV_FILE"
+$EDITOR "$VPS_ENV_FILE"
 
 # build + deploy from dev machine
 ./scripts/deploy-sc-web.sh

@@ -44,7 +44,7 @@ pnpm build
 
 ## Gateway deploy
 
-Use the repo-tracked VPS templates plus the blessed deploy script. In this topology, `sc-web` and Postgres run with host networking on the VPS, and the live env file is `$VPS_ENV_FILE`.
+Use the repo-tracked VPS templates plus the blessed deploy script. In this topology, `sc-web` and Postgres run with host networking on the VPS. Keep the live environment file path in `GV_VPS_ENV_FILE`; do not commit the host-specific path.
 
 Required env:
 
@@ -69,7 +69,7 @@ What the script does:
 - builds `sc-web` locally (`pnpm run lint && pnpm run build`)
 - rsyncs the monorepo to the VPS build context
 - builds `sc-web-prod:latest` on the VPS
-- repairs stale `DATABASE_URL` in `$VPS_ENV_FILE` if needed
+- repairs stale `DATABASE_URL` in the configured remote environment file if needed
 - restarts `sc-web-sc-web-1` on `--network host`
 - forces `HOSTNAME=0.0.0.0` so Next binds a reachable interface
 - verifies localhost health plus public `/` and `/api/health`
@@ -127,11 +127,11 @@ To roll back the gateway to the previous revision (no DB migration is
 reversed; rollback is image-only and safe):
 
 ```bash
-ssh -i ~/.ssh/<deployment-key> root@<deployment-host> '
-  cd $VPS_DEPLOY_DIR
+ssh -i ~/.ssh/<deployment-key> "$VPS_USER@$VPS_HOST" "
+  cd '$VPS_DEPLOY_DIR'
   docker tag sc-web-prod:rollback-<UTC timestamp> sc-web-prod:latest
   docker compose up -d --no-deps --force-recreate web
-'
+"
 # verify:
 docker compose exec -T web curl -fsS http://localhost:3000/api/health
 ```

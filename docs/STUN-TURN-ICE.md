@@ -332,7 +332,7 @@ Rotated the exposed coturn long-term credential end-to-end:
 1. Generate: `openssl rand -hex 32` → keep in a 0600 temp file, never print it.
 2. coturn (`/etc/turnserver.conf`): `sed -i -E "s|^user=guest:.*|user=guest:${NEW}|"` → `systemctl restart coturn`.
 3. Game VPS systemd unit: **replace the whole `Environment="GV_ICE_TURN_CREDENTIAL=..."` line** — a greedy `.*` inside the line eats the closing quote (`s|(GV_ICE_TURN_CREDENTIAL=).*|\1${NEW}|` mangles the unit file, prewarm then fails with `turn server credentials required`). Use `s|^Environment=.*GV_ICE_TURN_CREDENTIAL.*|Environment="GV_ICE_TURN_CREDENTIAL=${NEW}"|` → `systemctl daemon-reload` + `systemctl restart sc-server`. Verify the line is exactly `Environment="GV_ICE_TURN_CREDENTIAL=<64-hex>"` (100 chars) before reloading.
-4. Gateway: rewrite the `GV_ICE_*` block in `$VPS_DEPLOY_DIR/.env`, then **`docker compose up -d web`** — plain `restart` does NOT re-read `env_file`.
+4. Gateway: rewrite the `GV_ICE_*` block in the configured gateway environment file, then **`docker compose up -d web`** — plain `restart` does NOT re-read `env_file`.
 5. Verify: probe with new credential → `relayed`; probe with old credential → `401`; `/api/health` → `turn_state: relayed`; `/api/ice-config` → TURN advertised.
 6. `shred -u` the temp credential file.
 

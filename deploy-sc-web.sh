@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_FILE="${GV_WEB_ENV_FILE:-$VPS_ENV_FILE}"
+ENV_FILE="${GV_WEB_ENV_FILE:?set GV_WEB_ENV_FILE to the remote web environment file}"
 CONTAINER="${GV_WEB_CONTAINER:-sc-web-sc-web-1}"
 IMAGE="${GV_WEB_IMAGE:-sc-web-prod:latest}"
 POSTGRES_CONTAINER="${GV_WEB_POSTGRES_CONTAINER:-sc-web-postgres-1}"

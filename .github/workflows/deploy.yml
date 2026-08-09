@@ -24,9 +24,20 @@ jobs:
     # so no fork-guard expression is needed.
     runs-on: self-hosted
     timeout-minutes: 15
+    env:
+      VPS_SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
+      VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
+      VPS_DEPLOY_DIR: ${{ secrets.VPS_DEPLOY_DIR }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate deployment target configuration
+        run: |
+          set -euo pipefail
+          : "${VPS_SSH_HOST:?VPS_SSH_HOST repository secret is required}"
+          : "${VPS_SSH_USER:?VPS_SSH_USER repository secret is required}"
+          : "${VPS_DEPLOY_DIR:?VPS_DEPLOY_DIR repository secret is required}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -52,7 +63,7 @@ jobs:
 
       - name: Snapshot current web image (rollback point)
         run: |
-          ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> '
+          ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new $VPS_SSH_USER@$VPS_SSH_HOST '
             set -e
             if docker inspect sc-deploy-web-1 >/dev/null 2>&1; then
               OLD_IMAGE=$(docker inspect sc-deploy-web-1 --format "{{.Image}}")
@@ -68,7 +79,7 @@ jobs:
         run: |
           docker save sc-web-prod:latest | gzip | \
             ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new \
-              <vps-user>@<vps-host> 'gunzip | docker load'
+              $VPS_SSH_USER@$VPS_SSH_HOST 'gunzip | docker load'
 
       - name: Apply additive schema migrations
         run: |
@@ -90,9 +101,9 @@ jobs:
             fi
             echo "  applying before web restart: $migration"
             scp -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new \
-              "$migration" <vps-user>@<vps-host>:/tmp/migration.sql
-            ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> "
-              cd $VPS_DEPLOY_DIR
+              "$migration" $VPS_SSH_USER@$VPS_SSH_HOST:/tmp/migration.sql
+            ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new $VPS_SSH_USER@$VPS_SSH_HOST "
+              cd '$VPS_DEPLOY_DIR'
               PG_USER=\$(docker compose exec -T postgres printenv POSTGRES_USER)
               PG_DB=\$(docker compose exec -T postgres printenv POSTGRES_DB)
               docker compose exec -T postgres psql -U \"\$PG_USER\" -d \"\$PG_DB\" -v ON_ERROR_STOP=1 < /tmp/migration.sql
@@ -103,18 +114,18 @@ jobs:
 
       - name: Restart sc-web on VPS
         run: |
-          ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> '
-            cd $VPS_DEPLOY_DIR && \
+          ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new $VPS_SSH_USER@$VPS_SSH_HOST "
+            cd '$VPS_DEPLOY_DIR' && \
             docker compose up -d --no-deps --force-recreate web
-          '
+          "
 
       - name: Health check (verifies deployed provenance == workflow SHA)
         run: |
           sleep 10
           HEALTH=""
           for i in $(seq 1 6); do
-            if HEALTH=$(ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> \
-              'cd $VPS_DEPLOY_DIR && docker compose exec -T web curl -fsS http://localhost:3000/api/health' 2>/dev/null); then
+            if HEALTH=$(ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new $VPS_SSH_USER@$VPS_SSH_HOST \
+              "cd '$VPS_DEPLOY_DIR' && docker compose exec -T web curl -fsS http://localhost:3000/api/health" 2>/dev/null); then
               echo "✓ Health endpoint responded"
               break
             fi
@@ -143,19 +154,18 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.apply_phase4c_migration
         run: |
           set -euo pipefail
-          HEALTH_JSON=$(ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> \
-            'cd $VPS_DEPLOY_DIR && docker compose exec -T web curl -fsS http://localhost:3000/api/health')
+          HEALTH_JSON=$(ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new $VPS_SSH_USER@$VPS_SSH_HOST \
+            "cd '$VPS_DEPLOY_DIR' && docker compose exec -T web curl -fsS http://localhost:3000/api/health")
           grep -Eq '"phase4c_library_owner"[[:space:]]*:[[:space:]]*"sc-server"' <<<"$HEALTH_JSON"
           scp -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new \
             sc-web/drizzle/0016_remove_cloud_library.sql \
-            <vps-user>@<vps-host>:/tmp/0016_remove_cloud_library.sql
-          ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new <vps-user>@<vps-host> 'bash -s' <<'REMOTE'
+            $VPS_SSH_USER@$VPS_SSH_HOST:/tmp/0016_remove_cloud_library.sql
+          ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new $VPS_SSH_USER@$VPS_SSH_HOST "cd '$VPS_DEPLOY_DIR' && bash -s" <<'REMOTE'
           set -euo pipefail
-          cd $VPS_DEPLOY_DIR
           docker compose ps --status running postgres | grep -q postgres
           PG_USER=$(docker compose exec -T postgres printenv POSTGRES_USER)
           PG_DB=$(docker compose exec -T postgres printenv POSTGRES_DB)
-          BACKUP_DIR=$VPS_DEPLOY_DIR/backups
+          BACKUP_DIR="$PWD/backups"
           BACKUP_FILE="$BACKUP_DIR/pre-0016-$(date -u +%Y%m%dT%H%M%SZ).sql.gz"
           mkdir -p "$BACKUP_DIR"
           docker compose exec -T postgres pg_dump -U "$PG_USER" "$PG_DB" | gzip -9 > "$BACKUP_FILE"
