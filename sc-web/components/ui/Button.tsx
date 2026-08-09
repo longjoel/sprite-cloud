@@ -17,34 +17,40 @@ const variantMap: Record<Variant, MuiButtonProps["color"]> = {
   destructive: "error",
 };
 
+const sizeStyles = {
+  sm: { minHeight: 36, px: 1.25, py: 0.25, fontSize: "0.8125rem" },
+  md: { minHeight: 44, px: 1.75, py: 0.5, fontSize: "0.875rem" },
+  lg: { minHeight: 44, px: 3, py: 1, fontSize: "1rem" },
+} as const;
+
 export default function Button({
   variant = "secondary",
   size = "md",
   sx,
   ...rest
 }: ButtonProps) {
-  const sizeStyles = size === "sm"
-    ? { py: 0.25, px: 1.25, fontSize: "var(--font-size-sm)", minHeight: 36 }
-    : size === "md"
-    ? { py: 0.5, px: 1.75, fontSize: "var(--font-size-base)", minHeight: 44 }
-    : { py: 1, px: 3, fontSize: "var(--font-size-md)", minHeight: 44 };
-
-  const ghostStyles = variant === "ghost"
-    ? { border: "none", background: "none", color: "var(--color-text-secondary)", "&:hover": { background: "rgba(56,189,248,0.08)" } }
-    : {};
-
   return (
     <MuiButton
       variant={variant === "primary" || variant === "destructive" ? "contained" : "outlined"}
       color={variantMap[variant]}
-      sx={{
-        fontFamily: "var(--font-mono)",
-        textTransform: "none",
-        borderRadius: "2px",
-        ...sizeStyles,
-        ...ghostStyles,
-        ...(typeof sx === "function" ? {} : sx),
-      }}
+      sx={[
+        {
+          borderRadius: 1,
+          textTransform: "none",
+          ...sizeStyles[size],
+          ...(variant === "ghost"
+            ? {
+                borderColor: "transparent",
+                color: "text.secondary",
+                "&:hover": {
+                  borderColor: "divider",
+                  backgroundColor: "action.hover",
+                },
+              }
+            : {}),
+        },
+        ...(Array.isArray(sx) ? sx : [sx]),
+      ]}
       {...rest}
     />
   );
