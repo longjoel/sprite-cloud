@@ -311,7 +311,9 @@ export default function RomUploadDropzone({
             inset: 0,
             zIndex: 9999,
             background: "rgba(10, 14, 26, 0.85)",
-            border: "3px dashed #38bdf8",
+            border: 3,
+            borderStyle: "dashed",
+            borderColor: "primary.main",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -320,8 +322,8 @@ export default function RomUploadDropzone({
             pointerEvents: "none",
           }}
         >
-          <CloudUpload sx={{ fontSize: 64, color: "#38bdf8" }} />
-          <Typography variant="h6" sx={{ color: "#38bdf8", fontFamily: "monospace" }}>
+          <CloudUpload sx={{ fontSize: 64, color: "primary.main" }} />
+          <Typography variant="h6" sx={{ color: "primary.main" }}>
             Drop ROM files to upload
           </Typography>
         </Box>
@@ -346,11 +348,10 @@ export default function RomUploadDropzone({
           }}
           disabled={adminServers.length === 0}
           sx={{
-            borderColor: "rgba(56,189,248,0.3)",
-            color: "#38bdf8",
-            fontFamily: "monospace",
+            borderColor: "primary.main",
+            color: "primary.main",
             textTransform: "none",
-            "&:hover": { borderColor: "#38bdf8", background: "rgba(56,189,248,0.08)" },
+            "&:hover": { borderColor: "primary.main", backgroundColor: "action.hover" },
           }}
         >
           Upload ROMs
@@ -368,7 +369,7 @@ export default function RomUploadDropzone({
 
       {/* Server selector */}
       <Dialog open={serverOpen} onClose={() => files.length === 0 && setServerOpen(false)}>
-        <DialogTitle sx={{ fontFamily: "monospace", color: "#cbd5e1" }}>
+        <DialogTitle>
           Select target server
         </DialogTitle>
         <DialogContent>
@@ -380,12 +381,12 @@ export default function RomUploadDropzone({
                 sx={{
                   borderRadius: 1,
                   mb: 0.5,
-                  "&:hover": { background: "rgba(56,189,248,0.08)" },
+                  "&:hover": { backgroundColor: "action.hover" },
                 }}
               >
-                <Dns sx={{ mr: 1.5, color: srv.status === "online" ? "#22c55e" : "#94a3b8" }} />
+                <Dns sx={{ mr: 1.5, color: srv.status === "online" ? "success.main" : "text.secondary" }} />
                 <ListItemText
-                  sx={{ "& .MuiListItemText-primary": { fontFamily: "monospace", color: "#cbd5e1" } }}
+                  sx={{ "& .MuiListItemText-primary": { color: "text.primary" } }}
                 >
                   {srv.name}
                 </ListItemText>
@@ -393,9 +394,7 @@ export default function RomUploadDropzone({
                   label={srv.status}
                   size="small"
                   sx={{
-                    fontFamily: "monospace",
-                    background: srv.status === "online" ? "rgba(34,197,94,0.15)" : "rgba(148,163,184,0.15)",
-                    color: srv.status === "online" ? "#22c55e" : "#94a3b8",
+                    color: srv.status === "online" ? "success" : "default",
                   }}
                 />
               </ListItemButton>
@@ -403,7 +402,7 @@ export default function RomUploadDropzone({
           </List>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => { setServerOpen(false); setFiles([]); }} sx={{ color: "#94a3b8" }}>
+          <Button onClick={() => { setServerOpen(false); setFiles([]); }} color="inherit">
             Cancel
           </Button>
         </DialogActions>
@@ -418,8 +417,9 @@ export default function RomUploadDropzone({
             right: 16,
             width: 360,
             maxWidth: "90vw",
-            background: "#111827",
-            border: "1px solid #1e293b",
+            backgroundColor: "background.paper",
+            border: 1,
+            borderColor: "divider",
             borderRadius: 2,
             boxShadow: "0 4px 24px rgba(0,0,0,0.5)",
             p: 2,
@@ -428,10 +428,10 @@ export default function RomUploadDropzone({
         >
           {/* Header */}
           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
-            <Typography variant="subtitle2" sx={{ fontFamily: "monospace", color: "#cbd5e1" }}>
+            <Typography variant="subtitle2">
               {phase === "idle" ? "Upload queued" : phase}
             </Typography>
-            <IconButton size="small" onClick={clearFiles} sx={{ color: "#94a3b8" }}>
+            <IconButton size="small" onClick={clearFiles} color="inherit">
               <Close fontSize="small" />
             </IconButton>
           </Box>
@@ -445,11 +445,11 @@ export default function RomUploadDropzone({
                 sx={{
                   height: 4,
                   borderRadius: 2,
-                  background: "#1e293b",
-                  "& .MuiLinearProgress-bar": { background: "#38bdf8" },
+                  backgroundColor: "action.hover",
+                  "& .MuiLinearProgress-bar": { backgroundColor: "primary.main" },
                 }}
               />
-              <Typography variant="caption" sx={{ fontFamily: "monospace", color: "#94a3b8", mt: 0.5 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
                 {formatSize(totalProgress)} / {formatSize(totalSize)}
                 {hasActive && ` — ${phase}`}
               </Typography>
@@ -466,23 +466,23 @@ export default function RomUploadDropzone({
                   alignItems: "center",
                   gap: 1,
                   py: 0.5,
-                  borderBottom: "1px solid #1e293b",
+                  borderBottom: 1,
+                  borderColor: "divider",
                 }}
               >
                 {entry.state === "done" ? (
-                  <CheckCircle sx={{ fontSize: 16, color: "#22c55e" }} />
+                  <CheckCircle sx={{ fontSize: 16, color: "success.main" }} />
                 ) : entry.state === "error" ? (
-                  <ErrorIcon sx={{ fontSize: 16, color: "#ef4444" }} />
+                  <ErrorIcon sx={{ fontSize: 16, color: "error.main" }} />
                 ) : (
-                  <InsertDriveFile sx={{ fontSize: 16, color: "#38bdf8" }} />
+                  <InsertDriveFile sx={{ fontSize: 16, color: "primary.main" }} />
                 )}
 
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography
                     variant="caption"
                     sx={{
-                      fontFamily: "monospace",
-                      color: entry.state === "error" ? "#ef4444" : "#cbd5e1",
+                      color: entry.state === "error" ? "error.main" : "text.primary",
                       display: "block",
                       overflow: "hidden",
                       textOverflow: "ellipsis",
@@ -491,7 +491,7 @@ export default function RomUploadDropzone({
                   >
                     {entry.file.name}
                   </Typography>
-                  <Typography variant="caption" sx={{ fontFamily: "monospace", color: "#64748b" }}>
+                  <Typography variant="caption" color="text.disabled">
                     {entry.state === "done"
                       ? formatSize(entry.total)
                       : `${formatSize(entry.progress)} / ${formatSize(entry.total)}`}
@@ -511,9 +511,8 @@ export default function RomUploadDropzone({
               onClick={cancelUpload}
               sx={{
                 mt: 1,
-                borderColor: "rgba(239,68,68,0.3)",
-                color: "#ef4444",
-                fontFamily: "monospace",
+                borderColor: "error.main",
+                color: "error.main",
                 textTransform: "none",
               }}
             >
