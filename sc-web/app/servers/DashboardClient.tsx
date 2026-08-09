@@ -346,18 +346,18 @@ export default function DashboardClient({ memberships }: Props) {
                                       {s.name || s.id.slice(0, 8)}
                                     </span>
                                   )}
-                                  <code style={S.serverId}>{s.id.slice(0, 8)}</code>
+                                  <Chip label={s.id.slice(0, 8)} size="small" variant="outlined" />
                                 </div>
                                 {renderSummaryPills(s.id)}
                               </div>
                             </td>
                             <td style={S.tdSeen}>
-                              <div style={S.seenStack}>
-                                <span>{timeAgo(s.lastSeenAt)}</span>
-                                <span style={S.seenSub}>
+                              <Stack spacing={0.5}>
+                                <Typography>{timeAgo(s.lastSeenAt)}</Typography>
+                                <Typography variant="caption" color="text.secondary">
                                   {s.lastSeenAt ? new Date(s.lastSeenAt).toLocaleString() : "No heartbeat yet"}
-                                </span>
-                              </div>
+                                </Typography>
+                              </Stack>
                             </td>
                             <td style={S.tdActions}>
                               <div style={S.actionRow}>
@@ -433,9 +433,9 @@ export default function DashboardClient({ memberships }: Props) {
                         variant="outlined"
                         sx={{ borderColor: status.color, color: status.color, textTransform: "uppercase" }}
                       />
-                      <span style={S.seenSub}>
+                      <Typography variant="caption" color="text.secondary">
                         {s.lastSeenAt ? timeAgo(s.lastSeenAt) : "No heartbeat"}
-                      </span>
+                      </Typography>
                     </div>
 
                     <div style={S.cardTitleRow}>
