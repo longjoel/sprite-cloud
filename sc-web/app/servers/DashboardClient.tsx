@@ -199,7 +199,7 @@ export default function DashboardClient({ memberships }: Props) {
     }
 
     return (
-      <div style={S.pillRow}>
+      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
         {pills.map((pill) => (
           <Chip
             key={pill.label}
@@ -208,7 +208,7 @@ export default function DashboardClient({ memberships }: Props) {
             color={pill.tone === "muted" ? "default" : pill.tone ?? "default"}
           />
         ))}
-      </div>
+      </Stack>
     );
   }
 
@@ -233,24 +233,22 @@ export default function DashboardClient({ memberships }: Props) {
       `}</style>
       {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
 
-      <section style={S.section}>
-        <div style={S.sectionHeader}>
-          <div>
-            <h2 style={S.h2}>Servers</h2>
-            <p style={S.sectionSub}>
+      <Box component="section" sx={{ mb: 4 }}>
+        <Stack sx={{ mb: 3, gap: 2, flexDirection: { xs: "column", sm: "row" }, justifyContent: "space-between", alignItems: { xs: "stretch", sm: "flex-start" } }}>
+          <Box>
+            <Typography component="h2" variant="h4" sx={{ mb: 1 }}>Servers</Typography>
+            <Typography color="text.secondary" sx={{ maxWidth: 720 }}>
               Status, health, and pairing. Expand a server for administrator details.
-            </p>
-          </div>
-          <div style={S.inlineTools}>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={generatePairingCode}
-            >
-              Generate pairing code
-            </Button>
-          </div>
-        </div>
+            </Typography>
+          </Box>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={generatePairingCode}
+          >
+            Generate pairing code
+          </Button>
+        </Stack>
 
         {pairingCode && (
           <Paper variant="outlined" sx={{ mb: 3, p: 2, borderColor: "primary.main" }}>
@@ -270,9 +268,9 @@ export default function DashboardClient({ memberships }: Props) {
         {pairingError && <Alert severity="error" sx={{ mb: 3 }}>Error: {pairingError}</Alert>}
 
         {sorted.length === 0 ? (
-          <p style={S.empty}>
+          <Typography color="text.secondary" sx={{ fontStyle: "italic" }}>
             No servers. Pair a sc-server first.
-          </p>
+          </Typography>
         ) : (
           <>
             {/* ── Desktop: table ─────────────────────────────────────────── */}
@@ -521,7 +519,7 @@ export default function DashboardClient({ memberships }: Props) {
             </div>
           </>
         )}
-      </section>
+      </Box>
 
       <Dialog
         open={inviteTarget !== null}
