@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Alert, Box, Chip, Paper, Stack, Typography, useMediaQuery, useTheme } from "@mui/material";
+import { Alert, Box, Chip, Paper, Stack, TableCell, TableRow, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
 import GameTileContextMenu from "@/components/fluent/GameTileContextMenu";
@@ -667,33 +667,26 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
   );
 
   const renderGameRow = (game: Game, index: number) => (
-    <tr
+    <TableRow
       key={libraryGameKey(game)}
       className="library-game-row"
-      style={{
-        background: index % 2 === 0 ? "rgba(17,24,39,0.3)" : "transparent",
-        transition: "background 0.1s",
-      }}
-      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(56,189,248,0.08)"; }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLElement).style.background = index % 2 === 0 ? "rgba(17,24,39,0.3)" : "transparent";
-      }}
+      sx={{ backgroundColor: index % 2 === 0 ? "action.hover" : "transparent", transition: "background-color 0.1s", "&:hover": { backgroundColor: "action.selected" } }}
     >
-      <td style={{ padding: "12px 14px", fontSize: "var(--font-size-md)", color: "var(--color-cloud)" }}>
-        <span style={styles.tableName}>{game.name}</span>
-      </td>
-      <td style={{ padding: "12px 14px" }}>
+      <TableCell sx={{ fontSize: "0.875rem", color: "text.primary" }}>
+        <Typography variant="body2" sx={{ fontWeight: 600 }}>{game.name}</Typography>
+      </TableCell>
+      <TableCell>
         <Badge variant="info">{game.platform}</Badge>
-      </td>
-      <td style={{ padding: "12px 14px", textAlign: "center", fontSize: "var(--font-size-xs)", color: "var(--color-cloud-dim)" }}>
+      </TableCell>
+      <TableCell align="center" sx={{ fontSize: "0.75rem", color: "text.secondary" }}>
         {game.maxPlayers > 1 ? `${game.maxPlayers}p` : "1p"}
-      </td>
+      </TableCell>
       {tab === "recent" && (
-        <td style={{ padding: "12px 14px", whiteSpace: "nowrap", color: "var(--color-cloud-dim)" }}>
+        <TableCell sx={{ whiteSpace: "nowrap", color: "text.secondary" }}>
           {formatRelativeAge(game.playedAt)}
-        </td>
+        </TableCell>
       )}
-      <td style={{ padding: "8px 14px", textAlign: "right" }}>
+      <TableCell align="right">
         <div className="library-row-actions">
           <Button
             disabled={!hasServers || launchingGame === libraryGameKey(game)}
@@ -723,8 +716,8 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
             />
           )}
         </div>
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 
   // Auto-switch to cards on mobile — table requires horizontal scroll at narrow widths
