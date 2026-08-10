@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Alert, Box, Chip, Paper, Stack, TableCell, TableRow, Typography, useMediaQuery, useTheme } from "@mui/material";
+import { Alert, Box, Checkbox, Chip, CircularProgress, FormControlLabel, Paper, Stack, TableCell, TableRow, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
 import GameTileContextMenu from "@/components/fluent/GameTileContextMenu";
@@ -902,65 +902,59 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
           </Alert>
         )}
         {hostPickerLoading ? (
-          <p style={styles.empty}>Loading hosts…</p>
+          <Stack spacing={1} sx={{ alignItems: "center", py: 2 }}>
+            <CircularProgress size={24} />
+            <Typography color="text.secondary">Loading hosts…</Typography>
+          </Stack>
         ) : playableHosts.length === 0 ? (
-          <p style={styles.empty}>{launchError ? "No host information is available." : "No hosts available."}</p>
+          <Typography color="text.secondary" sx={{ py: 2, textAlign: "center" }}>{launchError ? "No host information is available." : "No hosts available."}</Typography>
         ) : (
           playableHosts.map((host) => {
             const playable = host.has_game && (host.status === "online" || host.status === "stale");
             return (
-              <div key={host.server_id} style={styles.pickerRow}>
-                <span style={styles.pickerName}>{host.name}</span>
+              <Stack key={host.server_id} direction="row" spacing={1.5} sx={{ alignItems: "center", py: 1.5, borderBottom: 1, borderColor: "divider" }}>
+                <Typography sx={{ flex: 1 }}>{host.name}</Typography>
                 <Badge variant={statusVariant(host.status)}>{host.has_game ? host.status : `${host.status} · game unavailable`}</Badge>
                 {!host.has_game && (
-                  <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-muted)" }}>no game</span>
+                  <Typography variant="caption" color="text.secondary">no game</Typography>
                 )}
                 <Button
                   variant="primary"
                   size="sm"
                   disabled={!playable || launchingGame !== null}
                   onClick={() => selectHost(hostPickerGame!, host.server_id, host.name)}
-                  style={{ opacity: playable ? 1 : 0.4, cursor: playable ? "pointer" : "default" }}
+                  sx={{ opacity: playable ? 1 : 0.4 }}
                 >
                   {launchingGame !== null ? "Launching…" : playable ? "Select" : "—"}
                 </Button>
-              </div>
+              </Stack>
             );
           })
         )}
-        <label style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", marginTop: "var(--space-4)" }}>
-          <input disabled={hostPickerLoading || launchingGame !== null} type="checkbox" checked={rememberSelectedHost} onChange={(event) => setRememberSelectedHost(event.target.checked)} />
-          Always use this host
-        </label>
-        <div style={{ marginTop: "var(--space-5)", textAlign: "center" }}>
+        <FormControlLabel
+          sx={{ mt: 2 }}
+          control={<Checkbox disabled={hostPickerLoading || launchingGame !== null} checked={rememberSelectedHost} onChange={(event) => setRememberSelectedHost(event.target.checked)} />}
+          label="Always use this host"
+        />
+        <Box sx={{ mt: 3, textAlign: "center" }}>
           <Button variant="secondary" onClick={closeHostPicker}>Cancel</Button>
-        </div>
+        </Box>
       </Modal>
 
       {/* ── Rename modal ────────────────────────────────────────── */}
       <Modal open={editingGame !== null} onClose={cancelRename} title="Rename game">
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-          <input
-            type="text"
+        <Stack spacing={2}>
+          <TextField
+            label="Game name"
+            fullWidth
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
             onKeyDown={(e) => editingGame && handleEditKey(e, editingGame)}
             autoFocus
             disabled={editSaving}
-            style={{
-              padding: "10px 14px",
-              background: "var(--color-sky-high)",
-              border: "2px solid var(--color-sky-high)",
-              borderRadius: "var(--radius-sm)",
-              color: "var(--color-cloud)",
-              fontSize: "var(--font-size-base)",
-              fontFamily: "var(--font-mono)",
-              outline: "none",
-            }}
-            onFocus={(e) => { e.target.style.borderColor = "var(--color-accent)"; }}
-            onBlur={(e) => { e.target.style.borderColor = "var(--color-sky-high)"; }}
+            slotProps={{ htmlInput: { "aria-label": "Game name" } }}
           />
-          <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "flex-end" }}>
+          <Stack direction="row" spacing={1} sx={{ justifyContent: "flex-end" }}>
             <Button variant="secondary" onClick={cancelRename}>Cancel</Button>
             <Button
               variant="primary"
@@ -969,8 +963,8 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
             >
               {editSaving ? "Saving..." : "Save"}
             </Button>
-          </div>
-        </div>
+          </Stack>
+        </Stack>
       </Modal>
     </main>
   );
