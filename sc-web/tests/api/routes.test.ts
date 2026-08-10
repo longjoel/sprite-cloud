@@ -1357,6 +1357,54 @@ describe("GET /api/server/poll", () => {
     expect(body.next_poll_ms).toBeGreaterThan(0);
   });
 
+  it("creates a matching session before leasing an always-on resident start", async () => {
+    const gameId = "local_0123456789abcdef0123456789abcdef";
+    mockDb.select
+      .mockImplementationOnce(() => mockQueryBuilder([{ gameId, maxSeats: 2 }]))
+      .mockImplementationOnce(() => mockQueryBuilder([]))
+      .mockImplementation(() => mockQueryBuilder([]));
+
+    const inserted: Array<{ table: unknown; values: Record<string, unknown> }> = [];
+    mockDb.insert.mockImplementation((table: unknown) => ({
+      values: vi.fn((values: Record<string, unknown>) => {
+        inserted.push({ table, values });
+        return Promise.resolve([]);
+      }),
+    }) as any);
+
+    const { GET } = await import("@/app/api/server/poll/route");
+    const req = mkReq("http://localhost/api/server/poll", {
+      headers: authHeader(),
+    });
+    const resp = await GET(req);
+
+    expect(resp.status).toBe(200);
+    const sessionInsert = inserted.find(({ values }) => values.gameId === gameId);
+    const commandInsert = inserted.find(({ values }) => values.type === "start_game");
+    expect(sessionInsert?.values).toMatchObject({
+      id: expect.any(String),
+      userId: "user-1",
+      serverId: "server-1",
+      gameId,
+      commandId: expect.any(String),
+      hostToken: expect.any(String),
+      status: "spawning",
+      maxSeats: 2,
+    });
+    expect(commandInsert?.values).toMatchObject({
+      serverId: "server-1",
+      type: "start_game",
+      status: "pending",
+      payload: {
+        game_id: gameId,
+        session_id: sessionInsert?.values.id,
+        resident: true,
+        max_seats: 2,
+      },
+    });
+    expect(commandInsert?.values.commandId).toBeUndefined();
+  });
+
   it("leases pending commands and returns lease metadata", async () => {
     const rows = [
       { id: "cmd-1", type: "start_game", payload: { game_id: "local_0123456789abcdef0123456789abcdef" }, attempts: 0 },
