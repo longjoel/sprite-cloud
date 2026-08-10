@@ -1357,7 +1357,7 @@ describe("GET /api/server/poll", () => {
     expect(body.next_poll_ms).toBeGreaterThan(0);
   });
 
-  it("creates a matching session before leasing an always-on resident start", async () => {
+  it("creates a matching command before its foreign-keyed resident session", async () => {
     const gameId = "local_0123456789abcdef0123456789abcdef";
     mockDb.select
       .mockImplementationOnce(() => mockQueryBuilder([{ gameId, maxSeats: 2 }]))
@@ -1381,6 +1381,7 @@ describe("GET /api/server/poll", () => {
     expect(resp.status).toBe(200);
     const sessionInsert = inserted.find(({ values }) => values.gameId === gameId);
     const commandInsert = inserted.find(({ values }) => values.type === "start_game");
+    expect(inserted.indexOf(commandInsert!)).toBeLessThan(inserted.indexOf(sessionInsert!));
     expect(sessionInsert?.values).toMatchObject({
       id: expect.any(String),
       userId: "user-1",
