@@ -327,24 +327,20 @@ export default function DashboardClient({ memberships }: Props) {
                                       />
                                     </form>
                                   ) : s.role === "admin" ? (
-                                    <button
-                                      style={S.renameBtn}
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
                                       onClick={() => startRename(s.id, s.name)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter" || e.key === " ") {
-                                          e.preventDefault();
-                                          startRename(s.id, s.name);
-                                        }
-                                      }}
                                       title="Click to rename"
                                       aria-label={`Rename ${s.name || s.id.slice(0, 8)}`}
+                                      sx={{ minWidth: 0, px: 0.5, fontSize: "1.125rem", fontWeight: 600, justifyContent: "flex-start" }}
                                     >
                                       {s.name || s.id.slice(0, 8)}
-                                    </button>
+                                    </Button>
                                   ) : (
-                                    <span style={S.readOnlyName}>
+                                    <Typography sx={{ fontWeight: 600, fontSize: "1.125rem" }}>
                                       {s.name || s.id.slice(0, 8)}
-                                    </span>
+                                    </Typography>
                                   )}
                                   <Chip label={s.id.slice(0, 8)} size="small" variant="outlined" />
                                 </div>
@@ -456,22 +452,20 @@ export default function DashboardClient({ memberships }: Props) {
                           />
                         </form>
                       ) : s.role === "admin" ? (
-                        <button
-                          style={S.renameBtn}
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => startRename(s.id, s.name)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              startRename(s.id, s.name);
-                            }
-                          }}
                           title="Click to rename"
                           aria-label={`Rename ${s.name || s.id.slice(0, 8)}`}
+                          sx={{ minWidth: 0, px: 0.5, fontSize: "1.125rem", fontWeight: 600, justifyContent: "flex-start" }}
                         >
                           {s.name || s.id.slice(0, 8)}
-                        </button>
+                        </Button>
                       ) : (
-                        <span style={S.readOnlyName}>{s.name || s.id.slice(0, 8)}</span>
+                        <Typography sx={{ fontWeight: 600, fontSize: "1.125rem" }}>
+                          {s.name || s.id.slice(0, 8)}
+                        </Typography>
                       )}
                     </div>
 
@@ -754,23 +748,6 @@ const S = {
     alignItems: "center",
     gap: "var(--space-3)",
     flexWrap: "wrap" as const,
-  },
-  renameBtn: {
-    cursor: "pointer",
-    border: "none",
-    borderBottom: "1px dashed var(--color-sky-high)",
-    background: "none",
-    color: "var(--color-cloud)",
-    fontWeight: 600,
-    fontSize: "var(--font-size-lg)",
-    fontFamily: "var(--font-mono)",
-    padding: 0,
-    textAlign: "left" as const,
-  },
-  readOnlyName: {
-    color: "var(--color-cloud)",
-    fontWeight: 600,
-    fontSize: "var(--font-size-lg)",
   },
   serverId: {
     fontSize: "var(--font-size-xs)",
