@@ -724,7 +724,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
   const effectiveViewMode = isNarrow ? "grid" : viewMode;
 
   return (
-    <main style={styles.main}>
+    <Box component="main" sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
       <AppHeader
         userName={session?.user?.name || session?.user?.email || undefined}
         links={[
@@ -747,8 +747,8 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
         </Alert>
       )}
 
-      <section style={styles.section}>
-        <h2 style={{ ...styles.h2, marginBottom: "var(--space-4)" }}>Library</h2>
+      <Box component="section" sx={{ px: 3, mb: 6 }}>
+        <Typography variant="h5" sx={{ mb: 2 }}>Library</Typography>
 
         {needsLanHandoff && allGames.length === 0 && !allLoading && (
           <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
@@ -785,12 +785,12 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
           onViewModeChange={setViewMode}
         />
         {session && adminServers.length > 0 && (
-          <div style={{ marginBottom: "var(--space-4)" }}>
+          <Box sx={{ mb: 2 }}>
             <RomUploadDropzone
               adminServers={adminServers}
               onUploadComplete={() => loadAllGames(true, search, [], 0)}
             />
-          </div>
+          </Box>
         )}
 
 
@@ -816,7 +816,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
         ) : effectiveViewMode === "grid" ? (
           <>
             {tab === "recent" ? recentGroups.map((group) => (
-              <section key={group.date} style={styles.recentGroup}>
+                <Box component="section" key={group.date} sx={{ mb: 3 }}>
                 <Typography variant="h6" sx={{ mb: 1.5 }}>{formatRecentGroupLabel(group.date)}</Typography>
                 <div className="game-tile-grid">
                   {group.games.map((game) => (
@@ -826,7 +826,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
                     </div>
                   ))}
                 </div>
-              </section>
+              </Box>
             )) : (() => {
               // Group games by platform for collapsible sections
               const groups = new Map<string, Game[]>();
@@ -841,9 +841,9 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
                     <Typography component="span" variant="h6">{platform}</Typography>
                     <Chip label={games.length} size="small" color="primary" variant="outlined" />
                   </Box>
-                  <div className="game-tile-grid" style={{ marginTop: 12 }}>
+                  <Box className="game-tile-grid" sx={{ mt: 1.5 }}>
                     {games.map((game) => renderGameCard(game))}
-                  </div>
+                  </Box>
                 </details>
               ));
             })()}
@@ -889,7 +889,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
         {hasMore && currentGames.length > 0 && (
           <div ref={sentinelRef} className={`library-load-sentinel${currentLoading ? " is-loading" : ""}`} aria-hidden="true" />
         )}
-      </section>
+      </Box>
 
       {/* ── Host picker ──────────────────────────────────────────── */}
       <Modal open={hostPickerGame !== null} onClose={closeHostPicker} title="Choose host">
@@ -966,7 +966,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
           </Stack>
         </Stack>
       </Modal>
-    </main>
+    </Box>
   );
 }
 
