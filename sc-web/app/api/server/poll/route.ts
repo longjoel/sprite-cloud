@@ -246,17 +246,6 @@ async function convergeResidents(serverId: string, userId: string): Promise<void
         .limit(1);
       if (inFlight) return;
 
-      await tx.insert(sessions).values({
-        id: sessionId,
-        userId,
-        serverId,
-        gameId,
-        commandId: cmdId,
-        hostToken,
-        status: "spawning",
-        maxSeats: maxSeatsByGame.get(gameId) ?? 4,
-        stateEnteredAt: now,
-      });
       await tx.insert(commands).values({
         id: cmdId,
         serverId,
@@ -270,6 +259,17 @@ async function convergeResidents(serverId: string, userId: string): Promise<void
         },
         status: STATUS_PENDING,
         createdAt: now,
+      });
+      await tx.insert(sessions).values({
+        id: sessionId,
+        userId,
+        serverId,
+        gameId,
+        commandId: cmdId,
+        hostToken,
+        status: "spawning",
+        maxSeats: maxSeatsByGame.get(gameId) ?? 4,
+        stateEnteredAt: now,
       });
     });
   }
