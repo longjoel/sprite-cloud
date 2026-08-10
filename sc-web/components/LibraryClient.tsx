@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Alert, Box, Checkbox, Chip, CircularProgress, FormControlLabel, Paper, Stack, TableCell, TableRow, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
+import { Alert, Box, Checkbox, Chip, CircularProgress, FormControlLabel, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
 import GameTileContextMenu from "@/components/fluent/GameTileContextMenu";
@@ -687,7 +687,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
         </TableCell>
       )}
       <TableCell align="right">
-        <div className="library-row-actions">
+        <Box className="library-row-actions">
           <Button
             disabled={!hasServers || launchingGame === libraryGameKey(game)}
             variant="primary"
@@ -715,7 +715,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
               triggerAriaLabel={`More actions for ${game.name}`}
             />
           )}
-        </div>
+        </Box>
       </TableCell>
     </TableRow>
   );
@@ -850,39 +850,28 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
           </>
         ) : (
           <Paper variant="outlined" sx={{ overflowX: "auto" }}>
-            <table style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              fontSize: "0.875rem",
-              color: "inherit",
-            }}>
-              <thead>
-                <tr style={{
-                  borderBottom: "2px solid var(--color-sky-high)",
-                  color: "var(--color-cloud-dim)",
-                  fontSize: "var(--font-size-xs)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                }}>
-                  <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600 }}>Name</th>
-                  <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600 }}>Platform</th>
-                  <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Players</th>
-                  {tab === "recent" && <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600 }}>Last played</th>}
-                  <th style={{ textAlign: "right", padding: "10px 14px", fontWeight: 600 }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tab === "recent" ? recentGroups.flatMap((group, groupIndex) => [
-                  <tr key={`date-${group.date}`}>
-                    <th scope="rowgroup" colSpan={5} style={styles.recentTableDate}>{formatRecentGroupLabel(group.date)}</th>
-                  </tr>,
-                  ...group.games.map((game, index) => renderGameRow(
-                    game,
-                    recentGroups.slice(0, groupIndex).reduce((count, previous) => count + previous.games.length, 0) + index,
-                  )),
-                ]) : sortedGames.map((game, i) => renderGameRow(game, i))}
-              </tbody>
-            </table>
+        <Table size="small" sx={{ width: "100%", fontSize: "0.875rem", color: "inherit" }}>
+          <TableHead>
+            <TableRow sx={{ borderBottom: 2, borderColor: "divider", color: "text.secondary", "& th": { textTransform: "uppercase", letterSpacing: "0.06em", fontSize: "0.75rem", fontWeight: 600, py: 1.25, px: 1.75 } }}>
+              <TableCell>Name</TableCell>
+              <TableCell>Platform</TableCell>
+              <TableCell align="center">Players</TableCell>
+              {tab === "recent" && <TableCell>Last played</TableCell>}
+              <TableCell align="right">Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {tab === "recent" ? recentGroups.flatMap((group, groupIndex) => [
+              <TableRow key={`date-${group.date}`}>
+                <th scope="rowgroup" colSpan={5} style={styles.recentTableDate}>{formatRecentGroupLabel(group.date)}</th>
+              </TableRow>,
+              ...group.games.map((game, index) => renderGameRow(
+                game,
+                recentGroups.slice(0, groupIndex).reduce((count, previous) => count + previous.games.length, 0) + index,
+              )),
+            ]) : sortedGames.map((game, i) => renderGameRow(game, i))}
+          </TableBody>
+        </Table>
           </Paper>
         )}
 
