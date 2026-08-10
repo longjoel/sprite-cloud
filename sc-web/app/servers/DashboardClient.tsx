@@ -274,7 +274,7 @@ export default function DashboardClient({ memberships }: Props) {
         ) : (
           <>
             {/* ── Desktop: table ─────────────────────────────────────────── */}
-            <div style={S.desktopOnly} className="sc-dashboard-table">
+            <Box sx={{ display: "block" }} className="sc-dashboard-table">
               <Paper variant="outlined" sx={{ overflow: "hidden" }}>
                 <table style={S.table}>
                   <thead>
@@ -412,10 +412,10 @@ export default function DashboardClient({ memberships }: Props) {
                   </tbody>
                 </table>
               </Paper>
-            </div>
+            </Box>
 
             {/* ── Mobile: cards ──────────────────────────────────────────── */}
-            <div style={S.mobileOnly} className="sc-dashboard-cards">
+            <Box sx={{ display: "none" }} className="sc-dashboard-cards">
               {sorted.map((s) => {
                 const status = serverStatus(s.lastSeenAt);
                 const isOpen = expanded.has(s.id);
@@ -510,7 +510,7 @@ export default function DashboardClient({ memberships }: Props) {
                   </Paper>
                 );
               })}
-            </div>
+            </Box>
           </>
         )}
       </Box>
@@ -617,10 +617,6 @@ const S = {
     fontSize: "var(--font-size-base)",
     color: "var(--color-error)",
   },
-
-  // ── Responsive wrappers ──────────────────────────────────────────
-  desktopOnly: { display: "block" },
-  mobileOnly: { display: "none" },
 
   // ── Table (desktop) ──────────────────────────────────────────────
   tableCard: {
