@@ -1,4 +1,5 @@
-import Link from "next/link";
+import NextLink from "next/link";
+import { Box, Link, Typography } from "@mui/material";
 import { getWallGames } from "@/lib/wall";
 import EmbedPlayer from "@/components/EmbedPlayer";
 
@@ -29,10 +30,10 @@ export default async function EmbedPage({ params }: EmbedPageProps) {
 
   if (!game || !game.live || !game.roomUrl) {
     return (
-      <div style={s.offline}>
-        <span>{game?.name ?? "This game"} isn&apos;t live right now.</span>
-        <Link href="/" style={s.link}>Back to the arcade</Link>
-      </div>
+      <Box sx={{ position: "fixed", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 1, bgcolor: "background.default", color: "text.secondary", p: 2 }}>
+        <Typography variant="body2">{game?.name ?? "This game"} isn&apos;t live right now.</Typography>
+        <Link component={NextLink} href="/" underline="hover">Back to the arcade</Link>
+      </Box>
     );
   }
 
@@ -40,38 +41,12 @@ export default async function EmbedPage({ params }: EmbedPageProps) {
     .split("/").pop()!.split("?")[0]!;
 
   return (
-    <div style={s.page}>
+    <Box sx={{ position: "fixed", inset: 0, bgcolor: "#000" }}>
       <EmbedPlayer
         roomToken={roomToken}
         gameId={game.id}
         serverId={game.serverId}
       />
-    </div>
+    </Box>
   );
 }
-
-const s: Record<string, React.CSSProperties> = {
-  page: {
-    position: "fixed",
-    inset: 0,
-    background: "#000",
-  },
-  offline: {
-    position: "fixed",
-    inset: 0,
-    display: "flex",
-    flexDirection: "column",
-    gap: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    background: "#0a0f1a",
-    color: "#94a3b8",
-    fontFamily: "system-ui, sans-serif",
-    fontSize: 14,
-  },
-  link: {
-    color: "#38bdf8",
-    textDecoration: "none",
-    fontSize: 13,
-  },
-};

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import NextLink from "next/link";
+import { Box, Link, Typography } from "@mui/material";
 import { getWallGames, slugify } from "@/lib/wall";
 import WatchPlayer from "@/components/WatchPlayer";
 
@@ -64,30 +65,30 @@ export default async function WatchPage({ params }: WatchPageProps) {
   // ── Offline / not found ───────────────────────────────────────────
   if (!game) {
     return (
-      <main style={s.page}>
-        <div style={s.center}>
-          <h1 style={s.bigTitle}>Game not found</h1>
-          <p style={s.sub}>
+      <Box component="main" sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", bgcolor: "background.default", color: "text.primary" }}>
+        <Box sx={{ p: 3, textAlign: "center" }}>
+          <Typography component="h1" variant="h4" sx={{ mb: 1 }}>Game not found</Typography>
+          <Typography color="text.secondary" sx={{ mb: 2 }}>
             This game isn&apos;t on the public arcade right now.
-          </p>
-          <Link href="/" style={s.link}>← Back to the arcade</Link>
-        </div>
-      </main>
+          </Typography>
+          <Link component={NextLink} href="/" underline="hover">← Back to the arcade</Link>
+        </Box>
+      </Box>
     );
   }
 
   if (!game.live || !game.roomUrl) {
     return (
-      <main style={s.page}>
-        <div style={s.center}>
-          <h1 style={s.bigTitle}>{game.name}</h1>
-          <p style={s.sub}>
+      <Box component="main" sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", bgcolor: "background.default", color: "text.primary" }}>
+        <Box sx={{ p: 3, textAlign: "center" }}>
+          <Typography component="h1" variant="h4" sx={{ mb: 1 }}>{game.name}</Typography>
+          <Typography color="text.secondary" sx={{ mb: 2 }}>
             {game.platform} — currently offline. It&apos;ll be back when the arcade
             brings it up again.
-          </p>
-          <Link href="/" style={s.link}>← Back to the arcade</Link>
-        </div>
-      </main>
+          </Typography>
+          <Link component={NextLink} href="/" underline="hover">← Back to the arcade</Link>
+        </Box>
+      </Box>
     );
   }
 
@@ -105,33 +106,3 @@ export default async function WatchPage({ params }: WatchPageProps) {
     />
   );
 }
-
-const s: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: "100vh",
-    background: "#0a0f1a",
-    color: "#e2e8f0",
-    fontFamily: "system-ui, sans-serif",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  center: {
-    textAlign: "center" as const,
-    padding: 24,
-  },
-  bigTitle: {
-    fontSize: 28,
-    margin: "0 0 8px",
-  },
-  sub: {
-    color: "#94a3b8",
-    fontSize: 15,
-    margin: "0 0 20px",
-  },
-  link: {
-    color: "#38bdf8",
-    textDecoration: "none",
-    fontSize: 14,
-  },
-};
