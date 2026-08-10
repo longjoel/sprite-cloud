@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { useMediaQuery, useTheme } from "@mui/material";
+import { Alert, Box, Paper, Stack, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
 import GameTileContextMenu from "@/components/fluent/GameTileContextMenu";
@@ -745,30 +745,32 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
       />
 
       {!session && !isLanProxy && (
-        <div style={styles.banner}>Sign in to play games on your server.</div>
+        <Alert severity="info" sx={{ mx: 2, mt: 2 }}>Sign in to play games on your server.</Alert>
       )}
 
       {fetchError && !allLoading && allGames.length === 0 && !needsLanHandoff && (
-        <div style={styles.banner}>
+        <Alert severity="warning" sx={{ mx: 2, mt: 2 }}>
           Server is offline. Games will appear when your server reconnects.
-        </div>
+        </Alert>
       )}
 
       <section style={styles.section}>
         <h2 style={{ ...styles.h2, marginBottom: "var(--space-4)" }}>Library</h2>
 
         {needsLanHandoff && allGames.length === 0 && !allLoading && (
-          <div style={styles.lanHandoff}>
-            <strong>Your games stay on sc-server</strong>
-            <span>No games synced yet. Open the library on your LAN server, or upgrade sc-server to sync.</span>
-            <div style={styles.lanHandoffLinks}>
+          <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+            <Stack spacing={1.5}>
+              <Typography variant="h6">Your games stay on sc-server</Typography>
+              <Typography color="text.secondary">No games synced yet. Open the library on your LAN server, or upgrade sc-server to sync.</Typography>
+              <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
               {lanLibraries.map((library) => (
-                <a key={library.serverId} href={library.url} style={styles.lanHandoffLink}>
+                <Button key={library.serverId} href={library.url} variant="secondary" size="sm">
                   {`Open ${library.name} library`}
-                </a>
+                </Button>
               ))}
-            </div>
-          </div>
+              </Stack>
+            </Stack>
+          </Paper>
         )}
 
         <LibraryToolbar
@@ -811,13 +813,13 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
             </div>
           )
         ) : sortedGames.length === 0 ? (
-          <p style={styles.empty}>
+          <Typography color="text.secondary" sx={{ py: 6, textAlign: "center" }}>
             {needsLanHandoff && allGames.length === 0
               ? "No games synced from your servers. Upgrade sc-server on your LAN host to v0.11.3."
               : selectedPlatforms.size > 0
               ? "No games match the selected platforms."
               : tab === "all" ? "No games found." : tab === "favorites" ? "No favorites yet." : "No recent plays."}
-          </p>
+          </Typography>
         ) : effectiveViewMode === "grid" ? (
           <>
             {tab === "recent" ? recentGroups.map((group) => (
