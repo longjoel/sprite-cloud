@@ -338,7 +338,7 @@ export default function DashboardClient({ memberships }: Props) {
                                       {s.name || s.id.slice(0, 8)}
                                     </Button>
                                   ) : (
-                                    <Typography sx={{ fontWeight: 600, fontSize: "1.125rem" }}>
+                                    <Typography component="span" sx={{ fontWeight: 600, fontSize: "1.125rem" }}>
                                       {s.name || s.id.slice(0, 8)}
                                     </Typography>
                                   )}
@@ -463,7 +463,7 @@ export default function DashboardClient({ memberships }: Props) {
                           {s.name || s.id.slice(0, 8)}
                         </Button>
                       ) : (
-                        <Typography sx={{ fontWeight: 600, fontSize: "1.125rem" }}>
+                        <Typography component="span" sx={{ fontWeight: 600, fontSize: "1.125rem" }}>
                           {s.name || s.id.slice(0, 8)}
                         </Typography>
                       )}
