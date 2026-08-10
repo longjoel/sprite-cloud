@@ -856,12 +856,12 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
             })()}
           </>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <Paper variant="outlined" sx={{ overflowX: "auto" }}>
             <table style={{
               width: "100%",
               borderCollapse: "collapse",
-              fontSize: "var(--font-size-sm)",
-              fontFamily: "var(--font-mono)",
+              fontSize: "0.875rem",
+              color: "inherit",
             }}>
               <thead>
                 <tr style={{
@@ -890,7 +890,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
                 ]) : sortedGames.map((game, i) => renderGameRow(game, i))}
               </tbody>
             </table>
-          </div>
+          </Paper>
         )}
 
         {hasMore && currentGames.length > 0 && (
