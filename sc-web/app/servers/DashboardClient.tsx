@@ -277,7 +277,7 @@ export default function DashboardClient({ memberships }: Props) {
           <>
             {/* ── Desktop: table ─────────────────────────────────────────── */}
             <div style={S.desktopOnly} className="sc-dashboard-table">
-              <div style={S.tableCard}>
+              <Paper variant="outlined" sx={{ overflow: "hidden" }}>
                 <table style={S.table}>
                   <thead>
                     <tr>
@@ -400,7 +400,7 @@ export default function DashboardClient({ memberships }: Props) {
                           {isOpen && s.role === "admin" && (
                             <tr key={`${s.id}-panel`}>
                               <td colSpan={4} style={S.panelCell}>
-                                <div style={S.panelShell}>
+                                <Paper variant="outlined" sx={{ p: 3, bgcolor: "background.default" }} className="sc-dashboard-panel-shell">
                                   <div style={S.panelIntro}>
                                     <h3 style={S.panelTitle}>Server details</h3>
                                     <p style={S.panelText}>
@@ -408,7 +408,7 @@ export default function DashboardClient({ memberships }: Props) {
                                     </p>
                                   </div>
                                   <ServerPanel serverId={s.id} />
-                                </div>
+                                </Paper>
                               </td>
                             </tr>
                           )}
@@ -417,7 +417,7 @@ export default function DashboardClient({ memberships }: Props) {
                     })}
                   </tbody>
                 </table>
-              </div>
+              </Paper>
             </div>
 
             {/* ── Mobile: cards ──────────────────────────────────────────── */}
@@ -427,7 +427,7 @@ export default function DashboardClient({ memberships }: Props) {
                 const isOpen = expanded.has(s.id);
 
                 return (
-                  <div key={s.id} style={S.card}>
+                  <Paper key={s.id} variant="outlined" sx={{ p: 2, mb: 2 }}>
                     <div style={S.cardHeader}>
                       <Chip
                         label={status.label}
@@ -507,15 +507,15 @@ export default function DashboardClient({ memberships }: Props) {
                     </div>
 
                     {isOpen && s.role === "admin" && (
-                      <div style={S.cardPanel}>
+                      <Paper variant="outlined" sx={{ mt: 2, p: 2, bgcolor: "background.default" }} className="sc-dashboard-card-panel">
                         <h3 style={S.panelTitle}>Server details</h3>
                         <p style={S.panelText}>
                           Transport, runtime, and core overrides for {s.name || s.id.slice(0, 8)}.
                         </p>
                         <ServerPanel serverId={s.id} />
-                      </div>
+                      </Paper>
                     )}
-                  </div>
+                  </Paper>
                 );
               })}
             </div>
