@@ -302,8 +302,8 @@ export default function DashboardClient({ memberships }: Props) {
                               />
                             </td>
                             <td style={S.tdServer}>
-                              <div style={S.serverCell}>
-                                <div style={S.serverTitleRow}>
+                              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
                                   {editing === s.id ? (
                                     <form
                                       onSubmit={(e) => {
@@ -343,9 +343,9 @@ export default function DashboardClient({ memberships }: Props) {
                                     </Typography>
                                   )}
                                   <Chip label={s.id.slice(0, 8)} size="small" variant="outlined" />
-                                </div>
+                                </Box>
                                 {renderSummaryPills(s.id)}
-                              </div>
+                              </Box>
                             </td>
                             <td style={S.tdSeen}>
                               <Stack spacing={0.5}>
@@ -356,7 +356,7 @@ export default function DashboardClient({ memberships }: Props) {
                               </Stack>
                             </td>
                             <td style={S.tdActions}>
-                              <div style={S.actionRow}>
+                              <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
                                 <Button
                                   variant="primary"
                                   size="sm"
@@ -388,19 +388,19 @@ export default function DashboardClient({ memberships }: Props) {
                                 >
                                   Remove
                                 </Button>
-                              </div>
+                              </Stack>
                             </td>
                           </tr>
                           {isOpen && s.role === "admin" && (
                             <tr key={`${s.id}-panel`}>
                               <td colSpan={4} style={S.panelCell}>
                                 <Paper variant="outlined" sx={{ p: 3, bgcolor: "background.default" }} className="sc-dashboard-panel-shell">
-                                  <div style={S.panelIntro}>
-                                    <h3 style={S.panelTitle}>Server details</h3>
-                                    <p style={S.panelText}>
+                                  <Box sx={{ mb: 3 }}>
+                                    <Typography component="h3" variant="h6" color="primary.main">Server details</Typography>
+                                    <Typography color="text.secondary" sx={{ mt: 1 }}>
                                       Transport, runtime, and core overrides for {s.name || s.id.slice(0, 8)}.
-                                    </p>
-                                  </div>
+                                    </Typography>
+                                  </Box>
                                   <ServerPanel serverId={s.id} />
                                 </Paper>
                               </td>
@@ -422,7 +422,7 @@ export default function DashboardClient({ memberships }: Props) {
 
                 return (
                   <Paper key={s.id} variant="outlined" sx={{ p: 2, mb: 2 }}>
-                    <div style={S.cardHeader}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
                       <Chip
                         label={status.label}
                         size="small"
@@ -432,9 +432,9 @@ export default function DashboardClient({ memberships }: Props) {
                       <Typography variant="caption" color="text.secondary">
                         {s.lastSeenAt ? timeAgo(s.lastSeenAt) : "No heartbeat"}
                       </Typography>
-                    </div>
+                    </Box>
 
-                    <div style={S.cardTitleRow}>
+                    <Box sx={{ mb: 1 }}>
                       {editing === s.id ? (
                         <form
                           onSubmit={(e) => { e.preventDefault(); doRename(s.id); }}
@@ -467,11 +467,11 @@ export default function DashboardClient({ memberships }: Props) {
                           {s.name || s.id.slice(0, 8)}
                         </Typography>
                       )}
-                    </div>
+                    </Box>
 
                     {renderSummaryPills(s.id)}
 
-                    <div style={S.cardActions}>
+                    <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", mt: 1.5 }}>
                       <Button
                         variant="primary"
                         size="sm"
@@ -496,14 +496,14 @@ export default function DashboardClient({ memberships }: Props) {
                       >
                         Remove
                       </Button>
-                    </div>
+                    </Stack>
 
                     {isOpen && s.role === "admin" && (
                       <Paper variant="outlined" sx={{ mt: 2, p: 2, bgcolor: "background.default" }} className="sc-dashboard-card-panel">
-                        <h3 style={S.panelTitle}>Server details</h3>
-                        <p style={S.panelText}>
+                        <Typography component="h3" variant="h6" color="primary.main">Server details</Typography>
+                        <Typography color="text.secondary" sx={{ mt: 1, mb: 2 }}>
                           Transport, runtime, and core overrides for {s.name || s.id.slice(0, 8)}.
-                        </p>
+                        </Typography>
                         <ServerPanel serverId={s.id} />
                       </Paper>
                     )}
@@ -697,21 +697,6 @@ const S = {
     padding: "var(--space-4)",
     marginBottom: "var(--space-4)",
   },
-  cardHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "var(--space-3)",
-  },
-  cardTitleRow: {
-    marginBottom: "var(--space-2)",
-  },
-  cardActions: {
-    display: "flex",
-    gap: "var(--space-3)",
-    flexWrap: "wrap" as const,
-    marginTop: "var(--space-3)",
-  },
   cardPanel: {
     marginTop: "var(--space-4)",
     padding: "var(--space-4)",
@@ -737,17 +722,6 @@ const S = {
     fontSize: "var(--font-size-xs)",
     color: "var(--color-cloud)",
     fontFamily: "var(--font-mono)",
-  },
-  serverCell: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "var(--space-2)",
-  },
-  serverTitleRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: "var(--space-3)",
-    flexWrap: "wrap" as const,
   },
   serverId: {
     fontSize: "var(--font-size-xs)",
@@ -798,11 +772,6 @@ const S = {
     flexDirection: "column" as const,
     gap: "var(--space-1)",
   },
-  seenSub: {
-    color: "var(--color-cloud-dim)",
-    fontSize: "var(--font-size-xs)",
-    fontFamily: "var(--font-mono)",
-  },
   inlineForm: { display: "inline" },
   inlineInput: {
     padding: "2px 6px",
@@ -813,11 +782,6 @@ const S = {
     fontSize: "var(--font-size-base)",
     width: 220,
   },
-  actionRow: {
-    display: "flex",
-    gap: "var(--space-3)",
-    flexWrap: "wrap" as const,
-  },
   panelCell: {
     padding: 0,
     borderBottom: "1px solid var(--color-sky-high)",
@@ -826,21 +790,6 @@ const S = {
     padding: "var(--space-6)",
     background: "rgba(10,14,26,0.75)",
     borderTop: "1px solid rgba(56,189,248,0.12)",
-  },
-  panelIntro: {
-    marginBottom: "var(--space-5)",
-  },
-  panelTitle: {
-    margin: 0,
-    color: "var(--color-accent)",
-    fontSize: "var(--font-size-lg)",
-    fontFamily: "var(--font-mono)",
-  },
-  panelText: {
-    margin: "8px 0 0",
-    color: "var(--color-cloud-dim)",
-    fontSize: "var(--font-size-base)",
-    lineHeight: 1.5,
   },
   confirmBox: {
     background: "var(--color-sky-mid)",
