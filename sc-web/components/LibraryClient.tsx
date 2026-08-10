@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Alert, Box, Paper, Stack, Typography, useMediaQuery, useTheme } from "@mui/material";
+import { Alert, Box, Chip, Paper, Stack, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
 import GameTileContextMenu from "@/components/fluent/GameTileContextMenu";
@@ -824,12 +824,12 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
           <>
             {tab === "recent" ? recentGroups.map((group) => (
               <section key={group.date} style={styles.recentGroup}>
-                <h3 style={styles.recentDate}>{formatRecentGroupLabel(group.date)}</h3>
+                <Typography variant="h6" sx={{ mb: 1.5 }}>{formatRecentGroupLabel(group.date)}</Typography>
                 <div className="game-tile-grid">
                   {group.games.map((game) => (
                     <div key={libraryGameKey(game)}>
                       {renderGameCard(game)}
-                      <div style={styles.recentAge}>{formatRelativeAge(game.playedAt)}</div>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>{formatRelativeAge(game.playedAt)}</Typography>
                     </div>
                   ))}
                 </div>
@@ -844,10 +844,10 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
               }
               return [...groups.entries()].map(([platform, games]) => (
                 <details key={platform} open style={{ marginBottom: 16 }}>
-                  <summary style={styles.platformSummary}>
-                    <span>{platform}</span>
-                    <span style={styles.platformCount}>{games.length}</span>
-                  </summary>
+                  <Box component="summary" sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", py: 1, color: "text.primary", fontWeight: 600 }}>
+                    <Typography component="span" variant="h6">{platform}</Typography>
+                    <Chip label={games.length} size="small" color="primary" variant="outlined" />
+                  </Box>
                   <div className="game-tile-grid" style={{ marginTop: 12 }}>
                     {games.map((game) => renderGameCard(game))}
                   </div>
@@ -901,10 +901,12 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
       {/* ── Host picker ──────────────────────────────────────────── */}
       <Modal open={hostPickerGame !== null} onClose={closeHostPicker} title="Choose host">
         {launchError && (
-          <div role="alert" style={{ marginBottom: "var(--space-4)", color: "var(--color-error)" }}>
-            <p>{launchError}</p>
+          <Alert severity="error" role="alert" sx={{ mb: 2 }}>
+            <Stack spacing={1}>
+              <Typography>{launchError}</Typography>
             {hostPickerGame && <Button variant="secondary" size="sm" disabled={hostPickerLoading || launchingGame !== null} onClick={() => chooseHost(hostPickerGame)}>Retry</Button>}
-          </div>
+            </Stack>
+          </Alert>
         )}
         {hostPickerLoading ? (
           <p style={styles.empty}>Loading hosts…</p>
