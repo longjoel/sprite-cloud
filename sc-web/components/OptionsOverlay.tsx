@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, type RefObject } from "react";
+import { Box, Button, Typography } from "@mui/material";
 import styles from "./OptionsOverlay.module.css";
 import type { PlayerCapabilities } from "@/lib/capabilities";
 
@@ -175,7 +176,7 @@ export default function OptionsOverlay({
   ];
 
   return (
-    <div className={styles.backdrop} onClick={handleBackdropClick}>
+    <Box className={styles.backdrop} onClick={handleBackdropClick}>
       <div
         className={styles.panel}
         data-player-panel
@@ -185,40 +186,41 @@ export default function OptionsOverlay({
         tabIndex={-1}
       >
         {onClose && (
-          <button className={`${styles.card} ${styles.libraryButton}`} onClick={onClose}>
-            <span className={styles.cardIcon} aria-hidden="true">←</span>
-            <span className={styles.cardLabel}>← Library</span>
-          </button>
+          <Button variant="text" className={`${styles.card} ${styles.libraryButton}`} onClick={onClose}>
+            <Typography component="span" className={styles.cardIcon} aria-hidden="true">←</Typography>
+            <Typography component="span" className={styles.cardLabel}>← Library</Typography>
+          </Button>
         )}
         {capabilities && (
-          <div className={styles.roleBanner}>
-            <span className={styles.roleLabel}>
+          <Box className={styles.roleBanner}>
+            <Typography component="span" className={styles.roleLabel}>
               {isHost ? "🔑 Host" : isPlayer ? `🎮 ${playerLabel}` : "👁 Spectator"}
-            </span>
-          </div>
+            </Typography>
+          </Box>
         )}
         {groups.map((group) => (
           <section className={`${styles.group} ${group.id === "game" ? styles.dangerGroup : ""}`} key={group.id}>
             <h2 className={styles.groupTitle}>{group.label}</h2>
             <div className={styles.grid}>
               {group.actions.map((item) => (
-                <button
+                <Button
                   key={item.id}
+                  variant="text"
                   className={`${styles.card} ${item.danger ? styles.cardDanger : ""} ${item.disabled ? styles.cardDisabled : ""}`}
                   onClick={item.disabled ? undefined : item.action}
                   disabled={item.disabled}
                 >
-                  <span className={styles.cardIcon} aria-hidden="true">{item.icon}</span>
-                  <span className={styles.cardLabel}>{item.label}</span>
-                </button>
+                  <Typography component="span" className={styles.cardIcon} aria-hidden="true">{item.icon}</Typography>
+                  <Typography component="span" className={styles.cardLabel}>{item.label}</Typography>
+                </Button>
               ))}
             </div>
           </section>
         ))}
-        <button className={styles.closeButton} onClick={onToggle}>
-          <span aria-hidden="true">✕</span> Close
-        </button>
+        <Button variant="text" className={styles.closeButton} onClick={onToggle}>
+          <Typography component="span" aria-hidden="true">✕</Typography> Close
+        </Button>
       </div>
-    </div>
+    </Box>
   );
 }

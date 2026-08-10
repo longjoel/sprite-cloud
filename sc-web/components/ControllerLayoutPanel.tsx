@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button, Stack, Typography } from "@mui/material";
 import styles from "./ControllerLayoutPanel.module.css";
 
 interface ControllerLayoutApi {
@@ -27,15 +28,16 @@ const choices = <T extends string>(
   disabled: boolean,
   selected: string | undefined,
 ) => values.map((value) => (
-  <button
+  <Button
     key={value}
+    variant="outlined"
     className={styles.choice}
     onClick={() => action(value)}
     disabled={disabled}
     aria-pressed={selected === undefined ? undefined : selected === value}
   >
     {value[0].toUpperCase() + value.slice(1)}
-  </button>
+  </Button>
 ));
 
 export default function ControllerLayoutPanel({
@@ -65,9 +67,9 @@ export default function ControllerLayoutPanel({
         onClick={(event) => event.stopPropagation()}
       >
         <header className={styles.header}>
-          <button className={styles.headerButton} onClick={onBack}>← Options</button>
-          <h2>Controller Layout</h2>
-          <button className={styles.headerButton} onClick={onClose} aria-label="Close Controller Layout">✕ Close</button>
+          <Button variant="text" className={styles.headerButton} onClick={onBack}>← Options</Button>
+          <Typography component="h2">Controller Layout</Typography>
+          <Button variant="text" className={styles.headerButton} onClick={onClose} aria-label="Close Controller Layout">✕ Close</Button>
         </header>
 
         <div className={styles.section}>
@@ -90,14 +92,14 @@ export default function ControllerLayoutPanel({
           </div>
         </div>
 
-        <div className={styles.actions}>
-          <button onClick={onCustomize}>Customize Position</button>
-          <button disabled={unavailable} onClick={() => controller?.exitEditMode()}>Lock Layout</button>
-          <button disabled={unavailable} onClick={() => controller?.resetLayout()}>Reset Layout</button>
-          <button disabled={unavailable} onClick={() => controller?.swapAB()}>Swap A/B</button>
-          <button onClick={onHide}>Hide Controls</button>
-        </div>
-        {!controller && <p className={styles.hint}>Show the touch controls to edit their layout.</p>}
+        <Stack className={styles.actions} spacing={1}>
+          <Button variant="contained" onClick={onCustomize}>Customize Position</Button>
+          <Button variant="outlined" disabled={unavailable} onClick={() => controller?.exitEditMode()}>Lock Layout</Button>
+          <Button variant="outlined" disabled={unavailable} onClick={() => controller?.resetLayout()}>Reset Layout</Button>
+          <Button variant="outlined" disabled={unavailable} onClick={() => controller?.swapAB()}>Swap A/B</Button>
+          <Button variant="text" onClick={onHide}>Hide Controls</Button>
+        </Stack>
+        {!controller && <Typography className={styles.hint} color="text.secondary">Show the touch controls to edit their layout.</Typography>}
       </section>
     </div>
   );

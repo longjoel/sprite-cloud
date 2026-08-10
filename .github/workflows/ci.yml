@@ -251,7 +251,10 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Test Rust crates
-        run: cargo test --workspace
+        # sc-server's test target is memory-heavy on the self-hosted runner.
+        # Keep release/clippy parallel, but serialize this compile to avoid
+        # rustc being OOM-killed (SIGKILL) during cold workspace builds.
+        run: cargo test --workspace -j 1
 
       - name: Test bounded still capture
         env:

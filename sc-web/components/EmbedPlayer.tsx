@@ -1,5 +1,6 @@
 "use client";
 
+import { Box } from "@mui/material";
 import WallPreview from "./WallPreview";
 
 // ── EmbedPlayer — bare live video for /embed/<slug> iframes (#781) ───
@@ -16,13 +17,13 @@ interface EmbedPlayerProps {
 
 export default function EmbedPlayer({ roomToken, gameId, serverId }: EmbedPlayerProps) {
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#000" }}>
+    <Box sx={{ position: "fixed", inset: 0, bgcolor: "#000" }}>
       <WallPreview
         roomToken={roomToken}
         gameId={gameId}
         serverId={serverId}
         active
       />
-    </div>
+    </Box>
   );
 }

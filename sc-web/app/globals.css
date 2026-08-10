@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════════
    Sprite Cloud — Design Tokens
    Dark Metro — sky depths, crisp white text, electric sky-blue accent.
-   Single source: lib/design-tokens.ts
+   Canonical CSS variables consumed by ordinary presentation styles.
    ═══════════════════════════════════════════════════════════════════════ */
 
 :root {

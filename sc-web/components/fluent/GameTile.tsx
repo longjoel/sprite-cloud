@@ -1,7 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
-import { Card as MuiCard, CardActionArea, Chip, CircularProgress } from "@mui/material";
+import { Card as MuiCard, CardActionArea, Chip, CircularProgress, Box, Typography } from "@mui/material";
 import { getPlatformColor } from "@/lib/platformColors";
 import GameTileContextMenu from "./GameTileContextMenu";
 
@@ -19,27 +18,26 @@ interface GameTileProps {
   game: TileGame;
   size?: "square" | "wide" | "large";
   isFavorite?: boolean;
-
   onPlay: (game: TileGame) => void;
   onToggleFavorite?: (game: TileGame, e: React.MouseEvent) => void;
-
   onEdit?: (game: TileGame) => void;
   onChooseHost?: (game: TileGame) => void;
   onDelete?: (game: TileGame) => void;
   onDownload?: (game: TileGame) => void;
-  /** Public-wall toggle (admin only, #762). */
   isPublic?: boolean;
   onTogglePublic?: (game: TileGame) => void;
-  /** Always-on toggle (admin only, #762). */
   isAlwaysOn?: boolean;
   onToggleAlwaysOn?: (game: TileGame) => void;
-  /** Free-play toggle (admin only, #762). */
   isFreePlay?: boolean;
   onToggleFreePlay?: (game: TileGame) => void;
   launching?: boolean;
 }
 
-const sizeClassMap = { square: "tile-square", wide: "tile-wide", large: "tile-large" } as const;
+const sizeStyles = {
+  square: { gridColumn: "span 1", gridRow: "span 1" },
+  wide: { gridColumn: "span 2", gridRow: "span 1" },
+  large: { gridColumn: "span 2", gridRow: "span 2" },
+} as const;
 
 export default function GameTile({
   game,
@@ -59,15 +57,6 @@ export default function GameTile({
   onToggleFreePlay,
   launching = false,
 }: GameTileProps) {
-  const nameRef = useRef<HTMLSpanElement>(null);
-  const [overflows, setOverflows] = useState(false);
-
-  useEffect(() => {
-    const element = nameRef.current;
-    if (element) setOverflows(element.scrollWidth > element.clientWidth);
-  }, [game.name]);
-
-  // Detect whether the context menu has any actions to show
   const hasContextActions = !!(
     onToggleFavorite || onEdit || onChooseHost || onDelete || onDownload ||
     onTogglePublic || onToggleAlwaysOn || onToggleFreePlay
@@ -75,17 +64,41 @@ export default function GameTile({
 
   return (
     <MuiCard
-      className={`game-tile ${sizeClassMap[size]} ${isFavorite ? "is-favorite" : ""}`.trim()}
+      className="game-tile"
       role="group"
-      sx={{ userSelect: "none", background: getPlatformColor(game.platform), position: "relative" }}
+      sx={{
+        ...sizeStyles[size],
+        position: "relative",
+        minHeight: { xs: 180, sm: 200 },
+        aspectRatio: { xs: "auto", sm: "3 / 4" },
+        overflow: "hidden",
+        userSelect: "none",
+        background: getPlatformColor(game.platform),
+        border: 1,
+        borderColor: isFavorite ? "primary.main" : "transparent",
+        boxShadow: isFavorite ? 3 : 1,
+        transition: "transform 120ms ease, border-color 150ms ease, box-shadow 150ms ease",
+        "&:hover": { transform: "scale(1.02)", borderColor: "primary.main", boxShadow: 4 },
+        "&:active": { transform: "scale(0.98)" },
+        "&:focus-within": { borderColor: "primary.main" },
+        "@media (max-width:640px)": {
+          ...(size !== "square" ? { gridColumn: "span 2", gridRow: "span 1" } : {}),
+          minHeight: 180,
+          aspectRatio: "auto",
+        },
+        "@media (prefers-reduced-motion: reduce)": {
+          transition: "none",
+          "&:hover, &:active": { transform: "none" },
+        },
+      }}
     >
       <CardActionArea
         disabled={launching}
         aria-label={`Play ${game.name}`}
         onClick={() => onPlay(game)}
         sx={{
-          height: "100%",
-          width: "100%",
+          position: "absolute",
+          inset: 0,
           ...(game.coverUrl
             ? {
                 backgroundImage: `url(${game.coverUrl})`,
@@ -95,7 +108,7 @@ export default function GameTile({
             : {}),
         }}
       >
-        {launching && <CircularProgress size={16} sx={{ position: "absolute", top: 8, right: 8 }} />}
+        {launching && <CircularProgress size={20} sx={{ position: "absolute", top: 8, right: 8 }} />}
       </CardActionArea>
 
       <Chip
@@ -104,7 +117,7 @@ export default function GameTile({
         color="primary"
         variant="outlined"
         className="game-tile-platform"
-        sx={{ position: "absolute", top: 6, left: 6, zIndex: 1 }}
+        sx={{ position: "absolute", top: 6, left: 6, zIndex: 1, pointerEvents: "none" }}
       />
 
       {game.verification?.state && (
@@ -114,11 +127,10 @@ export default function GameTile({
           color={game.verification.state === "verified" ? "success" : "warning"}
           variant="filled"
           className={`game-tile-verification game-tile-verification-${game.verification.state}`}
-          sx={{ position: "absolute", top: 30, left: 6, zIndex: 1 }}
+          sx={{ position: "absolute", top: 34, left: 6, zIndex: 1, pointerEvents: "none" }}
         />
       )}
 
-      {/* Context menu (replaces individual action buttons and ⋮ overflow) */}
       {hasContextActions && (
         <GameTileContextMenu
           game={game}
@@ -140,10 +152,35 @@ export default function GameTile({
         />
       )}
 
-      <div className="game-tile-caption">
-        <span ref={nameRef} className={`game-tile-name${overflows ? "" : " no-overflow"}`}>{game.name}</span>
-        <span className="game-tile-platform-text">{game.platform}</span>
-      </div>
+      <Box
+        sx={{
+          position: "absolute",
+          inset: "auto 0 0",
+          zIndex: 2,
+          px: 2,
+          pt: 4,
+          pb: 1.5,
+          pr: 6,
+          pointerEvents: "none",
+          background: "linear-gradient(transparent, rgba(0, 0, 0, 0.88))",
+        }}
+      >
+        <Typography
+          component="span"
+          variant="body2"
+          sx={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}
+        >
+          {game.name}
+        </Typography>
+        <Typography
+          component="span"
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: "block", mt: 0.5, textTransform: "uppercase", letterSpacing: "0.05em" }}
+        >
+          {game.platform}
+        </Typography>
+      </Box>
     </MuiCard>
   );
 }

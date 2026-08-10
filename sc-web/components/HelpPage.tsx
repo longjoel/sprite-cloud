@@ -1,12 +1,18 @@
 "use client";
 
 import Link from "next/link";
+import {
+  Avatar,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Container,
+  Link as MuiLink,
+  Stack,
+  Typography,
+} from "@mui/material";
 import AppHeader from "@/components/fluent/AppHeader";
-
-// ── Shared constants (mirrored from LandingPage, eventually shared) ──
-
-const CLOUD_ACCENT = "#38bdf8";
-const STEP_COLORS = [CLOUD_ACCENT, "#a78bfa", "#34d399"];
 
 interface Step {
   num: number;
@@ -27,7 +33,7 @@ const STEPS: Step[] = [
     num: 2,
     title: "Create an account",
     desc: "Sign in with an email and password. This gives you a personal library, favorites, and access to your game servers.",
-    link: { label: "Sign In →", href: "/signin?callbackUrl=/library" },
+    link: { label: "Sign in", href: "/signin?callbackUrl=/library" },
   },
   {
     num: 3,
@@ -52,156 +58,134 @@ interface HelpPageProps {
 
 export default function HelpPage({ userName, authenticated = false }: HelpPageProps) {
   return (
-    <main style={s.page}>
+    <Box component="main" sx={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <AppHeader
         userName={userName || undefined}
         links={[
           { label: "Home", href: "/" },
           ...(authenticated
-            ? [{ label: "Library", href: "/library" }, { label: "Dashboard", href: "/servers" }, { label: "Sign out", href: "/api/auth/signout" }]
+            ? [
+                { label: "Library", href: "/library" },
+                { label: "Dashboard", href: "/servers" },
+                { label: "Sign out", href: "/api/auth/signout" },
+              ]
             : [{ label: "Sign in", href: "/signin?callbackUrl=/library" }]),
         ]}
       />
 
-      {/* ── Hero ─────────────────────────────────────────────────────── */}
-      <section style={s.hero}>
-        <h1 style={s.heroTitle}>Setup Guide</h1>
-        <p style={s.heroSub}>
-          Sprite Cloud streams your games from your own hardware to any browser.
-          No subscription, no cloud — just your ROMs, your rules.
-        </p>
-      </section>
+      <Container component="section" maxWidth="md" sx={{ py: { xs: 6, sm: 8 }, textAlign: "center" }}>
+        <Typography variant="h2" gutterBottom>
+          Setup guide
+        </Typography>
+        <Typography color="text.secondary" sx={{ maxWidth: 560, mx: "auto" }}>
+          Sprite Cloud streams your games from your own hardware to any browser. No subscription,
+          no cloud — just your ROMs, your rules.
+        </Typography>
+      </Container>
 
-      {/* ── Steps ────────────────────────────────────────────────────── */}
-      <section style={s.guide}>
-        <h2 style={s.guideH2}>How to set up Sprite Cloud</h2>
-        <div style={s.stepsList}>
+      <Container component="section" maxWidth="md" sx={{ pb: { xs: 6, sm: 8 } }}>
+        <Typography variant="h4" component="h2" gutterBottom sx={{ textAlign: "center" }}>
+          How to set up Sprite Cloud
+        </Typography>
+        <Stack divider={<Box sx={{ borderBottom: 1, borderColor: "divider" }} />}>
           {STEPS.map((step) => (
-            <div key={step.num} style={s.stepRow}>
-              <div style={{ ...s.stepBadge, background: STEP_COLORS[step.num - 1] }}>
+            <Stack key={step.num} direction="row" spacing={3} sx={{ py: 3, alignItems: "flex-start" }}>
+              <Avatar sx={{ bgcolor: "primary.main", color: "primary.contrastText" }}>
                 {step.num}
-              </div>
-              <div style={s.stepContent}>
-                <h3 style={s.stepTitle}>{step.title}</h3>
-                <p style={s.stepDesc}>{step.desc}</p>
-                {step.code && <pre style={s.stepCode}>{step.code}</pre>}
-                {step.link && (
-                  <Link href={step.link.href} style={s.stepLink}>{step.link.label}</Link>
+              </Avatar>
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography variant="h6" gutterBottom>
+                  {step.title}
+                </Typography>
+                <Typography color="text.secondary">{step.desc}</Typography>
+                {step.code && (
+                  <Box
+                    component="pre"
+                    sx={{
+                      mt: 2,
+                      mb: 0,
+                      p: 2,
+                      overflowX: "auto",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-all",
+                      bgcolor: "background.paper",
+                      border: 1,
+                      borderColor: "divider",
+                      typography: "body2",
+                    }}
+                  >
+                    {step.code}
+                  </Box>
                 )}
-              </div>
-            </div>
+                {step.link && (
+                  <Button component={Link} href={step.link.href} variant="contained" sx={{ mt: 2 }}>
+                    {step.link.label}
+                  </Button>
+                )}
+              </Box>
+            </Stack>
           ))}
-        </div>
-      </section>
+        </Stack>
+      </Container>
 
-      {/* ── Features ─────────────────────────────────────────────────── */}
-      <section style={s.features}>
-        <h2 style={s.featuresH2}>What you get</h2>
-        <div style={s.featuresGrid}>
-          {FEATURES.map((f) => (
-            <div key={f.title} style={s.featureCard}>
-              <span style={s.featureIcon}>{f.icon}</span>
-              <h3 style={s.featureTitle}>{f.title}</h3>
-              <p style={s.featureDesc}>{f.desc}</p>
-            </div>
+      <Container component="section" maxWidth="lg" sx={{ pb: { xs: 6, sm: 8 } }}>
+        <Typography variant="h4" component="h2" gutterBottom sx={{ textAlign: "center" }}>
+          What you get
+        </Typography>
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: { xs: "1fr", sm: "repeat(2, 1fr)", md: "repeat(3, 1fr)" },
+            gap: 2,
+          }}
+        >
+          {FEATURES.map((feature) => (
+            <Card key={feature.title}>
+              <CardContent>
+                <Typography variant="h3" component="div" sx={{ mb: 1 }} aria-hidden="true">
+                  {feature.icon}
+                </Typography>
+                <Typography variant="h6" gutterBottom>
+                  {feature.title}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {feature.desc}
+                </Typography>
+              </CardContent>
+            </Card>
           ))}
-        </div>
-      </section>
+        </Box>
+      </Container>
 
-      {/* ── Footer ───────────────────────────────────────────────────── */}
-      <footer style={s.footer}>
-        <div style={s.footerCol}>
-          <span style={s.footerText}>Sprite Cloud</span>
-          <span style={s.footerDim}>self-hosted game streaming</span>
-        </div>
-        <div style={s.footerLinks}>
-          <span style={s.footerDim}>© {new Date().getFullYear()} Sprite Cloud</span>
-          <span style={s.footerDot}>·</span>
-          <a href="https://github.com/longjoel/sprite-cloud/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" style={s.footerLink}>License</a>
-          <span style={s.footerDot}>·</span>
-          <a href="https://github.com/longjoel/sprite-cloud" target="_blank" rel="noopener noreferrer" style={s.footerLink}>Source</a>
-          <span style={s.footerDot}>·</span>
-          <a href="https://discord.gg/zujXa48kyS" target="_blank" rel="noopener noreferrer" style={s.footerLink}>Discord</a>
-        </div>
-      </footer>
-    </main>
+      <Box component="footer" sx={{ mt: "auto", borderTop: 1, borderColor: "divider", py: 3 }}>
+        <Container maxWidth="lg">
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={2}
+            sx={{ alignItems: { xs: "flex-start", sm: "center" }, justifyContent: "space-between" }}
+          >
+            <Box>
+              <Typography variant="overline" color="primary" sx={{ display: "block" }}>
+                Sprite Cloud
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Self-hosted game streaming
+              </Typography>
+            </Box>
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
+              <Typography variant="caption" color="text.secondary">
+                © {new Date().getFullYear()} Sprite Cloud
+              </Typography>
+              <Typography variant="caption" color="text.disabled">·</Typography>
+              <MuiLink href="https://github.com/longjoel/sprite-cloud/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" variant="caption" underline="hover">License</MuiLink>
+              <Typography variant="caption" color="text.disabled">·</Typography>
+              <MuiLink href="https://github.com/longjoel/sprite-cloud" target="_blank" rel="noopener noreferrer" variant="caption" underline="hover">Source</MuiLink>
+              <Typography variant="caption" color="text.disabled">·</Typography>
+              <MuiLink href="https://discord.gg/zujXa48kyS" target="_blank" rel="noopener noreferrer" variant="caption" underline="hover">Discord</MuiLink>
+            </Stack>
+          </Stack>
+        </Container>
+      </Box>
+    </Box>
   );
 }
-
-// ── Styles ────────────────────────────────────────────────────────────────
-
-const s: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: "100vh",
-    background: "var(--color-sky-deep)",
-    color: "var(--color-cloud)",
-    fontFamily: "var(--font-mono)",
-    display: "flex",
-    flexDirection: "column",
-  },
-  // Hero
-  hero: {
-    display: "flex", flexDirection: "column", alignItems: "center",
-    padding: "80px 32px 60px", maxWidth: 800, margin: "0 auto",
-    textAlign: "center",
-  },
-  heroTitle: {
-    fontSize: "clamp(28px, 5vw, 42px)", fontWeight: 800,
-    margin: 0, letterSpacing: "-0.02em", color: "var(--color-accent)",
-  },
-  heroSub: {
-    fontSize: "var(--font-size-md)", color: "var(--color-cloud-dim)",
-    lineHeight: 1.65, marginTop: 16, maxWidth: 500,
-  },
-  // Guide
-  guide: { maxWidth: 800, margin: "0 auto", padding: "0 32px 80px", width: "100%" },
-  guideH2: { fontSize: "var(--font-size-xl)", fontWeight: 700, margin: "0 0 48px", textAlign: "center" },
-  stepsList: { display: "flex", flexDirection: "column", gap: 0 },
-  stepRow: { display: "flex", gap: 24, padding: "28px 0", borderBottom: "1px solid rgba(56,189,248,0.08)" },
-  stepBadge: {
-    flex: "0 0 44px", width: 44, height: 44, borderRadius: 2,
-    display: "flex", alignItems: "center", justifyContent: "center",
-    fontSize: "var(--font-size-lg)", fontWeight: 800, color: "var(--color-sky-deep)",
-  },
-  stepContent: { flex: 1, minWidth: 0 },
-  stepTitle: { fontSize: "var(--font-size-md)", fontWeight: 700, margin: "0 0 6px", color: "var(--color-cloud)" },
-  stepDesc: { fontSize: "var(--font-size-sm)", color: "var(--color-cloud-dim)", lineHeight: 1.65, margin: 0 },
-  stepCode: {
-    marginTop: 12, padding: "10px 14px", background: "rgba(17,24,39,0.6)",
-    border: "1px solid var(--color-sky-high)", borderRadius: 2,
-    fontSize: "var(--font-size-xs)", color: "var(--color-accent)",
-    overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all",
-  },
-  stepLink: {
-    display: "inline-block", marginTop: 12, padding: "8px 20px",
-    background: "var(--color-sky-high)", color: "var(--color-accent)",
-    fontSize: "var(--font-size-sm)", fontWeight: 600, textDecoration: "none",
-    borderRadius: 2, textTransform: "uppercase", letterSpacing: "0.05em",
-  },
-  // Features
-  features: { maxWidth: 1000, margin: "0 auto", padding: "0 32px 80px", width: "100%" },
-  featuresH2: { fontSize: "var(--font-size-xl)", fontWeight: 700, textAlign: "center", margin: "0 0 48px" },
-  featuresGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 },
-  featureCard: {
-    padding: 24, border: "1px solid rgba(56,189,248,0.08)", borderRadius: 2,
-    background: "rgba(17,24,39,0.4)",
-  },
-  featureIcon: { fontSize: 28, display: "block", marginBottom: 12 },
-  featureTitle: { margin: "0 0 6px", fontSize: "var(--font-size-md)", fontWeight: 700, color: "var(--color-cloud)" },
-  featureDesc: { margin: 0, fontSize: "var(--font-size-sm)", color: "var(--color-cloud-dim)", lineHeight: 1.6 },
-  // Footer
-  footer: {
-    display: "flex", justifyContent: "space-between", alignItems: "flex-start",
-    padding: "24px 32px 80px", marginTop: "auto", gap: 24, flexWrap: "wrap",
-    borderTop: "1px solid rgba(56,189,248,0.08)",
-  },
-  footerCol: { display: "flex", flexDirection: "column", gap: 4 },
-  footerText: {
-    fontSize: "var(--font-size-xs)", color: "var(--color-accent)",
-    textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700,
-  },
-  footerDim: { fontSize: "var(--font-size-xs)", color: "var(--color-cloud-dim)", opacity: 0.5 },
-  footerLinks: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
-  footerLink: { fontSize: "var(--font-size-xs)", color: "var(--color-cloud-dim)", textDecoration: "none", opacity: 0.6 },
-  footerDot: { color: "var(--color-cloud-dim)", opacity: 0.25, fontSize: "var(--font-size-xs)" },
-};

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
-import { Box, Button, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, CircularProgress, Paper, Stack, TextField, Typography } from "@mui/material";
 
 interface InviteInfo {
   serverName: string;
@@ -63,12 +63,15 @@ export default function InviteClient({ code }: { code: string }) {
 
   return (
     <Box sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", p: 2 }}>
-      <Box sx={{ width: "100%", maxWidth: 420, p: 4, border: "1px solid var(--color-border-default)", borderRadius: "2px" }}>
-        <Typography variant="h5" align="center" sx={{ fontFamily: "var(--font-mono)", color: "var(--color-accent)" }}>
+      <Paper variant="outlined" sx={{ width: "100%", maxWidth: 420, p: 4 }}>
+        <Typography variant="h5" align="center" color="primary.main">
           Join Sprite Cloud
         </Typography>
         {loading ? (
-          <Typography align="center" color="text.secondary" sx={{ mt: 3 }}>Checking invitation…</Typography>
+          <Stack spacing={1.5} sx={{ alignItems: "center", mt: 3 }}>
+            <CircularProgress size={24} />
+            <Typography color="text.secondary">Checking invitation…</Typography>
+          </Stack>
         ) : invite ? (
           <>
             <Typography align="center" color="text.secondary" sx={{ my: 2 }}>
@@ -86,8 +89,8 @@ export default function InviteClient({ code }: { code: string }) {
             </Typography>
           </>
         ) : null}
-        {error && <Typography color="error" align="center" sx={{ mt: 2 }}>{error}</Typography>}
-      </Box>
+        {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+      </Paper>
     </Box>
   );
 }

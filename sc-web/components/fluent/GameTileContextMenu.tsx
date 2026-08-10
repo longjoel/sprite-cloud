@@ -283,7 +283,7 @@ export default function GameTileContextMenu({
           <MenuItem
             key={action.id}
             onClick={action.onClick}
-            sx={action.color === "error" ? { color: "var(--color-error)" } : undefined}
+            sx={action.color === "error" ? { color: "error.main" } : undefined}
           >
             <ListItemIcon sx={action.color === "error" ? { color: "inherit" } : undefined}>
               {action.icon}

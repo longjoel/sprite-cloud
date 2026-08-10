@@ -48,7 +48,7 @@ export async function GET(request: Request): Promise<NextResponse<PollResponse>>
   // ── Resident convergence ──────────────────────────────────────────
   // Converge the resident (always_on) game set on every poll tick.
   // Idempotent — does not create duplicate commands.
-  await convergeResidents(server.id);
+  await convergeResidents(server.id, server.userId);
 
   const now = new Date();
   const leaseExpiresAt = new Date(now.getTime() + COMMAND_LEASE_MS);
@@ -146,7 +146,7 @@ export async function GET(request: Request): Promise<NextResponse<PollResponse>>
  * Called on every poll tick — idempotent (skips games that already
  * have a resident command in flight or an active session).
  */
-async function convergeResidents(serverId: string): Promise<void> {
+async function convergeResidents(serverId: string, userId: string): Promise<void> {
   // Always-on flags that should have active sessions
   const wantedGames = await db
     .select({
@@ -210,25 +210,67 @@ async function convergeResidents(serverId: string): Promise<void> {
     return;
   }
 
-  const now = new Date();
   const maxSeatsByGame = new Map(wantedGames.map((g) => [g.gameId, g.maxSeats]));
   for (const gameId of missing) {
+    const now = new Date();
     const cmdId = crypto.randomUUID();
     const hostToken = crypto.randomUUID();
     const sessionId = crypto.randomUUID();
-    await db.insert(commands).values({
-      id: cmdId,
-      serverId,
-      type: "start_game",
-      payload: {
-        game_id: gameId,
-        host_token: hostToken,
-        session_id: sessionId,
-        resident: true,
-        max_seats: maxSeatsByGame.get(gameId) ?? 4,
-      },
-      status: STATUS_PENDING,
-      createdAt: now,
+
+    // Resident launches must have the same command/session contract as
+    // user-launched games. Create both rows atomically so notify_ready can
+    // resolve the exact session_id carried by the start_game payload.
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${serverId}:${gameId}`}, 0))`);
+
+      const [existingSession] = await tx
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(and(
+          eq(sessions.serverId, serverId),
+          eq(sessions.gameId, gameId),
+          inArray(sessions.status, [...ACTIVE_SESSION_STATES]),
+        ))
+        .limit(1);
+      if (existingSession) return;
+
+      const [inFlight] = await tx
+        .select({ id: commands.id })
+        .from(commands)
+        .where(and(
+          eq(commands.serverId, serverId),
+          eq(commands.type, "start_game"),
+          inArray(commands.status, [STATUS_PENDING, STATUS_LEASED]),
+          sql`${commands.payload}->>'game_id' = ${gameId}`,
+        ))
+        .limit(1);
+      if (inFlight) return;
+
+      await tx.insert(sessions).values({
+        id: sessionId,
+        userId,
+        serverId,
+        gameId,
+        commandId: cmdId,
+        hostToken,
+        status: "spawning",
+        maxSeats: maxSeatsByGame.get(gameId) ?? 4,
+        stateEnteredAt: now,
+      });
+      await tx.insert(commands).values({
+        id: cmdId,
+        serverId,
+        type: "start_game",
+        payload: {
+          game_id: gameId,
+          host_token: hostToken,
+          session_id: sessionId,
+          resident: true,
+          max_seats: maxSeatsByGame.get(gameId) ?? 4,
+        },
+        status: STATUS_PENDING,
+        createdAt: now,
+      });
     });
   }
 

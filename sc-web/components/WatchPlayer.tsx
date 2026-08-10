@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Box, Button, Chip, Stack, Typography } from "@mui/material";
 import Link from "next/link";
 import WallPreview from "./WallPreview";
 
@@ -67,29 +68,39 @@ export default function WatchPlayer({
         )}
       </div>
 
-      {/* ── Title bar ──────────────────────────────────────────────── */}
-      <div style={s.titleBar}>
-        <div>
-          <div style={s.title}>
-            <span style={s.liveDot} />
-            {gameName}
-          </div>
-          <div style={s.meta}>
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 2,
+          p: 2,
+          borderTop: 1,
+          borderColor: "divider",
+          flexWrap: "wrap",
+        }}
+      >
+        <Box>
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+            <Chip size="small" color="error" label="LIVE" />
+            <Typography variant="h6">{gameName}</Typography>
+          </Stack>
+          <Typography variant="body2" color="text.secondary">
             {platform}
             {" · "}
             {players > 0 ? `${players} playing` : "no players"}
             {viewers > 0 ? ` · ${viewers} watching` : ""}
-          </div>
-        </div>
-        <div style={s.actions}>
-          <button type="button" onClick={copyLink} style={s.btn}>
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={1}>
+          <Button type="button" variant="outlined" onClick={copyLink}>
             {copied ? "✓ Copied" : "Share"}
-          </button>
-          <Link href={roomUrl} style={s.playBtn}>
+          </Button>
+          <Button component={Link} href={roomUrl} variant="contained">
             ▶ Play
-          </Link>
-        </div>
-      </div>
+          </Button>
+        </Stack>
+      </Box>
     </div>
   );
 }
