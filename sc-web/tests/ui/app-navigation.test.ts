@@ -29,10 +29,12 @@ describe("shared app navigation", () => {
       { label: "Help", href: "/help" },
       { label: "Sign in", href: "/signin?callbackUrl=/library" },
     ]);
-    expect(buildAppNavigationItems({ authenticated: false, isLanProxy: true })).toEqual([
-      { label: "Library", href: "/" },
-      { label: "Help", href: "/help" },
-    ]);
+    for (const authenticated of [false, true]) {
+      expect(buildAppNavigationItems({ authenticated, isLanProxy: true })).toEqual([
+        { label: "Library", href: "/" },
+        { label: "Help", href: "/help" },
+      ]);
+    }
   });
 
   it("marks the LAN root as Library instead of a cloud Home route", () => {

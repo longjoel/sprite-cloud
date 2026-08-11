@@ -19,8 +19,8 @@ export const APP_NAVIGATION = {
 
 export function buildAppNavigationItems({ authenticated, isLanProxy = false }: AppNavigationOptions): AppNavigationItem[] {
   const { home, library, dashboard, help, signIn, signOut } = APP_NAVIGATION;
-  if (authenticated) return [home, library, dashboard, help, signOut];
   if (isLanProxy) return [{ ...library, href: "/" }, help];
+  if (authenticated) return [home, library, dashboard, help, signOut];
   return [home, help, signIn];
 }
 
