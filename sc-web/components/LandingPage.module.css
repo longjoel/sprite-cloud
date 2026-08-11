@@ -70,6 +70,8 @@
 }
 
 .onboarding {
+  position: sticky;
+  top: 84px;
   border: 1px solid rgba(56, 189, 248, 0.2);
   background: linear-gradient(160deg, rgba(15, 35, 55, 0.95), rgba(10, 15, 26, 0.95));
   padding: clamp(22px, 3vw, 34px);
