@@ -27,10 +27,7 @@ export default async function DashboardPage() {
     <Box component="main" sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
       <AppHeader
         userName={session.user?.name || session.user?.email || undefined}
-        links={[
-          { label: "← Library", href: "/" },
-          { label: "Sign out", href: "/api/auth/signout" },
-        ]}
+        authenticated
       />
 
       <Container maxWidth="lg" sx={{ py: 3 }}>

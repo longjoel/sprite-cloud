@@ -166,7 +166,7 @@ async fn proxy_player_page(
         format!("/p/{}?{}", code, query_str)
     };
 
-    if code.is_empty() && req.uri().path() == "/" {
+    if code.is_empty() && matches!(req.uri().path(), "/" | "/help") {
         attach_server_bearer(&state, &mut req)?;
     }
     proxy_to_sc_web(&state, req, &path_and_query).await
@@ -1430,6 +1430,63 @@ mod tests {
             .and_then(|value| value.to_str().ok())
             .unwrap_or_default();
         assert!(content_type.starts_with("application/json"));
+    }
+
+    #[tokio::test]
+    async fn lan_help_proxy_overwrites_client_auth_with_server_bearer() {
+        async fn capture_proxy_headers(req: Request<Body>) -> String {
+            let authorization = req
+                .headers()
+                .get(axum::http::header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default();
+            let lan_marker = req
+                .headers()
+                .get("x-sc-server-lan")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default();
+            format!("{authorization}|{lan_marker}")
+        }
+
+        let upstream = axum::Router::new().fallback(any(capture_proxy_headers));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let upstream_addr = listener.local_addr().unwrap();
+        let upstream_task = tokio::spawn(async move {
+            axum::serve(listener, upstream).await.unwrap();
+        });
+
+        let state = Arc::new(AppState {
+            client: Client::new(),
+            sc_web: format!("http://{upstream_addr}"),
+            server_api_key: Some("paired-server-secret".to_string()),
+            server_id: "server-vault".to_string(),
+            user_id: "user-joel".to_string(),
+            server_name: "Vault".to_string(),
+            bind: "127.0.0.1:8787".parse().unwrap(),
+            lan_player_enabled: true,
+            standalone: None,
+            sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            preferences: test_preferences(),
+        });
+
+        let response = app_router()
+            .with_state(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/help")
+                    .header(axum::http::header::AUTHORIZATION, "Bearer client-supplied")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(&body[..], b"Bearer paired-server-secret|1");
+        upstream_task.abort();
     }
 
     #[test]

@@ -43,21 +43,9 @@ export default function LandingPage({ userName, authenticated = false }: Landing
   const [cookieDismissed, setCookieDismissed] = useState(false);
   const [featuredKey, setFeaturedKey] = useState<string | null>(null);
 
-  const links = authenticated
-    ? [
-        { label: "Library", href: "/library" },
-        { label: "Dashboard", href: "/servers" },
-        { label: "Help", href: "/help" },
-        { label: "Sign out", href: "/api/auth/signout" },
-      ]
-    : [
-        { label: "Help", href: "/help" },
-        { label: "Sign in", href: "/signin?callbackUrl=/library" },
-      ];
-
   return (
     <Box component="main" className={styles.page}>
-      <AppHeader userName={userName} links={links} />
+      <AppHeader userName={userName} authenticated={authenticated} />
 
       <Box className={styles.layout}>
         <Box component="section" className={styles.machines} aria-labelledby="active-machines-heading">

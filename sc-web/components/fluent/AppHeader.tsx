@@ -2,26 +2,26 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   AppBar, Toolbar, Typography, Button, IconButton, Drawer,
   List, ListItem, ListItemButton, ListItemText, Box, useMediaQuery, useTheme,
 } from "@mui/material";
 import { Menu as MenuIcon } from "@mui/icons-material";
+import { buildAppNavigationItems, isAppNavigationItemActive } from "@/lib/ui/app-navigation";
 
-// ── AppHeader — MUI AppBar with responsive hamburger drawer ─────────
-
-interface AppHeaderLink {
-  label: string;
-  href: string;
-}
+// ── AppHeader — shared route-aware navigation with responsive drawer ──
 
 interface AppHeaderProps {
   userName?: string | null;
-  links?: AppHeaderLink[];
+  authenticated?: boolean;
+  isLanProxy?: boolean;
 }
 
-export default function AppHeader({ userName, links = [] }: AppHeaderProps) {
+export default function AppHeader({ userName, authenticated = false, isLanProxy = false }: AppHeaderProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const pathname = usePathname();
+  const links = buildAppNavigationItems({ authenticated, isLanProxy });
   const theme = useTheme();
   const isNarrow = useMediaQuery(theme.breakpoints.down("sm"));
 
@@ -75,8 +75,9 @@ export default function AppHeader({ userName, links = [] }: AppHeaderProps) {
                   key={link.href}
                   component={Link}
                   href={link.href}
+                  aria-current={isAppNavigationItemActive(link.href, pathname) ? "page" : undefined}
                   sx={{
-                    color: "text.secondary",
+                    color: isAppNavigationItemActive(link.href, pathname) ? "primary.main" : "text.secondary",
                     textTransform: "none",
                   }}
                 >
@@ -121,6 +122,8 @@ export default function AppHeader({ userName, links = [] }: AppHeaderProps) {
               <ListItemButton
                 component={Link}
                 href={link.href}
+                selected={isAppNavigationItemActive(link.href, pathname)}
+                aria-current={isAppNavigationItemActive(link.href, pathname) ? "page" : undefined}
                 onClick={() => setDrawerOpen(false)}
               >
                 <ListItemText

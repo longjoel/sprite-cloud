@@ -4,6 +4,7 @@ import { useCallback, type RefObject } from "react";
 import { Box, Button, Typography } from "@mui/material";
 import styles from "./OptionsOverlay.module.css";
 import type { PlayerCapabilities } from "@/lib/capabilities";
+import { APP_NAVIGATION } from "@/lib/ui/app-navigation";
 
 interface ActionItem {
   id: string;
@@ -188,7 +189,9 @@ export default function OptionsOverlay({
         {onClose && (
           <Button variant="text" className={`${styles.card} ${styles.libraryButton}`} onClick={onClose}>
             <Typography component="span" className={styles.cardIcon} aria-hidden="true">←</Typography>
-            <Typography component="span" className={styles.cardLabel}>← Library</Typography>
+            <Typography component="span" className={styles.cardLabel} aria-label="← Library">
+              {`← ${APP_NAVIGATION.library.label}`}
+            </Typography>
           </Button>
         )}
         {capabilities && (

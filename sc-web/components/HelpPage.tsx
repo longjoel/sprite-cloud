@@ -54,23 +54,16 @@ const FEATURES = [
 interface HelpPageProps {
   userName?: string | null;
   authenticated?: boolean;
+  isLanProxy?: boolean;
 }
 
-export default function HelpPage({ userName, authenticated = false }: HelpPageProps) {
+export default function HelpPage({ userName, authenticated = false, isLanProxy = false }: HelpPageProps) {
   return (
     <Box component="main" sx={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       <AppHeader
         userName={userName || undefined}
-        links={[
-          { label: "Home", href: "/" },
-          ...(authenticated
-            ? [
-                { label: "Library", href: "/library" },
-                { label: "Dashboard", href: "/servers" },
-                { label: "Sign out", href: "/api/auth/signout" },
-              ]
-            : [{ label: "Sign in", href: "/signin?callbackUrl=/library" }]),
-        ]}
+        authenticated={authenticated}
+        isLanProxy={isLanProxy}
       />
 
       <Container component="section" maxWidth="md" sx={{ py: { xs: 6, sm: 8 }, textAlign: "center" }}>
