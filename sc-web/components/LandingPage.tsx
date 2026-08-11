@@ -27,7 +27,7 @@ interface LandingPageProps {
 }
 
 const CTA_LINKS = [
-  { label: "Make your own account", href: "/help", primary: true },
+  { label: "Make your own account", href: "/help#account", primary: true },
   { label: "Check out the code on GitHub", href: "https://github.com/longjoel/sprite-cloud" },
   { label: "Join the Discord", href: "https://discord.gg/zujXa48kyS" },
   { label: "Read the blog", href: "https://lngnckr.tech/" },
