@@ -49,23 +49,28 @@ export default function AppHeader({ userName, authenticated = false, isLanProxy 
             </IconButton>
           )}
 
-          {/* Logo */}
-          <Typography
+          {/* Brand */}
+          <Box
             component={Link}
             href="/"
-            variant="h6"
-            sx={{
-              color: "primary.main",
-              textDecoration: "none",
-              fontWeight: 700,
-              letterSpacing: "0.02em",
-              textTransform: "uppercase",
-              fontSize: "var(--font-size-lg)",
-              flexGrow: isNarrow ? 1 : 0,
-            }}
+            aria-label="Sprite Cloud home"
+            sx={{ display: "flex", alignItems: "center", flexGrow: isNarrow ? 1 : 0 }}
           >
-            Sprite Cloud
-          </Typography>
+            <Box
+              component="img"
+              src="/brand/sprite-cloud-logo-banner.jpg"
+              alt="Sprite Cloud"
+              width={150}
+              height={50}
+              sx={{
+                display: "block",
+                width: { xs: 112, sm: 150 },
+                height: { xs: 38, sm: 50 },
+                objectFit: "contain",
+                borderRadius: 0.5,
+              }}
+            />
+          </Box>
 
           {/* Desktop links */}
           {!isNarrow && (
@@ -107,9 +112,14 @@ export default function AppHeader({ userName, authenticated = false, isLanProxy 
         slotProps={{ paper: { sx: { minWidth: 220 } } }}
       >
         <Box sx={{ p: 2, borderBottom: 1, borderColor: "divider" }}>
-          <Typography sx={{ color: "primary.main", fontWeight: 700 }}>
-            Sprite Cloud
-          </Typography>
+          <Box
+            component="img"
+            src="/brand/sprite-cloud-logo-banner.jpg"
+            alt="Sprite Cloud"
+            width={150}
+            height={50}
+            sx={{ display: "block", width: 150, height: 50, objectFit: "contain", borderRadius: 0.5 }}
+          />
           {userName && (
             <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.5 }}>
               {userName}

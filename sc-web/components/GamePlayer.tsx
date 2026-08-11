@@ -11,6 +11,7 @@ import { QRCodeSVG } from "qrcode.react";
 import RemapPanel from "./GamePlayerRemapPanel";
 import OptionsOverlay from "./OptionsOverlay";
 import ControllerLayoutPanel from "./ControllerLayoutPanel";
+import PlayerWorkspace from "./player/PlayerWorkspace";
 import type { PlayerCapabilities } from "@/lib/capabilities";
 import {
   blockPlayerPanels,
@@ -110,6 +111,7 @@ interface GamePlayerProps {
   hostToken?: string;       // pre-existing host token for reconnection
   joinToken?: string;       // pre-existing room token for guest join
   shortCode?: string;       // pre-existing short code (LAN proxy pass-through)
+  isLanProxy?: boolean;     // shared header policy for server-owned LAN routes
   capabilities?: PlayerCapabilities;  // role-based capabilities from resolve/join
   seat?: number;            // guest seat number (1-based for player display)
   onClose?: () => void;
@@ -131,6 +133,7 @@ export default function GamePlayer({
   hostToken,
   joinToken: joinTokenProp,
   shortCode: shortCodeProp,
+  isLanProxy = false,
   capabilities,
   seat,
   onClose,
@@ -141,6 +144,7 @@ export default function GamePlayer({
   hidePipeline,
   onPipelineChange,
 }: GamePlayerProps) {
+  const stageRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<any>(null);
   const searchParams = useSearchParams();
@@ -504,25 +508,17 @@ export default function GamePlayer({
   // ── Fullscreen ────────────────────────────────────────────────────
 
   useEffect(() => {
-    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    const handler = () => setIsFullscreen(document.fullscreenElement === stageRef.current);
     document.addEventListener("fullscreenchange", handler);
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
 
   const toggleFullscreen = async () => {
-    if (!document.fullscreenElement) {
-      await document.documentElement.requestFullscreen();
-      try {
-        if (
-          "orientation" in screen &&
-          (screen.orientation as any)?.type?.startsWith?.("landscape")
-        ) {
-          await (screen.orientation as any).lock?.("landscape");
-        }
-      } catch { /* not supported */ }
-    } else {
+    if (document.fullscreenElement === stageRef.current) {
       await document.exitFullscreen();
+      return;
     }
+    await stageRef.current?.requestFullscreen();
   };
 
   // ── Save stack ────────────────────────────────────────────────────
@@ -686,7 +682,15 @@ export default function GamePlayer({
   // ── Render ────────────────────────────────────────────────────────
 
   return (
-    <div className={styles.shell} onMouseMove={wakeControls} onPointerDown={wakeControls} onKeyDown={wakeControls}>
+    <PlayerWorkspace
+      gameName={gameName || gameId}
+      platform={platform}
+      isFullscreen={isFullscreen}
+      isLanProxy={isLanProxy}
+      onFullscreen={toggleFullscreen}
+      stageRef={stageRef}
+    >
+      <div className={styles.shell} onMouseMove={wakeControls} onPointerDown={wakeControls} onKeyDown={wakeControls}>
 
       <Script src="/player/touch-gamepad-v2.js" />
       {/* Canonical browser player bootstrap path — use Next.js <Script>
@@ -1029,6 +1033,7 @@ export default function GamePlayer({
           {toast.text}
         </Toast>
       )}
-    </div>
+      </div>
+    </PlayerWorkspace>
   );
 }
