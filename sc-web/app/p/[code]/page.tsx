@@ -1,21 +1,22 @@
 "use client";
 
-import { useMemo } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import PlayerShell from "@/components/PlayerShell";
 import type { PlayerCapabilities } from "@/lib/capabilities";
+import { isLanPlayerLocation } from "@/lib/lan/player-origin";
 
 export default function ShortCodePage() {
   const { code } = useParams<{ code: string }>();
+  const searchParams = useSearchParams();
+  const explicitLanRoute = searchParams.get("route") === "lan";
+  const [isLanOrigin, setIsLanOrigin] = useState(false);
+  const isLanProxy = explicitLanRoute || isLanOrigin;
+  const homeUrl = isLanProxy ? "https://sprite-cloud.com/" : "/";
 
-  const homeUrl = useMemo(() => {
-    if (typeof window === "undefined") return "/";
-    try {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get("route") === "lan") return "https://sprite-cloud.com/";
-    } catch {}
-    return "/";
-  }, []);
+  useEffect(() => {
+    setIsLanOrigin(isLanPlayerLocation(window.location));
+  }, [searchParams]);
 
   const resolvePlayer = useMemo(
     () => async (signal: AbortSignal) => {
@@ -54,6 +55,7 @@ export default function ShortCodePage() {
   return (
     <PlayerShell
       homeUrl={homeUrl}
+      isLanProxy={isLanProxy}
       resolvePlayer={resolvePlayer}
     />
   );

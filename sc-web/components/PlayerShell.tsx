@@ -51,6 +51,8 @@ export interface PlayerShellProps {
   initialPipeline?: Record<string, StepState>;
   /** If true, suppress GamePlayer's own pipeline UI (shell owns the overlay). */
   hidePipeline?: boolean;
+  /** Preserve server-owned LAN navigation policy in Room view. */
+  isLanProxy?: boolean;
 }
 
 export default function PlayerShell({
@@ -58,6 +60,7 @@ export default function PlayerShell({
   resolvePlayer,
   initialPipeline,
   hidePipeline = true,
+  isLanProxy = false,
 }: PlayerShellProps) {
   const [phase, setPhase] = useState<"resolve" | "connecting" | "playing" | "error">("resolve");
   const [fadeOut, setFadeOut] = useState(false);
@@ -169,7 +172,7 @@ export default function PlayerShell({
   const showOverlay = phase !== "playing" || !fadeOut;
 
   return (
-    <main style={{ width: "100vw", height: "100vh", position: "relative", overflow: "hidden" }}>
+    <main style={{ width: "100%", minHeight: "100dvh", position: "relative" }}>
       {gameMeta && (
         <GamePlayer
           gameId={gameMeta.gameId}
@@ -178,6 +181,7 @@ export default function PlayerShell({
           platform={gameMeta.platform}
           hostToken={gameMeta.hostToken}
           joinToken={gameMeta.roomToken}
+          isLanProxy={isLanProxy}
           capabilities={gameMeta.capabilities}
           seat={gameMeta.seat}
           onClose={() => window.location.assign(homeUrl)}
