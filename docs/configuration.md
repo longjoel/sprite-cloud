@@ -53,7 +53,36 @@ roots = ["/srv/storage/games/roms"]
 
 [cores]
 dir = "/usr/lib/libretro"
+
+[dat]
+dir = "/etc/sprite-cloud/dats"
+files = ["/data/nointro/snes.dat"]
 ```
+
+### DAT catalog (`[dat]`)
+
+Optional. Points `sc-server` at No-Intro/Redump `.dat` catalogs used to
+enrich staged ROMs with canonical identity (see the DAT matching policy in
+the ingestion docs):
+
+- `dir` — a directory scanned (non-recursively) for `*.dat` files, loaded
+  in sorted filename order.
+- `files` — an explicit list of DAT file paths, loaded after `dir`
+  contents. Entries may live anywhere on disk.
+
+Load behavior:
+
+- At startup the server parses every configured catalog into one bounded
+  in-memory index (per-file resource limits plus aggregate caps) and logs
+  each catalog's name, version, and entry count.
+- **No DAT → auto-commit; DAT match → `RomVerified` + canonical identity;
+  DAT available but no match → `Unverified`.** DAT matching never blocks a
+  commit.
+- Rejected catalogs (unreadable, unparseable, over limits) are logged by
+  filename and skipped; ROM uploads fall back to the no-DAT behavior.
+- Send `SIGHUP` (or `systemctl reload` where wired) to re-read the config
+  and atomically replace the index. If any configured catalog fails to
+  load, the previous index stays in effect (last known-good).
 
 Runtime env vars:
 

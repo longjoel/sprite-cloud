@@ -5,27 +5,209 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "E2E suite to run (l2-auth-gate | l2-multi-user | all)"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - l2-auth-gate
+          - l2-multi-user
 
 env:
   REGISTRY: ghcr.io
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/sprite-cloud
 
 jobs:
+  # Self-hosted fast path: same-repo PRs/pushes run on the vault runner
+  # (persistent workspace = warm cargo cache); fork PRs stay on public
+  # runners (a fork can't fake head.repo.full_name, so it can't route
+  # itself onto the self-hosted box).
+  e2e-l1:
+    if: false # disabled 2026-08-06 — rapid iteration
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Install cc65 + PIL (fixture build + digit probe)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cc65 python3-pil
+
+      - name: Install GStreamer dev deps (sc-server build)
+        run: |
+          sudo apt-get install -y \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad \
+            libglib2.0-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        # Public runners only — on the vault runner the persistent
+        # workspace target/ IS the cache; rust-cache would tar it pointlessly.
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build sc-server + sc-core release
+        run: cargo build --release -p sc-server -p sc-core
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: L1 browser-to-emulator E2E (Playwright + system Chrome)
+        env:
+          SC_SERVER_DIR: ${{ github.workspace }}/target/release
+        run: |
+          # ubuntu-latest ships Google Chrome (has the H.264 decoder the
+          # fixture needs); run-l1.sh downloads the nestopia core itself.
+          bash e2e/l1/run-l1.sh
+
+      - name: Upload L1 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: l1-artifacts
+          path: |
+            /tmp/l1-*/artifacts
+          if-no-files-found: ignore
+
+  e2e-l2:
+    if: false # disabled 2026-08-06 — rapid iteration
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Install cc65 + PIL (fixture build + digit probe)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cc65 python3-pil unzip
+
+      - name: Install GStreamer dev deps (sc-server build)
+        run: |
+          sudo apt-get install -y \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-ugly gstreamer1.0-plugins-bad \
+            libglib2.0-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        # Public runners only — persistent workspace target/ on vault.
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build sc-server + sc-core release
+        run: cargo build --release -p sc-server -p sc-core
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install sc-web deps
+        run: pnpm install --frozen-lockfile
+        working-directory: sc-web
+
+      - name: Install L2 harness deps
+        run: npm ci
+        working-directory: e2e/l2
+
+      - name: L2 E2E (auth-gate smoke on push; suite selectable on dispatch)
+        env:
+          SC_SERVER_DIR: ${{ github.workspace }}/target/release
+          L2_CHROME_BIN: /usr/bin/google-chrome
+          # Push/PR: auth-gate smoke only (CI-cost decision — the deep
+          # multi-user play journey runs on demand via workflow_dispatch).
+          MULTI: ${{ github.event_name == 'workflow_dispatch' && inputs.suite != 'l2-auth-gate' && '1' || '0' }}
+        run: |
+          # ubuntu-latest ships Google Chrome (H.264) + Docker (Postgres).
+          # run-l2.sh: Postgres → drizzle push → next build → sc-web →
+          # sc-server (standalone+GV_GATEWAY_URL, or paired when MULTI=1)
+          # → Playwright. workflow_dispatch suite=input selects the spec:
+          #   all → multi-user (paired); l2-auth-gate → auth-gate smoke.
+          bash e2e/l2/run-l2.sh
+
+      - name: Upload L2 artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: l2-artifacts
+          path: |
+            /tmp/l2-*/artifacts
+          if-no-files-found: ignore
+
+  fixture:
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cc65 (ca65/ld65 assembler)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cc65
+
+      - name: Install Python imaging for digit probe
+        run: sudo apt-get install -y python3-pil
+
+      - name: Build fixture (ROM + harness)
+        run: bash e2e/fixture/build.sh
+
+      - name: Download nestopia core (buildbot, same URL sc-server uses)
+        run: |
+          curl -sL -o "${RUNNER_TEMP}/nestopia.zip" \
+            "https://buildbot.libretro.com/nightly/linux/x86_64/latest/nestopia_libretro.so.zip"
+          unzip -o "${RUNNER_TEMP}/nestopia.zip" -d "${RUNNER_TEMP}/nestopia"
+
+      - name: Verify fixture determinism + behavior
+        run: |
+          export CORE="${RUNNER_TEMP}/nestopia/nestopia_libretro.so"
+          bash e2e/fixture/verify.sh
+
+      - name: Assert ROM matches provenance manifest
+        run: |
+          actual=$(sha256sum e2e/fixture/out/rom/counter.nes | cut -d' ' -f1)
+          expected=$(grep -E '^[0-9a-f]{64}  rom/counter\.nes' e2e/fixture/manifest.sha256 | cut -d' ' -f1)
+          echo "actual=$actual expected=$expected"
+          [ "$actual" = "$expected" ]
+
   rust:
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          clean: false
 
       - name: Test installer path and secret contracts
         run: |
           bash tests/install-paths.sh
           bash tests/install-package-matrix.sh
+          bash tests/install-service-contract.sh
           bash tests/docker-server-entrypoint.sh
           bash tests/quickstart-compose.sh
           bash tests/no-tracked-turn-credentials.sh
+          bash tests/no-tracked-posthog-secrets.sh
           bash -n scripts/*.sh tests/*.sh docker/sc-web/entrypoint.prod.sh docker/sc-server/entrypoint.sh
 
       - name: Install system dependencies
@@ -35,10 +217,16 @@ jobs:
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
             gstreamer1.0-plugins-ugly \
-            libglib2.0-dev pkg-config
+            libglib2.0-dev pkg-config \
+            cc65
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          # Explicit components: on self-hosted runners the toolchain can
+          # persist across runs, and a partially-installed stable (e.g. from
+          # a cancelled run) otherwise leaves clippy missing.
+          components: clippy, rustfmt
 
       - name: Build trusted libretro test core
         id: libretro_fixture
@@ -52,6 +240,8 @@ jobs:
           echo "core_path=${core_dir}/2048_libretro.so" >> "${GITHUB_OUTPUT}"
 
       - name: Cache cargo
+        # Public runners only — persistent workspace target/ on vault.
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
         uses: Swatinem/rust-cache@v2
 
       - name: Build Rust release binaries
@@ -61,7 +251,10 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Test Rust crates
-        run: cargo test --workspace
+        # sc-server's test target is memory-heavy on the self-hosted runner.
+        # Keep release/clippy parallel, but serialize this compile to avoid
+        # rustc being OOM-killed (SIGKILL) during cold workspace builds.
+        run: cargo test --workspace -j 1
 
       - name: Test bounded still capture
         env:
@@ -70,6 +263,40 @@ jobs:
 
       - name: Smoke test libretro-runner
         run: cargo test -p libretro-runner --test smoke -- --test-threads=1
+
+      - name: Audio channel probe (mono platforms, strict)
+        run: |
+          set -euo pipefail
+          # Build the deterministic fixtures, then prove the built ROMs match
+          # the committed provenance manifest (same grep-per-artifact pattern
+          # as the fixture job), then probe real cores for one-sided audio.
+          bash e2e/fixture/build.sh >/dev/null
+          check_hash() { # <built_path> <manifest_pattern>
+            local actual expected
+            actual=$(sha256sum "$1" | cut -d' ' -f1)
+            expected=$(grep -E "^[0-9a-f]{64}  $2" e2e/fixture/manifest.sha256 | cut -d' ' -f1)
+            echo "manifest $1: $actual"
+            [ -n "$expected" ] || { echo "missing manifest entry for $2" >&2; exit 1; }
+            [ "$actual" = "$expected" ] || { echo "manifest mismatch for $2" >&2; exit 1; }
+          }
+          check_hash e2e/fixture/out/rom/counter.nes 'rom/counter\.nes'
+          check_hash e2e/fixture/out/audio/tone.nes 'audio/tone\.nes'
+          check_hash e2e/fixture/out/audio/gb-tone.gb 'audio/gb-tone\.gb'
+          cores="${RUNNER_TEMP}/audio-cores"
+          mkdir -p "$cores"
+          for core in nestopia_libretro.so mgba_libretro.so; do
+            curl -sL -o "$cores/$core.zip" \
+              "https://buildbot.libretro.com/nightly/linux/x86_64/latest/$core.zip"
+            unzip -o -q "$cores/$core.zip" -d "$cores"
+          done
+          TEST_AUDIO_STRICT=1 \
+            TEST_LIBRETRO_CORE="$cores/nestopia_libretro.so" \
+            TEST_LIBRETRO_ROM=e2e/fixture/out/audio/tone.nes \
+            cargo test -p libretro-runner --test audio_probe
+          TEST_AUDIO_STRICT=1 \
+            TEST_LIBRETRO_CORE="$cores/mgba_libretro.so" \
+            TEST_LIBRETRO_ROM=e2e/fixture/out/audio/gb-tone.gb \
+            cargo test -p libretro-runner --test audio_probe
 
       # ── Docker: sc-server ────────────────────────────────────────
       - name: Set up Docker Buildx
@@ -107,7 +334,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
   web:
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'self-hosted' || 'ubuntu-latest' }}
     permissions:
       contents: read
       packages: write
@@ -150,6 +377,11 @@ jobs:
         run: pnpm build
 
       # ── Docker: sc-web ──────────────────────────────────────────
+      - name: Prepare provenance build args
+        run: |
+          echo "WEB_VERSION=$(node -p "require('./sc-web/package.json').version")" >> "$GITHUB_ENV"
+          echo "WEB_RELEASED_AT_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -184,3 +416,7 @@ jobs:
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GV_WEB_GIT_SHA=${{ github.sha }}
+            GV_WEB_VERSION=${{ env.WEB_VERSION }}
+            GV_WEB_RELEASED_AT_UTC=${{ env.WEB_RELEASED_AT_UTC }}

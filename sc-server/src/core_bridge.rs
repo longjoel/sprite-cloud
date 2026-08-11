@@ -234,7 +234,9 @@ fn capture_sram_and_terminate<C, P>(
 
 /// Extract the first ROM file from a .zip archive to a temp file.
 /// Caches by game_id in /tmp/sc-workers/. Second play skips extraction entirely.
-fn ensure_extracted_rom(rom_path: &str, game_id: &str) -> String {
+/// Arcade platforms (FBNeo) use the .zip as-is — the core reads the full
+/// ROM set directly from the archive.
+fn ensure_extracted_rom(rom_path: &str, game_id: &str, platform: Option<&str>) -> String {
     let path = std::path::Path::new(rom_path);
     if !path
         .extension()
@@ -242,6 +244,13 @@ fn ensure_extracted_rom(rom_path: &str, game_id: &str) -> String {
         .map(|e| e.eq_ignore_ascii_case("zip"))
         .unwrap_or(false)
     {
+        return rom_path.to_string();
+    }
+
+    // Arcade / FBNeo ROMs are multi-file sets inside .zip — the core
+    // reads the full archive, so extracting a single entry breaks it.
+    if platform == Some("Arcade") {
+        tracing::info!("[CORE] arcade zip passed through as-is: {}", rom_path);
         return rom_path.to_string();
     }
 
@@ -566,9 +575,16 @@ pub async fn load_core_into_session(
     session: &Arc<GameSession>,
     core_path: Option<&std::path::Path>,
     content_path: Option<&str>,
-    _platform: Option<&str>,
+    platform: Option<&str>,
 ) -> Result<(), String> {
     let game_id = &session.game_id;
+
+    // Mono-hardware platforms get the live audio channel mirrored into both
+    // in sc-core, so a core that outputs mono one-sided can never stream
+    // one-channel audio (see libretro_runner::normalize_mono).
+    let mono_flag = platform
+        .map(crate::platform::platform_is_mono)
+        .unwrap_or(false);
 
     let core_path_str = match core_path {
         Some(p) => p.to_string_lossy().to_string(),
@@ -581,8 +597,9 @@ pub async fn load_core_into_session(
     };
 
     let rom_path = content_path.unwrap_or("");
-    // Extract zip ROMs so sc-core gets raw ROM data
-    let actual_rom_path = ensure_extracted_rom(rom_path, game_id);
+    // Extract zip ROMs so sc-core gets raw ROM data — except Arcade
+    // (FBNeo) where the zip IS the ROM set and must be passed whole.
+    let actual_rom_path = ensure_extracted_rom(rom_path, game_id, platform);
     let out_name = format!("sc-out-{game_id}");
     let in_name = format!("sc-in-{game_id}");
 
@@ -619,14 +636,20 @@ pub async fn load_core_into_session(
     );
     tracing::info!("[CORE] system_dir={}", system_dir);
 
+    let mut spawn_args: Vec<&str> = vec![
+        &core_path_str,
+        &actual_rom_path,
+        &out_name,
+        &in_name,
+        &system_dir,
+    ];
+    if mono_flag {
+        spawn_args.push("mono");
+        tracing::info!("[CORE] mono platform — audio channel mirroring enabled");
+    }
+
     let mut child = match std::process::Command::new(&core_bin)
-        .args([
-            &core_path_str,
-            &actual_rom_path,
-            &out_name,
-            &in_name,
-            &system_dir,
-        ])
+        .args(&spawn_args)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -692,7 +715,9 @@ pub async fn load_core_into_session(
     // ── Auto-load SRAM if a battery save exists ──────────────────────
     let rom_hash = saves::hash_rom(std::path::Path::new(&actual_rom_path));
     if let Some(ref hash) = rom_hash {
-        let sram_file = saves::sram_path(hash);
+        // Pre-auth: core startup runs before the DC auth message resolves
+        // the account, so SRAM auto-load uses the `shared` slot (#745).
+        let sram_file = saves::sram_path("shared", hash);
         if sram_file.exists() {
             match std::fs::read(&sram_file) {
                 Ok(data) if !data.is_empty() => {
@@ -900,7 +925,10 @@ pub async fn load_core_into_session(
                     rom_hash_save.as_deref(),
                     Duration::from_millis(500),
                     |hash, data| {
-                        let sram_file = saves::sram_path(hash);
+                        // Teardown also runs pre/post-auth without account
+                        // resolution context — `shared` slot keeps it working
+                        // (#745).
+                        let sram_file = saves::sram_path("shared", hash);
                         match saves::write_atomic(&sram_file, data) {
                             Ok(()) => {
                                 tracing::info!(
@@ -1206,6 +1234,9 @@ mod tests {
             guests: tokio::sync::Mutex::new(Vec::new()),
             host_connected: std::sync::atomic::AtomicBool::new(false),
             local_players: std::sync::atomic::AtomicU32::new(1),
+            claimed_peer: tokio::sync::Mutex::new(None),
+            resident: std::sync::atomic::AtomicBool::new(false),
+            account_id: tokio::sync::Mutex::new(None),
             core_loaded: std::sync::atomic::AtomicBool::new(false),
             core_loading: std::sync::atomic::AtomicBool::new(false),
             core_cmd_tx: tokio::sync::Mutex::new(None),

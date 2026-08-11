@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
+import { Alert, Box, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, TextField, Typography } from "@mui/material";
 import { Button } from "@/components/ui";
 import ServerPanel from "./ServerPanel";
 import InviteManager from "./InviteManager";
@@ -199,13 +199,16 @@ export default function DashboardClient({ memberships }: Props) {
     }
 
     return (
-      <div style={S.pillRow}>
+      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
         {pills.map((pill) => (
-          <span key={pill.label} style={{ ...S.pill, ...(pill.tone ? S.pillTones[pill.tone] : {}) }}>
-            {pill.label}
-          </span>
+          <Chip
+            key={pill.label}
+            label={pill.label}
+            size="small"
+            color={pill.tone === "muted" ? "default" : pill.tone ?? "default"}
+          />
         ))}
-      </div>
+      </Stack>
     );
   }
 
@@ -228,55 +231,51 @@ export default function DashboardClient({ memberships }: Props) {
           .sc-dashboard-cards { display: none !important; }
         }
       `}</style>
-      {error && <div style={S.error}>{error}</div>}
+      {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
 
-      <section style={S.section}>
-        <div style={S.sectionHeader}>
-          <div>
-            <h2 style={S.h2}>Servers</h2>
-            <p style={S.sectionSub}>
+      <Box component="section" sx={{ mb: 4 }}>
+        <Stack sx={{ mb: 3, gap: 2, flexDirection: { xs: "column", sm: "row" }, justifyContent: "space-between", alignItems: { xs: "stretch", sm: "flex-start" } }}>
+          <Box>
+            <Typography component="h2" variant="h4" sx={{ mb: 1 }}>Servers</Typography>
+            <Typography color="text.secondary" sx={{ maxWidth: 720 }}>
               Status, health, and pairing. Expand a server for administrator details.
-            </p>
-          </div>
-          <div style={S.inlineTools}>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={generatePairingCode}
-            >
-              Generate pairing code
-            </Button>
-          </div>
-        </div>
+            </Typography>
+          </Box>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={generatePairingCode}
+          >
+            Generate pairing code
+          </Button>
+        </Stack>
 
         {pairingCode && (
-          <div style={S.pairingCommand}>
-            <div style={S.pairingTopRow}>
-              <span style={S.pairingLabel}>Pairing code</span>
-              <code style={S.pairingCode}>{pairingCode}</code>
-            </div>
-            <p style={S.pairingHint}>
+          <Paper variant="outlined" sx={{ mb: 3, p: 2, borderColor: "primary.main" }}>
+            <Typography variant="overline" color="text.secondary">Pairing code</Typography>
+            <Typography component="code" variant="h6" color="success.main" sx={{ display: "block", letterSpacing: "0.15em", mb: 1 }}>
+              {pairingCode}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               Run this on the machine with your ROMs:
-            </p>
-            <code style={S.pairingCmd}>
+            </Typography>
+            <Paper component="code" variant="outlined" sx={{ display: "block", p: 1.5, bgcolor: "background.default", wordBreak: "break-all" }}>
               sc-server pair {pairingCode} --sc-web-url {window.location.origin}
-            </code>
-          </div>
+            </Paper>
+          </Paper>
         )}
 
-        {pairingError && (
-          <div style={S.pairingError}>Error: {pairingError}</div>
-        )}
+        {pairingError && <Alert severity="error" sx={{ mb: 3 }}>Error: {pairingError}</Alert>}
 
         {sorted.length === 0 ? (
-          <p style={S.empty}>
+          <Typography color="text.secondary" sx={{ fontStyle: "italic" }}>
             No servers. Pair a sc-server first.
-          </p>
+          </Typography>
         ) : (
           <>
             {/* ── Desktop: table ─────────────────────────────────────────── */}
-            <div style={S.desktopOnly} className="sc-dashboard-table">
-              <div style={S.tableCard}>
+            <Box sx={{ display: "block" }} className="sc-dashboard-table">
+              <Paper variant="outlined" sx={{ overflow: "hidden" }}>
                 <table style={S.table}>
                   <thead>
                     <tr>
@@ -295,19 +294,16 @@ export default function DashboardClient({ memberships }: Props) {
                         <Fragment key={s.id}>
                           <tr style={isOpen ? S.rowExpanded : undefined}>
                             <td style={S.tdStatus}>
-                              <div style={S.statusStack}>
-                                <span
-                                  style={{
-                                    ...S.statusDot,
-                                    background: status.color,
-                                  }}
-                                />
-                                <span style={S.statusLabel}>{status.label}</span>
-                              </div>
+                              <Chip
+                                label={status.label}
+                                size="small"
+                                variant="outlined"
+                                sx={{ borderColor: status.color, color: status.color, textTransform: "uppercase" }}
+                              />
                             </td>
                             <td style={S.tdServer}>
-                              <div style={S.serverCell}>
-                                <div style={S.serverTitleRow}>
+                              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
                                   {editing === s.id ? (
                                     <form
                                       onSubmit={(e) => {
@@ -316,53 +312,51 @@ export default function DashboardClient({ memberships }: Props) {
                                       }}
                                       style={S.inlineForm}
                                     >
-                                      <input
-                                        style={S.inlineInput}
+                                      <TextField
+                                        size="small"
+                                        variant="outlined"
                                         value={editName}
                                         onChange={(e) => setEditName(e.target.value)}
                                         autoFocus
+                                        slotProps={{ input: { "aria-label": `Rename ${s.name || s.id.slice(0, 8)}` }}}
+                                        sx={{ width: 220 }}
                                         onBlur={() => setEditing(null)}
                                         onKeyDown={(e) => {
                                           if (e.key === "Escape") setEditing(null);
                                         }}
-                                        aria-label={`Rename ${s.name || s.id.slice(0, 8)}`}
                                       />
                                     </form>
                                   ) : s.role === "admin" ? (
-                                    <button
-                                      style={S.renameBtn}
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
                                       onClick={() => startRename(s.id, s.name)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === "Enter" || e.key === " ") {
-                                          e.preventDefault();
-                                          startRename(s.id, s.name);
-                                        }
-                                      }}
                                       title="Click to rename"
                                       aria-label={`Rename ${s.name || s.id.slice(0, 8)}`}
+                                      sx={{ minWidth: 0, px: 0.5, fontSize: "1.125rem", fontWeight: 600, justifyContent: "flex-start" }}
                                     >
                                       {s.name || s.id.slice(0, 8)}
-                                    </button>
+                                    </Button>
                                   ) : (
-                                    <span style={S.readOnlyName}>
+                                    <Typography component="span" sx={{ fontWeight: 600, fontSize: "1.125rem" }}>
                                       {s.name || s.id.slice(0, 8)}
-                                    </span>
+                                    </Typography>
                                   )}
-                                  <code style={S.serverId}>{s.id.slice(0, 8)}</code>
-                                </div>
+                                  <Chip label={s.id.slice(0, 8)} size="small" variant="outlined" />
+                                </Box>
                                 {renderSummaryPills(s.id)}
-                              </div>
+                              </Box>
                             </td>
                             <td style={S.tdSeen}>
-                              <div style={S.seenStack}>
-                                <span>{timeAgo(s.lastSeenAt)}</span>
-                                <span style={S.seenSub}>
+                              <Stack spacing={0.5}>
+                                <Typography>{timeAgo(s.lastSeenAt)}</Typography>
+                                <Typography variant="caption" color="text.secondary">
                                   {s.lastSeenAt ? new Date(s.lastSeenAt).toLocaleString() : "No heartbeat yet"}
-                                </span>
-                              </div>
+                                </Typography>
+                              </Stack>
                             </td>
                             <td style={S.tdActions}>
-                              <div style={S.actionRow}>
+                              <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
                                 <Button
                                   variant="primary"
                                   size="sm"
@@ -394,21 +388,21 @@ export default function DashboardClient({ memberships }: Props) {
                                 >
                                   Remove
                                 </Button>
-                              </div>
+                              </Stack>
                             </td>
                           </tr>
                           {isOpen && s.role === "admin" && (
                             <tr key={`${s.id}-panel`}>
                               <td colSpan={4} style={S.panelCell}>
-                                <div style={S.panelShell}>
-                                  <div style={S.panelIntro}>
-                                    <h3 style={S.panelTitle}>Server details</h3>
-                                    <p style={S.panelText}>
+                                <Paper variant="outlined" sx={{ p: 3, bgcolor: "background.default" }} className="sc-dashboard-panel-shell">
+                                  <Box sx={{ mb: 3 }}>
+                                    <Typography component="h3" variant="h6" color="primary.main">Server details</Typography>
+                                    <Typography color="text.secondary" sx={{ mt: 1 }}>
                                       Transport, runtime, and core overrides for {s.name || s.id.slice(0, 8)}.
-                                    </p>
-                                  </div>
+                                    </Typography>
+                                  </Box>
                                   <ServerPanel serverId={s.id} />
-                                </div>
+                                </Paper>
                               </td>
                             </tr>
                           )}
@@ -417,66 +411,67 @@ export default function DashboardClient({ memberships }: Props) {
                     })}
                   </tbody>
                 </table>
-              </div>
-            </div>
+              </Paper>
+            </Box>
 
             {/* ── Mobile: cards ──────────────────────────────────────────── */}
-            <div style={S.mobileOnly} className="sc-dashboard-cards">
+            <Box sx={{ display: "none" }} className="sc-dashboard-cards">
               {sorted.map((s) => {
                 const status = serverStatus(s.lastSeenAt);
                 const isOpen = expanded.has(s.id);
 
                 return (
-                  <div key={s.id} style={S.card}>
-                    <div style={S.cardHeader}>
-                      <div style={S.statusStack}>
-                        <span style={{ ...S.statusDot, background: status.color }} />
-                        <span style={S.statusLabel}>{status.label}</span>
-                      </div>
-                      <span style={S.seenSub}>
+                  <Paper key={s.id} variant="outlined" sx={{ p: 2, mb: 2 }}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
+                      <Chip
+                        label={status.label}
+                        size="small"
+                        variant="outlined"
+                        sx={{ borderColor: status.color, color: status.color, textTransform: "uppercase" }}
+                      />
+                      <Typography variant="caption" color="text.secondary">
                         {s.lastSeenAt ? timeAgo(s.lastSeenAt) : "No heartbeat"}
-                      </span>
-                    </div>
+                      </Typography>
+                    </Box>
 
-                    <div style={S.cardTitleRow}>
+                    <Box sx={{ mb: 1 }}>
                       {editing === s.id ? (
                         <form
                           onSubmit={(e) => { e.preventDefault(); doRename(s.id); }}
                           style={S.inlineForm}
                         >
-                          <input
-                            style={{ ...S.inlineInput, width: "100%" }}
+                          <TextField
+                            size="small"
+                            fullWidth
                             value={editName}
                             onChange={(e) => setEditName(e.target.value)}
                             autoFocus
+                            slotProps={{ input: { "aria-label": `Rename ${s.name || s.id.slice(0, 8)}` }}}
                             onBlur={() => setEditing(null)}
                             onKeyDown={(e) => { if (e.key === "Escape") setEditing(null); }}
-                            aria-label={`Rename ${s.name || s.id.slice(0, 8)}`}
                           />
                         </form>
                       ) : s.role === "admin" ? (
-                        <button
-                          style={S.renameBtn}
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => startRename(s.id, s.name)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              startRename(s.id, s.name);
-                            }
-                          }}
                           title="Click to rename"
                           aria-label={`Rename ${s.name || s.id.slice(0, 8)}`}
+                          sx={{ minWidth: 0, px: 0.5, fontSize: "1.125rem", fontWeight: 600, justifyContent: "flex-start" }}
                         >
                           {s.name || s.id.slice(0, 8)}
-                        </button>
+                        </Button>
                       ) : (
-                        <span style={S.readOnlyName}>{s.name || s.id.slice(0, 8)}</span>
+                        <Typography component="span" sx={{ fontWeight: 600, fontSize: "1.125rem" }}>
+                          {s.name || s.id.slice(0, 8)}
+                        </Typography>
                       )}
-                    </div>
+                    </Box>
 
                     {renderSummaryPills(s.id)}
 
-                    <div style={S.cardActions}>
+                    <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", mt: 1.5 }}>
                       <Button
                         variant="primary"
                         size="sm"
@@ -501,24 +496,24 @@ export default function DashboardClient({ memberships }: Props) {
                       >
                         Remove
                       </Button>
-                    </div>
+                    </Stack>
 
                     {isOpen && s.role === "admin" && (
-                      <div style={S.cardPanel}>
-                        <h3 style={S.panelTitle}>Server details</h3>
-                        <p style={S.panelText}>
+                      <Paper variant="outlined" sx={{ mt: 2, p: 2, bgcolor: "background.default" }} className="sc-dashboard-card-panel">
+                        <Typography component="h3" variant="h6" color="primary.main">Server details</Typography>
+                        <Typography color="text.secondary" sx={{ mt: 1, mb: 2 }}>
                           Transport, runtime, and core overrides for {s.name || s.id.slice(0, 8)}.
-                        </p>
+                        </Typography>
                         <ServerPanel serverId={s.id} />
-                      </div>
+                      </Paper>
                     )}
-                  </div>
+                  </Paper>
                 );
               })}
-            </div>
+            </Box>
           </>
         )}
-      </section>
+      </Box>
 
       <Dialog
         open={inviteTarget !== null}
@@ -541,21 +536,23 @@ export default function DashboardClient({ memberships }: Props) {
       </Dialog>
 
       {deleting && (
-        <section style={S.section}>
-          <h2 style={S.h2}>Confirm removal</h2>
-          <div style={S.confirmBox}>
-            <p style={S.confirmText}>
+        <Paper component="section" variant="outlined" sx={{ mb: 3, p: { xs: 2, sm: 3 }, borderColor: "error.main" }}>
+          <Typography component="h2" variant="h5" sx={{ mb: 2 }}>Confirm removal</Typography>
+          <Stack spacing={2}>
+            <Typography color="error.main">
               This permanently deletes the server, its ROM roots,
               game files, sessions, and commands. Type DELETE to
               confirm.
-            </p>
-            <div style={S.confirmRow}>
-              <input
-                style={S.confirmInput}
+            </Typography>
+            <Box sx={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
+              <TextField
+                size="small"
                 value={deleteConfirm}
                 onChange={(e) => setDeleteConfirm(e.target.value)}
-                placeholder='Type "DELETE"'
+                placeholder="Type DELETE"
+                label="Confirmation"
                 autoFocus
+                sx={{ width: 180 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") doDelete(deleting);
                   if (e.key === "Escape") setDeleting(null);
@@ -567,9 +564,9 @@ export default function DashboardClient({ memberships }: Props) {
               <Button variant="secondary" size="sm" onClick={() => setDeleting(null)}>
                 Cancel
               </Button>
-            </div>
-          </div>
-        </section>
+            </Box>
+          </Stack>
+        </Paper>
       )}
     </>
   );
@@ -620,10 +617,6 @@ const S = {
     fontSize: "var(--font-size-base)",
     color: "var(--color-error)",
   },
-
-  // ── Responsive wrappers ──────────────────────────────────────────
-  desktopOnly: { display: "block" },
-  mobileOnly: { display: "none" },
 
   // ── Table (desktop) ──────────────────────────────────────────────
   tableCard: {
@@ -700,21 +693,6 @@ const S = {
     padding: "var(--space-4)",
     marginBottom: "var(--space-4)",
   },
-  cardHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "var(--space-3)",
-  },
-  cardTitleRow: {
-    marginBottom: "var(--space-2)",
-  },
-  cardActions: {
-    display: "flex",
-    gap: "var(--space-3)",
-    flexWrap: "wrap" as const,
-    marginTop: "var(--space-3)",
-  },
   cardPanel: {
     marginTop: "var(--space-4)",
     padding: "var(--space-4)",
@@ -740,34 +718,6 @@ const S = {
     fontSize: "var(--font-size-xs)",
     color: "var(--color-cloud)",
     fontFamily: "var(--font-mono)",
-  },
-  serverCell: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "var(--space-2)",
-  },
-  serverTitleRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: "var(--space-3)",
-    flexWrap: "wrap" as const,
-  },
-  renameBtn: {
-    cursor: "pointer",
-    border: "none",
-    borderBottom: "1px dashed var(--color-sky-high)",
-    background: "none",
-    color: "var(--color-cloud)",
-    fontWeight: 600,
-    fontSize: "var(--font-size-lg)",
-    fontFamily: "var(--font-mono)",
-    padding: 0,
-    textAlign: "left" as const,
-  },
-  readOnlyName: {
-    color: "var(--color-cloud)",
-    fontWeight: 600,
-    fontSize: "var(--font-size-lg)",
   },
   serverId: {
     fontSize: "var(--font-size-xs)",
@@ -818,11 +768,6 @@ const S = {
     flexDirection: "column" as const,
     gap: "var(--space-1)",
   },
-  seenSub: {
-    color: "var(--color-cloud-dim)",
-    fontSize: "var(--font-size-xs)",
-    fontFamily: "var(--font-mono)",
-  },
   inlineForm: { display: "inline" },
   inlineInput: {
     padding: "2px 6px",
@@ -833,11 +778,6 @@ const S = {
     fontSize: "var(--font-size-base)",
     width: 220,
   },
-  actionRow: {
-    display: "flex",
-    gap: "var(--space-3)",
-    flexWrap: "wrap" as const,
-  },
   panelCell: {
     padding: 0,
     borderBottom: "1px solid var(--color-sky-high)",
@@ -846,21 +786,6 @@ const S = {
     padding: "var(--space-6)",
     background: "rgba(10,14,26,0.75)",
     borderTop: "1px solid rgba(56,189,248,0.12)",
-  },
-  panelIntro: {
-    marginBottom: "var(--space-5)",
-  },
-  panelTitle: {
-    margin: 0,
-    color: "var(--color-accent)",
-    fontSize: "var(--font-size-lg)",
-    fontFamily: "var(--font-mono)",
-  },
-  panelText: {
-    margin: "8px 0 0",
-    color: "var(--color-cloud-dim)",
-    fontSize: "var(--font-size-base)",
-    lineHeight: 1.5,
   },
   confirmBox: {
     background: "var(--color-sky-mid)",

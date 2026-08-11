@@ -4,24 +4,32 @@
 This guide covers everything you need so peers can connect through NATs, firewalls,
 and Docker containers — the stuff that makes you mutter *"this is bananas."*
 
+> The canonical operator journey (which machine gets what, symptom-first
+> troubleshooting, and the plain-language explainer) is
+> **[SELF-HOSTING.md](SELF-HOSTING.md)**. This page is the coturn
+> configuration reference.
+
 ---
 
 ## Quick Reference: What Goes Where
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  Internet                                             │
-│    │                                                   │
-│    ▼                                                   │
-│  Your Server (YOUR_SERVER_IP)                            │
-│    ├─ coturn         :3478  (STUN + TURN)              │
-│    ├─ Docker bridge  :172.17.0.1                       │
-│    │   └─ sc-web container                             │
-│    │       ├─ Next.js on :3000                         │
-│    │       └─ sc-server (Rust) inside                  │
-│    └─ Firewall: UDP 3478, UDP 49152-65535              │
+│  Gateway server                                      │
+│    ├─ coturn         :3478  (STUN + TURN)            │
+│    ├─ Docker bridge  :172.17.0.1                     │
+│    │   └─ sc-web container                           │
+│    │       └─ Next.js on :3000                       │
+│    └─ Firewall: UDP 3478, UDP 49152-65535            │
+├──────────────────────────────────────────────────────┤
+│  Game host (the machine with the ROMs)               │
+│    └─ sc-server (systemd service or foreground)      │
 └──────────────────────────────────────────────────────┘
 ```
+
+`sc-server` runs on the game host, not inside the gateway container. The
+browser (player) and `sc-server` (host) are the two WebRTC peers; the gateway
+only relays commands/signaling and (optionally) hosts TURN.
 
 ---
 
@@ -235,7 +243,38 @@ Click **Gather candidates**.  You should see:
 - `srflx` candidates (public IP via STUN)
 - `relay` candidates (TURN allocation) — this one proves TURN works
 
-### 6.4 Check sc-web logs
+### 6.4 Operator probe: forced relay allocation from any network
+
+`scripts/turn-probe.mjs` is a zero-dependency operator tool that performs a
+real TURN Allocate (RFC 5766) against the configured relay from wherever it
+is run — a laptop, a cellular hotspot, or another datacenter. It proves the
+listener is reachable, the long-term credential is accepted, and a relay
+allocation is granted, and prints sanitized evidence:
+
+```bash
+GV_ICE_TURN_URLS=turn:your-server.com:3478 \
+GV_ICE_TURN_USERNAME=gv \
+GV_ICE_TURN_CREDENTIAL=your-secure-password \
+node scripts/turn-probe.mjs
+```
+
+Expected output (successful relay):
+
+```json
+{
+  "url": "turn:your-server.com:3478?transport=udp",
+  "state": "relayed",
+  "probed_at": "2026-08-02T16:09:42.911Z",
+  "latency_ms": 98,
+  "relay_family": "ipv4"
+}
+```
+
+Exit code is `0` when relayed, `1` on any failure. The credential is never
+printed, and the evidence contains no secrets. The same probe runs
+automatically in `/api/health` (see §8.4).
+
+### 6.5 Check sc-web logs
 
 ```bash
 docker logs sc-web-sc-web-1 2>&1 | grep -E '\[SDP\]|\[ICE\]|\[POOL\]|\[PREWARM\]'
@@ -274,13 +313,83 @@ check that:
 
 ## 8. Production Checklist
 
-- [ ] coturn installed and running as a systemd service
-- [ ] Firewall: UDP 3478 + UDP 49152-65535 open
-- [ ] `GV_ICE_TURN_URLS` uses Docker bridge gateway (`172.17.0.1`) or works with host networking
-- [ ] `GV_ICE_TURN_USERNAME` and `GV_ICE_TURN_CREDENTIAL` match coturn config
-- [ ] `GV_ICE_STUN_URLS` set to Google STUN servers
-- [ ] `GV_ICE_TRANSPORT_POLICY: all` (or omitted)
+- [x] coturn installed and running as a systemd service
+- [x] Firewall: UDP 3478 + UDP 49152-65535 open
+- [x] `GV_ICE_TURN_URLS` set to the public coturn hostname (`turn:sprite-cloud.com:3478?transport=udp`)
+- [x] `GV_ICE_TURN_USERNAME` and `GV_ICE_TURN_CREDENTIAL` match coturn config
+- [x] `GV_ICE_STUN_URLS` set to Google STUN servers
+- [x] `GV_ICE_TRANSPORT_POLICY: all` (or omitted)
 - [ ] `GV_SERVER_LAN_IPS` set if you have LAN peers
+- [x] Verified with the operator probe: `node scripts/turn-probe.mjs` → `"state": "relayed"`
+- [x] `/api/health` reports `turn_state: relayed` (live probe proof)
+- [x] `/api/ice-config` advertises both STUN and TURN with credentials
+- [x] Old/exposed credential rotated out and confirmed dead (probe → 401)
+
+### 8.3 Credential rotation runbook (performed 2026-08-02)
+
+Rotated the exposed coturn long-term credential end-to-end:
+
+1. Generate: `openssl rand -hex 32` → keep in a 0600 temp file, never print it.
+2. coturn (`/etc/turnserver.conf`): `sed -i -E "s|^user=guest:.*|user=guest:${NEW}|"` → `systemctl restart coturn`.
+3. Game VPS systemd unit: **replace the whole `Environment="GV_ICE_TURN_CREDENTIAL=..."` line** — a greedy `.*` inside the line eats the closing quote (`s|(GV_ICE_TURN_CREDENTIAL=).*|\1${NEW}|` mangles the unit file, prewarm then fails with `turn server credentials required`). Use `s|^Environment=.*GV_ICE_TURN_CREDENTIAL.*|Environment="GV_ICE_TURN_CREDENTIAL=${NEW}"|` → `systemctl daemon-reload` + `systemctl restart sc-server`. Verify the line is exactly `Environment="GV_ICE_TURN_CREDENTIAL=<64-hex>"` (100 chars) before reloading.
+4. Gateway: rewrite the `GV_ICE_*` block in `/root/sc-deploy/.env`, then **`docker compose up -d web`** — plain `restart` does NOT re-read `env_file`.
+5. Verify: probe with new credential → `relayed`; probe with old credential → `401`; `/api/health` → `turn_state: relayed`; `/api/ice-config` → TURN advertised.
+6. `shred -u` the temp credential file.
+
+### 8.1 TURN credentials are secrets
+
+The TURN credential is a relay credential: anyone holding it can request relay
+allocations and consume relay bandwidth. Treat it like a password:
+
+- **Never** commit a real credential to source. `scripts/install.sh` requires
+  explicit `GV_TURN_CREDENTIAL` injection and `tests/no-tracked-turn-credentials.sh`
+  (run in CI) rejects literal credentials in tracked installer/config sources.
+- **Rotate** the credential on any suspicion of exposure (it has appeared in
+  git history, chat logs, or issue comments).
+- The credential is delivered to browsers via `/api/ice-config` so they can
+  authenticate to coturn — this is the intended TURN consumption path, not a
+  leak. It must never appear in health output, logs, screenshots, or issue
+  comments.
+
+### 8.2 Expected relay capacity for 5–10 testers
+
+For the September limited beta (5–10 concurrent testers, retro consoles at
+up to 480p/60fps):
+
+| Resource | Estimate | Headroom at 10 testers |
+|---|---|---|
+| Per-session relay bandwidth | 0.5–3 Mbps (video) + ~0.1 Mbps (audio/input) | ~30 Mbps peak worst-case |
+| coturn process count | 1 | fits a 2 vCPU VPS |
+| UDP port range | 49152–65535 (16k ports) | ~1,600 sessions; ample |
+| Memory | ~10–20 MB per 100 allocations | negligible |
+
+A 1 Gbps VPS NIC with default coturn settings comfortably supports the cohort
+with >30× headroom. Monitor with `ss -s`, `vnstat`, or Grafana; alert if relay
+bandwidth exceeds ~100 Mbps or if `turnserver` restarts.
+
+### 8.3 Alerting for TURN failure
+
+`GET /api/health` now includes a `turn` component that fails closed:
+
+- `components.turn.status: "ok"` — relay allocation verified by a live probe.
+- `components.turn.status: "degraded"` — listener reachable but allocation not
+  yet proven (e.g. credentials missing or probe pending).
+- `components.turn.status: "error"` — probe failed (listener down, firewall
+  block, or rejected credentials). The endpoint returns **503** and overall
+  status becomes `error`.
+
+Alert on any of these conditions with standard uptime monitoring:
+
+```bash
+# UptimeRobot / Grafana / cron: fail when TURN readiness is not proven
+curl -fsS https://your-host/api/health | jq -e '.components.turn.status == "ok"'
+```
+
+The probe runs inside the health handler with a 60s success / 15s failure
+cache TTL, so it detects relay outages within ~15 seconds of a failure while
+staying cheap on the happy path. On outage, verify coturn (`systemctl status
+coturn`), firewall (`ss -ulpn | grep 3478`), and credential match before
+admitting testers.
 - [ ] Verified with trickle-ice page (`about:webrtc` in Firefox)
 - [ ] sc-web logs show `[PREWARM]` and `[POOL]` lines
 

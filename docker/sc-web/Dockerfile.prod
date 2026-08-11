@@ -12,6 +12,12 @@ FROM node:22-slim AS builder
 ARG GV_WEB_GIT_SHA=unknown
 ARG GV_WEB_VERSION=unknown
 ARG GV_WEB_RELEASED_AT_UTC=unknown
+# PostHog analytics is opt-in at build time: both args default to empty,
+# which keeps the bundle analytics-free (no keys, no host, no network
+# calls). The deploy workflow supplies them from GitHub secrets when the
+# owner enables metrics. NEXT_PUBLIC_* must be baked at build time.
+ARG NEXT_PUBLIC_POSTHOG_KEY=
+ARG NEXT_PUBLIC_POSTHOG_HOST=
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/sc-web/node_modules ./sc-web/node_modules
@@ -19,6 +25,8 @@ COPY --from=deps /app/sc-web/node_modules ./sc-web/node_modules
 COPY . .
 WORKDIR /app/sc-web
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_PUBLIC_POSTHOG_KEY=$NEXT_PUBLIC_POSTHOG_KEY
+ENV NEXT_PUBLIC_POSTHOG_HOST=$NEXT_PUBLIC_POSTHOG_HOST
 RUN npx next build
 
 FROM node:22-slim AS runner
@@ -57,6 +65,16 @@ ENV HOSTNAME=0.0.0.0
 ENV GV_WEB_GIT_SHA=$GV_WEB_GIT_SHA
 ENV GV_WEB_VERSION=$GV_WEB_VERSION
 ENV GV_WEB_RELEASED_AT_UTC=$GV_WEB_RELEASED_AT_UTC
+
+# Stamp immutable runtime provenance. The health endpoint reads
+# .next/runtime-version.json (see sc-web/app/api/health/route.ts); writing it
+# here from the build ARGs bakes exact version + full Git SHA + build time
+# into the image so a beta incident can prove which code is running.
+RUN mkdir -p /app/sc-web/.next && \
+    printf '{"git_sha":"%s","package_version":"%s","built_at_utc":"%s"}\n' \
+      "$GV_WEB_GIT_SHA" "$GV_WEB_VERSION" "$GV_WEB_RELEASED_AT_UTC" \
+      > /app/sc-web/.next/runtime-version.json
+
 EXPOSE 3000
 
 CMD ["/entrypoint.sh"]

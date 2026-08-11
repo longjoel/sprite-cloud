@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = randomCode();
     try {
-      await db.insert(shortCodes).values({ code, gameId, hostToken: capabilityToken, serverId, createdBy });
+      await db.insert(shortCodes).values({ code, gameId, hostToken: capabilityToken, serverId, createdBy, mintedViaProxy: !!server });
       return NextResponse.json({ code }, { status: 201 });
     } catch (err: unknown) {
       const dbError = err as { code?: string; message?: string };

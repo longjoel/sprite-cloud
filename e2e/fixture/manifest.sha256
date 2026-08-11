@@ -1,0 +1,17 @@
+# E2E fixture provenance manifest
+# Generated from the committed sources by build.sh — the ROM hash proves
+# the binary derives from counter.s (no downloaded ROMs, no binary blobs).
+# Regenerate: ./build.sh && sha256sum out/rom/counter.nes
+
+f588517a41390084747c10fa2ce3b49b118326270b7a1d9c3c5c5926431d2b9a  rom/counter.nes
+4392893e62fbe67051923a3c8a1e9f55a1776312882bc07868b168e735522d0f  rom/counter.s
+429bea9040006fce14b475b7c0ee4e8775cd60c4e2376e1865cb2ec48cf850f0  harness/counter_harness.c
+d45613a8f10b57171aae70ff3a2016d2084802a8bbe8c659b84dac958faa3379  harness/libretro.h
+
+# Audio fixtures (#686) — tone ROMs derive from audio/* sources
+# Regenerate: ./build.sh && sha256sum out/audio/tone.nes out/audio/gb-tone.gb
+1c4e35c4400c9e73de3ebd2823317a95d4f9372fe2345509f8293cd82c659ad5  audio/tone.s
+2387b345cd4214336529f3bd83c5b0367f2dec6570093b91877f6fb384689506  audio/nes16.cfg
+3b1df9a3b8b17764faa23cd6ae5d7e9f8a283255f84108dde810ea751d775244  audio/make-gb-tone.py
+19b0794478e89f9c498b8765db63dff84d0cb3b041a5492cbb2f44c6c5292fe3  audio/tone.nes
+e94bb0e85663f086a2556b01a6f801adc0569a894953f3cb9851a167e5a94fcc  audio/gb-tone.gb

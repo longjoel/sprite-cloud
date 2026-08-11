@@ -15,6 +15,7 @@ Sprite Cloud has three roles:
 Architecture overview: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
 Protocol and wire formats: **[docs/PROTOCOL.md](docs/PROTOCOL.md)**
 Host installation and operations: **[docs/SC-SERVER-INSTALL.md](docs/SC-SERVER-INSTALL.md)**
+Canonical setup + connectivity journey (beta): **[docs/SELF-HOSTING.md](docs/SELF-HOSTING.md)**
 
 ## Quick start
 
@@ -132,7 +133,9 @@ Important public deployment variables:
 | `GV_ICE_TURN_USERNAME` | TURN username |
 | `GV_ICE_TURN_CREDENTIAL` | TURN credential |
 
-Auth is DB-backed email/password. The first admin account is created through the setup wizard.
+Auth is DB-backed and enrollment is invite-only: the first admin account is
+created through the setup wizard, and every further member joins through an
+invitation from an existing admin (no public sign-up).
 
 ## Community
 

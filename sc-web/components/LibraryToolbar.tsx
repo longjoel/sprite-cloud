@@ -1,8 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  Box,
+  Button,
+  Checkbox,
+  Chip,
+  Paper,
+  TextField,
+  ToggleButton,
+  ToggleButtonGroup,
+  Typography,
+} from "@mui/material";
 import { LIBRARY_SECTIONS, type LibrarySection } from "@/lib/ui/library-view-model";
-import styles from "./LibraryToolbar.module.css";
 
 type ViewMode = "grid" | "table";
 
@@ -22,8 +32,18 @@ interface LibraryToolbarProps {
 }
 
 export default function LibraryToolbar({
-  activeSection, counts, search, platforms, platformCounts, selectedPlatforms, viewMode,
-  onSectionChange, onSearchChange, onPlatformToggle, onClearPlatforms, onViewModeChange,
+  activeSection,
+  counts,
+  search,
+  platforms,
+  platformCounts,
+  selectedPlatforms,
+  viewMode,
+  onSectionChange,
+  onSearchChange,
+  onPlatformToggle,
+  onClearPlatforms,
+  onViewModeChange,
 }: LibraryToolbarProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const filterRef = useRef<HTMLDivElement>(null);
@@ -49,58 +69,145 @@ export default function LibraryToolbar({
   }, [menuOpen]);
 
   return (
-    <div className={styles.toolbar} aria-label="Library controls">
-      <nav className={styles.tabs} aria-label="Library sections">
-        {LIBRARY_SECTIONS.map(({ id, label }) => (
-          <button key={id} type="button" aria-pressed={activeSection === id}
-            className={styles.tab} onClick={() => onSectionChange(id)}>
-            {label} ({counts[id]})
-          </button>
-        ))}
-      </nav>
+    <Box
+      aria-label="Library controls"
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        gap: 1,
+        mb: 3,
+        p: 0.5,
+        bgcolor: "background.paper",
+        border: 1,
+        borderColor: "divider",
+        borderRadius: 1,
+        flexWrap: "wrap",
+      }}
+    >
+      <Box component="nav" aria-label="Library sections" sx={{ flexShrink: 0, overflowX: "auto" }}>
+        <ToggleButtonGroup
+          exclusive
+          value={activeSection}
+          onChange={(_, value: LibrarySection | null) => value && onSectionChange(value)}
+          size="small"
+        >
+          {LIBRARY_SECTIONS.map(({ id, label }) => (
+            <ToggleButton
+              key={id}
+              value={id}
+              aria-pressed={activeSection === id}
+              sx={{ whiteSpace: "nowrap", minHeight: 36, textTransform: "none" }}
+            >
+              {label} ({counts[id]})
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+      </Box>
 
-      <div className={styles.commands}>
-        <input className={styles.search} type="search" aria-label="Search games"
-          placeholder="Search games..." value={search} onChange={(event) => onSearchChange(event.target.value)} />
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flex: "1 1 320px", minWidth: 0 }}>
+        <TextField
+          type="search"
+          slotProps={{ input: { "aria-label": "Search games" } }}
+          placeholder="Search games..."
+          value={search}
+          onChange={(event) => onSearchChange(event.target.value)}
+          size="small"
+          sx={{ flex: "1 1 220px", minWidth: 140 }}
+        />
 
-        <div className={styles.filter} ref={filterRef}>
-          <button ref={filterButtonRef} type="button" className={styles.systemButton} data-active={selectedPlatforms.size > 0}
-            aria-label="Filter by platform" aria-haspopup="menu" aria-expanded={menuOpen} aria-controls="library-system-menu"
-            onClick={() => setMenuOpen((open) => !open)}>
-            <span className={styles.longLabel}>{selectedPlatforms.size ? `Platforms (${selectedPlatforms.size})` : "All Platforms"}</span>
-            <span aria-hidden="true"> {menuOpen ? "▲" : "▼"}</span>
-          </button>
+        <Box ref={filterRef} sx={{ position: "relative", flexShrink: 0 }}>
+          <Button
+            ref={filterButtonRef}
+            type="button"
+            variant={selectedPlatforms.size > 0 ? "contained" : "outlined"}
+            size="small"
+            aria-label="Filter by platform"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-controls="library-system-menu"
+            onClick={() => setMenuOpen((open) => !open)}
+            sx={{ minHeight: 36, whiteSpace: "nowrap" }}
+          >
+            {selectedPlatforms.size ? `Platforms (${selectedPlatforms.size})` : "All Platforms"} {menuOpen ? "▲" : "▼"}
+          </Button>
           {menuOpen && (
-            <div id="library-system-menu" className={styles.menu} role="menu" aria-label="Systems">
-              <button type="button" className={styles.option} onClick={() => { onClearPlatforms(); setMenuOpen(false); }}>
-                All Platforms <span className={styles.optionCount}>({counts.all})</span>
-              </button>
+            <Paper
+              id="library-system-menu"
+              role="menu"
+              aria-label="Systems"
+              elevation={8}
+              sx={{
+                position: "absolute",
+                right: 0,
+                top: "calc(100% + 4px)",
+                zIndex: 10,
+                minWidth: 220,
+                maxHeight: 360,
+                overflowY: "auto",
+                p: 0.5,
+              }}
+            >
+              <Button
+                type="button"
+                fullWidth
+                role="menuitem"
+                onClick={() => { onClearPlatforms(); setMenuOpen(false); }}
+                sx={{ justifyContent: "space-between", textTransform: "none" }}
+              >
+                All Platforms <Typography component="span" color="text.secondary">({counts.all})</Typography>
+              </Button>
               {platforms.map((platform) => (
-                <label className={styles.option} key={platform}>
-                  <input type="checkbox" checked={selectedPlatforms.has(platform)} onChange={() => onPlatformToggle(platform)} />
-                  {platform}<span className={styles.optionCount}>({platformCounts[platform] || 0})</span>
-                </label>
+                <Box
+                  component="label"
+                  key={platform}
+                  role="menuitemcheckbox"
+                  aria-checked={selectedPlatforms.has(platform)}
+                  sx={{ display: "flex", alignItems: "center", gap: 0.5, px: 1, minHeight: 40, cursor: "pointer" }}
+                >
+                  <Checkbox
+                    size="small"
+                    checked={selectedPlatforms.has(platform)}
+                    onChange={() => onPlatformToggle(platform)}
+                  />
+                  <Typography component="span" sx={{ flex: 1 }}>{platform}</Typography>
+                  <Typography component="span" color="text.secondary">({platformCounts[platform] || 0})</Typography>
+                </Box>
               ))}
-            </div>
+            </Paper>
           )}
-        </div>
+        </Box>
 
-        <div className={styles.views} aria-label="Library view">
-          <button type="button" className={styles.control} aria-label="Grid view" aria-pressed={viewMode === "grid"}
-            onClick={() => onViewModeChange("grid")}>▦<span className={styles.longLabel}> Grid</span></button>
-          <button type="button" className={styles.control} aria-label="Table view" aria-pressed={viewMode === "table"}
-            onClick={() => onViewModeChange("table")}>☰<span className={styles.longLabel}> Table</span></button>
-        </div>
+        <ToggleButtonGroup
+          aria-label="Library view"
+          exclusive
+          value={viewMode}
+          onChange={(_, value: ViewMode | null) => value && onViewModeChange(value)}
+          size="small"
+          sx={{ flexShrink: 0 }}
+        >
+          <ToggleButton value="grid" aria-label="Grid view" aria-pressed={viewMode === "grid"} sx={{ minHeight: 36, textTransform: "none" }}>
+            ▦ <Box component="span" sx={{ display: { xs: "none", sm: "inline" }, ml: 0.5 }}>Grid</Box>
+          </ToggleButton>
+          <ToggleButton value="table" aria-label="Table view" aria-pressed={viewMode === "table"} sx={{ minHeight: 36, textTransform: "none" }}>
+            ☰ <Box component="span" sx={{ display: { xs: "none", sm: "inline" }, ml: 0.5 }}>Table</Box>
+          </ToggleButton>
+        </ToggleButtonGroup>
+      </Box>
 
-        {selectedPlatforms.size > 0 && (
-          <div className={styles.chips} aria-label="Active platform filters">
-            {[...selectedPlatforms].map((platform) => (
-              <button type="button" className={styles.chip} key={platform} aria-label={`Remove ${platform} filter`}
-                onClick={() => onPlatformToggle(platform)}>{platform} ×</button>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+      {selectedPlatforms.size > 0 && (
+        <Box aria-label="Active platform filters" sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
+          {[...selectedPlatforms].map((platform) => (
+            <Chip
+              key={platform}
+              label={platform}
+              size="small"
+              color="primary"
+              onDelete={() => onPlatformToggle(platform)}
+              deleteIcon={<Box component="span" aria-label={`Remove ${platform} filter`}>×</Box>}
+            />
+          ))}
+        </Box>
+      )}
+    </Box>
   );
 }

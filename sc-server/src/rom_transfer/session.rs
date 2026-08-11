@@ -51,7 +51,7 @@ pub trait Responder: Send + Sync {
 
 // ── TransferProtocol (pure state machine) ──────────────────────────────
 
-type CommitFuture = Pin<Box<dyn Future<Output = Result<(), String>> + Send>>;
+type CommitFuture = Pin<Box<dyn Future<Output = Result<String, String>> + Send>>;
 pub type CommitCallback = Arc<dyn Fn() -> CommitFuture + Send + Sync>;
 
 pub struct TransferProtocol {
@@ -275,23 +275,28 @@ impl TransferProtocol {
         };
         match result {
             Ok((hash, size)) => {
-                if let Some(ref cb) = self.on_commit
-                    && cb().await.is_err()
-                {
-                    tracing::error!("[ROM XFER] catalog refresh failed after commit");
-                    self.responder
-                        .send(&TransferMessage::TransferError {
-                            reason: "ROM committed, but catalog refresh failed".into(),
-                        })
-                        .await;
-                    *self.state.lock().await = ProtocolState::Done;
-                    return;
+                let mut game_id = None;
+                if let Some(ref cb) = self.on_commit {
+                    match cb().await {
+                        Ok(id) if !id.is_empty() => game_id = Some(id),
+                        Ok(_) => {} // empty string = no match, proceed
+                        Err(error) => {
+                            tracing::error!("[ROM XFER] catalog refresh failed after commit: {error}");
+                            self.responder
+                                .send(&TransferMessage::TransferError {
+                                    reason: "ROM committed, but catalog refresh failed".into(),
+                                })
+                                .await;
+                            *self.state.lock().await = ProtocolState::Done;
+                            return;
+                        }
+                    }
                 }
                 self.responder
                     .send(&TransferMessage::TransferOk {
                         hash,
                         size,
-                        game_id: None,
+                        game_id,
                     })
                     .await;
             }
@@ -562,6 +567,7 @@ impl TransferSink for StagedUploadSink {
 
 // ── Command handler ────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_rom_transfer(
     cmd: &sc_web::Command,
     client: &sc_web::ScWebClient,
@@ -569,6 +575,10 @@ pub(crate) async fn handle_rom_transfer(
     local_game_list: Arc<tokio::sync::RwLock<Vec<crate::player_server::LocalGame>>>,
     library_preferences: crate::player_server::SharedLibraryState,
     catalog_sync_lock: Arc<tokio::sync::Mutex<()>>,
+    dat_catalog_state: Arc<
+        tokio::sync::RwLock<Option<Arc<crate::dat::catalog::LoadedCatalog>>>,
+    >,
+    verification_store: Arc<tokio::sync::Mutex<crate::verification::VerificationStore>>,
 ) {
     let transfer_id = cmd
         .payload
@@ -671,24 +681,83 @@ pub(crate) async fn handle_rom_transfer(
 
     let refresh_client = client.clone();
     let refresh_roots = rom_roots.to_vec();
+    let uploaded_basename = constraints.basename.clone();
+    let catalog_state = Arc::clone(&dat_catalog_state);
+    let verification_store = Arc::clone(&verification_store);
     let on_commit: CommitCallback = Arc::new(move || {
         let client = refresh_client.clone();
         let roots = refresh_roots.clone();
         let games = Arc::clone(&local_game_list);
         let preferences = Arc::clone(&library_preferences);
         let sync_lock = Arc::clone(&catalog_sync_lock);
+        let basename = uploaded_basename.clone();
+        let catalog_state = Arc::clone(&catalog_state);
+        let verification_store = Arc::clone(&verification_store);
         Box::pin(async move {
             let _guard = sync_lock.lock().await;
             let scanned = crate::commands::scan_library(&roots);
+            // Find the game we just committed by matching the basename
+            let game_id = scanned
+                .iter()
+                .find(|g| {
+                    g.content_path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n == basename)
+                })
+                .map(|g| g.id.clone())
+                .unwrap_or_default();
+
+            // Enrich the committed file with DAT identity and persist the
+            // evidence so it survives rescan/restart and reaches the sync.
+            // (An empty game_id matches nothing, so this is the fail-safe
+            // early-out as well.)
+            if let Some(path) = scanned
+                .iter()
+                .find(|g| g.id == game_id)
+                .map(|g| g.content_path.clone())
+            {
+                let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                match crate::rom_transfer::staging::compute_manifest(&path, file_size).await {
+                    Ok(mut manifest) => {
+                        let catalog = catalog_state.read().await.clone();
+                        manifest.enrich(catalog.as_deref());
+                        let verification =
+                            crate::verification::GameVerification::from_manifest(&manifest, &basename);
+                        if let Err(error) = verification_store
+                            .lock()
+                            .await
+                            .record(game_id.clone(), verification)
+                        {
+                            tracing::warn!(
+                                "[ROM XFER] failed to persist DAT verification for {game_id}: {error}"
+                            );
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            "[ROM XFER] failed to hash committed file for DAT enrichment: {error}"
+                        );
+                    }
+                }
+            }
+
             {
                 let mut current = games.write().await;
                 *current = scanned;
             }
             let games_snapshot = games.read().await.clone();
             let preferences_snapshot = preferences.lock().await.snapshot();
-            crate::commands::sync_catalog(&client, &games_snapshot, &preferences_snapshot)
-                .await
-                .map_err(|error| format!("{error:#}"))
+            let verifications_snapshot = verification_store.lock().await.snapshot();
+            crate::commands::sync_catalog(
+                &client,
+                &games_snapshot,
+                &preferences_snapshot,
+                &verifications_snapshot,
+            )
+            .await
+            .map(|_| game_id)
+            .map_err(|error| format!("{error:#}"))
         })
     });
 
@@ -1062,7 +1131,7 @@ mod tests {
             let refreshed = Arc::clone(&refreshed_for_hook);
             Box::pin(async move {
                 refreshed.store(true, Ordering::SeqCst);
-                Ok(())
+                Ok("ok".into())
             })
         });
         let proto = TransferProtocol::new(

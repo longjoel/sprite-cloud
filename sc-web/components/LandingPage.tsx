@@ -2,308 +2,146 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import {
+  Alert,
+  Box,
+  Button,
+  Container,
+  Link as MuiLink,
+  Snackbar,
+  Stack,
+  Typography,
+} from "@mui/material";
+import AppHeader from "@/components/fluent/AppHeader";
+import WallClient from "@/components/WallClient";
+import FeaturedLive from "@/components/FeaturedLive";
+import styles from "./LandingPage.module.css";
 
-// ── LandingPage — public hero + setup guide for unauthenticated visitors
+// ── LandingPage — the public Sprite Cloud arcade ──────────────────────
 
 const CLOUD_ACCENT = "#38bdf8";
-const STEP_COLORS = [CLOUD_ACCENT, "#a78bfa", "#34d399"];
 
-interface Step {
-  num: number;
-  title: string;
-  desc: string;
-  code?: string;
-  link?: { label: string; href: string };
+interface LandingPageProps {
+  userName?: string | null;
+  authenticated?: boolean;
 }
 
-const STEPS: Step[] = [
-  {
-    num: 1,
-    title: "Install the server",
-    desc: "Run this one-liner on your gaming machine (Linux, Bazzite, Steam Deck, Raspberry Pi):",
-    code: "curl -fsSL https://sprite-cloud.com/install.sh | bash",
-  },
-  {
-    num: 2,
-    title: "Create an account",
-    desc: "Sign in with an email and password. This gives you a personal library, favorites, and access to your game servers.",
-    link: { label: "Sign In →", href: "/signin" },
-  },
-  {
-    num: 3,
-    title: "Pair and play",
-    desc: "Go to your dashboard, generate a pairing code. Run sc-server pair <code> on your machine to link it to your account. Point it at your ROM directory, open your library, and start streaming.",
-  },
+const CTA_LINKS = [
+  { label: "Make your own account", href: "/help#account", primary: true },
+  { label: "Check out the code on GitHub", href: "https://github.com/longjoel/sprite-cloud" },
+  { label: "Join the Discord", href: "https://discord.gg/zujXa48kyS" },
+  { label: "Read the blog", href: "https://lngnckr.tech/" },
 ];
 
-const FEATURES = [
-  { icon: "🎮", title: "Your library", desc: "Browse and search your full retro game collection from any device." },
-  { icon: "📺", title: "Browser streaming", desc: "No apps, no plugins. Your games stream directly to any modern browser." },
-  { icon: "🔒", title: "Self-hosted", desc: "Your ROMs, your hardware, your rules. No cloud subscription, no monthly fees." },
-  { icon: "👥", title: "Multiplayer ready", desc: "Share a link and play together. Multiple players can join your game session." },
-  { icon: "📱", title: "Any device", desc: "Desktop, phone, tablet — the responsive player adapts to any screen." },
-  { icon: "🎛️", title: "Touch gamepad", desc: "On-screen touch controls for phones and tablets. No controller required." },
+const SOCIAL_LINKS = [
+  { label: "Bluesky", href: "https://bsky.app/profile/jlonganecker.bsky.social" },
+  { label: "Twitter / X", href: "https://x.com/J_Longanecker" },
+  { label: "YouTube", href: "https://www.youtube.com/@JoelLonganecker" },
 ];
 
-export default function LandingPage() {
+export default function LandingPage({ userName, authenticated = false }: LandingPageProps) {
   const [cookieDismissed, setCookieDismissed] = useState(false);
+  const [featuredKey, setFeaturedKey] = useState<string | null>(null);
 
-  const scrollToGuide = (e: React.MouseEvent) => {
-    e.preventDefault();
-    document.getElementById("guide")?.scrollIntoView({ behavior: "smooth" });
-  };
+  const links = authenticated
+    ? [
+        { label: "Library", href: "/library" },
+        { label: "Dashboard", href: "/servers" },
+        { label: "Help", href: "/help" },
+        { label: "Sign out", href: "/api/auth/signout" },
+      ]
+    : [
+        { label: "Help", href: "/help" },
+        { label: "Sign in", href: "/signin?callbackUrl=/library" },
+      ];
 
   return (
-    <main style={s.page}>
-      {/* ── Nav bar ─────────────────────────────────────────────────── */}
-      <nav style={s.nav}>
-        <span style={s.logo}>Sprite Cloud</span>
-        <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-          <a href="#features" onClick={scrollToGuide} style={s.navLink}>Features</a>
-          <Link href="/signin" style={s.navLink}>Sign In →</Link>
-        </div>
-      </nav>
+    <Box component="main" className={styles.page}>
+      <AppHeader userName={userName} links={links} />
 
-      {/* ── Hero ────────────────────────────────────────────────────── */}
-      <section style={s.hero}>
-        <div style={s.heroInner}>
-          <h1 style={s.title}>
-            Your games.
+      <Box className={styles.layout}>
+        <Box component="section" className={styles.machines} aria-labelledby="active-machines-heading">
+          <Typography id="active-machines-heading" component="h1" className={styles.machinesHeading}>
+            Active machines
+          </Typography>
+          <Typography component="p" className={styles.machinesSubheading}>
+            Live games streaming from servers on this gateway right now.
+          </Typography>
+          <FeaturedLive onFeatured={setFeaturedKey} />
+          <WallClient excludeKey={featuredKey} />
+        </Box>
+
+        <Box component="aside" className={styles.onboarding} aria-labelledby="welcome-heading">
+          <Typography component="p" className={styles.eyebrow}>The arcade is open</Typography>
+          <Typography id="welcome-heading" component="h2" className={styles.title}>
+            Play from anywhere.
             <br />
-            <span style={{ color: CLOUD_ACCENT }}>Any screen.</span>
-          </h1>
-          <p style={s.subtitle}>
-            Stream your retro game library from your own hardware to any
-            device — browser, phone, or tablet. No cloud subscription, no
-            monthly fees. Just your ROMs, your server, your games.
-          </p>
-          <div style={s.ctaRow}>
-            <a href="#guide" onClick={scrollToGuide} style={s.ctaPrimary}>
-              Get Started
-            </a>
-            <Link href="/signin" style={s.ctaSecondary}>
-              Sign In
-            </Link>
-          </div>
-        </div>
-        <div style={s.heroVisual}>
-          <div style={s.visualStack}>
-            {[
-              "#bf2a36","#5a3d8a","#1e3660","#1e3460","#6b8e1e",
-              "#c46a1a","#6a2c8a","#2d6b2d","#c64a1e",
-            ].map((c, i) => (
-              <div
-                key={i}
-                style={{
-                  width: `${120 - i * 8}px`,
-                  height: "12px",
-                  background: c,
-                  borderRadius: 2,
-                  opacity: 0.85 - i * 0.06,
-                  transform: `translateX(${i % 2 === 0 ? "-" : ""}${i * 3}px) rotate(${i % 2 === 0 ? "-" : ""}${i * 0.8}deg)`,
-                }}
-              />
+            <Box component="span" sx={{ color: CLOUD_ACCENT }}>Use your hardware.</Box>
+          </Typography>
+          <Typography component="p" className={styles.subtitle}>
+            Sprite Cloud streams your games from your own machine to any browser.
+            No subscription, no cloud lock-in — just your ROMs, your rules.
+          </Typography>
+
+          <Box className={styles.ctaList}>
+            {CTA_LINKS.map((cta) => (
+              <MuiLink
+                key={cta.label}
+                href={cta.href}
+                className={`${styles.cta}${cta.primary ? ` ${styles.ctaPrimary}` : ""}`}
+                {...(cta.href.startsWith("http") ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+              >
+                <span>{cta.label}</span>
+                <span className={styles.ctaArrow} aria-hidden="true">→</span>
+              </MuiLink>
             ))}
-          </div>
-        </div>
-      </section>
+          </Box>
 
-      {/* ── Features ────────────────────────────────────────────────── */}
-      <section id="features" style={s.features}>
-        <h2 style={s.featuresH2}>What you get</h2>
-        <div style={s.featuresGrid}>
-          {FEATURES.map((f) => (
-            <div key={f.title} style={s.featureCard}>
-              <span style={s.featureIcon}>{f.icon}</span>
-              <h3 style={s.featureTitle}>{f.title}</h3>
-              <p style={s.featureDesc}>{f.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+          <Typography component="p" className={styles.socialHeading}>Follow along</Typography>
+          <Stack direction="row" className={styles.socials}>
+            {SOCIAL_LINKS.map((social) => (
+              <MuiLink key={social.label} href={social.href} target="_blank" rel="noopener noreferrer" className={styles.socialLink}>
+                {social.label}
+              </MuiLink>
+            ))}
+          </Stack>
+        </Box>
+      </Box>
 
-      {/* ── Setup Guide ─────────────────────────────────────────────── */}
-      <section id="guide" style={s.guide}>
-        <h2 style={s.guideH2}>How to set up Sprite Cloud</h2>
-        <div style={s.stepsList}>
-          {STEPS.map((step) => (
-            <div key={step.num} style={s.stepRow}>
-              <div style={{ ...s.stepBadge, background: STEP_COLORS[step.num - 1] }}>
-                {step.num}
-              </div>
-              <div style={s.stepContent}>
-                <h3 style={s.stepTitle}>{step.title}</h3>
-                <p style={s.stepDesc}>{step.desc}</p>
-                {step.code && <pre style={s.stepCode}>{step.code}</pre>}
-                {step.link && (
-                  <Link href={step.link.href} style={s.stepLink}>{step.link.label}</Link>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+      <Box component="footer" sx={{ mt: "auto", borderTop: 1, borderColor: "divider", py: 3 }}>
+        <Container maxWidth="lg">
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={2}
+            sx={{ alignItems: { xs: "flex-start", sm: "center" }, justifyContent: "space-between" }}
+          >
+            <Box>
+              <Typography variant="overline" color="primary" sx={{ display: "block" }}>Sprite Cloud</Typography>
+              <Typography variant="caption" color="text.secondary">Self-hosted game streaming</Typography>
+            </Box>
+            <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
+              <Typography variant="caption" color="text.secondary">© {new Date().getFullYear()} Sprite Cloud</Typography>
+              <Typography variant="caption" color="text.disabled">·</Typography>
+              <MuiLink component={Link} href="/help" variant="caption" underline="hover">Setup guide</MuiLink>
+              <Typography variant="caption" color="text.disabled">·</Typography>
+              <MuiLink href="https://github.com/longjoel/sprite-cloud" target="_blank" rel="noopener noreferrer" variant="caption" underline="hover">Source</MuiLink>
+              <Typography variant="caption" color="text.disabled">·</Typography>
+              <MuiLink href="https://discord.gg/zujXa48kyS" target="_blank" rel="noopener noreferrer" variant="caption" underline="hover">Discord</MuiLink>
+            </Stack>
+          </Stack>
+        </Container>
+      </Box>
 
-      {/* ── Bottom CTA ──────────────────────────────────────────────── */}
-      <section style={s.bottomCta}>
-        <h2 style={s.bottomTitle}>Ready to play?</h2>
-        <p style={s.bottomSub}>Create an account, pair your server, and stream your own library.</p>
-        <div style={{ display: "flex", gap: 14, justifyContent: "center" }}>
-          <Link href="/signin" style={s.ctaPrimary}>Sign In</Link>
-        </div>
-      </section>
-
-      {/* ── Footer ──────────────────────────────────────────────────── */}
-      <footer style={s.footer}>
-        <div style={s.footerCol}>
-          <span style={s.footerText}>Sprite Cloud</span>
-          <span style={s.footerDim}>self-hosted game streaming</span>
-        </div>
-        <div style={s.footerLinks}>
-          <span style={s.footerDim}>© {new Date().getFullYear()} Sprite Cloud</span>
-          <span style={s.footerDot}>·</span>
-          <a href="https://github.com/longjoel/sprite-cloud/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" style={s.footerLink}>License</a>
-          <span style={s.footerDot}>·</span>
-          <a href="https://github.com/longjoel/sprite-cloud" target="_blank" rel="noopener noreferrer" style={s.footerLink}>Source</a>
-          <span style={s.footerDot}>·</span>
-          <a href="https://discord.gg/zujXa48kyS" target="_blank" rel="noopener noreferrer" style={s.footerLink}>Discord</a>
-        </div>
-      </footer>
-
-      {/* ── Cookie consent ──────────────────────────────────────────── */}
-      {!cookieDismissed && (
-        <div style={s.cookieBanner}>
-          <span style={s.cookieText}>
-            This site uses a session cookie for authentication. No tracking, no ads, no third-party cookies.
-          </span>
-          <button onClick={() => setCookieDismissed(true)} style={s.cookieBtn}>OK</button>
-        </div>
-      )}
-    </main>
+      <Snackbar open={!cookieDismissed} onClose={() => setCookieDismissed(true)} anchorOrigin={{ vertical: "bottom", horizontal: "center" }}>
+        <Alert
+          severity="info"
+          variant="outlined"
+          onClose={() => setCookieDismissed(true)}
+          action={<Button color="inherit" size="small" onClick={() => setCookieDismissed(true)}>OK</Button>}
+        >
+          This site uses a session cookie for authentication. No tracking, ads, or third-party cookies.
+        </Alert>
+      </Snackbar>
+    </Box>
   );
 }
-
-// ── Styles ────────────────────────────────────────────────────────────
-
-const s: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: "100vh",
-    background: "var(--color-sky-deep)",
-    color: "var(--color-cloud)",
-    fontFamily: "var(--font-mono)",
-    display: "flex",
-    flexDirection: "column",
-    scrollBehavior: "smooth",
-  },
-  // Nav
-  nav: {
-    display: "flex", justifyContent: "space-between", alignItems: "center",
-    padding: "14px 32px", borderBottom: "2px solid rgba(56,189,248,0.12)",
-  },
-  logo: {
-    fontSize: "var(--font-size-lg)", fontWeight: 700, color: "var(--color-accent)",
-    textTransform: "uppercase", letterSpacing: "0.05em",
-  },
-  navLink: {
-    color: "var(--color-cloud-dim)", fontSize: "var(--font-size-sm)", textDecoration: "none",
-    padding: "6px 16px", border: "1px solid rgba(56,189,248,0.2)", borderRadius: 2,
-    transition: "all 0.15s",
-  },
-  // Hero
-  hero: {
-    display: "flex", alignItems: "center", justifyContent: "center",
-    gap: 64, padding: "80px 32px", maxWidth: 1100, margin: "0 auto",
-    width: "100%", flexWrap: "wrap",
-  },
-  heroInner: { flex: "1 1 400px", maxWidth: 540 },
-  title: { fontSize: "clamp(36px, 6vw, 56px)", fontWeight: 800, lineHeight: 1.08, margin: 0, letterSpacing: "-0.02em" },
-  subtitle: { fontSize: "var(--font-size-md)", color: "var(--color-cloud-dim)", lineHeight: 1.65, marginTop: 24, maxWidth: 460 },
-  ctaRow: { display: "flex", gap: 14, marginTop: 36 },
-  ctaPrimary: {
-    padding: "12px 32px", background: "var(--color-accent)", color: "var(--color-sky-deep)",
-    fontSize: "var(--font-size-md)", fontWeight: 700, border: "none", borderRadius: 2,
-    cursor: "pointer", textDecoration: "none", textTransform: "uppercase", letterSpacing: "0.05em",
-  },
-  ctaSecondary: {
-    padding: "12px 32px", background: "transparent", color: "var(--color-accent)",
-    fontSize: "var(--font-size-md)", fontWeight: 600, border: "1px solid rgba(56,189,248,0.3)",
-    borderRadius: 2, cursor: "pointer", textDecoration: "none",
-  },
-  heroVisual: { flex: "0 0 260px", display: "flex", alignItems: "center", justifyContent: "center" },
-  visualStack: {
-    display: "flex", flexDirection: "column", gap: 6, padding: "40px 20px",
-    background: "rgba(17,24,39,0.6)", border: "1px solid rgba(56,189,248,0.1)", borderRadius: 4,
-  },
-  // Features
-  features: { maxWidth: 1000, margin: "0 auto", padding: "80px 32px", width: "100%" },
-  featuresH2: { fontSize: "var(--font-size-xl)", fontWeight: 700, textAlign: "center", margin: "0 0 48px" },
-  featuresGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 },
-  featureCard: {
-    padding: 24, border: "1px solid rgba(56,189,248,0.08)", borderRadius: 2,
-    background: "rgba(17,24,39,0.4)",
-  },
-  featureIcon: { fontSize: 28, display: "block", marginBottom: 12 },
-  featureTitle: { margin: "0 0 6px", fontSize: "var(--font-size-md)", fontWeight: 700, color: "var(--color-cloud)" },
-  featureDesc: { margin: 0, fontSize: "var(--font-size-sm)", color: "var(--color-cloud-dim)", lineHeight: 1.6 },
-  // Guide
-  guide: { maxWidth: 800, margin: "0 auto", padding: "80px 32px", width: "100%" },
-  guideH2: { fontSize: "var(--font-size-xl)", fontWeight: 700, margin: "0 0 48px", textAlign: "center" },
-  stepsList: { display: "flex", flexDirection: "column", gap: 0 },
-  stepRow: { display: "flex", gap: 24, padding: "28px 0", borderBottom: "1px solid rgba(56,189,248,0.08)" },
-  stepBadge: {
-    flex: "0 0 44px", width: 44, height: 44, borderRadius: 2,
-    display: "flex", alignItems: "center", justifyContent: "center",
-    fontSize: "var(--font-size-lg)", fontWeight: 800, color: "var(--color-sky-deep)",
-  },
-  stepContent: { flex: 1, minWidth: 0 },
-  stepTitle: { fontSize: "var(--font-size-md)", fontWeight: 700, margin: "0 0 6px", color: "var(--color-cloud)" },
-  stepDesc: { fontSize: "var(--font-size-sm)", color: "var(--color-cloud-dim)", lineHeight: 1.65, margin: 0 },
-  stepCode: {
-    marginTop: 12, padding: "10px 14px", background: "rgba(17,24,39,0.6)",
-    border: "1px solid var(--color-sky-high)", borderRadius: 2,
-    fontSize: "var(--font-size-xs)", color: "var(--color-accent)",
-    overflowX: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all",
-  },
-  stepLink: {
-    display: "inline-block", marginTop: 12, padding: "8px 20px",
-    background: "var(--color-sky-high)", color: "var(--color-accent)",
-    fontSize: "var(--font-size-sm)", fontWeight: 600, textDecoration: "none",
-    borderRadius: 2, textTransform: "uppercase", letterSpacing: "0.05em",
-  },
-  // Bottom CTA
-  bottomCta: {
-    textAlign: "center", padding: "80px 32px",
-    borderTop: "1px solid rgba(56,189,248,0.08)",
-    borderBottom: "1px solid rgba(56,189,248,0.08)",
-    background: "rgba(17,24,39,0.4)",
-  },
-  bottomTitle: { fontSize: "var(--font-size-xl)", fontWeight: 700, margin: 0 },
-  bottomSub: { fontSize: "var(--font-size-md)", color: "var(--color-cloud-dim)", marginTop: 8 },
-  // Footer
-  footer: {
-    display: "flex", justifyContent: "space-between", alignItems: "flex-start",
-    padding: "24px 32px 80px", marginTop: "auto", gap: 24, flexWrap: "wrap",
-  },
-  footerCol: { display: "flex", flexDirection: "column", gap: 4 },
-  footerText: {
-    fontSize: "var(--font-size-xs)", color: "var(--color-accent)",
-    textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700,
-  },
-  footerDim: { fontSize: "var(--font-size-xs)", color: "var(--color-cloud-dim)", opacity: 0.5 },
-  footerLinks: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
-  footerLink: { fontSize: "var(--font-size-xs)", color: "var(--color-cloud-dim)", textDecoration: "none", opacity: 0.6, transition: "opacity 0.15s" },
-  footerDot: { color: "var(--color-cloud-dim)", opacity: 0.25, fontSize: "var(--font-size-xs)" },
-  // Cookie
-  cookieBanner: {
-    position: "fixed", bottom: 0, left: 0, right: 0,
-    display: "flex", alignItems: "center", justifyContent: "center",
-    gap: 16, padding: "12px 24px", background: "var(--color-sky-mid)",
-    borderTop: "1px solid var(--color-sky-high)", zIndex: 100, flexWrap: "wrap",
-  },
-  cookieText: { fontSize: "var(--font-size-xs)", color: "var(--color-cloud-dim)", lineHeight: 1.5, maxWidth: 600 },
-  cookieBtn: {
-    padding: "6px 20px", background: "var(--color-accent)", color: "var(--color-sky-deep)",
-    border: "none", borderRadius: 2, fontSize: "var(--font-size-xs)", fontWeight: 700,
-    cursor: "pointer", fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap",
-  },
-};

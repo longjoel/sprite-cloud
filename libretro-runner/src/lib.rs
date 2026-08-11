@@ -15,6 +15,7 @@
 //!         system_dir: "/srv/storage/games/system".into(),
 //!         save_dir: "/srv/storage/games/saves".into(),
 //!         audio_channels: 2,
+//!         mono: false,
 //!     })?
 //! };
 //!
@@ -60,6 +61,15 @@ pub struct CoreConfig {
     /// Legacy compatibility hint. Libretro audio callbacks always provide
     /// interleaved stereo frames, so this value does not change callback width.
     pub audio_channels: u16,
+    /// Normalize mono hardware audio to both channels.
+    ///
+    /// The libretro callback ABI is always stereo. Well-behaved cores
+    /// duplicate the mono sample to both channels; some cores put the mono
+    /// signal in one channel only, which plays out of one speaker. Set this
+    /// for platforms whose hardware is unconditionally mono (NES, GB, SMS,
+    /// GG, NGPC, A26/A52/A78, Pokemon Mini, FDS) so the runner mirrors the
+    /// live channel into both.
+    pub mono: bool,
 }
 
 impl Default for CoreConfig {
@@ -70,6 +80,7 @@ impl Default for CoreConfig {
             system_dir: PathBuf::from("/tmp"),
             save_dir: PathBuf::from("/tmp"),
             audio_channels: 2,
+            mono: false,
         }
     }
 }

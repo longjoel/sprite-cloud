@@ -513,14 +513,14 @@ export class ScPlayer {
       }
 
       // Poll for the worker's SDP answer.
-      // Use the start_game pollToken if available (ties to the session),
-      // otherwise fall back to the sdp_offer's workerToken.
-      // Host reconnects get a short timeout — the session is either alive
-      // (answer in ~300ms) or dead (cancelled on DC close), no point waiting.
+      // Always use the fresh worker_token returned by the sdp_offer
+      // we just posted. The stale start_game / room join token must
+      // never shadow a fresh command token — on reconnect, the old
+      // token's SDP answer was already consumed.
       const isReconnect = !pollToken && !sdpAnswer && hostToken;
       const pollTimeout = isReconnect ? RECONNECT_RELAY_TIMEOUT_MS : undefined;
       const pollStart = Date.now();
-      let answerSdp = await this._pollForAnswer(serverId, pollToken || workerToken, pollTimeout);
+      let answerSdp = await this._pollForAnswer(serverId, workerToken, pollTimeout);
       this._phaseLog("relay", "answer", { ms: Date.now() - pollStart, chars: answerSdp.length });
 
       // Normalize extmap: webrtc-rs 0.17.1 sometimes assigns different extmap IDs
@@ -856,11 +856,12 @@ export class ScPlayer {
         || (window.location.protocol === "http:"
           && window.location.port === "8787"
           && isPrivateIP(window.location.hostname)));
-    const timeout = isRelayOnly ? 60_000 : (isLanDirect ? 3_000 : this._iceTimeout);
+    const timeout = isRelayOnly ? 8_000 : (isLanDirect ? 3_000 : this._iceTimeout);
 
     console.log("[gv] _waitForIceGatheringComplete: waiting (state=" + this._pc.iceGatheringState + ", timeout=" + timeout + "ms, relay=" + isRelayOnly + ")");
 
     const start = Date.now();
+    let srflxSeenAt = null;
     while (Date.now() - start < timeout) {
       await new Promise((r) => setTimeout(r, 250));
       if (!this._pc) {
@@ -886,6 +887,45 @@ export class ScPlayer {
         }
         console.log("[gv] _waitForIceGatheringComplete: complete after " + (Date.now() - start) + "ms");
         return;
+      }
+      // Exit as soon as a NAT-traversable candidate is in the SDP. The
+      // browser keeps gathering in the background and the prebaked/answer
+      // flow tolerates a partial offer — blocking here on a slow or
+      // unreachable TURN allocation added 15s to match start.
+      if (!isRelayOnly && !isLanDirect) {
+        const sdp = this._pc.localDescription?.sdp || "";
+        const elapsed = Date.now() - start;
+        if (/a=candidate:.* typ relay(?:\s|$)/m.test(sdp)) {
+          console.log("[gv] _waitForIceGatheringComplete: relay candidate ready after " + elapsed + "ms");
+          return;
+        }
+        // Srflx is usually discovered before the TURN allocation lands. Hold
+        // a short relay grace so a healthy-but-slower relay isn't dropped
+        // from the one-shot offer (symmetric-NAT guests need it). When TURN
+        // is unreachable this costs only the grace window, not the 15s.
+        if (srflxSeenAt === null && /a=candidate:.* typ srflx(?:\s|$)/m.test(sdp)) {
+          srflxSeenAt = elapsed;
+        }
+        if (srflxSeenAt !== null && elapsed - srflxSeenAt >= 2000) {
+          console.log("[gv] _waitForIceGatheringComplete: srflx candidate ready after " + elapsed + "ms (relay grace elapsed)");
+          return;
+        }
+        // Same-LAN fallback: host candidates suffice when the server is on
+        // the local network; don't block match start on the relay allocation.
+        if (elapsed >= 1500 && /a=candidate:.* typ host(?:\s|$)/m.test(sdp)) {
+          console.log("[gv] _waitForIceGatheringComplete: host candidate ready after " + elapsed + "ms");
+          return;
+        }
+      }
+      // Relay: exit as soon as one relay candidate is in the SDP — the
+      // browser continues ICE gathering in the background and will discover
+      // additional candidates via the trickle-ice path.
+      if (isRelayOnly) {
+        const sdp = this._pc.localDescription?.sdp || "";
+        if (sdp.includes("typ relay")) {
+          console.log("[gv] _waitForIceGatheringComplete: relay candidate ready after " + (Date.now() - start) + "ms");
+          return;
+        }
       }
     }
 
@@ -1147,6 +1187,14 @@ export class ScPlayer {
 
     this._gamepadActive = true;
     this._gamepadStates = [];
+    // Activation gate: a gamepad only contributes after the user has
+    // deliberately pressed a real button or thrown a stick hard
+    // (|axis| > 0.9). Idle or drifting controllers — which commonly
+    // cross the axis threshold and flicker a D-pad/A bit — never inject
+    // phantom input. Bits 4-7 (D-pad) can come from axes, so they do not
+    // count as deliberate button presses (mask = face+shoulder+system).
+    const BUTTON_PRESS_MASK = 0x0F0F; // bits 0-3, 8-11: B,Y,Sel,St,A,X,L,R
+    this._gamepadEngaged = [];
 
     const sendSeat = (localSeat, state) => {
       if (localSeat === 0) {
@@ -1178,6 +1226,15 @@ export class ScPlayer {
 
       for (let localSeat = 0; localSeat < seatCount; localSeat++) {
         const state = nextStates[localSeat] ?? 0;
+        if (!this._gamepadEngaged[localSeat]) {
+          // Not engaged yet: require a deliberate button press or a hard
+          // stick deflection before this gamepad may send anything.
+          const gp = connected[localSeat];
+          const hardStick = gp && gp.axes && gp.axes.some((a) => Math.abs(a) > 0.9);
+          if ((state & BUTTON_PRESS_MASK) === 0 && !hardStick) continue;
+          this._gamepadEngaged[localSeat] = true;
+          console.log("[GPAD] engaged seat", localSeat);
+        }
         const prev = this._gamepadStates[localSeat] ?? 0;
         if (state !== prev) sendSeat(localSeat, state);
       }

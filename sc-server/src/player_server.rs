@@ -109,6 +109,10 @@ fn app_router() -> Router<Arc<AppState>> {
         .route("/api/room/resolve/:code", get(proxy_server_authenticated))
         .route("/api/room/share", post(proxy_server_authenticated))
         .route("/api/room/shorten", post(proxy_server_authenticated))
+        // The LAN player's start_game / stop_game / sdp_offer commands are
+        // proxied with the server bearer so sc-web can attribute creator-less
+        // short codes (minted via this same proxy) to the paired server.
+        .route("/api/server/command", any(proxy_server_authenticated))
         .route("/health", get(health))
         .route("/api/*path", any(proxy))
         .route("/sdp", any(proxy))
@@ -228,7 +232,9 @@ async fn proxy_to_sc_web(
         .iter()
         .filter_map(|(k, v)| {
             let name = k.as_str().to_lowercase();
-            if name == "host" || name == "connection" || name == "referer" {
+            if name == "host" || name == "connection" || name == "referer"
+                || name == "x-forwarded-for" || name == "x-real-ip"
+            {
                 return None;
             }
             Some((k.to_string(), v.to_str().ok()?.to_string()))
@@ -384,6 +390,9 @@ pub(crate) async fn serve_standalone(
     rom_roots: Arc<Vec<String>>,
     preferences: SharedLibraryState,
 ) {
+    // #745: when set, direct hits on the standalone page show the auth
+    // gate (push to gateway signin / app) instead of the anonymous library.
+    let gateway_url = std::env::var("GV_GATEWAY_URL").unwrap_or_default();
     let standalone = StandaloneState {
         game_list,
         rom_roots,
@@ -391,7 +400,7 @@ pub(crate) async fn serve_standalone(
 
     let state = Arc::new(AppState {
         client: Client::new(),
-        sc_web: String::new(),
+        sc_web: gateway_url,
         server_api_key: None,
         server_id: "standalone".to_string(),
         user_id: "local".to_string(),
@@ -846,7 +855,9 @@ async fn launch_game(
         dc: tokio::sync::Mutex::new(None),
         guests: tokio::sync::Mutex::new(Vec::new()),
         host_connected: std::sync::atomic::AtomicBool::new(false),
+        claimed_peer: tokio::sync::Mutex::new(None),
         local_players: std::sync::atomic::AtomicU32::new(1),
+        account_id: tokio::sync::Mutex::new(None),
         core_loaded: std::sync::atomic::AtomicBool::new(false),
         core_loading: std::sync::atomic::AtomicBool::new(false),
         core_cmd_tx: tokio::sync::Mutex::new(None),
@@ -859,6 +870,7 @@ async fn launch_game(
         core_height: tokio::sync::Mutex::new(0),
         core_fps: tokio::sync::Mutex::new(0.0),
         core_sample_rate: tokio::sync::Mutex::new(48_000.0),
+        resident: std::sync::atomic::AtomicBool::new(false),
     });
 
     if let Err(message) = crate::core_bridge::load_core_into_session(
@@ -999,9 +1011,60 @@ async fn trigger_scan(
 
 // ── Standalone library page ──────────────────────────────────────────
 
+/// Auth-gate page (#745): served instead of the anonymous library when the
+/// server is set up with a gateway. Pushes the visitor to the app (future)
+/// or the gateway signin — no game list, no launch, no artifacts.
+fn auth_gate_page(state: &AppState) -> String {
+    let gateway = html_escape(&state.sc_web);
+    let server_name = html_escape(&state.server_name);
+    let signin_url = format!("{gateway}/signin");
+    format!(
+        r##"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{server_name} — Sprite Cloud</title>
+<style>
+  body {{ margin:0; font-family:system-ui,sans-serif; background:#060b14; color:#e5e7eb;
+         display:flex; align-items:center; justify-content:center; min-height:100vh; }}
+  .card {{ max-width:420px; padding:48px 32px; text-align:center; }}
+  h1 {{ font-size:22px; margin:0 0 8px; }}
+  p {{ color:#9ca3af; line-height:1.5; margin:0 0 24px; }}
+  .btn {{ display:block; width:100%; box-sizing:border-box; margin:8px 0; padding:12px 16px;
+         border-radius:8px; text-decoration:none; font-weight:600; font-size:15px; }}
+  .primary {{ background:#3b82f6; color:#fff; }}
+  .ghost {{ border:1px solid #374151; color:#e5e7eb; }}
+  .muted {{ font-size:12px; color:#6b7280; margin-top:24px; }}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>{server_name}</h1>
+    <p>This server requires a Sprite Cloud account. Sign in at your gateway to see
+       the game library and play.</p>
+    <a class="btn primary" href="{signin_url}">Sign in at your gateway</a>
+    <a class="btn ghost" href="#">Download the app (coming soon)</a>
+    <p class="muted">Your saves and play time follow your account on this server.</p>
+  </div>
+</body>
+</html>"##
+    )
+}
+
 async fn library_page(
     State(state): State<Arc<AppState>>,
 ) -> Result<axum::response::Html<String>, axum::http::StatusCode> {
+    // ── Auth gate (#745) ────────────────────────────────────────────
+    // When the server is set up with a gateway (paired, or standalone with
+    // GV_GATEWAY_URL), direct hits must NOT reach the anonymous library.
+    // Serve the gate page: push to the app (future) or the gateway signin.
+    // Bare standalone with no gateway URL is the bootstrap/L1-harness
+    // state and keeps the library.
+    if !state.sc_web.is_empty() {
+        return Ok(axum::response::Html(auth_gate_page(&state)));
+    }
+
     let standalone = state
         .standalone
         .as_ref()
@@ -1641,6 +1704,65 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    }
+
+    #[tokio::test]
+    async fn gateway_configured_serves_auth_gate_not_anonymous_library() {
+        // #745: when the server is set up with a gateway, direct hits on
+        // the LAN page must NOT reach the anonymous library — they get the
+        // gate (gateway signin + app-download push).
+        let state = Arc::new(AppState {
+            client: Client::new(),
+            sc_web: "https://games.example.com".to_string(),
+            server_api_key: None,
+            server_id: "server-vault".to_string(),
+            user_id: "user-joel".to_string(),
+            server_name: "Vault".to_string(),
+            bind: "0.0.0.0:8787".parse().unwrap(),
+            lan_player_enabled: true,
+            standalone: Some(StandaloneState {
+                game_list: Arc::new(tokio::sync::RwLock::new(Vec::new())),
+                rom_roots: Arc::new(vec!["/roms".to_string()]),
+            }),
+            sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            preferences: test_preferences(),
+        });
+
+        let html = library_page(State(state)).await.unwrap().0;
+        // Gate markers: no game list / launch machinery, but the gateway
+        // signin push and the app-download placeholder.
+        assert!(html.contains("requires a Sprite Cloud account"));
+        assert!(html.contains("https://games.example.com/signin"));
+        assert!(html.contains("Download the app"));
+        assert!(!html.contains("launchGame"));
+        assert!(!html.contains("createDataChannel"));
+        assert!(!html.contains("Play</button>"));
+    }
+
+    #[tokio::test]
+    async fn no_gateway_keeps_anonymous_standalone_library() {
+        // Bare standalone (no gateway URL) is the bootstrap/L1-harness
+        // state — the library stays reachable.
+        let state = Arc::new(AppState {
+            client: Client::new(),
+            sc_web: String::new(),
+            server_api_key: None,
+            server_id: "standalone".to_string(),
+            user_id: "local".to_string(),
+            server_name: "Vault".to_string(),
+            bind: "0.0.0.0:8787".parse().unwrap(),
+            lan_player_enabled: true,
+            standalone: Some(StandaloneState {
+                game_list: Arc::new(tokio::sync::RwLock::new(Vec::new())),
+                rom_roots: Arc::new(Vec::new()),
+            }),
+            sessions: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            preferences: test_preferences(),
+        });
+
+        let html = library_page(State(state)).await.unwrap().0;
+        assert!(html.contains("createDataChannel('diagnostics')"));
+        assert!(html.contains("function launchGame"));
     }
 
     #[tokio::test]

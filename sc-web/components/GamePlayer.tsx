@@ -114,7 +114,7 @@ interface GamePlayerProps {
   seat?: number;            // guest seat number (1-based for player display)
   onClose?: () => void;
   onConnected?: () => void; // fired when WebRTC connects
-  onFatalError?: (msg: string) => void; // fired on connection failure — page can show error screen
+  onFatalError?: (msg: string, opts?: { recoverable?: boolean }) => void; // fired on connection failure (recoverable=false) — page can show error screen
   sessionId?: string;
   initialPipeline?: Record<string, StepState>;
   hidePipeline?: boolean;   // suppress internal pipeline loading (page has its own overlay)
@@ -271,10 +271,19 @@ export default function GamePlayer({
 
   // ── Player script ─────────────────────────────────────────────────
 
+  // Poll for window.scPlay — the <script type="module"> onLoad callback
+  // is unreliable after React SSR hydration (React may not bind the
+  // handler to the hydrated DOM node).  Poll every 100ms until scPlay
+  // appears; give up after a generous timeout.
   useEffect(() => {
-    if (window.scPlay) {
-      setScriptReady(true);
-    }
+    if (window.scPlay) { setScriptReady(true); return; }
+    let attempts = 0;
+    const MAX_ATTEMPTS = 150; // 15 s
+    const id = setInterval(() => {
+      if (window.scPlay) { setScriptReady(true); clearInterval(id); return; }
+      if (++attempts >= MAX_ATTEMPTS) { clearInterval(id); }
+    }, 100);
+    return () => clearInterval(id);
   }, []);
 
   // ── Player init ───────────────────────────────────────────────────
@@ -349,13 +358,15 @@ export default function GamePlayer({
             onListSaves(entries: any[], _nextIndex: number) {
               setSaveEntries(entries);
             },
-            onError(msg: string) {
+            onError(msg: string, recoverable?: boolean) {
               setError(msg);
-              onFatalError?.(msg);
-              const activeStep = PIPELINE_STEPS.find(
-                (s) => pipeline[s.id] === "active",
-              );
-              if (activeStep) failStep(activeStep.id);
+              if (!recoverable) {
+                onFatalError?.(msg);
+                const activeStep = PIPELINE_STEPS.find(
+                  (s) => pipeline[s.id] === "active",
+                );
+                if (activeStep) failStep(activeStep.id);
+              }
             },
             onProgress(_msg: string) {},
             onReconnecting(_attempt: number) {},
@@ -678,7 +689,10 @@ export default function GamePlayer({
     <div className={styles.shell} onMouseMove={wakeControls} onPointerDown={wakeControls} onKeyDown={wakeControls}>
 
       <Script src="/player/touch-gamepad-v2.js" />
-      {/* Canonical browser player bootstrap path. Standalone legacy harness removed. */}
+      {/* Canonical browser player bootstrap path — use Next.js <Script>
+          component (not a plain tag) so onLoad reliably fires after
+          SSR hydration.  A poll-based fallback in the effect above catches
+          the module even if onLoad misses. */}
       <Script src="/player/play-v2.js" type="module" onLoad={() => setScriptReady(true)} />
 
       <video

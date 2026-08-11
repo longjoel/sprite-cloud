@@ -2581,7 +2581,7 @@ dependencies = [
 
 [[package]]
 name = "sc-server"
-version = "0.12.10"
+version = "0.12.13"
 dependencies = [
  "anyhow",
  "async-trait",

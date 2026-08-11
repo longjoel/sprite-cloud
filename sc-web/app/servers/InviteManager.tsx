@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Box, Button, MenuItem, TextField, Typography } from "@mui/material";
+import { Alert, Box, Button, Chip, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
 import { csrfHeaders } from "./dashboard-utils";
 
 interface Redemption {
@@ -94,7 +94,7 @@ export default function InviteManager({ serverId, canManage }: { serverId: strin
 
   return (
     <Box sx={{ pt: 1 }}>
-      <Typography variant="h6" sx={{ fontFamily: "var(--font-mono)", color: "var(--color-accent)" }}>
+      <Typography variant="h6" color="primary.main">
         Create invitation
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -139,33 +139,37 @@ export default function InviteManager({ serverId, canManage }: { serverId: strin
       </Box>
 
       {generatedUrl && (
-        <Box sx={{ mt: 2, p: 2, border: "1px solid var(--color-accent)", overflowWrap: "anywhere" }}>
+        <Paper variant="outlined" sx={{ mt: 2, p: 2, borderColor: "primary.main", overflowWrap: "anywhere" }}>
           <Typography variant="caption" color="text.secondary">Copy this link now. The secret is not stored and cannot be shown again.</Typography>
-          <Typography component="code" sx={{ display: "block", my: 1, fontFamily: "var(--font-mono)" }}>{generatedUrl}</Typography>
+          <Typography component="code" sx={{ display: "block", my: 1, overflowWrap: "anywhere" }}>{generatedUrl}</Typography>
           <Button size="small" variant="outlined" onClick={() => navigator.clipboard.writeText(generatedUrl)}>Copy link</Button>
-        </Box>
+        </Paper>
       )}
 
-      {error && <Typography color="error" sx={{ mt: 2 }}>{error}</Typography>}
-      <Typography variant="h6" sx={{ mt: 3, fontFamily: "var(--font-mono)" }}>
+      {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+      <Typography variant="h6" sx={{ mt: 3 }}>
         Invitation history
       </Typography>
       {loading ? (
         <Typography color="text.secondary" sx={{ mt: 3 }}>Loading invitations…</Typography>
       ) : (
-        <Box sx={{ display: "grid", gap: 1.5, mt: 3 }}>
+        <Stack spacing={1.5} sx={{ mt: 3 }}>
           {invites.length === 0 && <Typography color="text.secondary">No invitations yet.</Typography>}
           {invites.map((invite) => {
             const exhausted = invite.redemptionCount >= invite.maxRedemptions;
             const expired = Boolean(invite.expiresAt && new Date(invite.expiresAt) <= new Date());
             const inactive = Boolean(invite.revokedAt) || exhausted || expired;
             return (
-              <Box key={invite.id} sx={{ p: 2, border: "1px solid var(--color-sky-high)", opacity: inactive ? 0.6 : 1 }}>
+              <Paper key={invite.id} variant="outlined" sx={{ p: 2, opacity: inactive ? 0.6 : 1 }}>
                 <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2, flexWrap: "wrap" }}>
-                  <Typography sx={{ fontFamily: "var(--font-mono)" }}>
-                    {invite.redemptionCount}/{invite.maxRedemptions} redeemed
-                    {invite.revokedAt ? " · revoked" : expired ? " · expired" : exhausted ? " · exhausted" : " · active"}
-                  </Typography>
+                  <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexWrap: "wrap" }}>
+                    <Typography>{invite.redemptionCount}/{invite.maxRedemptions} redeemed</Typography>
+                    <Chip
+                      size="small"
+                      label={invite.revokedAt ? "Revoked" : expired ? "Expired" : exhausted ? "Exhausted" : "Active"}
+                      color={inactive ? "default" : "success"}
+                    />
+                  </Box>
                   <Button size="small" color="error" variant="outlined" disabled={inactive} onClick={() => revokeInvite(invite.id)}>
                     Revoke
                   </Button>
@@ -179,10 +183,10 @@ export default function InviteManager({ serverId, canManage }: { serverId: strin
                     {redemption.name || redemption.email} · {redemption.email} · {new Date(redemption.redeemedAt).toLocaleString()}
                   </Typography>
                 ))}
-              </Box>
+              </Paper>
             );
           })}
-        </Box>
+        </Stack>
       )}
     </Box>
   );

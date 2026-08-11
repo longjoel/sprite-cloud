@@ -27,6 +27,7 @@ mod session;
 mod setup;
 mod streaming;
 mod upgrade;
+mod verification;
 mod webrtc;
 
 use anyhow::Result;
@@ -86,10 +87,16 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Honor RUST_LOG (default: info). Without EnvFilter, RUST_LOG is
+    // silently ignored and debug/trace diagnostics are impossible.
     tracing_subscriber::fmt()
         .json()
         .with_target(false)
         .with_timer(tracing_subscriber::fmt::time::UtcTime::rfc_3339())
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
         .init();
 
     let _root = tracing::info_span!("", service = "sc-server").entered();

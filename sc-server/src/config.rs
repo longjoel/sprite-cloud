@@ -17,6 +17,8 @@ pub struct Config {
     pub system: Option<System>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ice: Option<Ice>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dat: Option<Dat>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -63,6 +65,18 @@ pub struct Ice {
     /// Optional TURN server config
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn: Option<Turn>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Dat {
+    /// Directory scanned (non-recursively) for `*.dat` catalog files.
+    /// Files are loaded in sorted filename order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dir: Option<String>,
+    /// Explicit DAT file paths. Entries may live anywhere on disk;
+    /// they are loaded after `dir` contents, in listed order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -165,6 +179,7 @@ mod tests {
             cores: None,
             system: None,
             ice: None,
+            dat: None,
         }
     }
 
@@ -184,6 +199,32 @@ mod tests {
             select_rom_roots(vec!["/mnt/override".into()], Some(&cfg)),
             vec!["/mnt/override"]
         );
+    }
+
+    #[test]
+    fn dat_section_round_trips_through_toml() {
+        let cfg: Config = toml::from_str(
+            r#"
+[sc_web]
+url = "https://sprite-cloud.com"
+[auth]
+api_key = "scsk_test"
+server_id = "server-1"
+[dat]
+dir = "/etc/sprite-cloud/dats"
+files = ["/data/snes.dat", "/data/gba.dat"]
+"#,
+        )
+        .expect("parse dat config");
+
+        let dat = cfg.dat.expect("dat section present");
+        assert_eq!(dat.dir.as_deref(), Some("/etc/sprite-cloud/dats"));
+        assert_eq!(dat.files, vec!["/data/snes.dat", "/data/gba.dat"]);
+
+        // Serializes back without the optional section when absent.
+        let bare = config_with_roots(&[]);
+        let text = toml::to_string(&bare).expect("serialize");
+        assert!(!text.contains("[dat]"));
     }
 }
 

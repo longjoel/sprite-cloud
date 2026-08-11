@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { useMediaQuery, useTheme } from "@mui/material";
+import { Alert, Box, Checkbox, Chip, CircularProgress, FormControlLabel, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography, useMediaQuery, useTheme } from "@mui/material";
 import { Badge, Button, Modal } from "@/components/ui";
 import GameTile from "@/components/fluent/GameTile";
 import GameTileContextMenu from "@/components/fluent/GameTileContextMenu";
@@ -27,6 +27,10 @@ interface Game {
   maxPlayers: number;
   playedAt?: string;
   coverUrl?: string | null;
+  verification?: { state: "verified" | "unverified" } | null;
+  alwaysOn?: boolean;
+  freePlay?: boolean;
+  public?: boolean;
 }
 
 interface GameActionModel {
@@ -43,6 +47,11 @@ interface GameActionModel {
   onChooseHost?: (game: Game) => void;
   onDelete?: (game: Game) => void;
   onDownload?: (game: Game) => void;
+  /** Admin flag toggles (Living Cabinet wall, #762). */
+  canToggleFlags: boolean;
+  onTogglePublic?: (game: Game) => void;
+  onToggleAlwaysOn?: (game: Game) => void;
+  onToggleFreePlay?: (game: Game) => void;
 }
 
 interface PlayableHost {
@@ -547,7 +556,45 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
     onChooseHost: hasServers ? chooseHost : undefined,
     onDelete: isAdmin ? handleDelete : undefined,
     onDownload: isAdmin ? handleDownload : undefined,
+    canToggleFlags: isAdmin,
+    onTogglePublic: isAdmin ? handleToggleFlag("public") : undefined,
+    onToggleAlwaysOn: isAdmin ? handleToggleFlag("alwaysOn") : undefined,
+    onToggleFreePlay: isAdmin ? handleToggleFlag("freePlay") : undefined,
   };
+
+  // ── Flag toggle handler (Living Cabinet wall, #762) ─────────────
+
+  function handleToggleFlag(flag: "public" | "alwaysOn" | "freePlay") {
+    return async (game: Game) => {
+      const serverId = game.serverId ?? adminServers[0]?.id;
+      if (!serverId) return;
+
+      try {
+        const res = await fetch("/api/games/flags", {
+          method: "PATCH",
+          headers: csrfHeaders(),
+          body: JSON.stringify({
+            serverId,
+            gameId: game.id,
+            [flag]: !(
+              flag === "public" ? game.public
+              : flag === "freePlay" ? game.freePlay
+              : game.alwaysOn
+            ),
+          }),
+        });
+        const data = await res.json() as { error?: string };
+        if (!res.ok) {
+          alert(data.error ?? "Update failed");
+          return;
+        }
+        // Refresh the library so the new flag state is reflected
+        window.location.reload();
+      } catch {
+        alert("Network error — flag update may not have been applied");
+      }
+    };
+  }
 
   // ── Delete handler ──────────────────────────────────────────────
 
@@ -609,39 +656,38 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
       onChooseHost={gameActions.onChooseHost}
       onDelete={gameActions.canDelete ? gameActions.onDelete : undefined}
       onDownload={gameActions.onDownload ? gameActions.onDownload : undefined}
+      isPublic={game.public}
+      onTogglePublic={gameActions.canToggleFlags ? () => gameActions.onTogglePublic?.(game) : undefined}
+      isAlwaysOn={game.alwaysOn}
+      onToggleAlwaysOn={gameActions.canToggleFlags ? () => gameActions.onToggleAlwaysOn?.(game) : undefined}
+      isFreePlay={game.freePlay}
+      onToggleFreePlay={gameActions.canToggleFlags ? () => gameActions.onToggleFreePlay?.(game) : undefined}
       launching={launchingGame === libraryGameKey(game)}
     />
   );
 
   const renderGameRow = (game: Game, index: number) => (
-    <tr
+    <TableRow
       key={libraryGameKey(game)}
       className="library-game-row"
-      style={{
-        background: index % 2 === 0 ? "rgba(17,24,39,0.3)" : "transparent",
-        transition: "background 0.1s",
-      }}
-      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "rgba(56,189,248,0.08)"; }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLElement).style.background = index % 2 === 0 ? "rgba(17,24,39,0.3)" : "transparent";
-      }}
+      sx={{ backgroundColor: index % 2 === 0 ? "action.hover" : "transparent", transition: "background-color 0.1s", "&:hover": { backgroundColor: "action.selected" } }}
     >
-      <td style={{ padding: "12px 14px", fontSize: "var(--font-size-md)", color: "var(--color-cloud)" }}>
-        <span style={styles.tableName}>{game.name}</span>
-      </td>
-      <td style={{ padding: "12px 14px" }}>
+      <TableCell sx={{ fontSize: "0.875rem", color: "text.primary" }}>
+        <Typography variant="body2" sx={{ fontWeight: 600 }}>{game.name}</Typography>
+      </TableCell>
+      <TableCell>
         <Badge variant="info">{game.platform}</Badge>
-      </td>
-      <td style={{ padding: "12px 14px", textAlign: "center", fontSize: "var(--font-size-xs)", color: "var(--color-cloud-dim)" }}>
+      </TableCell>
+      <TableCell align="center" sx={{ fontSize: "0.75rem", color: "text.secondary" }}>
         {game.maxPlayers > 1 ? `${game.maxPlayers}p` : "1p"}
-      </td>
+      </TableCell>
       {tab === "recent" && (
-        <td style={{ padding: "12px 14px", whiteSpace: "nowrap", color: "var(--color-cloud-dim)" }}>
+        <TableCell sx={{ whiteSpace: "nowrap", color: "text.secondary" }}>
           {formatRelativeAge(game.playedAt)}
-        </td>
+        </TableCell>
       )}
-      <td style={{ padding: "8px 14px", textAlign: "right" }}>
-        <div className="library-row-actions">
+      <TableCell align="right">
+        <Box className="library-row-actions">
           <Button
             disabled={!hasServers || launchingGame === libraryGameKey(game)}
             variant="primary"
@@ -651,7 +697,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
           >
             {launchingGame === libraryGameKey(game) ? "Launching…" : "Play"}
           </Button>
-          {(gameActions.canFavorite || gameActions.canRename || gameActions.canDelete || !!gameActions.onChooseHost || !!gameActions.onDownload) && (
+          {(gameActions.canFavorite || gameActions.canRename || gameActions.canDelete || !!gameActions.onChooseHost || !!gameActions.onDownload || gameActions.canToggleFlags) && (
             <GameTileContextMenu
               game={game}
               isFavorite={gameActions.isFavorite(game)}
@@ -660,23 +706,30 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
               onChooseHost={gameActions.onChooseHost ? () => gameActions.onChooseHost?.(game) : undefined}
               onDelete={gameActions.canDelete ? () => gameActions.onDelete?.(game) : undefined}
               onDownload={gameActions.onDownload ? () => gameActions.onDownload?.(game) : undefined}
+              isPublic={game.public}
+              onTogglePublic={gameActions.canToggleFlags ? () => gameActions.onTogglePublic?.(game) : undefined}
+              isAlwaysOn={game.alwaysOn}
+              onToggleAlwaysOn={gameActions.canToggleFlags ? () => gameActions.onToggleAlwaysOn?.(game) : undefined}
+              isFreePlay={game.freePlay}
+              onToggleFreePlay={gameActions.canToggleFlags ? () => gameActions.onToggleFreePlay?.(game) : undefined}
               triggerAriaLabel={`More actions for ${game.name}`}
             />
           )}
-        </div>
-      </td>
-    </tr>
+        </Box>
+      </TableCell>
+    </TableRow>
   );
 
   // Auto-switch to cards on mobile — table requires horizontal scroll at narrow widths
   const effectiveViewMode = isNarrow ? "grid" : viewMode;
 
   return (
-    <main style={styles.main}>
+    <Box component="main" sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
       <AppHeader
         userName={session?.user?.name || session?.user?.email || undefined}
         links={[
           { label: "Home", href: "/" },
+          { label: "Library", href: "/library" },
           ...(session ? [{ label: "Dashboard", href: "/servers" }] : []),
           ...(session
             ? [{ label: "Sign out", href: "/api/auth/signout" }]
@@ -685,30 +738,32 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
       />
 
       {!session && !isLanProxy && (
-        <div style={styles.banner}>Sign in to play games on your server.</div>
+        <Alert severity="info" sx={{ mx: 2, mt: 2 }}>Sign in to play games on your server.</Alert>
       )}
 
       {fetchError && !allLoading && allGames.length === 0 && !needsLanHandoff && (
-        <div style={styles.banner}>
+        <Alert severity="warning" sx={{ mx: 2, mt: 2 }}>
           Server is offline. Games will appear when your server reconnects.
-        </div>
+        </Alert>
       )}
 
-      <section style={styles.section}>
-        <h2 style={{ ...styles.h2, marginBottom: "var(--space-4)" }}>Library</h2>
+      <Box component="section" sx={{ px: 3, mb: 6 }}>
+        <Typography variant="h5" sx={{ mb: 2 }}>Library</Typography>
 
         {needsLanHandoff && allGames.length === 0 && !allLoading && (
-          <div style={styles.lanHandoff}>
-            <strong>Your games stay on sc-server</strong>
-            <span>No games synced yet. Open the library on your LAN server, or upgrade sc-server to sync.</span>
-            <div style={styles.lanHandoffLinks}>
+          <Paper variant="outlined" sx={{ p: 3, mb: 3 }}>
+            <Stack spacing={1.5}>
+              <Typography variant="h6">Your games stay on sc-server</Typography>
+              <Typography color="text.secondary">No games synced yet. Open the library on your LAN server, or upgrade sc-server to sync.</Typography>
+              <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", gap: 1 }}>
               {lanLibraries.map((library) => (
-                <a key={library.serverId} href={library.url} style={styles.lanHandoffLink}>
+                <Button key={library.serverId} href={library.url} variant="secondary" size="sm">
                   {`Open ${library.name} library`}
-                </a>
+                </Button>
               ))}
-            </div>
-          </div>
+              </Stack>
+            </Stack>
+          </Paper>
         )}
 
         <LibraryToolbar
@@ -730,12 +785,12 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
           onViewModeChange={setViewMode}
         />
         {session && adminServers.length > 0 && (
-          <div style={{ marginBottom: "var(--space-4)" }}>
+          <Box sx={{ mb: 2 }}>
             <RomUploadDropzone
               adminServers={adminServers}
               onUploadComplete={() => loadAllGames(true, search, [], 0)}
             />
-          </div>
+          </Box>
         )}
 
 
@@ -751,27 +806,27 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
             </div>
           )
         ) : sortedGames.length === 0 ? (
-          <p style={styles.empty}>
+          <Typography color="text.secondary" sx={{ py: 6, textAlign: "center" }}>
             {needsLanHandoff && allGames.length === 0
               ? "No games synced from your servers. Upgrade sc-server on your LAN host to v0.11.3."
               : selectedPlatforms.size > 0
               ? "No games match the selected platforms."
               : tab === "all" ? "No games found." : tab === "favorites" ? "No favorites yet." : "No recent plays."}
-          </p>
+          </Typography>
         ) : effectiveViewMode === "grid" ? (
           <>
             {tab === "recent" ? recentGroups.map((group) => (
-              <section key={group.date} style={styles.recentGroup}>
-                <h3 style={styles.recentDate}>{formatRecentGroupLabel(group.date)}</h3>
+                <Box component="section" key={group.date} sx={{ mb: 3 }}>
+                <Typography variant="h6" sx={{ mb: 1.5 }}>{formatRecentGroupLabel(group.date)}</Typography>
                 <div className="game-tile-grid">
                   {group.games.map((game) => (
                     <div key={libraryGameKey(game)}>
                       {renderGameCard(game)}
-                      <div style={styles.recentAge}>{formatRelativeAge(game.playedAt)}</div>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>{formatRelativeAge(game.playedAt)}</Typography>
                     </div>
                   ))}
                 </div>
-              </section>
+              </Box>
             )) : (() => {
               // Group games by platform for collapsible sections
               const groups = new Map<string, Game[]>();
@@ -782,128 +837,113 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
               }
               return [...groups.entries()].map(([platform, games]) => (
                 <details key={platform} open style={{ marginBottom: 16 }}>
-                  <summary style={styles.platformSummary}>
-                    <span>{platform}</span>
-                    <span style={styles.platformCount}>{games.length}</span>
-                  </summary>
-                  <div className="game-tile-grid" style={{ marginTop: 12 }}>
+                  <Box component="summary" sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", py: 1, color: "text.primary", fontWeight: 600 }}>
+                    <Typography component="span" variant="h6">{platform}</Typography>
+                    <Chip label={games.length} size="small" color="primary" variant="outlined" />
+                  </Box>
+                  <Box className="game-tile-grid" sx={{ mt: 1.5 }}>
                     {games.map((game) => renderGameCard(game))}
-                  </div>
+                  </Box>
                 </details>
               ));
             })()}
           </>
         ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{
-              width: "100%",
-              borderCollapse: "collapse",
-              fontSize: "var(--font-size-sm)",
-              fontFamily: "var(--font-mono)",
-            }}>
-              <thead>
-                <tr style={{
-                  borderBottom: "2px solid var(--color-sky-high)",
-                  color: "var(--color-cloud-dim)",
-                  fontSize: "var(--font-size-xs)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.06em",
-                }}>
-                  <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600 }}>Name</th>
-                  <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600 }}>Platform</th>
-                  <th style={{ textAlign: "center", padding: "10px 14px", fontWeight: 600 }}>Players</th>
-                  {tab === "recent" && <th style={{ textAlign: "left", padding: "10px 14px", fontWeight: 600 }}>Last played</th>}
-                  <th style={{ textAlign: "right", padding: "10px 14px", fontWeight: 600 }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tab === "recent" ? recentGroups.flatMap((group, groupIndex) => [
-                  <tr key={`date-${group.date}`}>
-                    <th scope="rowgroup" colSpan={5} style={styles.recentTableDate}>{formatRecentGroupLabel(group.date)}</th>
-                  </tr>,
-                  ...group.games.map((game, index) => renderGameRow(
-                    game,
-                    recentGroups.slice(0, groupIndex).reduce((count, previous) => count + previous.games.length, 0) + index,
-                  )),
-                ]) : sortedGames.map((game, i) => renderGameRow(game, i))}
-              </tbody>
-            </table>
-          </div>
+          <Paper variant="outlined" sx={{ overflowX: "auto" }}>
+        <Table size="small" sx={{ width: "100%", fontSize: "0.875rem", color: "inherit" }}>
+          <TableHead>
+            <TableRow sx={{ borderBottom: 2, borderColor: "divider", color: "text.secondary", "& th": { textTransform: "uppercase", letterSpacing: "0.06em", fontSize: "0.75rem", fontWeight: 600, py: 1.25, px: 1.75 } }}>
+              <TableCell>Name</TableCell>
+              <TableCell>Platform</TableCell>
+              <TableCell align="center">Players</TableCell>
+              {tab === "recent" && <TableCell>Last played</TableCell>}
+              <TableCell align="right">Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {tab === "recent" ? recentGroups.flatMap((group, groupIndex) => [
+              <TableRow key={`date-${group.date}`}>
+                <th scope="rowgroup" colSpan={5} style={styles.recentTableDate}>{formatRecentGroupLabel(group.date)}</th>
+              </TableRow>,
+              ...group.games.map((game, index) => renderGameRow(
+                game,
+                recentGroups.slice(0, groupIndex).reduce((count, previous) => count + previous.games.length, 0) + index,
+              )),
+            ]) : sortedGames.map((game, i) => renderGameRow(game, i))}
+          </TableBody>
+        </Table>
+          </Paper>
         )}
 
         {hasMore && currentGames.length > 0 && (
           <div ref={sentinelRef} className={`library-load-sentinel${currentLoading ? " is-loading" : ""}`} aria-hidden="true" />
         )}
-      </section>
+      </Box>
 
       {/* ── Host picker ──────────────────────────────────────────── */}
       <Modal open={hostPickerGame !== null} onClose={closeHostPicker} title="Choose host">
         {launchError && (
-          <div role="alert" style={{ marginBottom: "var(--space-4)", color: "var(--color-error)" }}>
-            <p>{launchError}</p>
+          <Alert severity="error" role="alert" sx={{ mb: 2 }}>
+            <Stack spacing={1}>
+              <Typography>{launchError}</Typography>
             {hostPickerGame && <Button variant="secondary" size="sm" disabled={hostPickerLoading || launchingGame !== null} onClick={() => chooseHost(hostPickerGame)}>Retry</Button>}
-          </div>
+            </Stack>
+          </Alert>
         )}
         {hostPickerLoading ? (
-          <p style={styles.empty}>Loading hosts…</p>
+          <Stack spacing={1} sx={{ alignItems: "center", py: 2 }}>
+            <CircularProgress size={24} />
+            <Typography color="text.secondary">Loading hosts…</Typography>
+          </Stack>
         ) : playableHosts.length === 0 ? (
-          <p style={styles.empty}>{launchError ? "No host information is available." : "No hosts available."}</p>
+          <Typography color="text.secondary" sx={{ py: 2, textAlign: "center" }}>{launchError ? "No host information is available." : "No hosts available."}</Typography>
         ) : (
           playableHosts.map((host) => {
             const playable = host.has_game && (host.status === "online" || host.status === "stale");
             return (
-              <div key={host.server_id} style={styles.pickerRow}>
-                <span style={styles.pickerName}>{host.name}</span>
+              <Stack key={host.server_id} direction="row" spacing={1.5} sx={{ alignItems: "center", py: 1.5, borderBottom: 1, borderColor: "divider" }}>
+                <Typography sx={{ flex: 1 }}>{host.name}</Typography>
                 <Badge variant={statusVariant(host.status)}>{host.has_game ? host.status : `${host.status} · game unavailable`}</Badge>
                 {!host.has_game && (
-                  <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-muted)" }}>no game</span>
+                  <Typography variant="caption" color="text.secondary">no game</Typography>
                 )}
                 <Button
                   variant="primary"
                   size="sm"
                   disabled={!playable || launchingGame !== null}
                   onClick={() => selectHost(hostPickerGame!, host.server_id, host.name)}
-                  style={{ opacity: playable ? 1 : 0.4, cursor: playable ? "pointer" : "default" }}
+                  sx={{ opacity: playable ? 1 : 0.4 }}
                 >
                   {launchingGame !== null ? "Launching…" : playable ? "Select" : "—"}
                 </Button>
-              </div>
+              </Stack>
             );
           })
         )}
-        <label style={{ display: "flex", gap: "var(--space-2)", alignItems: "center", marginTop: "var(--space-4)" }}>
-          <input disabled={hostPickerLoading || launchingGame !== null} type="checkbox" checked={rememberSelectedHost} onChange={(event) => setRememberSelectedHost(event.target.checked)} />
-          Always use this host
-        </label>
-        <div style={{ marginTop: "var(--space-5)", textAlign: "center" }}>
+        <FormControlLabel
+          sx={{ mt: 2 }}
+          control={<Checkbox disabled={hostPickerLoading || launchingGame !== null} checked={rememberSelectedHost} onChange={(event) => setRememberSelectedHost(event.target.checked)} />}
+          label="Always use this host"
+        />
+        <Box sx={{ mt: 3, textAlign: "center" }}>
           <Button variant="secondary" onClick={closeHostPicker}>Cancel</Button>
-        </div>
+        </Box>
       </Modal>
 
       {/* ── Rename modal ────────────────────────────────────────── */}
       <Modal open={editingGame !== null} onClose={cancelRename} title="Rename game">
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-          <input
-            type="text"
+        <Stack spacing={2}>
+          <TextField
+            label="Game name"
+            fullWidth
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
             onKeyDown={(e) => editingGame && handleEditKey(e, editingGame)}
             autoFocus
             disabled={editSaving}
-            style={{
-              padding: "10px 14px",
-              background: "var(--color-sky-high)",
-              border: "2px solid var(--color-sky-high)",
-              borderRadius: "var(--radius-sm)",
-              color: "var(--color-cloud)",
-              fontSize: "var(--font-size-base)",
-              fontFamily: "var(--font-mono)",
-              outline: "none",
-            }}
-            onFocus={(e) => { e.target.style.borderColor = "var(--color-accent)"; }}
-            onBlur={(e) => { e.target.style.borderColor = "var(--color-sky-high)"; }}
+            slotProps={{ htmlInput: { "aria-label": "Game name" } }}
           />
-          <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "flex-end" }}>
+          <Stack direction="row" spacing={1} sx={{ justifyContent: "flex-end" }}>
             <Button variant="secondary" onClick={cancelRename}>Cancel</Button>
             <Button
               variant="primary"
@@ -912,10 +952,10 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
             >
               {editSaving ? "Saving..." : "Save"}
             </Button>
-          </div>
-        </div>
+          </Stack>
+        </Stack>
       </Modal>
-    </main>
+    </Box>
   );
 }
 

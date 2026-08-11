@@ -1,6 +1,7 @@
 //! Game lifecycle and WebRTC SDP handlers.
 
 use super::*;
+use std::sync::atomic::AtomicBool;
 
 fn signal_log(flow: &str, stage: &str, details: &str) {
     if details.is_empty() {
@@ -30,6 +31,27 @@ async fn record_server_local_play(
 }
 
 // ── Command handlers ────────────────────────────────────────────────
+
+/// The gateway-enriched account identity for a command payload (#745).
+///
+/// sc-web validates the launch capability (membership + short code) and
+/// attaches the authenticated session's `user_id` to `start_game` (and
+/// guest SDP) commands. This is the ONLY trusted identity source — a
+/// client-sent `account_id` in the DC auth message is advisory at best
+/// and never authoritative.
+pub(super) fn payload_account_id(cmd: &sc_web::Command) -> Option<String> {
+    cmd.payload
+        .get("user_id")
+        .and_then(|value| value.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+}
+
+/// Whether the command requests a resident session (never idle-killed,
+/// periodically checkpointed). Driven by the gateway's always_on flag.
+fn is_resident(cmd: &sc_web::Command) -> bool {
+    cmd.payload.get("resident").and_then(|v| v.as_bool()).unwrap_or(false)
+}
 
 pub(super) async fn handle_start_game(
     cmd: &sc_web::Command,
@@ -211,8 +233,12 @@ pub(super) async fn handle_start_game(
         audio_track: std::sync::Mutex::new(stack.audio_track),
         dc: tokio::sync::Mutex::new(None),
         guests: tokio::sync::Mutex::new(Vec::new()),
-        host_connected: std::sync::atomic::AtomicBool::new(false),
+        host_connected: AtomicBool::new(false),
+        claimed_peer: tokio::sync::Mutex::new(None),
         local_players: std::sync::atomic::AtomicU32::new(1),
+        // #745: identity comes from the gateway-enriched start_game payload
+        // (membership + short-code validated), never from the browser.
+        account_id: tokio::sync::Mutex::new(payload_account_id(cmd)),
         core_loaded: std::sync::atomic::AtomicBool::new(false),
         core_loading: std::sync::atomic::AtomicBool::new(false),
         core_cmd_tx: tokio::sync::Mutex::new(None),
@@ -225,6 +251,7 @@ pub(super) async fn handle_start_game(
         core_height: tokio::sync::Mutex::new(0),
         core_fps: tokio::sync::Mutex::new(0.0),
         core_sample_rate: tokio::sync::Mutex::new(48000.0),
+        resident: AtomicBool::new(is_resident(cmd)),
     });
 
     // Load libretro core
@@ -412,6 +439,30 @@ pub(super) async fn handle_start_game(
 
     record_server_local_play(library_preferences, game_id, launch_ready, server_local).await;
 
+    // ── Resident checkpoint timer ────────────────────────────────────
+    // Resident sessions save state every 5 minutes so crash recovery
+    // resumes near where playback left off.
+    // TODO: send CoreCommand::SaveState + persist via save_stack_push.
+    if session.resident.load(std::sync::atomic::Ordering::Relaxed) {
+        let chk_session = Arc::clone(&session);
+        let chk_cancel = session.cancel.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(300));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    _ = chk_cancel.cancelled() => break,
+                    _ = interval.tick() => {
+                        tracing::debug!(
+                            "[CHKPT] resident tick for {} — checkpoint TODO",
+                            chk_session.game_id,
+                        );
+                    }
+                }
+            }
+        });
+    }
+
     let total = t_total.elapsed();
     tracing::info!(
         "[TIMING] start_game total={total:.3?} | rom={:.3?} core={:.3?} webrtc={:.3?} load={:.3?} sdp={:.3?}",
@@ -447,11 +498,38 @@ pub(super) async fn handle_stop_game(
             stopped = true;
         } else if sessions.contains_key(game_id) {
             tracing::warn!("[POLL] ignoring stale stop for a superseded game session");
+            // Command is valid (a session exists for this game_id) but the
+            // cloud session ID no longer matches — mark completed so it
+            // doesn't cycle in the poll loop forever.
+            let _ = client
+                .command_result(
+                    &cmd.id,
+                    &cmd.lease_token,
+                    &serde_json::json!({"ok": true, "reason": "session superseded"}),
+                )
+                .await;
         } else {
             tracing::info!("[POLL] stop_game for already-ended session {game_id}, skipping notify");
+            // Session already gone — desired outcome is already achieved.
+            // Mark completed so the gateway doesn't re-issue it forever.
+            let _ = client
+                .command_result(
+                    &cmd.id,
+                    &cmd.lease_token,
+                    &serde_json::json!({"ok": true, "reason": "session already ended"}),
+                )
+                .await;
         }
     } else {
         tracing::warn!("[POLL] stop_game command missing exact cloud session id");
+        // Can't act without a session ID — mark failed so it doesn't retry.
+        let _ = client
+            .command_result(
+                &cmd.id,
+                &cmd.lease_token,
+                &serde_json::json!({"ok": false, "error": "missing session_id"}),
+            )
+            .await;
     }
     if stopped {
         let _ = client
@@ -574,9 +652,12 @@ pub(super) async fn handle_sdp_offer(
                 tracing::info!("[SDP] host reconnecting — swapping in fresh PC");
                 match pool.acquire().await {
                     Ok(fresh) => {
+                        let rebind_video = fresh.video_track.clone();
+                        let rebind_audio = fresh.audio_track.clone();
                         *session.video_track.lock().expect("mutex poisoned") = fresh.video_track;
                         *session.audio_track.lock().expect("mutex poisoned") = fresh.audio_track;
                         *session.pc.lock().expect("mutex poisoned") = fresh.pc;
+                        rebind_guest_tracks(session, rebind_video, rebind_audio).await;
                         dc_handler::wire_dc_handler(session);
 
                         let pc = session.pc.lock().expect("mutex poisoned").clone();
@@ -657,11 +738,14 @@ pub(super) async fn handle_sdp_offer(
                             match pool.acquire().await {
                                 Ok(fresh) => {
                                     tracing::info!("[SDP] retry: swapped in fresh PC from pool");
+                                    let rebind_video = fresh.video_track.clone();
+                                    let rebind_audio = fresh.audio_track.clone();
                                     *session.video_track.lock().expect("mutex poisoned") =
                                         fresh.video_track;
                                     *session.audio_track.lock().expect("mutex poisoned") =
                                         fresh.audio_track;
                                     *session.pc.lock().expect("mutex poisoned") = fresh.pc;
+                                    rebind_guest_tracks(session, rebind_video, rebind_audio).await;
                                     dc_handler::wire_dc_handler(session);
                                     tokio::time::sleep(Duration::from_millis(500)).await;
                                 }
@@ -757,6 +841,17 @@ pub(super) async fn handle_guest_sdp(
     client: &sc_web::ScWebClient,
     _pool: &webrtc::PcPool,
 ) {
+    let peer_role = cmd
+        .payload
+        .get("peer_role")
+        .and_then(|value| value.as_str())
+        .unwrap_or("viewer")
+        .to_string();
+    let peer_seat = cmd
+        .payload
+        .get("peer_seat")
+        .and_then(|value| value.as_u64())
+        .and_then(|value| u32::try_from(value).ok());
     let report_error = |msg: &str| {
         tracing::error!("[SDP] guest error: {msg}");
     };
@@ -842,24 +937,28 @@ pub(super) async fn handle_guest_sdp(
         ),
     );
 
-    // Seat = existing guests + local_players (host takes seats 0..local_players-1)
+    // The gateway binds peer_role and peer_seat to the validated peer token.
+    // Keep a display-only fallback for old commands, but never grant input
+    // authority without an explicit player role and authoritative seat.
     let local_players = session
         .local_players
         .load(std::sync::atomic::Ordering::Relaxed);
-    let seat = {
+    let fallback_seat = {
         let guests = session.guests.lock().await;
         guests.len() as u32 + local_players
     };
+    let seat = peer_seat.unwrap_or(fallback_seat);
 
     // Store guest peer
     let guest = Arc::new(crate::session::GuestPeer {
         pc,
         peer_token: peer_token.to_string(),
+        role: peer_role.clone(),
     });
     session.guests.lock().await.push(Arc::clone(&guest));
 
-    // Wire DC handler for guest input
-    wire_dc_handler_for_guest(session, peer_token, seat).await;
+    // Wire DC handler with the role and seat authenticated by sc-web.
+    wire_dc_handler_for_guest(session, peer_token, seat, &peer_role, peer_seat).await;
 
     // Send SDP answer back via notify_sdp
     let worker_url = worker_url(&session.game_id);
@@ -903,6 +1002,8 @@ pub(super) async fn wire_dc_handler_for_guest(
     session: &Arc<GameSession>,
     peer_token: &str,
     seat: u32,
+    peer_role: &str,
+    authoritative_seat: Option<u32>,
 ) {
     let session = Arc::clone(session);
     let pc = {
@@ -924,10 +1025,12 @@ pub(super) async fn wire_dc_handler_for_guest(
     let pc_for_ice = Arc::clone(&pc);
     let session_for_ice = Arc::clone(&session);
     let pt_for_ice = peer_token.clone();
+    let peer_role = peer_role.to_string();
 
     pc.on_data_channel(Box::new(move |dc: Arc<_>| {
         let session = Arc::clone(&session);
         let pt = peer_token.clone();
+        let peer_role = peer_role.clone();
         Box::pin(async move {
             tracing::info!(
                 "[DC] guest data channel received: {} (seat={})",
@@ -954,6 +1057,13 @@ pub(super) async fn wire_dc_handler_for_guest(
                     tracing::info!("[DC] guest disconnected");
                     let mut guests = session.guests.lock().await;
                     guests.retain(|g| g.peer_token != pt);
+                    // If the departing peer was the claimer, release the claim
+                    // so the next viewer can grab the cabinet.
+                    let mut claimed = session.claimed_peer.lock().await;
+                    if claimed.as_deref() == Some(pt.as_str()) {
+                        tracing::info!("[DC] arcade: claim released (claimer left)");
+                        *claimed = None;
+                    }
                 })
             }));
 
@@ -961,6 +1071,8 @@ pub(super) async fn wire_dc_handler_for_guest(
             dc_for_msg.on_message(Box::new(move |msg| {
                 let session = Arc::clone(&session_for_msg);
                 let dc = Arc::clone(&dc_for_move);
+                let peer_role = peer_role.clone();
+                let pt = pt.clone();
                 Box::pin(async move {
                     let data = if msg.is_string {
                         String::from_utf8_lossy(&msg.data).into_owned().into_bytes()
@@ -984,18 +1096,114 @@ pub(super) async fn wire_dc_handler_for_guest(
                         {
                             return;
                         }
+                        // Heartbeat / any other JSON control message (ping,
+                        // state queries, etc.) must NEVER be interpreted as
+                        // binary input — a JSON doc's leading bytes would
+                        // otherwise be parsed as [seat, state_lo, state_hi]
+                        // and inject phantom button presses into the core
+                        // (e.g. {"cmd":"ping",...} → 0x6322 = 6 buttons).
+                        // Discriminate on the transport: text frames are
+                        // commands; binary frames are input. A binary input
+                        // frame may coincidentally parse as a JSON array, so
+                        // only swallow STRING messages here.
+                        if !is_binary_input_frame(msg.is_string, &data) {
+                            return;
+                        }
                     }
 
-                    // Binary input: [seat_byte, state_lo, state_hi]
-                    if data.len() >= 3 {
-                        let state = data[1] as u16 | ((data[2] as u16) << 8);
+                    let local_players = session
+                        .local_players
+                        .load(std::sync::atomic::Ordering::Relaxed);
+
+                    let resident_no_host = session
+                        .resident
+                        .load(std::sync::atomic::Ordering::Relaxed)
+                        && !session
+                            .host_connected
+                            .load(std::sync::atomic::Ordering::Relaxed);
+
+                    // Only a real button press (non-zero state) may claim the
+                    // cabinet — idle gamepad polls send [seat, 0, 0] every
+                    // frame and must not grab the seat for a spectator.
+                    let actual_press = data.len() >= 3 && (data[1] != 0 || data[2] != 0);
+
+                    // Arcade mode: the FIRST viewer button press claims the
+                    // player slot for THAT peer only (deferred input), and
+                    // ONLY when no gateway-assigned player is connected —
+                    // a spectator must never hijack an active player's seat
+                    // or inject input into a game someone is already playing.
+                    // After the claim, only the claiming peer's input is
+                    // treated as player input; other viewers remain
+                    // spectators and their input is dropped. The claim is
+                    // released when the claimer disconnects.
+                    let effective_role: std::borrow::Cow<'_, str> =
+                        if peer_role == "player" {
+                            std::borrow::Cow::Borrowed("player")
+                        } else if resident_no_host {
+                            let player_guest_present = {
+                                let guests = session.guests.lock().await;
+                                guests.iter().any(|g| g.role == "player")
+                            };
+                            if player_guest_present {
+                                std::borrow::Cow::Borrowed("viewer")
+                            } else {
+                                let mut claimed = session.claimed_peer.lock().await;
+                                match claimed.as_deref() {
+                                    None if actual_press => {
+                                        tracing::info!(
+                                            "[DC] arcade: viewer {} claimed player 1 (first input)",
+                                            pt
+                                        );
+                                        *claimed = Some(pt.clone());
+                                        std::borrow::Cow::Borrowed("player")
+                                    }
+                                    // Once claimed, the claimer's FULL input stream
+                                    // (including zero-state key releases) must reach
+                                    // the core. Dropping state=0 here leaves the key
+                                    // permanently pressed in the game — the exact
+                                    // "phantom input layered on top of my input"
+                                    // symptom on public arcades.
+                                    Some(existing) if existing == pt => {
+                                        std::borrow::Cow::Borrowed("player")
+                                    }
+                                    _ => std::borrow::Cow::Borrowed("viewer"),
+                                }
+                            }
+                        } else {
+                            std::borrow::Cow::Borrowed(&peer_role)
+                        };
+
+                    if let Some(command) = guest_input_command(
+                        &effective_role,
+                        // Seat-correct mapping. A resident session has no host
+                        // browser, so local_players=0: guest seat 1 → port 0
+                        // (player 1), seat 2 → port 1 (player 2). A claiming
+                        // viewer is the first player → port 0. Previously every
+                        // guest was forced to Some(1)/0, so player 2's inputs
+                        // also drove player 1 (phantom input).
+                        if resident_no_host {
+                            if peer_role == "player" {
+                                authoritative_seat
+                            } else {
+                                Some(1u32)
+                            }
+                        } else {
+                            authoritative_seat
+                        },
+                        if resident_no_host { 0 } else { local_players },
+                        &data,
+                    ) {
                         let guard = session.core_cmd_tx.lock().await;
                         if let Some(ref tx) = *guard {
-                            let _ = tx.try_send(crate::core_bridge::CoreCommand::SetInput {
-                                port: seat,
-                                state,
-                            });
+                            tracing::debug!(
+                                "[DC] guest input forwarded role={effective_role} seat={} state=0x{:04x}",
+                                data[0],
+                                (data[1] as u16) | ((data[2] as u16) << 8),
+                            );
+                            let _ = tx.try_send(command);
                         }
+                    } else if data.len() >= 3 && effective_role != "player" {
+                        tracing::trace!("[DC] ignored input from role={effective_role}");
                     }
                 })
             }));
@@ -1010,9 +1218,24 @@ pub(super) async fn wire_dc_handler_for_guest(
             if state == "failed" || state == "disconnected" {
                 let mut guests = session_for_ice.guests.lock().await;
                 guests.retain(|g| g.peer_token != pt_for_ice);
+                if guests.is_empty() {
+                    // Arcade: release the claimed seat so next viewer can grab it
+                    *session_for_ice.claimed_peer.lock().await = None;
+                } else {
+                    // The claimer left but other viewers remain — release the
+                    // claim only if THIS peer was the claimer, so the next
+                    // viewer can claim.
+                    let mut claimed = session_for_ice.claimed_peer.lock().await;
+                    if claimed.as_deref() == Some(pt_for_ice.as_str()) {
+                        *claimed = None;
+                    }
+                }
                 if guests.is_empty()
                     && !session_for_ice
                         .host_connected
+                        .load(std::sync::atomic::Ordering::Relaxed)
+                    && !session_for_ice
+                        .resident
                         .load(std::sync::atomic::Ordering::Relaxed)
                 {
                     tracing::info!("[ICE] last guest left, host gone — cancelling session");
@@ -1024,9 +1247,224 @@ pub(super) async fn wire_dc_handler_for_guest(
     });
 }
 
+/// After a host reconnect swaps session video/audio tracks, rebind every
+/// existing guest peer connection to the fresh tracks.  Without this
+/// rebind, the streaming loop writes to the new tracks (which the host
+/// PC can see) but existing guest PCs still hold the old track instances,
+/// permanently freezing connected guests.
+async fn rebind_guest_tracks(
+    session: &Arc<GameSession>,
+    video_track: Arc<dyn ::webrtc::track::track_local::TrackLocal + Send + Sync>,
+    audio_track: Arc<dyn ::webrtc::track::track_local::TrackLocal + Send + Sync>,
+) {
+    use ::webrtc::track::track_local::TrackLocal;
+    let guests = session.guests.lock().await;
+    if guests.is_empty() {
+        return;
+    }
+    tracing::info!(
+        "[DC] rebinding {} guest(s) to fresh host tracks",
+        guests.len()
+    );
+    for guest in guests.iter() {
+        if let Err(e) = guest
+            .pc
+            .add_track(video_track.clone() as Arc<dyn TrackLocal + Send + Sync>)
+            .await
+        {
+            tracing::error!("[DC] guest video rebind failed: {e}");
+        }
+        if let Err(e) = guest
+            .pc
+            .add_track(audio_track.clone() as Arc<dyn TrackLocal + Send + Sync>)
+            .await
+        {
+            tracing::error!("[DC] guest audio rebind failed: {e}");
+        }
+    }
+}
+
+fn guest_input_command(
+    peer_role: &str,
+    authoritative_seat: Option<u32>,
+    local_players: u32,
+    data: &[u8],
+) -> Option<crate::core_bridge::CoreCommand> {
+    if peer_role != "player" || data.len() < 3 {
+        return None;
+    }
+
+    let guest_index = authoritative_seat?.checked_sub(1)?;
+    let seat = local_players.checked_add(guest_index)?;
+    let state = data[1] as u16 | ((data[2] as u16) << 8);
+    Some(crate::core_bridge::CoreCommand::SetInput { port: seat, state })
+}
+
+/// Classify a DataChannel frame: JSON control messages (ping, auth,
+/// save/load, …) are handled separately and must NEVER reach the binary
+/// input parser — their leading bytes (`{`, `"`, …) would be decoded as a
+/// bogus [seat, state_lo, state_hi] and inject phantom button presses into
+/// the core. Binary frames (ArrayBuffer) are game input.
+fn is_binary_input_frame(is_string: bool, data: &[u8]) -> bool {
+    if is_string {
+        return false;
+    }
+    // Binary input frames are 3+ bytes; JSON docs always start with a
+    // structural byte (`{`, `[`, `"`, digit…). A binary input frame can
+    // coincidentally look like JSON (e.g. [4, 0x34, 0x12] parses as an
+    // array) — so only treat text frames as commands, never binary.
+    data.len() >= 3
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn viewer_data_channel_input_cannot_reach_the_core() {
+        let command = guest_input_command("viewer", Some(4), 2, &[4, 0x34, 0x12]);
+
+        assert!(command.is_none());
+    }
+
+    #[test]
+    fn json_ping_bytes_are_not_forwarded_as_player_input() {
+        // Regression: the browser sends {"cmd":"ping",...} on the same DC
+        // every 2s (PING_INTERVAL_MS). If those text bytes reach the binary
+        // input parser, the leading `{"c` (0x7B 0x22 0x63) is decoded as
+        // state=0x6322 — six phantom button presses injected into the core
+        // every 2 seconds on public arcades. Text frames (JSON commands)
+        // must be classified as control messages, never binary input.
+        let ping = b"{\"cmd\":\"ping\",\"seq\":1,\"client_ts\":123.45}".to_vec();
+        assert!(!is_binary_input_frame(true, &ping), "ping text must not be input");
+
+        // A binary input frame is still input even if its bytes happen to
+        // parse as a JSON array.
+        let input = [4u8, 0x34, 0x12];
+        assert!(is_binary_input_frame(false, &input));
+    }
+
+    #[test]
+    fn authorized_player_input_uses_the_server_assigned_seat() {
+        let command = guest_input_command("player", Some(2), 1, &[99, 0x34, 0x12]);
+
+        assert!(matches!(
+            command,
+            Some(crate::core_bridge::CoreCommand::SetInput {
+                port: 2,
+                state: 0x1234
+            })
+        ));
+    }
+
+    #[test]
+    fn guest_input_is_offset_past_all_host_local_players() {
+        let command = guest_input_command("player", Some(1), 2, &[0, 0x34, 0x12]);
+
+        assert!(matches!(
+            command,
+            Some(crate::core_bridge::CoreCommand::SetInput {
+                port: 2,
+                state: 0x1234
+            })
+        ));
+    }
+
+    #[test]
+    fn arcade_resident_guest_without_host_maps_to_port_zero() {
+        // #762: a resident session has no host browser, so local_players
+        // offset is 0 — the first guest must land on port 0 (player 1).
+        let command = guest_input_command("player", Some(1), 0, &[1, 0x34, 0x12]);
+
+        assert!(matches!(
+            command,
+            Some(crate::core_bridge::CoreCommand::SetInput {
+                port: 0,
+                state: 0x1234
+            })
+        ));
+    }
+
+    #[test]
+    fn second_player_seat_maps_to_port_one_not_zero() {
+        // #762 phantom input: every resident guest was forced to
+        // authoritative_seat=Some(1)/local_players=0, so player 2's
+        // inputs also drove player 1. Seat 2 must map to port 1.
+        let command = guest_input_command("player", Some(2), 0, &[2, 0x34, 0x12]);
+
+        assert!(matches!(
+            command,
+            Some(crate::core_bridge::CoreCommand::SetInput {
+                port: 1,
+                state: 0x1234
+            })
+        ));
+    }
+
+    #[test]
+    fn non_claiming_viewer_input_is_dropped_not_promoted() {
+        // #762 phantom input: the old claim block `{ ...; true }` promoted
+        // EVERY viewer's input to "player" on resident sessions. A viewer
+        // who is not the claimer must produce no input command.
+        assert!(guest_input_command("viewer", Some(1), 0, &[1, 0x34, 0x12]).is_none());
+    }
+
+    #[test]
+    fn claiming_viewer_maps_to_port_zero() {
+        // The deferred-claim feature: a viewer who claims becomes player 1
+        // → port 0 (the claim path passes Some(1)/0 to guest_input_command).
+        let command = guest_input_command("player", Some(1), 0, &[1, 0x34, 0x12]);
+        assert!(matches!(
+            command,
+            Some(crate::core_bridge::CoreCommand::SetInput {
+                port: 0,
+                state: 0x1234
+            })
+        ));
+    }
+
+    #[test]
+    fn malformed_or_unproven_player_authority_fails_closed() {
+        assert!(guest_input_command("player", None, 1, &[1, 0x34, 0x12]).is_none());
+        assert!(guest_input_command("host", Some(1), 1, &[1, 0x34, 0x12]).is_none());
+        assert!(guest_input_command("player", Some(0), 1, &[1, 0x34, 0x12]).is_none());
+        assert!(guest_input_command("player", Some(1), 1, &[1, 0x34]).is_none());
+    }
+
+    #[test]
+    fn start_game_payload_carries_gateway_authoritative_account_id() {
+        // #745: the gateway enriches start_game with the authenticated
+        // session's user_id — the ONLY trusted identity source.
+        let cmd = sc_web::Command {
+            id: "cmd-1".into(),
+            command_type: "start_game".into(),
+            payload: serde_json::json!({
+                "game_id": "counter",
+                "session_id": "sess-1",
+                "user_id": "alice-account",
+                "sdp": "v=0",
+            }),
+            lease_token: "lease-1".into(),
+            lease_expires_at: "2026-01-01T00:00:00Z".into(),
+            attempt: 1,
+        };
+        assert_eq!(payload_account_id(&cmd).as_deref(), Some("alice-account"));
+    }
+
+    #[test]
+    fn start_game_without_user_id_falls_back_to_shared() {
+        // Anonymous LAN play (L1): no gateway enrichment → no account →
+        // "shared" fallback keeps pre-auth SRAM working.
+        let cmd = sc_web::Command {
+            id: "cmd-2".into(),
+            command_type: "start_game".into(),
+            payload: serde_json::json!({ "game_id": "counter", "session_id": "sess-2" }),
+            lease_token: "lease-2".into(),
+            lease_expires_at: "2026-01-01T00:00:00Z".into(),
+            attempt: 1,
+        };
+        assert!(payload_account_id(&cmd).is_none());
+    }
 
     #[tokio::test]
     async fn recent_history_requires_a_ready_server_local_launch() {

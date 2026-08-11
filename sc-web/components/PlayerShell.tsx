@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, Box, Button, Stack, Typography } from "@mui/material";
 import GamePlayer from "@/components/GamePlayer";
 import BokehLoading from "@/components/BokehLoading";
 import type { StepState } from "@/components/GamePlayerPipeline";
@@ -148,21 +149,19 @@ export default function PlayerShell({
     }
 
     return (
-      <main style={s.error}>
-        <div style={s.errorIcon}>!</div>
-        <div style={s.errorTitle}>{title}</div>
-        <p style={s.errorDesc}>{desc}</p>
+      <Box component="main" sx={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, p: 4, bgcolor: "background.default" }}>
+        <Typography variant="h1" color="primary.main" sx={{ fontSize: "clamp(3rem, 10vw, 6rem)", lineHeight: 1 }}>!</Typography>
+        <Typography variant="overline" sx={{ fontWeight: 700, letterSpacing: "0.08em" }}>{title}</Typography>
+        <Typography color="text.secondary" sx={{ maxWidth: 400, textAlign: "center", lineHeight: 1.6 }}>{desc}</Typography>
         {error && !isSessionEnded && !isNotFound && !isTimedOut && (
-          <p style={s.errorDetail}>{error}</p>
+          <Alert severity="error" sx={{ maxWidth: 520 }}>{error}</Alert>
         )}
-        {suggestion && <p style={s.errorHint}>{suggestion}</p>}
-        <div style={s.errorActions}>
-          <a href="/" style={s.errorBtn}>← Home</a>
-          <button onClick={() => window.location.reload()} style={s.errorBtnRetry}>
-            ↻ Retry
-          </button>
-        </div>
-      </main>
+        {suggestion && <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 400, textAlign: "center" }}>{suggestion}</Typography>}
+        <Stack direction="row" spacing={1.5} sx={{ mt: 1 }}>
+          <Button href="/" variant="outlined">← Home</Button>
+          <Button onClick={() => window.location.reload()} variant="contained">↻ Retry</Button>
+        </Stack>
+      </Box>
     );
   }
 
@@ -183,7 +182,7 @@ export default function PlayerShell({
           seat={gameMeta.seat}
           onClose={() => window.location.assign(homeUrl)}
           onConnected={onConnected}
-          onFatalError={(msg) => { setError(msg); setPhase("error"); }}
+          onFatalError={(msg, opts?: { recoverable?: boolean }) => { if (!opts?.recoverable) { setError(msg); setPhase("error"); } }}
           initialPipeline={initialPipeline}
           hidePipeline={hidePipeline}
           onPipelineChange={handlePipelineChange}

@@ -10,6 +10,8 @@ import {
   Delete,
   Download,
   MoreVert,
+  Public,
+  Power,
 } from "@mui/icons-material";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -42,6 +44,15 @@ interface GameTileContextMenuProps {
   onDelete?: () => void;
   /** Download callback (admin only). */
   onDownload?: () => void;
+  /** Public-wall toggle (admin only, #762). */
+  isPublic?: boolean;
+  onTogglePublic?: () => void;
+  /** Always-on toggle (admin only, #762). */
+  isAlwaysOn?: boolean;
+  onToggleAlwaysOn?: () => void;
+  /** Free-play toggle (admin only, #762). */
+  isFreePlay?: boolean;
+  onToggleFreePlay?: () => void;
   /** Label for the trigger button. */
   triggerAriaLabel?: string;
 }
@@ -92,6 +103,12 @@ export default function GameTileContextMenu({
   onChooseHost,
   onDelete,
   onDownload,
+  isPublic,
+  onTogglePublic,
+  isAlwaysOn,
+  onToggleAlwaysOn,
+  isFreePlay,
+  onToggleFreePlay,
   triggerAriaLabel,
 }: GameTileContextMenuProps) {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -153,6 +170,39 @@ export default function GameTileContextMenu({
       onClick: () => {
         handleClose();
         onChooseHost();
+      },
+    });
+  }
+  if (onTogglePublic) {
+    actions.push({
+      id: "public-wall",
+      label: isPublic ? "Remove from public wall" : "Put on the public wall",
+      icon: <Public fontSize="small" />,
+      onClick: () => {
+        handleClose();
+        onTogglePublic();
+      },
+    });
+  }
+  if (onToggleAlwaysOn) {
+    actions.push({
+      id: "always-on",
+      label: isAlwaysOn ? "Always on — turn off" : "Always on",
+      icon: <Power fontSize="small" />,
+      onClick: () => {
+        handleClose();
+        onToggleAlwaysOn();
+      },
+    });
+  }
+  if (onToggleFreePlay) {
+    actions.push({
+      id: "free-play",
+      label: isFreePlay ? "Free play — turn off" : "Free play",
+      icon: <Power fontSize="small" />,
+      onClick: () => {
+        handleClose();
+        onToggleFreePlay();
       },
     });
   }
@@ -233,7 +283,7 @@ export default function GameTileContextMenu({
           <MenuItem
             key={action.id}
             onClick={action.onClick}
-            sx={action.color === "error" ? { color: "var(--color-error)" } : undefined}
+            sx={action.color === "error" ? { color: "error.main" } : undefined}
           >
             <ListItemIcon sx={action.color === "error" ? { color: "inherit" } : undefined}>
               {action.icon}

@@ -8,6 +8,7 @@ import { applyRateLimit } from "@/lib/rate-limit";
 import { recordLaunchEvent } from "@/lib/launch-events";
 import { waitForSdpAnswer } from "@/lib/pending-sdp";
 import { classifyCommandFlow, logSignalingStage, type SignalingFlow } from "@/lib/signaling";
+import { verifyBearerToken } from "@/lib/server-auth";
 import crypto from "crypto";
 import { hostCapabilities, type PlayerCapabilities } from "@/lib/capabilities";
 
@@ -35,9 +36,10 @@ async function resolveShortCodeHostUser(
   serverId: string,
   gameId: string,
   hostToken: string,
+  authHeader: string | null,
 ): Promise<string | null> {
   const [shortCode] = await db
-    .select({ code: shortCodes.code, createdBy: shortCodes.createdBy })
+    .select({ code: shortCodes.code, createdBy: shortCodes.createdBy, mintedViaProxy: shortCodes.mintedViaProxy })
     .from(shortCodes)
     .where(and(
       eq(shortCodes.serverId, serverId),
@@ -73,7 +75,30 @@ async function resolveShortCodeHostUser(
     ))
     .orderBy(desc(sessions.createdAt))
     .limit(1);
-  return legacySession?.userId ?? null;
+  if (legacySession?.userId) return legacySession.userId;
+
+  // LAN proxy authority: when the paired server itself proxies start_game
+  // (server bearer matching this server), the server is the host authority for
+  // its own LAN — but ONLY for codes explicitly minted through that proxy.
+  // This keeps the LAN player working when the LAN library created the code
+  // via the server-bearer proxy path (createdBy = NULL, mintedViaProxy = true).
+  if (shortCode.mintedViaProxy) {
+    const bearerServer = await verifyBearerToken(authHeader);
+    if (bearerServer && bearerServer.id === serverId) {
+      // Verify the bearer server's owner is still a member of this server
+      const [owningMember] = await db
+        .select({ userId: serverMembers.userId })
+        .from(serverMembers)
+        .where(and(
+          eq(serverMembers.serverId, serverId),
+          eq(serverMembers.userId, bearerServer.userId),
+        ))
+        .limit(1);
+      if (owningMember) return bearerServer.userId;
+    }
+  }
+
+  return null;
 }
 
 interface CommandBody {
@@ -216,6 +241,7 @@ export async function POST(request: NextRequest) {
       body.server_id,
       lanStartPayload.game_id,
       lanStartPayload.host_token,
+      request.headers.get("authorization"),
     );
     if (!ownerUserId) {
       return NextResponse.json({ error: "invalid LAN launch token" }, { status: 403 });
@@ -231,6 +257,7 @@ export async function POST(request: NextRequest) {
       body.server_id,
       lanStartPayload.game_id,
       lanStartPayload.host_token,
+      request.headers.get("authorization"),
     );
     if (!ownerUserId) {
       return NextResponse.json({ error: "invalid LAN stop token" }, { status: 403 });
@@ -249,6 +276,7 @@ export async function POST(request: NextRequest) {
         body.server_id,
         sdpPayload.game_id,
         hostToken,
+        request.headers.get("authorization"),
       );
       if (ownerUserId) {
         lanStartUserId = ownerUserId;
@@ -324,11 +352,16 @@ export async function POST(request: NextRequest) {
       serverId = body.server_id;
     }
   } else {
-    // Non-sdp_offer commands require normal auth
-    if (!session?.user?.id) {
+    // LAN proxy start: bearer auth resolved the short code — user is
+    // already authenticated and the proxy provides its own CSRF protection
+    // (same-origin, no third-party cookies in play).
+    const effectiveUserId = lanStartUserId ?? session?.user?.id;
+    if (!effectiveUserId) {
       return NextResponse.json({ error: "sign in first" }, { status: 401 });
     }
-    if (!validateCsrf(request)) {
+    // Only require CSRF for cookie-based auth; bearer-authenticated
+    // LAN starts are exempt (the proxy is same-origin by construction).
+    if (!lanStartUserId && !validateCsrf(request)) {
       return NextResponse.json({ error: "csrf token invalid" }, { status: 403 });
     }
     // Verify the user is a member of this server (admin or viewer)
@@ -339,7 +372,7 @@ export async function POST(request: NextRequest) {
       .where(
         and(
           eq(serverMembers.serverId, body.server_id),
-          eq(serverMembers.userId, session.user.id),
+          eq(serverMembers.userId, effectiveUserId),
         ),
       )
       .limit(1);
@@ -367,7 +400,7 @@ export async function POST(request: NextRequest) {
           eq(shortCodes.serverId, body.server_id),
           eq(shortCodes.gameId, payloadResult.payload.game_id),
           eq(shortCodes.hostToken, payloadResult.payload.host_token),
-          eq(shortCodes.createdBy, session.user.id),
+          eq(shortCodes.createdBy, effectiveUserId),
         ))
         .limit(1);
       if (!ownedLaunch) {
@@ -677,6 +710,10 @@ export async function POST(request: NextRequest) {
       const finalPayload = {
         ...enrichedPayload,
         session_id: newSession.id,
+        // #745: the authenticated user who owns this launch. sc-server
+        // attributes saves/states/play-time to this account — it is the
+        // ONLY trusted identity source (never a client-sent account_id).
+        user_id: uid,
         peer_tokens: [{ token: newHostPeerToken, seat: 0, role: "host" }],
       };
       await tx

@@ -16,6 +16,7 @@
 //! - The index lives here; the `platform` module maps platforms to their
 //!   loaded DATs.
 
+pub(crate) mod catalog;
 pub(crate) mod parser;
 pub(crate) mod types;
 

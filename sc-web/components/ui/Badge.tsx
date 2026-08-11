@@ -1,5 +1,7 @@
 "use client";
 
+import { Chip } from "@mui/material";
+
 type Variant = "success" | "warning" | "error" | "info" | "muted";
 
 interface BadgeProps {
@@ -8,56 +10,32 @@ interface BadgeProps {
   title?: string;
 }
 
-const variantStyles: Record<Variant, React.CSSProperties> = {
-  success: {
-    background: "rgba(34,197,94,0.15)",
-    color: "#4ade80",
-    border: "1px solid rgba(34,197,94,0.3)",
-  },
-  warning: {
-    background: "rgba(250,204,21,0.15)",
-    color: "#facc15",
-    border: "1px solid rgba(250,204,21,0.3)",
-  },
-  error: {
-    background: "rgba(239,68,68,0.15)",
-    color: "#ef4444",
-    border: "1px solid rgba(239,68,68,0.3)",
-  },
-  info: {
-    background: "rgba(56,189,248,0.15)",
-    color: "#38bdf8",
-    border: "1px solid rgba(56,189,248,0.3)",
-  },
-  muted: {
-    background: "var(--color-surface-raised)",
-    color: "var(--color-text-secondary)",
-    border: "1px solid var(--color-border-default)",
-  },
+const chipColors: Record<Variant, "success" | "warning" | "error" | "info" | "default"> = {
+  success: "success",
+  warning: "warning",
+  error: "error",
+  info: "info",
+  muted: "default",
 };
 
-export default function Badge({
-  children,
-  variant = "muted",
-  title,
-}: BadgeProps) {
+export default function Badge({ children, variant = "muted", title }: BadgeProps) {
   return (
-    <span
+    <Chip
+      component="span"
+      label={children}
       title={title}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        fontSize: "var(--font-size-xs)",
-        padding: "1px 6px",
-        borderRadius: "2px",
-        fontFamily: "var(--font-mono)",
+      color={chipColors[variant]}
+      size="small"
+      variant="outlined"
+      sx={{
+        height: 24,
+        borderRadius: 1,
+        fontSize: "0.7rem",
         fontWeight: 600,
+        letterSpacing: "0.04em",
         textTransform: "uppercase",
         whiteSpace: "nowrap",
-        ...variantStyles[variant],
       }}
-    >
-      {children}
-    </span>
+    />
   );
 }

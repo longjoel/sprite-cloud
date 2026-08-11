@@ -41,8 +41,16 @@ pub(crate) struct DatMatchInfo {
     pub platform: Option<String>,
     /// Region extracted from the game name when parseable
     pub region: Option<String>,
+    /// Revision string when the DAT records one
+    pub revision: Option<String>,
     /// Match confidence: "sha1" or "crc32_size"
     pub confidence: String,
+    /// Name of the source catalog that matched (DAT header)
+    pub catalog_name: Option<String>,
+    /// Version of the source catalog that matched
+    pub catalog_version: Option<String>,
+    /// SHA-256 of the source catalog file that matched
+    pub catalog_sha256: Option<String>,
 }
 
 /// BIOS verification metadata.
@@ -120,19 +128,19 @@ pub(crate) async fn compute_manifest(path: &Path, file_size: u64) -> Result<Asse
 impl AssetManifest {
     /// Enrich this manifest with DAT match metadata.
     ///
-    /// If `index` is Some, looks up the file's hashes and updates
+    /// If `catalog` is Some, looks up the file's hashes and updates
     /// `classification` and `dat_match` accordingly:
     /// - SHA-1 match → `RomVerified` + full canonical identity
     /// - CRC32 + size match → `RomVerified` + canonical identity
     /// - No match → `Unverified` (but still committed)
-    /// - index is None → leave classification as-is (no DAT available)
-    pub(crate) fn enrich(&mut self, index: Option<&crate::dat::DatIndex>) {
+    /// - catalog is None → leave classification as-is (no DAT available)
+    pub(crate) fn enrich(&mut self, catalog: Option<&crate::dat::catalog::LoadedCatalog>) {
         // Extract the heuristically-set classification before DAT enrichment
         // may override it. BIOS detection runs regardless of DAT match result.
         let was_bios = matches!(self.classification, Classification::Bios);
 
-        let index = match index {
-            Some(idx) => idx,
+        let catalog = match catalog {
+            Some(catalog) => catalog,
             None => {
                 // No DAT — still try BIOS verification for BIOS-classified files
                 self.verify_bios_if_applicable(was_bios);
@@ -140,7 +148,10 @@ impl AssetManifest {
             }
         };
 
-        let m = index.find_match(&self.sha1, &self.crc32, self.size);
+        let m = catalog.index.find_match(&self.sha1, &self.crc32, self.size);
+        // Resolve which source catalog produced the match (per-game
+        // provenance: name/version/checksum of the DAT file).
+        let source = m.source.and_then(|s| catalog.sources.get(s));
 
         match m.confidence {
             crate::dat::MatchConfidence::Sha1
@@ -151,10 +162,14 @@ impl AssetManifest {
                         canonical_name: entry.name,
                         platform: entry.platform,
                         region: entry.region,
+                        revision: entry.revision,
                         confidence: match m.confidence {
                             crate::dat::MatchConfidence::Sha1 => "sha1".into(),
                             _ => "crc32_size".into(),
                         },
+                        catalog_name: source.and_then(|p| p.dat_name.clone()),
+                        catalog_version: source.and_then(|p| p.version.clone()),
+                        catalog_sha256: source.and_then(|p| p.source_sha256.clone()),
                     });
                 }
             }
@@ -310,14 +325,32 @@ mod tests {
         crate::dat::DatIndex::from_entries(entries)
     }
 
+    fn make_test_catalog() -> crate::dat::catalog::LoadedCatalog {
+        crate::dat::catalog::LoadedCatalog {
+            index: make_test_index(),
+            sources: vec![crate::dat::DatProvenance {
+                source_name: Some("test-snes.dat".into()),
+                dat_name: Some("Test SNES DAT".into()),
+                description: None,
+                version: Some("20240115".into()),
+                date: None,
+                author: None,
+                url: None,
+                imported_at: "2026-01-01T00:00:00Z".into(),
+                source_sha256: Some("cafe0123".into()),
+                entry_count: 1,
+            }],
+        }
+    }
+
     #[tokio::test]
     async fn enrich_sha1_match_upgrades_to_rom_verified() {
         let data = b"hello world";
         let (_dir, path) = write_temp_file("test.bin", data).await;
         let mut manifest = compute_manifest(&path, data.len() as u64).await.expect("manifest");
-        let index = make_test_index();
+        let catalog = make_test_catalog();
 
-        manifest.enrich(Some(&index));
+        manifest.enrich(Some(&catalog));
 
         assert_eq!(manifest.classification, Classification::RomVerified);
         let m = manifest.dat_match.expect("dat_match should be populated");
@@ -325,6 +358,10 @@ mod tests {
         assert_eq!(m.confidence, "sha1");
         assert_eq!(m.platform.as_deref(), Some("Test Platform"));
         assert_eq!(m.region.as_deref(), Some("World"));
+        // Per-game provenance resolves back to the source catalog.
+        assert_eq!(m.catalog_name.as_deref(), Some("Test SNES DAT"));
+        assert_eq!(m.catalog_version.as_deref(), Some("20240115"));
+        assert_eq!(m.catalog_sha256.as_deref(), Some("cafe0123"));
     }
 
     #[tokio::test]
@@ -332,9 +369,9 @@ mod tests {
         let data = b"some unknown file content!";
         let (_dir, path) = write_temp_file("unknown.bin", data).await;
         let mut manifest = compute_manifest(&path, data.len() as u64).await.expect("manifest");
-        let index = make_test_index();
+        let catalog = make_test_catalog();
 
-        manifest.enrich(Some(&index));
+        manifest.enrich(Some(&catalog));
 
         assert_eq!(manifest.classification, Classification::Unverified);
         assert!(manifest.dat_match.is_none(), "no dat_match for unverified files");

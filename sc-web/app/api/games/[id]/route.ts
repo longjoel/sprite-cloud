@@ -38,6 +38,17 @@ export async function GET(
       platform: serverGames.platform,
       maxPlayers: serverGames.maxPlayers,
       serverId: serverGames.serverId,
+      verificationState: serverGames.verificationState,
+      canonicalTitle: serverGames.canonicalTitle,
+      canonicalPlatform: serverGames.canonicalPlatform,
+      region: serverGames.region,
+      revision: serverGames.revision,
+      confidence: serverGames.confidence,
+      catalogName: serverGames.catalogName,
+      catalogVersion: serverGames.catalogVersion,
+      catalogSha256: serverGames.catalogSha256,
+      verificationSourceName: serverGames.verificationSourceName,
+      enrichedAt: serverGames.enrichedAt,
     })
     .from(serverGames)
     .where(
@@ -52,7 +63,28 @@ export async function GET(
     return NextResponse.json({ error: "not found" }, { status: 404 });
   }
 
-  return NextResponse.json(game);
+  return NextResponse.json({
+    id: game.id,
+    name: game.name,
+    platform: game.platform,
+    maxPlayers: game.maxPlayers,
+    serverId: game.serverId,
+    verification: game.verificationState
+      ? {
+          state: game.verificationState,
+          canonicalTitle: game.canonicalTitle,
+          canonicalPlatform: game.canonicalPlatform,
+          region: game.region,
+          revision: game.revision,
+          confidence: game.confidence,
+          catalogName: game.catalogName,
+          catalogVersion: game.catalogVersion,
+          catalogSha256: game.catalogSha256,
+          sourceName: game.verificationSourceName,
+          enrichedAt: game.enrichedAt,
+        }
+      : null,
+  });
 }
 
 // ── PUT /api/games/:id ─────────────────────────────────────────────────

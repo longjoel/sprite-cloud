@@ -397,9 +397,11 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
       console.error("[gv] startGame/join error:", err?.message || err);
       const msg = err?.message || String(err);
       player._showStatus(msg, { color: "#b8964a" });
-      callbacks.onError?.(msg);
+      callbacks.onError?.(msg, true /* recoverable — retry pending */);
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         doReconnect();
+      } else {
+        callbacks.onReconnectFailed?.();
       }
       return;
     }
@@ -425,9 +427,11 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
         sdpAnswer = null;
         startGameToken = null;
       }
-      callbacks.onError?.(msg);
+      callbacks.onError?.(msg, true /* recoverable — retry pending */);
       if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         doReconnect();
+      } else {
+        callbacks.onReconnectFailed?.();
       }
     }
     } finally { connecting = false; }

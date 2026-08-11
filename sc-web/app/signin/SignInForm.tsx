@@ -2,7 +2,17 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
-import { Box, Button, TextField, Typography, InputAdornment, IconButton } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button,
+  IconButton,
+  InputAdornment,
+  Paper,
+  Stack,
+  TextField,
+  Typography,
+} from "@mui/material";
 import { Visibility, VisibilityOff } from "@mui/icons-material";
 
 export default function SignInForm() {
@@ -31,13 +41,13 @@ export default function SignInForm() {
   }
 
   return (
-    <Box sx={s.page}>
-      <Box sx={s.card}>
-        <Typography variant="h6" align="center" sx={{ fontFamily: "var(--font-mono)", mb: 3 }}>
+    <Box sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", p: 2 }}>
+      <Paper component="section" sx={{ width: "100%", maxWidth: 360, p: 4 }}>
+        <Typography variant="h6" component="h1" align="center" gutterBottom>
           Sprite Cloud
         </Typography>
 
-        <Box component="form" onSubmit={handleSignIn} sx={s.form}>
+        <Stack component="form" onSubmit={handleSignIn} spacing={2} sx={{ mt: 2 }}>
           <TextField
             type="email"
             label="Email"
@@ -59,7 +69,12 @@ export default function SignInForm() {
               input: {
                 endAdornment: (
                   <InputAdornment position="end">
-                    <IconButton onClick={() => setShowPassword(!showPassword)} edge="end" size="small">
+                    <IconButton
+                      onClick={() => setShowPassword((visible) => !visible)}
+                      edge="end"
+                      size="small"
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
                       {showPassword ? <VisibilityOff fontSize="inherit" /> : <Visibility fontSize="inherit" />}
                     </IconButton>
                   </InputAdornment>
@@ -68,19 +83,13 @@ export default function SignInForm() {
             }}
           />
 
-          {error && <Typography color="error" variant="body2" align="center">{error}</Typography>}
+          {error && <Alert severity="error">{error}</Alert>}
 
-          <Button type="submit" variant="contained" disabled={loading} fullWidth sx={{ fontFamily: "var(--font-mono)" }}>
-            {loading ? "…" : "Sign In"}
+          <Button type="submit" variant="contained" disabled={loading} fullWidth>
+            {loading ? "Signing in…" : "Sign in"}
           </Button>
-        </Box>
-      </Box>
+        </Stack>
+      </Paper>
     </Box>
   );
 }
-
-const s = {
-  page: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", p: 2 },
-  card: { width: "100%", maxWidth: 360, p: 4, border: "1px solid var(--color-border-default)", borderRadius: "2px" },
-  form: { display: "flex", flexDirection: "column", gap: 2 },
-};

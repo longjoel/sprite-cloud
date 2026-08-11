@@ -40,6 +40,7 @@ fn apply_pairing(
         cores: None,
         system: None,
         ice: None,
+        dat: None,
     });
     cfg.sc_web.url = sc_web_url.to_string();
     cfg.auth.api_key = api_key;
@@ -116,12 +117,24 @@ pub(crate) async fn cmd_start(
     }
     let library_preferences = crate::player_server::open_library_preferences()
         .context("load local library preferences")?;
+    let verification_store = Arc::new(tokio::sync::Mutex::new(
+        crate::verification::VerificationStore::load(crate::verification::state_path())
+            .context("load DAT verification state")?,
+    ));
 
     if let Some(url) = sc_web_url {
         cfg.sc_web.url = url;
     }
 
     let client = sc_web::ScWebClient::new(cfg.sc_web.url.clone(), cfg.auth.clone());
+
+    // DAT catalog: loaded at startup; SIGHUP reloads it atomically (a failed
+    // replacement keeps the last known-good index).
+    let dat_catalog_state: Arc<
+        tokio::sync::RwLock<Option<Arc<crate::dat::catalog::LoadedCatalog>>>,
+    > = Arc::new(tokio::sync::RwLock::new(
+        crate::dat::catalog::load_from_config(&cfg),
+    ));
 
     let ice_runtime = config::runtime_ice_config();
     let ice_log = ice_runtime.startup_log_fields();
@@ -185,7 +198,10 @@ pub(crate) async fn cmd_start(
     {
         let prefs_snapshot = library_preferences.lock().await.snapshot();
         let games_snapshot = local_game_list.read().await;
-        if let Err(error) = sync_catalog(&client, &games_snapshot, &prefs_snapshot).await {
+        let verifications_snapshot = verification_store.lock().await.snapshot();
+        if let Err(error) =
+            sync_catalog(&client, &games_snapshot, &prefs_snapshot, &verifications_snapshot).await
+        {
             tracing::warn!("[SYNC] initial catalog push failed: {error:#}");
         }
     }
@@ -229,6 +245,84 @@ pub(crate) async fn cmd_start(
 
     const POLL_ERROR_BACKOFF_MS: u64 = 5_000;
     let mut sessions: HashMap<String, Arc<GameSession>> = HashMap::new();
+
+    // SIGHUP → re-read config and atomically replace the DAT catalog index.
+    // Any rejected catalog file keeps the last known-good index in place.
+    {
+        let dat_catalog_state = Arc::clone(&dat_catalog_state);
+        tokio::spawn(async move {
+            let mut hangup =
+                match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()) {
+                    Ok(signal) => signal,
+                    Err(error) => {
+                        tracing::warn!("[DAT] SIGHUP reload unavailable: {error}");
+                        return;
+                    }
+                };
+            loop {
+                hangup.recv().await;
+                tracing::info!("[DAT] reload requested (SIGHUP)");
+                // Config read + XML parsing are synchronous; up to 256 × 64 MiB
+                // of parsing must not stall a tokio worker thread, so the whole
+                // reload runs in spawn_blocking.
+                let (gathered, loaded) = match tokio::task::spawn_blocking(|| {
+                    let cfg = config::load()?;
+                    let gathered = crate::dat::catalog::configured_paths(&cfg);
+                    let loaded = crate::dat::catalog::load_catalog(&gathered.paths);
+                    Ok::<_, anyhow::Error>((gathered, loaded))
+                })
+                .await
+                {
+                    Ok(Ok(pair)) => pair,
+                    Ok(Err(error)) => {
+                        tracing::warn!(
+                            "[DAT] reload rejected — config unreadable, keeping last known-good: {error}"
+                        );
+                        continue;
+                    }
+                    Err(join_error) => {
+                        tracing::warn!(
+                            "[DAT] reload task panicked — keeping last known-good: {join_error}"
+                        );
+                        continue;
+                    }
+                };
+                let mut failures = gathered.failures;
+                failures.extend(loaded.failures);
+                if !failures.is_empty() {
+                    for (name, reason) in &failures {
+                        tracing::warn!(
+                            "[DAT] reload rejected — keeping last known-good: {name}: {reason}"
+                        );
+                    }
+                    continue;
+                }
+                match loaded.catalog {
+                    Some(catalog) => {
+                        tracing::info!(
+                            "[DAT] reload complete — {} catalog(s), {} entries",
+                            catalog.sources.len(),
+                            catalog.index.len(),
+                        );
+                        *dat_catalog_state.write().await = Some(Arc::new(catalog));
+                    }
+                    None => {
+                        // A reload that yields no catalogs while one was live is
+                        // usually a config edit that dropped the [dat] section —
+                        // call it out instead of silently disabling verification.
+                        if dat_catalog_state.read().await.is_some() {
+                            tracing::warn!(
+                                "[DAT] reload complete — no catalogs configured; previous index dropped"
+                            );
+                        } else {
+                            tracing::info!("[DAT] reload complete — no catalogs configured");
+                        }
+                        *dat_catalog_state.write().await = None;
+                    }
+                }
+            }
+        });
+    }
 
     loop {
         tokio::select! {
@@ -275,6 +369,8 @@ pub(crate) async fn cmd_start(
                                         Arc::clone(&local_game_list),
                                         Arc::clone(&library_preferences),
                                         Arc::clone(&catalog_sync_lock),
+                                        Arc::clone(&dat_catalog_state),
+                                        Arc::clone(&verification_store),
                                     ).await;
                                 } else if cmd.command_type == "delete_game" {
                                     handle_delete_game(
@@ -285,6 +381,7 @@ pub(crate) async fn cmd_start(
                                         Arc::clone(&local_game_list),
                                         Arc::clone(&library_preferences),
                                         Arc::clone(&catalog_sync_lock),
+                                        Arc::clone(&verification_store),
                                     ).await;
                                 } else if cmd.command_type == "rom_download" {
                                     crate::rom_transfer::download::handle_rom_download(
@@ -294,10 +391,14 @@ pub(crate) async fn cmd_start(
                                         Arc::clone(&local_game_list),
                                     ).await;
                                 } else if cmd.command_type == "stage_rom" {
+                                    // Clone the Arc (cheap) so the catalog stays
+                                    // alive across the await without holding the
+                                    // lock guard.
+                                    let catalog = dat_catalog_state.read().await.clone();
                                     crate::commands::stage_rom::handle_stage_rom(
                                         cmd,
                                         &client,
-                                        None, // DAT catalog wired in a follow-up
+                                        catalog.as_deref(),
                                     ).await;
                                 } else if cmd.command_type == "upgrade_server" {
                                     if !sessions.is_empty() {
@@ -422,6 +523,7 @@ pub(crate) fn scan_library(rom_roots: &[String]) -> Vec<crate::player_server::Lo
 /// - The game exists and resolves under a configured ROM root.
 /// - No active session is playing it.
 /// - The file is a regular file (not symlink/device).
+#[allow(clippy::too_many_arguments)]
 async fn handle_delete_game(
     cmd: &sc_web::Command,
     client: &sc_web::ScWebClient,
@@ -430,6 +532,7 @@ async fn handle_delete_game(
     local_game_list: Arc<tokio::sync::RwLock<Vec<crate::player_server::LocalGame>>>,
     library_preferences: crate::player_server::SharedLibraryState,
     catalog_sync_lock: Arc<tokio::sync::Mutex<()>>,
+    verification_store: Arc<tokio::sync::Mutex<crate::verification::VerificationStore>>,
 ) {
     let game_id = match cmd.payload.get("game_id").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
@@ -497,6 +600,11 @@ async fn handle_delete_game(
 
     tracing::info!("[DELETE] game_id={game_id} removed");
 
+    // Drop verification evidence for the deleted game.
+    if let Err(error) = verification_store.lock().await.remove(&game_id) {
+        tracing::warn!("[DELETE] failed to remove verification for {game_id}: {error}");
+    }
+
     // ── Rescan and sync ─────────────────────────────────────────────
     let _guard = catalog_sync_lock.lock().await;
     let scanned = scan_library(rom_roots);
@@ -506,8 +614,9 @@ async fn handle_delete_game(
     }
     let games_snapshot = local_game_list.read().await.clone();
     let prefs_snapshot = library_preferences.lock().await.snapshot();
+    let verifications_snapshot = verification_store.lock().await.snapshot();
     if let Err(e) =
-        sync_catalog(client, &games_snapshot, &prefs_snapshot).await
+        sync_catalog(client, &games_snapshot, &prefs_snapshot, &verifications_snapshot).await
     {
         tracing::error!("[DELETE] catalog sync after deletion failed: {e:#}");
         let _ = client
@@ -531,25 +640,46 @@ async fn handle_delete_game(
 
 /// Push the current game catalog to sc-web for cloud library search.
 ///
-/// Sends only metadata (id, name, platform, max_players).
-/// ROM paths and library preferences stay local.
+/// Sends only metadata (id, name, platform, max_players) plus DAT
+/// verification evidence when present. ROM paths and library preferences
+/// stay local.
 pub(crate) async fn sync_catalog(
     client: &crate::sc_web::ScWebClient,
     games: &[crate::player_server::LocalGame],
     preferences: &crate::library_state::LibraryPreferences,
+    verifications: &std::collections::BTreeMap<String, crate::verification::GameVerification>,
 ) -> Result<()> {
     let entries: Vec<serde_json::Value> = games
         .iter()
         .map(|game| {
             let fallback = crate::player_server::local_game_name(game);
             let name = preferences.display_name(&game.id, &fallback);
-            serde_json::json!({
+            let mut entry = serde_json::json!({
                 "id": game.id,
                 "name": name,
                 "source_name": fallback,
                 "platform": game.discovered.platform.as_deref().unwrap_or("Unknown"),
                 "max_players": 4,
-            })
+            });
+            if let Some(v) = verifications
+                .get(&game.id)
+                .filter(|v| v.state != crate::verification::VerificationState::None)
+            {
+                entry["verification"] = serde_json::json!({
+                        "state": v.state,
+                        "canonical_title": v.canonical_title,
+                        "canonical_platform": v.canonical_platform,
+                        "region": v.region,
+                        "revision": v.revision,
+                        "confidence": v.confidence,
+                        "catalog_name": v.catalog_name,
+                        "catalog_version": v.catalog_version,
+                        "catalog_sha256": v.catalog_sha256,
+                        "source_name": v.source_name,
+                        "enriched_at": v.enriched_at,
+                    });
+            }
+            entry
         })
         .collect();
 
@@ -700,6 +830,7 @@ mod tests {
                 policy: "all".into(),
                 turn: None,
             }),
+            dat: None,
         };
 
         let paired = apply_pairing(

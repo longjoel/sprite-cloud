@@ -21,6 +21,9 @@ use crate::gst_video::GstVideoEncoder;
 pub struct GuestPeer {
     pub pc: Arc<RTCPeerConnection>,
     pub peer_token: String,
+    /// Gateway-assigned role for this peer ("player" | "viewer").
+    /// Input authority is derived from this at the DC boundary.
+    pub role: String,
 }
 
 pub struct GameSession {
@@ -46,10 +49,20 @@ pub struct GameSession {
     /// True while the host DataChannel is open. Guest leave only
     /// cancels the session if this is false (host already gone).
     pub host_connected: AtomicBool,
+    /// For arcade/resident sessions: peer_token of the guest that claimed
+    /// the player slot by pressing a button (deferred input). None until
+    /// claimed. Only that peer's input is forwarded as player input; other
+    /// viewers are spectators. Released when the claiming peer disconnects
+    /// (or the guest list empties), so the next viewer can claim it.
+    pub claimed_peer: tokio::sync::Mutex<Option<String>>,
     /// Number of local player ports on the host machine (gamepads + keyboard on seat 0).
     /// Used to offset guest seat assignment so local multi-controller doesn't collide.
     /// Defaults to 1 (keyboard + gamepad[0] on seat 0). Set from host auth message.
     pub local_players: AtomicU32,
+    /// Authenticated account id for artifact attribution (#745). None until
+    /// the DC auth message resolves it; save/load calls fall back to
+    /// `"shared"` while unset.
+    pub account_id: tokio::sync::Mutex<Option<String>>,
 
     // ── Core (libretro) ─────────────────────────────────────────────
     pub core_loaded: AtomicBool,
@@ -72,4 +85,21 @@ pub struct GameSession {
     pub core_fps: Mutex<f64>,
     /// Core audio sample rate in Hz (from retro_get_system_av_info).
     pub core_sample_rate: Mutex<f64>,
+    /// Resident session — never idle-killed, periodically checkpointed.
+    pub resident: AtomicBool,
+}
+
+impl GameSession {
+    /// Account id for artifact attribution (#745).
+    ///
+    /// Returns the authenticated account when the DC auth message has
+    /// resolved one; otherwise the `"shared"` fallback so pre-auth SRAM
+    /// auto-load/auto-save (core startup, session teardown) still works.
+    pub async fn effective_account_id(&self) -> String {
+        self.account_id
+            .lock()
+            .await
+            .clone()
+            .unwrap_or_else(|| "shared".to_string())
+    }
 }

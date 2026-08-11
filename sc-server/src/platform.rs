@@ -21,6 +21,11 @@ pub struct PlatformManifest {
     pub aliases: &'static [&'static str],
     pub extensions: &'static [&'static str],
     pub core: &'static str,
+    /// True when the platform hardware is unconditionally mono (NES, GB,
+    /// SMS, GG, NGPC, A26/A52/A78, Pokemon Mini, FDS). The libretro ABI is
+    /// always stereo, but a core that puts the mono signal in one channel
+    /// only streams as one-sided audio — the runner mirrors it for these.
+    pub mono: bool,
 }
 
 /// Every platform known to Sprite Cloud.
@@ -48,18 +53,21 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Nintendo - Game Boy Advance"],
         extensions: &["gba"],
         core: "mgba_libretro.so",
+        mono: false,
     },
     PlatformManifest {
         short_name: "Game Boy Color",
         aliases: &["Nintendo - Game Boy Color"],
         extensions: &["gbc"],
         core: "sameboy_libretro.so",
+        mono: true,
     },
     PlatformManifest {
         short_name: "Game Boy",
         aliases: &["Nintendo - Game Boy"],
         extensions: &["gb"],
         core: "sameboy_libretro.so",
+        mono: true,
     },
     // ── Nintendo — NES ────────────────────────────────────────────
     PlatformManifest {
@@ -67,12 +75,14 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Nintendo - Nintendo Entertainment System"],
         extensions: &["nes"],
         core: "nestopia_libretro.so",
+        mono: true,
     },
     PlatformManifest {
         short_name: "Family Computer Disk System",
         aliases: &["Nintendo - Family Computer Disk System"],
         extensions: &["fds"],
         core: "nestopia_libretro.so",
+        mono: true,
     },
     // ── Nintendo — SNES ───────────────────────────────────────────
     PlatformManifest {
@@ -80,6 +90,7 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Nintendo - Super Nintendo Entertainment System"],
         extensions: &["sfc", "smc"],
         core: "snes9x_libretro.so",
+        mono: false,
     },
     // ── Nintendo — N64 ────────────────────────────────────────────
     PlatformManifest {
@@ -87,6 +98,7 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Nintendo - Nintendo 64"],
         extensions: &["n64", "z64", "v64"],
         core: "mupen64plus_next_libretro.so",
+        mono: false,
     },
     // ── Nintendo — DS ─────────────────────────────────────────────
     PlatformManifest {
@@ -94,6 +106,7 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Nintendo - Nintendo DS"],
         extensions: &["nds"],
         core: "desmume_libretro.so",
+        mono: false,
     },
     // ── Nintendo — Virtual Boy ─────────────────────────────────────
     PlatformManifest {
@@ -101,6 +114,7 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Nintendo - Virtual Boy"],
         extensions: &["vb"],
         core: "mednafen_vb_libretro.so",
+        mono: false,
     },
     // ── Nintendo — Pokemon Mini ────────────────────────────────────
     PlatformManifest {
@@ -108,6 +122,7 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Nintendo - Pokemon Mini"],
         extensions: &["min"],
         core: "pokemini_libretro.so",
+        mono: true,
     },
     // ── Sega — Genesis / MS / GG / CD ──────────────────────────────
     PlatformManifest {
@@ -115,24 +130,28 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Sega - Mega Drive - Genesis"],
         extensions: &["gen", "md", "smd"],
         core: "genesis_plus_gx_libretro.so",
+        mono: false,
     },
     PlatformManifest {
         short_name: "Master System",
         aliases: &["Sega - Master System - Mark III"],
         extensions: &["sms"],
         core: "genesis_plus_gx_libretro.so",
+        mono: true,
     },
     PlatformManifest {
         short_name: "Game Gear",
         aliases: &["Sega - Game Gear"],
         extensions: &["gg"],
         core: "genesis_plus_gx_libretro.so",
+        mono: true,
     },
     PlatformManifest {
         short_name: "Sega CD",
         aliases: &["Sega - Sega CD - Mega CD"],
         extensions: &[], // detected via dir name, not extension
         core: "genesis_plus_gx_libretro.so",
+        mono: false,
     },
     // ── Sega — 32X ─────────────────────────────────────────────────
     PlatformManifest {
@@ -140,6 +159,7 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Sega - Sega 32X"],
         extensions: &["32x"],
         core: "picodrive_libretro.so",
+        mono: false,
     },
     // ── Sega — Saturn ──────────────────────────────────────────────
     PlatformManifest {
@@ -147,6 +167,7 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Sega - Saturn"],
         extensions: &["mdf"],
         core: "yabause_libretro.so",
+        mono: false,
     },
     // ── Sega — Dreamcast ───────────────────────────────────────────
     PlatformManifest {
@@ -154,6 +175,7 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Sega - Dreamcast"],
         extensions: &["cdi", "gdi"],
         core: "flycast_libretro.so",
+        mono: false,
     },
     // ── Sony — PlayStation ─────────────────────────────────────────
     PlatformManifest {
@@ -161,6 +183,7 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Sony - PlayStation"],
         extensions: &["iso", "cue", "chd", "bin"],
         core: "pcsx_rearmed_libretro.so",
+        mono: false,
     },
     // ── Sony — PlayStation Portable ────────────────────────────────
     PlatformManifest {
@@ -168,6 +191,7 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Sony - PlayStation Portable", "PlayStation Portable"],
         extensions: &["cso"],
         core: "ppsspp_libretro.so",
+        mono: false,
     },
     // ── Atari — 2600 / 5200 / 7800 / Lynx ──────────────────────────
     PlatformManifest {
@@ -175,24 +199,28 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Atari - 2600"],
         extensions: &["a26"],
         core: "stella2014_libretro.so",
+        mono: true,
     },
     PlatformManifest {
         short_name: "Atari 5200",
         aliases: &["Atari - 5200"],
         extensions: &["a52"],
         core: "a5200_libretro.so",
+        mono: true,
     },
     PlatformManifest {
         short_name: "Atari 7800",
         aliases: &["Atari - 7800"],
         extensions: &["a78"],
         core: "prosystem_libretro.so",
+        mono: true,
     },
     PlatformManifest {
         short_name: "Atari Lynx",
         aliases: &["Atari - Lynx"],
         extensions: &["lnx"],
         core: "handy_libretro.so",
+        mono: false,
     },
     // ── NEC — PC Engine / TurboGrafx ───────────────────────────────
     PlatformManifest {
@@ -205,6 +233,7 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         ],
         extensions: &["pce"],
         core: "mednafen_pce_fast_libretro.so",
+        mono: false,
     },
     // ── SNK — Neo Geo Pocket / CD ──────────────────────────────────
     PlatformManifest {
@@ -212,18 +241,21 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["SNK - Neo Geo Pocket"],
         extensions: &["ngp"],
         core: "mednafen_ngp_libretro.so",
+        mono: true,
     },
     PlatformManifest {
         short_name: "Neo Geo Pocket Color",
         aliases: &["SNK - Neo Geo Pocket Color"],
         extensions: &["ngc"],
         core: "mednafen_ngp_libretro.so",
+        mono: true,
     },
     PlatformManifest {
         short_name: "Neo Geo CD",
         aliases: &["SNK - Neo Geo CD"],
         extensions: &[], // detected via dir name
         core: "neocd_libretro.so",
+        mono: false,
     },
     // ── Bandai — WonderSwan ────────────────────────────────────────
     PlatformManifest {
@@ -231,12 +263,14 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &["Bandai - WonderSwan"],
         extensions: &["ws"],
         core: "mednafen_wswan_libretro.so",
+        mono: false,
     },
     PlatformManifest {
         short_name: "WonderSwan Color",
         aliases: &["Bandai - WonderSwan Color"],
         extensions: &["wsc"],
         core: "mednafen_wswan_libretro.so",
+        mono: false,
     },
     // ── Arcade ────────────────────────────────────────────────────
     PlatformManifest {
@@ -244,6 +278,7 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         aliases: &[],
         extensions: &["zip"],
         core: "fbneo_libretro.so",
+        mono: false,
     },
 ];
 
@@ -281,6 +316,17 @@ pub fn core_for_platform(name: &str) -> Option<String> {
     }
     tracing::debug!("[PLATFORM] no mapping for: {name}");
     None
+}
+
+/// Whether a platform's hardware audio is unconditionally mono.
+///
+/// Used by the core launcher to tell sc-core to mirror the live channel
+/// into both, so one-sided mono output can never reach the stream.
+pub fn platform_is_mono(name: &str) -> bool {
+    PLATFORMS
+        .iter()
+        .find(|p| p.short_name == name || p.aliases.contains(&name))
+        .is_some_and(|p| p.mono)
 }
 
 /// Peek inside a .zip file and return the extension of the first entry
@@ -649,5 +695,62 @@ mod tests {
 
         // .03 is not a recognized console extension → Arcade fallback
         assert_eq!(detect_platform_name(&zip_path), Some("Arcade".into()));
+    }
+
+    // ── Mono audio platforms ───────────────────────────────────────
+
+    #[test]
+    fn mono_platforms_are_the_unconditionally_mono_hardware() {
+        // Mono hardware: NES/FDS, GB/GBC, SMS/GG, Pokemon Mini,
+        // Atari 2600/5200/7800, Neo Geo Pocket (Color).
+        for name in [
+            "NES",
+            "Family Computer Disk System",
+            "Game Boy",
+            "Game Boy Color",
+            "Master System",
+            "Game Gear",
+            "Pokemon Mini",
+            "Atari 2600",
+            "Atari 5200",
+            "Atari 7800",
+            "Neo Geo Pocket",
+            "Neo Geo Pocket Color",
+        ] {
+            assert!(
+                platform_is_mono(name),
+                "expected {name} to be flagged mono"
+            );
+        }
+
+        // Stereo-capable hardware must NOT be forced mono: forcing would
+        // destroy real stereo (panning, CD audio, headphone output).
+        for name in [
+            "Game Boy Advance",
+            "SNES",
+            "Nintendo 64",
+            "Nintendo DS",
+            "Virtual Boy",
+            "Genesis",
+            "Sega CD",
+            "Sega 32X",
+            "Saturn",
+            "Dreamcast",
+            "PlayStation",
+            "PSP",
+            "PC Engine",
+            "Atari Lynx",
+            "Neo Geo CD",
+            "WonderSwan",
+            "WonderSwan Color",
+        ] {
+            assert!(
+                !platform_is_mono(name),
+                "expected {name} to remain stereo"
+            );
+        }
+
+        // Unknown names are not mono (fail closed to passthrough).
+        assert!(!platform_is_mono("Does Not Exist"));
     }
 }

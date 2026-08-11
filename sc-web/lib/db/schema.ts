@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid, integer, index } from "drizzle-orm/pg-core";
+import { check, jsonb, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid, integer, index, boolean } from "drizzle-orm/pg-core";
 
 // ── Users (created via OAuth) ────────────────────────────────────────
 
@@ -39,6 +39,18 @@ export const serverGames = pgTable("server_games", {
   sourceName: text("source_name"),
   // Trusted canonical DAT identity supplied by the paired server. UI renames never change it.
   thumbnailName: text("thumbnail_name"),
+  // DAT verification evidence (canonical identity + source-catalog provenance).
+  verificationState: text("verification_state"),
+  canonicalTitle: text("canonical_title"),
+  canonicalPlatform: text("canonical_platform"),
+  region: text("region"),
+  revision: text("revision"),
+  confidence: text("confidence"),
+  catalogName: text("catalog_name"),
+  catalogVersion: text("catalog_version"),
+  catalogSha256: text("catalog_sha256"),
+  verificationSourceName: text("verification_source_name"),
+  enrichedAt: text("enriched_at"),
   platform: text("platform").notNull().default("Unknown"),
   maxPlayers: integer("max_players").notNull().default(1),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -47,6 +59,34 @@ export const serverGames = pgTable("server_games", {
   serverIdx: index("idx_server_games_server").on(table.serverId),
   nameIdx: index("idx_server_games_name").on(table.name),
 }));
+
+// ── Gateway-owned per-game flags (Living Cabinet wall, #762) ──────────
+//
+// Admin-toggled on sc-web. Kept OUT of server_games — a full-replace cache
+// pushed by sc-server — so a host sync can never wipe an admin's toggle.
+// always_on: the host keeps a resident session for this game.
+// public: broadcast on the gateway's public wall (watchable + joinable).
+
+export const gameFlags = pgTable(
+  "game_flags",
+  {
+    serverId: uuid("server_id")
+      .references(() => servers.id, { onDelete: "cascade" })
+      .notNull(),
+    gameId: text("game_id").notNull(),
+    alwaysOn: boolean("always_on").notNull().default(false),
+    freePlay: boolean("free_play").notNull().default(false),
+    public: boolean("public").notNull().default(false),
+    /** Resident session seat cap (#762). NULL → host default (4). */
+    maxSeats: integer("max_seats"),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.serverId, table.gameId] }),
+    publicIdx: index("idx_game_flags_public").on(table.public),
+  }),
+);
 
 // ── Server members (which users can play on which servers) ───────────
 
@@ -198,7 +238,7 @@ export const sessions = pgTable("sessions", {
   workerUrl: text("worker_url"),
   sdpAnswer: text("sdp_answer"),
   roomToken: text("room_token").unique(),
-  maxSeats: integer("max_seats").notNull().default(1),
+  maxSeats: integer("max_seats").notNull().default(4),
   generation: integer("generation").notNull().default(1),
   status: text("status").notNull().default("spawning"),
   // spawning → ready → connected → playing → ended | timed_out
@@ -269,5 +309,5 @@ export const shortCodes = pgTable("short_codes", {
   hostToken: text("host_token").notNull(),
   serverId: text("server_id").notNull(),
   createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  mintedViaProxy: boolean("minted_via_proxy").default(false).notNull(),
 });

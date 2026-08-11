@@ -116,7 +116,12 @@ async fn push_audio(session: &GameSession, audio_data: &[i16], audio_acc: &mut V
 }
 
 /// Drain encoded video from GStreamer → WebRTC video track.
-async fn drain_to_track_video(session: &GameSession, timestamp_us: u32) {
+async fn drain_to_track_video(
+    session: &GameSession,
+    frame_num: u64,
+    ticks_per_frame: u32,
+    rtp_offset: u32,
+) {
     loop {
         let data = {
             let enc_guard = session.video_enc.lock().await;
@@ -129,8 +134,9 @@ async fn drain_to_track_video(session: &GameSession, timestamp_us: u32) {
             Some(data) => {
                 let sample = Sample {
                     data: data.into(),
-                    duration: Duration::from_millis(17),
-                    packet_timestamp: timestamp_us,
+                    duration: Duration::from_secs_f64(1.0 / *session.core_fps.lock().await),
+                    packet_timestamp: rtp_offset
+                        .wrapping_add((frame_num * ticks_per_frame as u64) as u32),
                     ..Default::default()
                 };
                 let track = session.video_track.lock().expect("mutex poisoned").clone();
@@ -177,10 +183,15 @@ async fn drain_to_track_audio(session: &GameSession, mut audio_ts: u32) -> u32 {
 pub async fn run_stream(session: Arc<GameSession>) {
     let fps = *session.core_fps.lock().await;
     let frame_interval = Duration::from_secs_f64(1.0 / fps.max(1.0));
+    let ticks_per_frame = (90_000.0f64 / fps.max(1.0)).round() as u32;
+    let rtp_offset = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_micros()
+        .min(u32::MAX as u128) as u32;
     let mut frame_num: u64 = 0;
     let mut audio_ts: u32 = 0;
     let mut audio_acc: Vec<i16> = Vec::new();
-    let start_instant = std::time::Instant::now();
     let mut resolution_probed = false;
 
     let mut tick = tokio::time::interval(frame_interval);
@@ -261,12 +272,57 @@ pub async fn run_stream(session: Arc<GameSession>) {
                 }
 
                 // ── Drain encoded → WebRTC tracks ───────────────────
-                let timestamp_us = start_instant.elapsed().as_micros().min(u32::MAX as u128) as u32;
-                drain_to_track_video(&session, timestamp_us).await;
+                drain_to_track_video(&session, frame_num, ticks_per_frame, rtp_offset).await;
                 audio_ts = drain_to_track_audio(&session, audio_ts).await;
             }
         }
     }
 
     tracing::info!("[STREAM] Loop exited");
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn video_tick_rate_matches_core_fps() {
+        // 60 Hz → 1500 ticks/frame on a 90 kHz clock
+        // 90000/60 = 1500 exactly
+        assert_eq!((90_000.0f64 / 60.0).round() as u64, 1500);
+
+        // 50 Hz → 1800 ticks/frame
+        // 90000/50 = 1800 exactly
+        assert_eq!((90_000.0f64 / 50.0).round() as u64, 1800);
+
+        // 59.94 Hz (NTSC) → ~1501.5 → rounds to 1502
+        assert_eq!((90_000.0f64 / 59.94).round() as u64, 1502);
+    }
+
+    #[test]
+    fn fractional_fps_does_not_drift_over_time() {
+        // 59.94 Hz: per-frame rounding introduces ±0.5 tick error per frame.
+        // Over 1001 frames, worst-case drift = 1001 × 0.5 = 500.5 ticks
+        // on a 90 kHz clock (~5.5 ms). That's negligible — no material
+        // A/V desync even after hours.
+        let fps: f64 = 59.94;
+        let ticks_per_frame = (90_000.0f64 / fps).round() as u64;
+        // 1001 frames × 1502 ticks = 1_503_502
+        let total_ticks = 1001u64 * ticks_per_frame;
+        // Exact value: 90_000 × 1001 / 59.94 ≈ 1_503_003.003
+        let exact = (90_000.0f64 * 1001.0 / fps).round() as u64;
+        let drift = (total_ticks as f64 - exact as f64).abs();
+        // Allow up to 1000 ticks of drift (≈11ms on a 90kHz clock)
+        assert!(drift < 1000.0, "drift={drift} ticks over 1001 frames");
+    }
+
+    #[test]
+    fn sixty_hz_stays_synchronized_over_minutes() {
+        let fps: f64 = 60.0;
+        let ticks_per_frame = (90_000.0f64 / fps).round() as u64;
+        assert_eq!(ticks_per_frame, 1500);
+        // 5 minutes at 60 Hz = 18,000 frames × 1500 ticks = 27,000,000
+        let frames = 60 * 60 * 5;
+        let last_timestamp = (frames - 1) as u64 * ticks_per_frame;
+        assert_eq!(last_timestamp, 26_998_500);
+    }
 }

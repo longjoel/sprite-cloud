@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { serverGames, serverMembers } from "@/lib/db/schema";
-import { and, eq, ilike, sql, inArray } from "drizzle-orm";
+import { gameFlags, serverGames, serverMembers } from "@/lib/db/schema";
+import { and, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
 // ── GET /api/games ─────────────────────────────────────────────────────
 //
@@ -29,6 +29,9 @@ interface GameEntry {
   serverId: string;
   maxPlayers: number;
   coverUrl?: string | null;
+  // Gateway-owned flags (#762): resident session + public wall broadcast.
+  alwaysOn?: boolean;
+  public?: boolean;
 }
 
 export async function GET(request: NextRequest) {
@@ -53,7 +56,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ games: [], total: 0, platforms: [] });
   }
 
-  const baseWhere = and(inArray(serverGames.serverId, serverIds));
+  const baseWhere = and(
+    inArray(serverGames.serverId, serverIds),
+    or(
+      isNull(serverGames.verificationState),
+      ne(serverGames.verificationState, "BiosVerified"),
+    ),
+  );
 
   // Platform facets: count across all unfiltered games (obeys search only)
   const facetWhere = and(
@@ -88,15 +97,59 @@ export async function GET(request: NextRequest) {
       platform: serverGames.platform,
       serverId: serverGames.serverId,
       maxPlayers: serverGames.maxPlayers,
+      alwaysOn: gameFlags.alwaysOn,
+      public: gameFlags.public,
+      verificationState: serverGames.verificationState,
+      canonicalTitle: serverGames.canonicalTitle,
+      canonicalPlatform: serverGames.canonicalPlatform,
+      region: serverGames.region,
+      revision: serverGames.revision,
+      confidence: serverGames.confidence,
+      catalogName: serverGames.catalogName,
+      catalogVersion: serverGames.catalogVersion,
+      catalogSha256: serverGames.catalogSha256,
+      verificationSourceName: serverGames.verificationSourceName,
+      enrichedAt: serverGames.enrichedAt,
     })
     .from(serverGames)
+    .leftJoin(
+      gameFlags,
+      and(
+        eq(gameFlags.serverId, serverGames.serverId),
+        eq(gameFlags.gameId, serverGames.gameId),
+      ),
+    )
     .where(pageWhere)
     .orderBy(serverGames.name)
     .limit(limit)
     .offset(offset);
 
   return NextResponse.json({
-    games: rows.map((r) => ({ id: r.id, name: r.name, platform: r.platform, serverId: r.serverId, maxPlayers: r.maxPlayers, coverUrl: `/api/covers/${r.serverId}/${encodeURIComponent(r.id)}` })),
+    games: rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      platform: r.platform,
+      serverId: r.serverId,
+      maxPlayers: r.maxPlayers,
+      alwaysOn: r.alwaysOn ?? false,
+      public: r.public ?? false,
+      coverUrl: `/api/covers/${r.serverId}/${encodeURIComponent(r.id)}`,
+      verification: r.verificationState
+        ? {
+            state: r.verificationState,
+            canonicalTitle: r.canonicalTitle,
+            canonicalPlatform: r.canonicalPlatform,
+            region: r.region,
+            revision: r.revision,
+            confidence: r.confidence,
+            catalogName: r.catalogName,
+            catalogVersion: r.catalogVersion,
+            catalogSha256: r.catalogSha256,
+            sourceName: r.verificationSourceName,
+            enrichedAt: r.enrichedAt,
+          }
+        : null,
+    })),
     total: Number(total),
     platforms: platformRows.map((r) => ({ name: r.name, count: Number(r.count) })),
   });

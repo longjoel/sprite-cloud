@@ -87,6 +87,30 @@ describe("GameTile actions", () => {
     expect(html).not.toContain("4p");
   });
 
+  it("shows a verified badge only when DAT evidence exists", () => {
+    const html = renderToStaticMarkup(createElement(GameTile, {
+      game: { ...game, verification: { state: "verified" } },
+      onPlay: vi.fn(),
+    }));
+    expect(html).toContain("game-tile-verification");
+    expect(html).toContain("✓ Verified");
+
+    // No badge without evidence — tiles stay clean.
+    const plain = renderToStaticMarkup(createElement(GameTile, { game, onPlay: vi.fn() }));
+    expect(plain).not.toContain("game-tile-verification");
+  });
+
+  it("marks unverified games distinctly without an approval gate", () => {
+    const html = renderToStaticMarkup(createElement(GameTile, {
+      game: { ...game, verification: { state: "unverified" } },
+      onPlay: vi.fn(),
+    }));
+    expect(html).toContain("Unverified");
+    expect(html).toContain("game-tile-verification-unverified");
+    expect(html).not.toContain("Reject");
+    expect(html).not.toContain("Approve");
+  });
+
   it("provides a large labelled Play target and a ⋮ context-menu trigger", () => {
     const html = renderToStaticMarkup(createElement(GameTile, {
       game,
