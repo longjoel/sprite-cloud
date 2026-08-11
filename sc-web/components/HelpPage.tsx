@@ -32,8 +32,8 @@ const STEPS: Step[] = [
   {
     num: 2,
     title: "Create an account",
-    desc: "Sign in with an email and password. This gives you a personal library, favorites, and access to your game servers.",
-    link: { label: "Sign in", href: "/signin?callbackUrl=/library" },
+    desc: "Accounts are created through an invitation. Ask a server admin for an invite link, then use it to create your email and password account with a personal library and access to your game servers.",
+    link: { label: "Get an invitation →", href: "https://discord.gg/zujXa48kyS" },
   },
   {
     num: 3,
@@ -89,7 +89,7 @@ export default function HelpPage({ userName, authenticated = false }: HelpPagePr
         </Typography>
         <Stack divider={<Box sx={{ borderBottom: 1, borderColor: "divider" }} />}>
           {STEPS.map((step) => (
-            <Stack key={step.num} direction="row" spacing={3} sx={{ py: 3, alignItems: "flex-start" }}>
+            <Stack key={step.num} id={step.num === 2 ? "account" : undefined} direction="row" spacing={3} sx={{ py: 3, alignItems: "flex-start" }}>
               <Avatar sx={{ bgcolor: "primary.main", color: "primary.contrastText" }}>
                 {step.num}
               </Avatar>
@@ -118,7 +118,13 @@ export default function HelpPage({ userName, authenticated = false }: HelpPagePr
                   </Box>
                 )}
                 {step.link && (
-                  <Button component={Link} href={step.link.href} variant="contained" sx={{ mt: 2 }}>
+                  <Button
+                    component={step.link.href.startsWith("http") ? "a" : Link}
+                    href={step.link.href}
+                    {...(step.link.href.startsWith("http") ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                    variant="contained"
+                    sx={{ mt: 2 }}
+                  >
                     {step.link.label}
                   </Button>
                 )}
