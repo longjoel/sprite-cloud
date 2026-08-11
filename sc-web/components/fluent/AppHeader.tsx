@@ -2,26 +2,26 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   AppBar, Toolbar, Typography, Button, IconButton, Drawer,
   List, ListItem, ListItemButton, ListItemText, Box, useMediaQuery, useTheme,
 } from "@mui/material";
 import { Menu as MenuIcon } from "@mui/icons-material";
+import { buildAppNavigationItems, isAppNavigationItemActive } from "@/lib/ui/app-navigation";
 
-// ── AppHeader — MUI AppBar with responsive hamburger drawer ─────────
-
-interface AppHeaderLink {
-  label: string;
-  href: string;
-}
+// ── AppHeader — shared route-aware navigation with responsive drawer ──
 
 interface AppHeaderProps {
   userName?: string | null;
-  links?: AppHeaderLink[];
+  authenticated?: boolean;
+  isLanProxy?: boolean;
 }
 
-export default function AppHeader({ userName, links = [] }: AppHeaderProps) {
+export default function AppHeader({ userName, authenticated = false, isLanProxy = false }: AppHeaderProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const pathname = usePathname();
+  const links = buildAppNavigationItems({ authenticated, isLanProxy });
   const theme = useTheme();
   const isNarrow = useMediaQuery(theme.breakpoints.down("sm"));
 
@@ -49,23 +49,28 @@ export default function AppHeader({ userName, links = [] }: AppHeaderProps) {
             </IconButton>
           )}
 
-          {/* Logo */}
-          <Typography
+          {/* Brand */}
+          <Box
             component={Link}
             href="/"
-            variant="h6"
-            sx={{
-              color: "primary.main",
-              textDecoration: "none",
-              fontWeight: 700,
-              letterSpacing: "0.02em",
-              textTransform: "uppercase",
-              fontSize: "var(--font-size-lg)",
-              flexGrow: isNarrow ? 1 : 0,
-            }}
+            aria-label="Sprite Cloud home"
+            sx={{ display: "flex", alignItems: "center", flexGrow: isNarrow ? 1 : 0 }}
           >
-            Sprite Cloud
-          </Typography>
+            <Box
+              component="img"
+              src="/brand/sprite-cloud-logo-banner.jpg"
+              alt="Sprite Cloud"
+              width={150}
+              height={50}
+              sx={{
+                display: "block",
+                width: { xs: 112, sm: 150 },
+                height: { xs: 38, sm: 50 },
+                objectFit: "contain",
+                borderRadius: 0.5,
+              }}
+            />
+          </Box>
 
           {/* Desktop links */}
           {!isNarrow && (
@@ -75,8 +80,9 @@ export default function AppHeader({ userName, links = [] }: AppHeaderProps) {
                   key={link.href}
                   component={Link}
                   href={link.href}
+                  aria-current={isAppNavigationItemActive(link.href, pathname) ? "page" : undefined}
                   sx={{
-                    color: "text.secondary",
+                    color: isAppNavigationItemActive(link.href, pathname) ? "primary.main" : "text.secondary",
                     textTransform: "none",
                   }}
                 >
@@ -106,9 +112,14 @@ export default function AppHeader({ userName, links = [] }: AppHeaderProps) {
         slotProps={{ paper: { sx: { minWidth: 220 } } }}
       >
         <Box sx={{ p: 2, borderBottom: 1, borderColor: "divider" }}>
-          <Typography sx={{ color: "primary.main", fontWeight: 700 }}>
-            Sprite Cloud
-          </Typography>
+          <Box
+            component="img"
+            src="/brand/sprite-cloud-logo-banner.jpg"
+            alt="Sprite Cloud"
+            width={150}
+            height={50}
+            sx={{ display: "block", width: 150, height: 50, objectFit: "contain", borderRadius: 0.5 }}
+          />
           {userName && (
             <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.5 }}>
               {userName}
@@ -121,6 +132,8 @@ export default function AppHeader({ userName, links = [] }: AppHeaderProps) {
               <ListItemButton
                 component={Link}
                 href={link.href}
+                selected={isAppNavigationItemActive(link.href, pathname)}
+                aria-current={isAppNavigationItemActive(link.href, pathname) ? "page" : undefined}
                 onClick={() => setDrawerOpen(false)}
               >
                 <ListItemText

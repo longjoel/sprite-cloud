@@ -9,10 +9,11 @@ const playerShellSource = readFileSync(
 );
 
 describe("/p/[code] player page", () => {
-  it("preserves LAN proxy pass-through with route=lan", () => {
+  it("preserves LAN proxy pass-through with route=lan and canonical sc-server origins", () => {
     const pageSource = readFileSync("app/p/[code]/page.tsx", "utf8");
     expect(pageSource).toContain('"route"');
     expect(pageSource).toContain('"lan"');
+    expect(pageSource).toContain("isLanPlayerLocation(window.location)");
     expect(pageSource).toContain("sprite-cloud.com");
   });
 
