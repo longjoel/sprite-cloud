@@ -148,4 +148,32 @@ describe("operational server dashboard", () => {
       expect.anything(),
     );
   });
+
+  it("renders unavailable summaries as unknown rather than offline", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, json: async () => ({}) } as Response);
+    const host = await render();
+
+    expect(host.textContent).toContain("Unable to load server health.");
+    expect(host.textContent).toContain("Unknown");
+    expect(host.textContent).toContain("Status unavailable");
+    expect(host.textContent).not.toContain("Attention required");
+  });
+
+  it("revalidates operational summaries while the dashboard remains open", async () => {
+    vi.useFakeTimers();
+    try {
+      const host = await render();
+      const initialSummaryCalls = fetchMock.mock.calls.filter(([input]) => String(input) === "/api/servers/summary").length;
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+
+      const summaryCalls = fetchMock.mock.calls.filter(([input]) => String(input) === "/api/servers/summary").length;
+      expect(summaryCalls).toBe(initialSummaryCalls + 1);
+      expect(host.textContent).toContain("Server health");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

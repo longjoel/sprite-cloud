@@ -54,6 +54,7 @@ interface Membership {
 }
 
 type Health = "online" | "idle" | "offline";
+type DisplayHealth = Health | "unknown";
 
 interface ServerSummary {
   serverId: string;
@@ -76,7 +77,7 @@ interface UpdateView {
   message: string | null;
 }
 
-const healthOrder: Record<Health, number> = { offline: 0, idle: 1, online: 2 };
+const healthOrder: Record<DisplayHealth, number> = { offline: 0, idle: 1, unknown: 2, online: 3 };
 const healthColor: Record<Health, "success" | "warning" | "error"> = {
   online: "success",
   idle: "warning",
@@ -109,8 +110,11 @@ export default function DashboardClient({ memberships }: Props) {
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
 
     async function loadSummaries() {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const response = await fetch("/api/servers/summary");
         if (!response.ok) throw new Error("Unable to load server health.");
@@ -119,6 +123,7 @@ export default function DashboardClient({ memberships }: Props) {
 
         const next = Object.fromEntries((data.servers ?? []).map((summary) => [summary.serverId, summary]));
         setSummaries(next);
+        setError(null);
 
         const probes = await Promise.all((data.servers ?? []).map(async (summary) => {
           if (!summary.lan.healthUrls.length) return [summary.serverId, { reachable: false, reason: "no_urls" } as LanProbeResult] as const;
@@ -128,12 +133,17 @@ export default function DashboardClient({ memberships }: Props) {
       } catch (cause) {
         if (!cancelled) setError(cause instanceof Error ? cause.message : "Unable to load server health.");
       } finally {
+        inFlight = false;
         if (!cancelled) setLoading(false);
       }
     }
 
-    loadSummaries();
-    return () => { cancelled = true; };
+    void loadSummaries();
+    const interval = window.setInterval(() => void loadSummaries(), 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -155,11 +165,14 @@ export default function DashboardClient({ memberships }: Props) {
   }, [summaries]);
 
   const sorted = [...memberships].sort((a, b) => {
-    const aHealth = summaries[a.id]?.health ?? "offline";
-    const bHealth = summaries[b.id]?.health ?? "offline";
+    const aHealth = summaries[a.id]?.health ?? "unknown";
+    const bHealth = summaries[b.id]?.health ?? "unknown";
     return healthOrder[aHealth] - healthOrder[bHealth];
   });
-  const attentionCount = sorted.filter((membership) => (summaries[membership.id]?.health ?? "offline") !== "online").length;
+  const attentionCount = sorted.filter((membership) => {
+    const health = summaries[membership.id]?.health;
+    return health === "offline" || health === "idle";
+  }).length;
 
   async function generatePairingCode() {
     setPairingError(null);
@@ -280,7 +293,7 @@ export default function DashboardClient({ memberships }: Props) {
         <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(2, minmax(0, 1fr))" }, gap: 2.5, alignItems: "start" }}>
           {sorted.map((membership) => {
             const summary = summaries[membership.id];
-            const health = summary?.health ?? "offline";
+            const health: DisplayHealth = summary?.health ?? "unknown";
             const isAdmin = membership.role === "admin";
             const isOpen = expanded.has(membership.id);
             const update = updates[membership.id] ?? { state: "idle", message: null };
@@ -297,8 +310,8 @@ export default function DashboardClient({ memberships }: Props) {
                   minWidth: 0,
                   display: "flex",
                   flexDirection: "column",
-                  borderColor: health === "online" ? "divider" : `${healthColor[health]}.main`,
-                  boxShadow: health === "online" ? 0 : 2,
+                  borderColor: health === "offline" || health === "idle" ? `${healthColor[health]}.main` : "divider",
+                  boxShadow: health === "offline" || health === "idle" ? 2 : 0,
                   transition: (theme) => theme.transitions.create(["box-shadow", "border-color"]),
                 }}
               >
@@ -310,9 +323,9 @@ export default function DashboardClient({ memberships }: Props) {
                         {membership.role === "member" && <Chip label="Shared with you" size="small" variant="outlined" />}
                       </Stack>
                       <Stack direction="row" spacing={1} sx={{ mt: 1, alignItems: "center" }}>
-                        {health === "online" ? <CloudDoneOutlined color="success" fontSize="small" /> : <CloudOffOutlined color={healthColor[health]} fontSize="small" />}
-                        <Chip label={health} size="small" color={healthColor[health]} variant="outlined" sx={{ textTransform: "capitalize" }} />
-                        <Typography variant="body2" color="text.secondary">{summary?.lastSeenAt ? `Seen ${timeAgo(summary.lastSeenAt)}` : "No heartbeat yet"}</Typography>
+                        {health === "online" ? <CloudDoneOutlined color="success" fontSize="small" /> : <CloudOffOutlined color={summary ? healthColor[summary.health] : "disabled"} fontSize="small" />}
+                        <Chip label={summary ? summary.health : "Unknown"} size="small" color={summary ? healthColor[summary.health] : "default"} variant="outlined" sx={{ textTransform: "capitalize" }} />
+                        <Typography variant="body2" color="text.secondary">{!summary ? "Status unavailable" : summary.lastSeenAt ? `Seen ${timeAgo(summary.lastSeenAt)}` : "No heartbeat yet"}</Typography>
                       </Stack>
                     </Box>
                     {isAdmin && (
