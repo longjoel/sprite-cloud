@@ -2,9 +2,9 @@
 
 import { randomUuid } from "@/lib/browser/random-uuid";
 
-export function csrfHeaders(): Record<string, string> {
+export function csrfHeaders(json = true): Record<string, string> {
   if (typeof document === "undefined") {
-    return { "Content-Type": "application/json" };
+    return json ? { "Content-Type": "application/json" } : {};
   }
   let token = document.cookie
     .split(";")
@@ -17,5 +17,8 @@ export function csrfHeaders(): Record<string, string> {
     token = randomUuid();
     document.cookie = `sc_csrf_token=${encodeURIComponent(token)}; Path=/; SameSite=Lax`;
   }
-  return { "Content-Type": "application/json", "x-csrf-token": decodeURIComponent(token) };
+  return {
+    ...(json ? { "Content-Type": "application/json" } : {}),
+    "x-csrf-token": decodeURIComponent(token),
+  };
 }

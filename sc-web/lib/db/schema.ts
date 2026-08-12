@@ -88,6 +88,36 @@ export const gameFlags = pgTable(
   }),
 );
 
+// ── Gateway-owned per-server game cover overrides (#806) ──────────────
+// Kept outside server_games because host catalog sync replaces that index.
+export const serverGameCoverOverrides = pgTable(
+  "server_game_cover_overrides",
+  {
+    serverId: uuid("server_id")
+      .references(() => servers.id, { onDelete: "cascade" })
+      .notNull(),
+    gameId: text("game_id").notNull(),
+    sourceType: text("source_type").notNull(),
+    assetId: text("asset_id").notNull(),
+    posterAssetId: text("poster_asset_id").notNull(),
+    mediaType: text("media_type").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    byteSize: integer("byte_size").notNull(),
+    animated: boolean("animated").notNull().default(false),
+    frameCount: integer("frame_count").notNull().default(1),
+    providerKey: text("provider_key"),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.serverId, table.gameId] }),
+    assetIdx: index("idx_server_game_cover_overrides_asset").on(table.assetId),
+    sourceTypeCheck: check("server_game_cover_source_type", sql`${table.sourceType} IN ('retroarch', 'upload')`),
+  }),
+);
+
 // ── Server members (which users can play on which servers) ───────────
 
 export const serverMembers = pgTable(

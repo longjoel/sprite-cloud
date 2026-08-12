@@ -9,9 +9,15 @@ services:
       HOSTNAME: 0.0.0.0
       PORT: "3000"
       NODE_ENV: production
+      GV_COVER_OVERRIDES_DIR: /var/lib/sprite-cloud/cover-overrides
+    volumes:
+      - sc-web-cover-overrides:/var/lib/sprite-cloud/cover-overrides
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:3000/api/health"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 30s
+
+volumes:
+  sc-web-cover-overrides:

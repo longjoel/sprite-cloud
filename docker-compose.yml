@@ -25,12 +25,14 @@ services:
       # Shadow host node_modules with container's pre-installed deps (per workspace member)
       - sc-web-node-modules:/app/sc-web/node_modules
       - sc-web-node-modules-pnpm:/app/node_modules
+      - sc-web-cover-overrides:/var/lib/sprite-cloud/cover-overrides
     environment:
       NODE_ENV: development
       # sc-web env
       AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET}
       AUTH_URL: ${AUTH_URL:-http://localhost:3000}
       DATABASE_URL: ${DATABASE_URL:-postgresql://sprite_cloud@127.0.0.1:5433/sprite_cloud}
+      GV_COVER_OVERRIDES_DIR: /var/lib/sprite-cloud/cover-overrides
       GV_ICE_STUN_URLS: ${GV_ICE_STUN_URLS:-stun:stun.l.google.com:19302}
       GV_ICE_TURN_URLS: ${GV_ICE_TURN_URLS:-}
       GV_ICE_TURN_USERNAME: ${GV_ICE_TURN_USERNAME:-}
@@ -104,5 +106,6 @@ services:
 volumes:
   sc-web-node-modules:
   sc-web-node-modules-pnpm:
+  sc-web-cover-overrides:
   sc-server-saves:
   sc-server-system:

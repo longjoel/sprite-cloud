@@ -24,6 +24,7 @@ interface GameTileProps {
   onChooseHost?: (game: TileGame) => void;
   onDelete?: (game: TileGame) => void;
   onDownload?: (game: TileGame) => void;
+  onChangeCover?: (game: TileGame) => void;
   isPublic?: boolean;
   onTogglePublic?: (game: TileGame) => void;
   isAlwaysOn?: boolean;
@@ -49,6 +50,7 @@ export default function GameTile({
   onChooseHost,
   onDelete,
   onDownload,
+  onChangeCover,
   isPublic,
   onTogglePublic,
   isAlwaysOn,
@@ -59,7 +61,7 @@ export default function GameTile({
 }: GameTileProps) {
   const hasContextActions = !!(
     onToggleFavorite || onEdit || onChooseHost || onDelete || onDownload ||
-    onTogglePublic || onToggleAlwaysOn || onToggleFreePlay
+    onTogglePublic || onToggleAlwaysOn || onToggleFreePlay || onChangeCover
   );
 
   return (
@@ -142,6 +144,7 @@ export default function GameTile({
           onChooseHost={onChooseHost ? () => onChooseHost(game) : undefined}
           onDelete={onDelete ? () => onDelete(game) : undefined}
           onDownload={onDownload ? () => onDownload(game) : undefined}
+          onChangeCover={onChangeCover ? () => onChangeCover(game) : undefined}
           isPublic={isPublic}
           onTogglePublic={onTogglePublic ? () => onTogglePublic(game) : undefined}
           isAlwaysOn={isAlwaysOn}

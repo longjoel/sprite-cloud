@@ -12,6 +12,7 @@ import {
   MoreVert,
   Public,
   Power,
+  ImageOutlined,
 } from "@mui/icons-material";
 
 // ── Types ──────────────────────────────────────────────────────────
@@ -44,6 +45,8 @@ interface GameTileContextMenuProps {
   onDelete?: () => void;
   /** Download callback (admin only). */
   onDownload?: () => void;
+  /** Change server-wide cover callback (admin only). */
+  onChangeCover?: () => void;
   /** Public-wall toggle (admin only, #762). */
   isPublic?: boolean;
   onTogglePublic?: () => void;
@@ -103,6 +106,7 @@ export default function GameTileContextMenu({
   onChooseHost,
   onDelete,
   onDownload,
+  onChangeCover,
   isPublic,
   onTogglePublic,
   isAlwaysOn,
@@ -170,6 +174,17 @@ export default function GameTileContextMenu({
       onClick: () => {
         handleClose();
         onChooseHost();
+      },
+    });
+  }
+  if (onChangeCover) {
+    actions.push({
+      id: "change-cover",
+      label: "Change cover",
+      icon: <ImageOutlined fontSize="small" />,
+      onClick: () => {
+        handleClose();
+        onChangeCover();
       },
     });
   }

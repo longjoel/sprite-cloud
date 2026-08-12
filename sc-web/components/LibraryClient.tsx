@@ -10,6 +10,7 @@ import { downloadRom } from "@/lib/rom-transfer-client";
 import AppHeader from "@/components/fluent/AppHeader";
 import LibraryToolbar from "@/components/LibraryToolbar";
 import RomUploadDropzone from "@/components/RomUploadDropzone";
+import GameCoverPicker, { type CoverPickerGame } from "@/components/GameCoverPicker";
 import { Star, StarBorder, Edit, DesktopWindows } from "@mui/icons-material";
 import { buildLanPlayerLaunchUrl, canUseLanPlayer, chooseLaunchHost, createLaunchRequestGate, formatLaunchError } from "@/lib/lan/launch";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
@@ -47,6 +48,7 @@ interface GameActionModel {
   onChooseHost?: (game: Game) => void;
   onDelete?: (game: Game) => void;
   onDownload?: (game: Game) => void;
+  onChangeCover?: (game: Game) => void;
   /** Admin flag toggles (Living Cabinet wall, #762). */
   canToggleFlags: boolean;
   onTogglePublic?: (game: Game) => void;
@@ -163,6 +165,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
   const [editingGame, setEditingGame] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editSaving, setEditSaving] = useState(false);
+  const [coverGame, setCoverGame] = useState<CoverPickerGame | null>(null);
 
   const [tab, setTab] = useState<LibrarySection>("all");
   const [search, setSearch] = useState("");
@@ -543,6 +546,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
   // ── Render helpers ──────────────────────────────────────────────
 
   const isAdmin = adminServers.length > 0;
+  const adminServerIds = useMemo(() => new Set(adminServers.map((server) => server.id)), [adminServers]);
 
   const gameActions: GameActionModel = {
     canFavorite: true,
@@ -556,6 +560,10 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
     onChooseHost: hasServers ? chooseHost : undefined,
     onDelete: isAdmin ? handleDelete : undefined,
     onDownload: isAdmin ? handleDownload : undefined,
+    onChangeCover: (game: Game) => {
+      if (!game.serverId || !adminServerIds.has(game.serverId)) return;
+      setCoverGame({ ...game, serverId: game.serverId });
+    },
     canToggleFlags: isAdmin,
     onTogglePublic: isAdmin ? handleToggleFlag("public") : undefined,
     onToggleAlwaysOn: isAdmin ? handleToggleFlag("alwaysOn") : undefined,
@@ -656,6 +664,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
       onChooseHost={gameActions.onChooseHost}
       onDelete={gameActions.canDelete ? gameActions.onDelete : undefined}
       onDownload={gameActions.onDownload ? gameActions.onDownload : undefined}
+      onChangeCover={game.serverId && adminServerIds.has(game.serverId) ? gameActions.onChangeCover : undefined}
       isPublic={game.public}
       onTogglePublic={gameActions.canToggleFlags ? () => gameActions.onTogglePublic?.(game) : undefined}
       isAlwaysOn={game.alwaysOn}
@@ -706,6 +715,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
               onChooseHost={gameActions.onChooseHost ? () => gameActions.onChooseHost?.(game) : undefined}
               onDelete={gameActions.canDelete ? () => gameActions.onDelete?.(game) : undefined}
               onDownload={gameActions.onDownload ? () => gameActions.onDownload?.(game) : undefined}
+              onChangeCover={game.serverId && adminServerIds.has(game.serverId) ? () => gameActions.onChangeCover?.(game) : undefined}
               isPublic={game.public}
               onTogglePublic={gameActions.canToggleFlags ? () => gameActions.onTogglePublic?.(game) : undefined}
               isAlwaysOn={game.alwaysOn}
@@ -925,6 +935,20 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
       </Modal>
 
       {/* ── Rename modal ────────────────────────────────────────── */}
+      {coverGame && (
+        <GameCoverPicker
+          open
+          game={coverGame}
+          serverName={adminServers.find((server) => server.id === coverGame.serverId)?.name ?? "Your server"}
+          onClose={() => setCoverGame(null)}
+          onSaved={(coverUrl) => {
+            const update = (games: Game[]) => games.map((game) => game.id === coverGame.id && game.serverId === coverGame.serverId ? { ...game, coverUrl } : game);
+            setAllGames(update);
+            setRecentGames(update);
+          }}
+        />
+      )}
+
       <Modal open={editingGame !== null} onClose={cancelRename} title="Rename game">
         <Stack spacing={2}>
           <TextField

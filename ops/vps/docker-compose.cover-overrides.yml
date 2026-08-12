@@ -1,0 +1,9 @@
+services:
+  web:
+    environment:
+      GV_COVER_OVERRIDES_DIR: /var/lib/sprite-cloud/cover-overrides
+    volumes:
+      - sc-web-cover-overrides:/var/lib/sprite-cloud/cover-overrides
+
+volumes:
+  sc-web-cover-overrides:
