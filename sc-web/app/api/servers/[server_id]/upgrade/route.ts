@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { commands, serverMembers, servers } from "@/lib/db/schema";
-import { STATUS_LEASED, STATUS_PENDING } from "@/lib/constants";
+import { commands, serverMembers, servers, sessions } from "@/lib/db/schema";
+import { ACTIVE_SESSION_STATES, STATUS_LEASED, STATUS_PENDING } from "@/lib/constants";
 
 const CMD_UPGRADE_SERVER = "upgrade_server";
 
@@ -40,6 +40,18 @@ export async function POST(
     .limit(1);
   if (!membership) return NextResponse.json({ error: "server not found" }, { status: 404 });
   if (membership.role !== "admin") return NextResponse.json({ error: "administrator access required" }, { status: 403 });
+
+  const [activeSession] = await db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(and(
+      eq(sessions.serverId, server_id),
+      inArray(sessions.status, [...ACTIVE_SESSION_STATES]),
+    ))
+    .limit(1);
+  if (activeSession) {
+    return NextResponse.json({ error: "finish active games before updating" }, { status: 409 });
+  }
 
   const [active] = await db
     .select({ id: commands.id, status: commands.status })

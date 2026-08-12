@@ -34,17 +34,17 @@ export default async function DashboardPage() {
         <Stack spacing={1.5} sx={{ mb: 4 }}>
           <Typography
             variant="overline"
-            color="text.secondary"
-            sx={{ letterSpacing: "0.08em" }}
+            color="primary.main"
+            sx={{ letterSpacing: "0.12em", fontWeight: 700 }}
           >
-            Dashboard
+            Operations
           </Typography>
           <Typography component="h1" variant="h3">
-            Your servers
+            Dashboard
           </Typography>
           <Typography color="text.secondary" sx={{ maxWidth: 720, lineHeight: 1.6 }}>
-            Access the sc-server instances shared with you. Administrators can
-            pair, rename, invite members, inspect, and remove servers here.
+            See what is online, what is active, and what needs your attention.
+            Configuration stays secondary until you need it.
           </Typography>
         </Stack>
 

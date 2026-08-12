@@ -65,7 +65,8 @@ describe("#599 invite-only enrollment", () => {
     expect(nextConfig).toContain('{ key: "Referrer-Policy", value: "no-referrer" }');
     expect(middleware).toContain('"/invite/:path*"');
     expect(dashboard).toContain('<InviteManager serverId={inviteTarget.id} canManage={inviteTarget.role === "admin"}');
-    expect(dashboard).toContain('disabled={s.role !== "admin"}');
+    expect(dashboard).toContain('membership.role === "admin"');
+    expect(dashboard).toContain('Manage ${membership.name}');
     expect(manager).toContain("canManage");
     expect(manager).toContain("disabled={!canManage");
     expect(manager).toContain("maxRedemptions");

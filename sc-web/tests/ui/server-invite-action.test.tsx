@@ -23,6 +23,24 @@ describe("server invitation action", () => {
       .IS_REACT_ACT_ENVIRONMENT = true;
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
+      if (url === "/api/servers/summary") {
+        return {
+          ok: true,
+          json: async () => ({
+            servers: memberships.map((membership) => ({
+              serverId: membership.id,
+              role: membership.role,
+              health: membership.lastSeenAt ? "online" : "offline",
+              lastSeenAt: membership.lastSeenAt,
+              installedVersion: "0.11.3",
+              activeSessionCount: 0,
+              gameCount: 12,
+              lan: { configured: false, healthUrls: [] },
+              activeUpgrade: null,
+            })),
+          }),
+        } as Response;
+      }
       const body =
         url.includes("/members") || url.includes("/invites")
           ? init?.method === "POST"
@@ -40,38 +58,19 @@ describe("server invitation action", () => {
     vi.restoreAllMocks();
   });
 
-  it("shows invite and remove actions for every server, disabled for non-admins", async () => {
+  it("shows management only for administrators", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
     await act(async () => root?.render(<DashboardClient memberships={memberships} />));
 
-    const table = host.querySelector(".sc-dashboard-table")!;
-    expect(table).toBeTruthy();
+    await act(async () => { await Promise.resolve(); });
 
-    const inviteBtns = Array.from(table.querySelectorAll<HTMLButtonElement>("button"))
-      .filter((btn) => btn.textContent === "Invite user");
-    expect(inviteBtns).toHaveLength(2);
-    expect(inviteBtns.map((btn) => btn.getAttribute("aria-label"))).toEqual(
-      expect.arrayContaining([
-        "Invite users to Living Room",
-        "Invite users to Basement",
-      ]),
-    );
-
-    const removeBtns = Array.from(table.querySelectorAll<HTMLButtonElement>("button"))
-      .filter((btn) => btn.textContent === "Remove");
-    expect(removeBtns).toHaveLength(2);
-
-    // Non-admin name renders as a non-interactive span
-    const memberSpans = Array.from(table.querySelectorAll("span"))
-      .filter((span) => span.textContent === "Basement");
-    expect(memberSpans.length).toBeGreaterThan(0);
-    // Admin name renders as a clickable button
-    const adminBtns = Array.from(table.querySelectorAll("button"))
-      .filter((btn) => btn.textContent === "Living Room");
-    expect(adminBtns.length).toBeGreaterThan(0);
-    expect(adminBtns[0].getAttribute("aria-label")).toBe("Rename Living Room");
+    expect(host.querySelector('[data-server-card="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]')).toBeTruthy();
+    expect(host.querySelector('[data-server-card="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"]')).toBeTruthy();
+    expect(host.querySelector('button[aria-label="Manage Living Room"]')).toBeTruthy();
+    expect(host.querySelector('button[aria-label="Manage Basement"]')).toBeNull();
+    expect(host.textContent).toContain("Shared with you");
   });
 
   it("opens a focused invitation dialog identifying the selected server", async () => {
@@ -80,14 +79,14 @@ describe("server invitation action", () => {
     root = createRoot(host);
     await act(async () => root?.render(<DashboardClient memberships={memberships} />));
 
-    const table = host.querySelector(".sc-dashboard-table")!;
-    const inviteBtn = Array.from(table.querySelectorAll("button"))
-      .find((btn) => btn.getAttribute("aria-label") === "Invite users to Living Room");
-    expect(inviteBtn).toBeDefined();
-
-    await act(async () => {
-      inviteBtn!.click();
-    });
+    await act(async () => { await Promise.resolve(); });
+    const manageButton = host.querySelector<HTMLButtonElement>('button[aria-label="Manage Living Room"]');
+    expect(manageButton).toBeTruthy();
+    await act(async () => manageButton!.click());
+    const inviteItem = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+      .find((item) => item.textContent === "Invite members");
+    expect(inviteItem).toBeDefined();
+    await act(async () => inviteItem!.click());
 
     // MUI Dialog portals to document.body
     const dialog = document.body.querySelector('[role="dialog"]');
