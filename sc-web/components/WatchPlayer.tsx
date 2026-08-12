@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Box, Button, Chip, Stack, Typography } from "@mui/material";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import WallPreview from "./WallPreview";
+import AppHeader from "./fluent/AppHeader";
 
 // ── WatchPlayer — full-screen read-only live viewer for /watch/<slug> ─
 //
@@ -33,6 +35,7 @@ export default function WatchPlayer({
   viewers,
   roomUrl,
 }: WatchPlayerProps) {
+  const { data: session } = useSession();
   const [connected, setConnected] = useState(false);
   const [copied, setCopied] = useState(false);
   const handleConnected = useCallback(() => setConnected(true), []);
@@ -53,9 +56,35 @@ export default function WatchPlayer({
   };
 
   return (
-    <div style={s.page}>
+    <Box
+      data-watch-page
+      style={{ height: "100dvh", overflow: "hidden" }}
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        bgcolor: "background.default",
+        color: "text.primary",
+      }}
+    >
+      <AppHeader
+        userName={session?.user?.name || session?.user?.email}
+        authenticated={Boolean(session)}
+      />
+
       {/* ── Live video ─────────────────────────────────────────────── */}
-      <div style={s.videoWrap}>
+      <Box
+        data-watch-video-region
+        style={{ minHeight: 0 }}
+        sx={{
+          position: "relative",
+          flex: "1 1 0",
+          bgcolor: "common.black",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+        }}
+      >
         <WallPreview
           roomToken={roomToken}
           gameId={gameId}
@@ -66,7 +95,7 @@ export default function WatchPlayer({
         {!connected && (
           <div style={s.badge}>connecting live feed…</div>
         )}
-      </div>
+      </Box>
 
       <Box
         sx={{
@@ -77,6 +106,7 @@ export default function WatchPlayer({
           p: 2,
           borderTop: 1,
           borderColor: "divider",
+          flex: "0 0 auto",
           flexWrap: "wrap",
         }}
       >
@@ -101,29 +131,11 @@ export default function WatchPlayer({
           </Button>
         </Stack>
       </Box>
-    </div>
+    </Box>
   );
 }
 
 const s: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: "100vh",
-    display: "flex",
-    flexDirection: "column",
-    background: "#0a0f1a",
-    color: "#e2e8f0",
-    fontFamily: "system-ui, sans-serif",
-  },
-  videoWrap: {
-    position: "relative",
-    flex: 1,
-    minHeight: "50vh",
-    background: "#000",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
   badge: {
     position: "absolute",
     bottom: 12,

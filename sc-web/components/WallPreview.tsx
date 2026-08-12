@@ -12,7 +12,13 @@ interface WallPreviewProps {
   onConnected?: () => void; // fired once when video starts playing
 }
 
-export default function WallPreview({ roomToken, gameId, serverId, active, onConnected }: WallPreviewProps) {
+export default function WallPreview({
+  roomToken,
+  gameId,
+  serverId,
+  active,
+  onConnected,
+}: WallPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [connected, setConnected] = useState(false);
   const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -193,7 +199,7 @@ export default function WallPreview({ roomToken, gameId, serverId, active, onCon
       style={{
         width: "100%",
         height: "100%",
-        objectFit: "cover",
+        objectFit: "contain",
         background: "#000",
       }}
     />
