@@ -8,6 +8,7 @@ on:
       - 'docker/sc-web/**'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
+      - 'ops/vps/docker-compose.cover-overrides.yml'
   workflow_dispatch:
     inputs:
       apply_phase4c_migration:
@@ -70,6 +71,12 @@ jobs:
             ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new \
               root@sprite-cloud.com 'gunzip | docker load'
 
+      - name: Install cover-storage Compose override
+        run: |
+          scp -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new \
+            ops/vps/docker-compose.cover-overrides.yml \
+            root@sprite-cloud.com:/root/sc-deploy/docker-compose.override.yml
+
       - name: Apply additive schema migrations
         run: |
           set -euo pipefail
@@ -83,6 +90,7 @@ jobs:
             sc-web/drizzle/0023_add_minted_via_proxy.sql \
             sc-web/drizzle/0024_add_verification_fields.sql \
             sc-web/drizzle/0025_add_game_flags.sql \
+            sc-web/drizzle/0027_add_server_game_cover_overrides.sql \
           ; do
             if [ ! -f "$migration" ]; then
               echo "  skip (not present): $migration"
@@ -138,6 +146,17 @@ jobs:
             exit 1
           }
           echo "✓ Provenance verified: deployed SHA == workflow SHA"
+          ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new root@sprite-cloud.com '
+            cd /root/sc-deploy
+            docker compose exec -T web sh -eu -c '\''
+              test "$GV_COVER_OVERRIDES_DIR" = /var/lib/sprite-cloud/cover-overrides
+              test -d "$GV_COVER_OVERRIDES_DIR"
+              probe="$GV_COVER_OVERRIDES_DIR/.deploy-write-probe"
+              : > "$probe"
+              rm -f "$probe"
+            '\''
+          '
+          echo "✓ Cover override storage is mounted and writable"
 
       - name: Back up Postgres and apply Phase 4c migration
         if: github.event_name == 'workflow_dispatch' && inputs.apply_phase4c_migration

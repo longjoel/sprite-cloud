@@ -8,8 +8,17 @@ import {
   peerTokens,
   commands,
   sessions,
+  serverGameCoverOverrides,
 } from "@/lib/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
+import { removeCoverAssets } from "@/lib/cover-storage";
+
+function validCsrf(request: Request): boolean {
+  const header = request.headers.get("x-csrf-token");
+  const cookieHeader = request.headers.get("cookie");
+  const cookie = cookieHeader?.split(";").map((part) => part.trim().split("=")).find(([key]) => key === "sc_csrf_token")?.slice(1).join("=");
+  return !!header && !!cookie && header === decodeURIComponent(cookie);
+}
 
 // ── PATCH /api/servers/[server_id] — rename server (admin only) ──────
 
@@ -67,13 +76,16 @@ export async function PATCH(
 // ── DELETE /api/servers/[server_id] — cascade delete (admin only) ────
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ server_id: string }> },
 ) {
   const { server_id } = await params;
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  if (!validCsrf(request)) {
+    return NextResponse.json({ error: "csrf token invalid" }, { status: 403 });
   }
 
   // Must be admin of this server
@@ -92,6 +104,16 @@ export async function DELETE(
   if (!membership) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+
+  // Capture private cover assets before the DB cascade removes their rows.
+  // Files are garbage-collected only after the server deletion commits.
+  const coverAssets = await db
+    .select({
+      assetId: serverGameCoverOverrides.assetId,
+      posterAssetId: serverGameCoverOverrides.posterAssetId,
+    })
+    .from(serverGameCoverOverrides)
+    .where(eq(serverGameCoverOverrides.serverId, server_id));
 
   // Cascade delete: children first, then the server itself
   // Order matters — FK constraints would block out-of-order deletes
@@ -115,6 +137,8 @@ export async function DELETE(
 
   await db.delete(serverMembers).where(eq(serverMembers.serverId, server_id));
   await db.delete(servers).where(eq(servers.id, server_id));
+
+  await removeCoverAssets(coverAssets.flatMap((cover) => [cover.assetId, cover.posterAssetId])).catch(() => undefined);
 
   return NextResponse.json({ ok: true });
 }

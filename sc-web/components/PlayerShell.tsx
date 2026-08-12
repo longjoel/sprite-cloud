@@ -6,6 +6,7 @@ import GamePlayer from "@/components/GamePlayer";
 import BokehLoading from "@/components/BokehLoading";
 import type { StepState } from "@/components/GamePlayerPipeline";
 import type { PlayerCapabilities } from "@/lib/capabilities";
+import { useMotionSafeCoverUrl } from "@/components/useMotionSafeCoverUrl";
 
 // ── Shared player launch/loading/error shell ─────────────────────────
 //
@@ -67,6 +68,7 @@ export default function PlayerShell({
   const [error, setError] = useState<string | null>(null);
   const [gameMeta, setGameMeta] = useState<ResolvedSession | null>(null);
   const [pipeline, setPipeline] = useState<Record<string, StepState>>({});
+  const coverUrl = useMotionSafeCoverUrl(gameMeta?.coverUrl);
 
   const onConnected = useCallback(() => {
     setPhase("playing");
@@ -210,8 +212,8 @@ export default function PlayerShell({
           />
 
           <div style={s.foreground}>
-            {gameMeta?.coverUrl ? (
-              <img src={gameMeta.coverUrl} alt="" style={s.cover(!!gameMeta.gameName)} />
+            {coverUrl ? (
+              <img src={coverUrl} alt="" style={s.cover(!!gameMeta?.gameName)} />
             ) : (
               <div style={s.coverPlaceholder(!!gameMeta?.gameName)}>{COVER_FALLBACK}</div>
             )}

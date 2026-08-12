@@ -54,15 +54,26 @@ describe("production deploy workflow", () => {
     expect(workflow).toContain("name: vps-key");
     expect(workflow).not.toMatch(/\bssh -o StrictHostKeyChecking/);
     expect(workflow).not.toMatch(/\bscp -o StrictHostKeyChecking/);
-    expect(workflow.match(/-i ~\/\.ssh\/vps-key/g)?.length).toBe(9);
+    expect(workflow.match(/-i ~\/\.ssh\/vps-key/g)?.length).toBe(11);
   });
 
   it("captures the health body and fails closed when deployed provenance does not match the workflow SHA (#661)", () => {
     expect(workflow).toContain("HEALTH=$(ssh -i ~/.ssh/vps-key -o StrictHostKeyChecking=accept-new");
     expect(workflow).toContain("docker compose exec -T web curl -fsS http://localhost:3000/api/health");
     expect(workflow).toContain('EXPECTED_SHA="${{ github.sha }}"');
-    expect(workflow).toContain('grep -q "\\"git_sha\\":\\"$EXPECTED_SHA\\""');
+    expect(workflow).toContain('grep -q "\\\"git_sha\\\":\\\"$EXPECTED_SHA\\\""');
     expect(workflow).toContain('"package_version":"unknown"');
+  });
+
+  it("installs and verifies durable cover override storage before declaring deploy success (#806)", () => {
+    const install = workflow.indexOf("Install cover-storage Compose override");
+    const restart = workflow.indexOf("Restart sc-web on VPS");
+    const probe = workflow.indexOf(".deploy-write-probe");
+    expect(install).toBeGreaterThan(-1);
+    expect(restart).toBeGreaterThan(install);
+    expect(probe).toBeGreaterThan(restart);
+    expect(workflow).toContain("ops/vps/docker-compose.cover-overrides.yml");
+    expect(workflow).toContain("GV_COVER_OVERRIDES_DIR");
   });
 
   it("snapshots the running web image before recreating it for rollback (#661)", () => {

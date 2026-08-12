@@ -17,6 +17,7 @@ import {
   Typography,
 } from "@mui/material";
 import { PlayArrow, LiveTv, Share, WifiOff } from "@mui/icons-material";
+import { useMotionSafeCoverUrl } from "@/components/useMotionSafeCoverUrl";
 
 // ── The Living Cabinet wall (#762) ─────────────────────────────────────
 //
@@ -49,6 +50,11 @@ const POLL_MS = 15_000;
 interface WallClientProps {
   /** Key (`serverId:gameId`) of the hero-featured game to exclude from the grid. */
   excludeKey?: string | null;
+}
+
+function WallCover({ game }: { game: WallGame }) {
+  const coverUrl = useMotionSafeCoverUrl(game.coverUrl);
+  return <CardMedia component="img" height={150} image={coverUrl ?? ""} alt={game.name} sx={{ bgcolor: "grey.900", objectFit: "cover" }} />;
 }
 
 export default function WallClient({ excludeKey }: WallClientProps) {
@@ -129,13 +135,7 @@ export default function WallClient({ excludeKey }: WallClientProps) {
                         />
                       </Box>
                     ) : (
-                      <CardMedia
-                        component="img"
-                        height={150}
-                        image={game.coverUrl ?? ""}
-                        alt={game.name}
-                        sx={{ bgcolor: "grey.900", objectFit: "cover" }}
-                      />
+                      <WallCover game={game} />
                     )}
                     <Box sx={{ position: "absolute", top: 8, left: 8 }}>
                       {game.live ? (

@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { gameFlags, serverGames, serverMembers } from "@/lib/db/schema";
+import { gameFlags, serverGameCoverOverrides, serverGames, serverMembers } from "@/lib/db/schema";
 import { and, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { mkdir, rename, writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import { createHash, randomUUID } from "crypto";
 import { join } from "path";
+import { readCoverAsset } from "@/lib/cover-storage";
 
 export const runtime = "nodejs";
 
@@ -119,7 +120,7 @@ function imageResponse(bytes: Uint8Array) {
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ server_id: string; game_id: string }> },
 ) {
   const { server_id: serverId, game_id: gameId } = await params;
@@ -173,6 +174,35 @@ export async function GET(
   }
 
   if (!game) return new NextResponse("game not found", { status: 404 });
+
+  // Server-scoped administrative overrides take precedence everywhere this
+  // already-authorized cover route is used. `default=1` is picker-only.
+  if (new URL(request.url).searchParams.get("default") !== "1") {
+    const [override] = await db
+      .select({
+        assetId: serverGameCoverOverrides.assetId,
+        posterAssetId: serverGameCoverOverrides.posterAssetId,
+        mediaType: serverGameCoverOverrides.mediaType,
+      })
+      .from(serverGameCoverOverrides)
+      .where(and(eq(serverGameCoverOverrides.serverId, serverId), eq(serverGameCoverOverrides.gameId, gameId)))
+      .limit(1);
+    if (override) {
+      const poster = new URL(request.url).searchParams.get("poster") === "1";
+      const assetId = poster ? override.posterAssetId : override.assetId;
+      const bytes = await readCoverAsset(assetId);
+      if (bytes) {
+        return new NextResponse(new Uint8Array(bytes).buffer, {
+          headers: {
+            "Content-Type": poster ? "image/png" : override.mediaType,
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'; sandbox",
+          },
+        });
+      }
+    }
+  }
 
   // Only a paired server can supply thumbnailName. UI titles remain cosmetic.
   const lookupName = game.thumbnailName ?? game.sourceName ?? game.name;

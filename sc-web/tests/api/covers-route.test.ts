@@ -26,6 +26,7 @@ beforeEach(async () => {
   vi.resetModules();
   cacheDir = await mkdtemp(join(tmpdir(), "sc-cover-test-"));
   process.env.GV_COVERS_DIR = cacheDir;
+  process.env.GV_COVER_OVERRIDES_DIR = cacheDir;
   mockAuth.mockReset().mockResolvedValue({ user: { id: "member-1" } });
   mockDb.select.mockReset().mockReturnValue(query([]));
 });
@@ -33,11 +34,12 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.unstubAllGlobals();
   delete process.env.GV_COVERS_DIR;
+  delete process.env.GV_COVER_OVERRIDES_DIR;
   await rm(cacheDir, { recursive: true, force: true });
 });
 
-function request() {
-  return new NextRequest("http://localhost/api/covers/server-a/game-a");
+function request(query = "") {
+  return new NextRequest(`http://localhost/api/covers/server-a/game-a${query}`);
 }
 
 describe("GET /api/covers/:server_id/:game_id", () => {
@@ -103,5 +105,26 @@ describe("GET /api/covers/:server_id/:game_id", () => {
 
     expect(response.status).toBe(200);
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(png);
+  });
+
+  it("serves the static poster when the client explicitly requests reduced-motion artwork", async () => {
+    const animated = Buffer.from("animated-gif");
+    const poster = Buffer.from("static-poster");
+    await writeFile(join(cacheDir, `${"a".repeat(64)}.gif`), animated);
+    await writeFile(join(cacheDir, `${"a".repeat(64)}.poster.png`), poster);
+    mockDb.select
+      .mockReturnValueOnce(query([{ name: "Game", sourceName: "Game", thumbnailName: "Game", platform: "SNES" }]))
+      .mockReturnValueOnce(query([{
+        assetId: `${"a".repeat(64)}.gif`,
+        posterAssetId: `${"a".repeat(64)}.poster.png`,
+        mediaType: "image/gif",
+      }]));
+    const { GET } = await import("@/app/api/covers/[server_id]/[game_id]/route");
+
+    const response = await GET(request("?poster=1"), { params: Promise.resolve({ server_id: "server-a", game_id: "game-a" }) });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(poster);
   });
 });
