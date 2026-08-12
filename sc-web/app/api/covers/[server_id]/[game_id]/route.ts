@@ -188,15 +188,14 @@ export async function GET(
       .where(and(eq(serverGameCoverOverrides.serverId, serverId), eq(serverGameCoverOverrides.gameId, gameId)))
       .limit(1);
     if (override) {
-      const reduceMotion = request.headers.get("sec-ch-prefers-reduced-motion") === "reduce";
-      const assetId = reduceMotion ? override.posterAssetId : override.assetId;
+      const poster = new URL(request.url).searchParams.get("poster") === "1";
+      const assetId = poster ? override.posterAssetId : override.assetId;
       const bytes = await readCoverAsset(assetId);
       if (bytes) {
         return new NextResponse(new Uint8Array(bytes).buffer, {
           headers: {
-            "Content-Type": reduceMotion ? "image/png" : override.mediaType,
+            "Content-Type": poster ? "image/png" : override.mediaType,
             "Cache-Control": "private, no-store",
-            "Vary": "Sec-CH-Prefers-Reduced-Motion",
             "X-Content-Type-Options": "nosniff",
             "Content-Security-Policy": "default-src 'none'; sandbox",
           },

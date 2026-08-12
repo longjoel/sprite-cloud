@@ -8,6 +8,7 @@ import {
 } from "@mui/material";
 import { CheckCircle, Close, CloudUploadOutlined, ImageSearchOutlined } from "@mui/icons-material";
 import { csrfHeaders } from "@/components/library-utils";
+import { useMotionSafeCoverUrl } from "@/components/useMotionSafeCoverUrl";
 
 export interface CoverPickerGame {
   id: string;
@@ -59,7 +60,7 @@ export default function GameCoverPicker({ open, game, serverName, onClose, onSav
     })();
     void (async () => {
       try {
-        const response = await fetch(`${base}/candidates?type=boxart&q=${encodeURIComponent(game.name)}`);
+        const response = await fetch(`${base}/candidates?type=boxart`);
         const body = await response.json() as { candidates?: Candidate[]; error?: string };
         if (!response.ok) throw new Error(body.error ?? "Artwork search failed.");
         if (!cancelled && requestId === candidateRequest.current) setCandidates(body.candidates ?? []);
@@ -116,6 +117,8 @@ export default function GameCoverPicker({ open, game, serverName, onClose, onSav
   }
 
   const chosenUrl = useMemo(() => uploadPreview ?? selected?.previewUrl ?? state?.override?.coverUrl ?? game.coverUrl ?? state?.defaultCoverUrl, [game.coverUrl, selected, state, uploadPreview]);
+  const currentCoverUrl = useMotionSafeCoverUrl(game.coverUrl);
+  const motionSafeChosenUrl = useMotionSafeCoverUrl(chosenUrl);
   const canSave = !saving && !!state?.capabilities.configured && ((tab === "retroarch" && !!selected) || (tab === "upload" && !!upload));
 
   return (
@@ -163,7 +166,7 @@ export default function GameCoverPicker({ open, game, serverName, onClose, onSav
           {loadingState && <CircularProgress size={20} aria-label="Loading cover settings" sx={{ mb: 1 }} />}
           <Typography variant="subtitle2" sx={{ mb: 1.5 }}>Preview in your library</Typography>
           <Stack direction="row" spacing={1}>
-            {[{ label: "Current", url: game.coverUrl }, { label: "New cover", url: chosenUrl }].map(({ label, url }) => <Box key={label} sx={{ flex: 1, minWidth: 0 }}><Typography variant="caption" color={label === "New cover" ? "primary.main" : "text.secondary"}>{label}</Typography><Box sx={{ mt: .5, aspectRatio: "3 / 4", border: 1, borderColor: label === "New cover" ? "primary.main" : "divider", bgcolor: "action.hover", overflow: "hidden" }}>{url && <Box component="img" src={url} alt={`${label} artwork for ${game.name}`} sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}</Box></Box>)}
+            {[{ label: "Current", url: currentCoverUrl }, { label: "New cover", url: motionSafeChosenUrl }].map(({ label, url }) => <Box key={label} sx={{ flex: 1, minWidth: 0 }}><Typography variant="caption" color={label === "New cover" ? "primary.main" : "text.secondary"}>{label}</Typography><Box sx={{ mt: .5, aspectRatio: "3 / 4", border: 1, borderColor: label === "New cover" ? "primary.main" : "divider", bgcolor: "action.hover", overflow: "hidden" }}>{url && <Box component="img" src={url} alt={`${label} artwork for ${game.name}`} sx={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}</Box></Box>)}
           </Stack>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>This replaces the default for every member of {serverName}. The same game on other servers is unaffected.</Typography>
           <Divider sx={{ my: 2 }} /><Typography variant="caption" color="primary.main">SERVER-WIDE OVERRIDE</Typography><Typography variant="subtitle2">{serverName}</Typography>

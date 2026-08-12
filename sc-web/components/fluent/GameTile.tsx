@@ -3,6 +3,7 @@
 import { Card as MuiCard, CardActionArea, Chip, CircularProgress, Box, Typography } from "@mui/material";
 import { getPlatformColor } from "@/lib/platformColors";
 import GameTileContextMenu from "./GameTileContextMenu";
+import { useMotionSafeCoverUrl } from "@/components/useMotionSafeCoverUrl";
 
 interface TileGame {
   id: string;
@@ -59,6 +60,7 @@ export default function GameTile({
   onToggleFreePlay,
   launching = false,
 }: GameTileProps) {
+  const coverUrl = useMotionSafeCoverUrl(game.coverUrl);
   const hasContextActions = !!(
     onToggleFavorite || onEdit || onChooseHost || onDelete || onDownload ||
     onTogglePublic || onToggleAlwaysOn || onToggleFreePlay || onChangeCover
@@ -101,9 +103,9 @@ export default function GameTile({
         sx={{
           position: "absolute",
           inset: 0,
-          ...(game.coverUrl
+          ...(coverUrl
             ? {
-                backgroundImage: `url(${game.coverUrl})`,
+                backgroundImage: `url(${coverUrl})`,
                 backgroundSize: "cover",
                 backgroundPosition: "center",
               }

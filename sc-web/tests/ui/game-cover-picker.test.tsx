@@ -41,6 +41,8 @@ describe("GameCoverPicker", () => {
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1][0])).toContain("/candidates?type=boxart");
+    expect(String(fetchMock.mock.calls[1][0])).not.toContain("q=");
     expect(document.body.textContent).toContain("Choose artwork everyone on this server will see");
     expect(document.body.textContent).toContain("Super Mario World (USA)");
     expect(document.body.textContent).toContain("Upload my own");
