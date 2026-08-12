@@ -1513,6 +1513,7 @@ describe("POST /api/servers/[server_id]/upgrade", () => {
   it("queues an update for an administrator", async () => {
     mockDb.select
       .mockReturnValueOnce(mockQueryBuilder([{ role: "admin" }]))
+      .mockReturnValueOnce(mockQueryBuilder([]))
       .mockReturnValueOnce(mockQueryBuilder([]));
     mockDb.insert.mockReturnValueOnce(mockQueryBuilder([{ id: "upgrade-1", status: "pending" }]));
     const { POST } = await import("@/app/api/servers/[server_id]/upgrade/route");
@@ -1524,6 +1525,7 @@ describe("POST /api/servers/[server_id]/upgrade", () => {
   it("rejects an already-active update", async () => {
     mockDb.select
       .mockReturnValueOnce(mockQueryBuilder([{ role: "admin" }]))
+      .mockReturnValueOnce(mockQueryBuilder([]))
       .mockReturnValueOnce(mockQueryBuilder([{ id: "upgrade-1", status: "leased" }]));
     const { POST } = await import("@/app/api/servers/[server_id]/upgrade/route");
     const resp = await POST(request(), params);
@@ -1535,12 +1537,24 @@ describe("POST /api/servers/[server_id]/upgrade", () => {
     mockDb.select
       .mockReturnValueOnce(mockQueryBuilder([{ role: "admin" }]))
       .mockReturnValueOnce(mockQueryBuilder([]))
+      .mockReturnValueOnce(mockQueryBuilder([]))
       .mockReturnValueOnce(mockQueryBuilder([{ id: "upgrade-winner", status: "pending" }]));
     mockDb.insert.mockReturnValueOnce(mockQueryBuilder(Promise.reject(Object.assign(new Error("duplicate"), { code: "23505" }))));
     const { POST } = await import("@/app/api/servers/[server_id]/upgrade/route");
     const resp = await POST(request(), params);
     expect(resp.status).toBe(409);
     expect(await resp.json()).toMatchObject({ command_id: "upgrade-winner", status: "pending" });
+  });
+
+  it("fails closed when a game session is active", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ role: "admin" }]))
+      .mockReturnValueOnce(mockQueryBuilder([{ id: "session-1" }]));
+    const { POST } = await import("@/app/api/servers/[server_id]/upgrade/route");
+    const resp = await POST(request(), params);
+    expect(resp.status).toBe(409);
+    expect(await resp.json()).toEqual({ error: "finish active games before updating" });
+    expect(mockDb.insert).not.toHaveBeenCalled();
   });
 });
 

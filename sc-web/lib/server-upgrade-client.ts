@@ -15,16 +15,27 @@ export async function runServerUpgrade(
   report: StateReporter,
   fetcher: Fetcher = fetch,
   sleep: () => Promise<void> = () => new Promise((resolve) => setTimeout(resolve, 1_000)),
+  existingCommandId?: string,
 ): Promise<void> {
-  report("queued", "Waiting for the server to accept the update…");
+  let commandId = existingCommandId;
+  if (commandId) {
+    report("running", "Reconnecting to the update already in progress…");
+  } else {
+    report("queued", "Waiting for the server to accept the update…");
+  }
   try {
-    const response = await fetcher(`/api/servers/${serverId}/upgrade`, { method: "POST", headers });
-    const body = await response.json() as { command_id?: string; error?: string };
-    if (!response.ok || !body.command_id) throw new Error(body.error ?? `HTTP ${response.status}`);
+    if (!commandId) {
+      const response = await fetcher(`/api/servers/${serverId}/upgrade`, { method: "POST", headers });
+      const body = await response.json() as { command_id?: string; error?: string };
+      if ((!response.ok && response.status !== 409) || !body.command_id) {
+        throw new Error(body.error ?? `HTTP ${response.status}`);
+      }
+      commandId = body.command_id;
+    }
 
     for (let attempt = 0; attempt < 180; attempt += 1) {
       await sleep();
-      const resultResponse = await fetcher(`/api/commands/${body.command_id}/result`);
+      const resultResponse = await fetcher(`/api/commands/${commandId}/result`);
       if (!resultResponse.ok) continue;
       const result = await resultResponse.json() as CommandResult;
       if (result.status === "pending") continue;

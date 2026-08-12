@@ -4,20 +4,16 @@ import { useEffect, useState } from "react";
 import {
   Alert,
   Box,
-  Button,
   FormControl,
-  FormControlLabel,
   InputLabel,
   MenuItem,
   Paper,
   Select,
   Stack,
-  Switch,
   Typography,
 } from "@mui/material";
 import { Badge } from "@/components/ui";
 import { csrfHeaders } from "./dashboard-utils";
-import { runServerUpgrade, type ServerUpdateState } from "@/lib/server-upgrade-client";
 
 interface ComponentVersion {
   package_version: string;
@@ -42,17 +38,6 @@ interface ServerMetadata {
     video_scale_height?: number;
     video_max_scale?: number;
   };
-}
-
-interface GameEntry {
-  game_id: string;
-  name: string;
-  platform: string;
-}
-
-interface GameFlagEntry {
-  always_on: boolean;
-  free_play: boolean;
 }
 
 interface Props {
@@ -84,12 +69,7 @@ const CORE_OPTIONS = [
 export default function ServerPanel({ serverId }: Props) {
   const [metadata, setMetadata] = useState<ServerMetadata | null>(null);
   const [coreOverrides, setCoreOverrides] = useState<Record<string, string>>({});
-  const [updateState, setUpdateState] = useState<"idle" | ServerUpdateState>("idle");
-  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [games, setGames] = useState<GameEntry[]>([]);
-  const [gameFlags, setGameFlags] = useState<Record<string, GameFlagEntry>>({});
-  const [flagLoading, setFlagLoading] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     Promise.all([
@@ -101,34 +81,6 @@ export default function ServerPanel({ serverId }: Props) {
         if (overridesResponse?.overrides) setCoreOverrides(overridesResponse.overrides);
       })
       .catch(() => setError("Unable to load server details."));
-  }, [serverId]);
-
-  // Load server games and their flags
-  useEffect(() => {
-    fetch(`/api/servers/${serverId}/games`)
-      .then((response) => response.ok ? response.json() : null)
-      .then((data) => {
-        const list: GameEntry[] = data?.games ?? [];
-        setGames(list);
-        // Batch-load flags for all games
-        return Promise.all(
-          list.map((g: GameEntry) =>
-            fetch(`/api/servers/${serverId}/game-flags/${encodeURIComponent(g.game_id)}`)
-              .then((r) => r.ok ? r.json() : { alwaysOn: false, freePlay: false })
-              .then((flags) => [g.game_id, flags] as const),
-          ),
-        );
-      })
-      .then((flagPairs) => {
-        if (flagPairs) {
-          const flagMap: Record<string, GameFlagEntry> = {};
-          for (const [gid, flags] of flagPairs) {
-            flagMap[gid] = flags;
-          }
-          setGameFlags(flagMap);
-        }
-      })
-      .catch(() => {});
   }, [serverId]);
 
   async function setCore(platform: string, core: string) {
@@ -147,48 +99,6 @@ export default function ServerPanel({ serverId }: Props) {
     }
   }
 
-  async function toggleFlag(gameId: string, flag: "always_on" | "free_play") {
-    const current = gameFlags[gameId];
-    if (!current) return;
-    const newVal = !current[flag === "always_on" ? "always_on" : "free_play"];
-    // Optimistic update
-    setGameFlags((prev) => ({
-      ...prev,
-      [gameId]: { ...prev[gameId], [flag === "always_on" ? "always_on" : "free_play"]: newVal },
-    }));
-    setFlagLoading((prev) => new Set(prev).add(`${gameId}:${flag}`));
-    try {
-      const resp = await fetch(
-        `/api/servers/${serverId}/game-flags/${encodeURIComponent(gameId)}`,
-        {
-          method: "PATCH",
-          headers: csrfHeaders(),
-          body: JSON.stringify({ [flag]: newVal }),
-        },
-      );
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    } catch {
-      // Revert on error
-      setGameFlags((prev) => ({
-        ...prev,
-        [gameId]: { ...prev[gameId], [flag === "always_on" ? "always_on" : "free_play"]: !newVal },
-      }));
-    } finally {
-      setFlagLoading((prev) => {
-        const next = new Set(prev);
-        next.delete(`${gameId}:${flag}`);
-        return next;
-      });
-    }
-  }
-
-  async function requestUpdate() {
-    await runServerUpgrade(serverId, csrfHeaders(), (state, message) => {
-      setUpdateState(state);
-      setUpdateMessage(message);
-    });
-  }
-
   return (
     <Stack spacing={3}>
       {error && <Alert severity="error">{error}</Alert>}
@@ -202,22 +112,6 @@ export default function ServerPanel({ serverId }: Props) {
             {metadata?.ice?.transport_policy && <Badge>{`ICE ${metadata.ice.transport_policy}`}</Badge>}
             {metadata?.runtime?.pc_pool_size !== undefined && <Badge>{`Pool ${metadata.runtime.pc_pool_size}`}</Badge>}
           </Box>
-          <Typography variant="body2" color="text.secondary">
-            Updates verify and install both sc-server and sc-core, then restart this server. Updates are blocked while a game is active.
-          </Typography>
-          <Box>
-            <Button
-              type="button"
-              variant="contained"
-              disabled={updateState === "queued" || updateState === "running"}
-              onClick={requestUpdate}
-            >
-              {updateState === "queued" ? "Update queued" : updateState === "running" ? "Updating…" : "Update server"}
-            </Button>
-          </Box>
-          {updateMessage && (
-            <Alert severity={updateState === "failed" ? "error" : "info"}>{updateMessage}</Alert>
-          )}
         </Stack>
       </Paper>
 
@@ -250,44 +144,6 @@ export default function ServerPanel({ serverId }: Props) {
         </Stack>
       </Paper>
 
-      <Paper component="section" variant="outlined" sx={{ p: { xs: 2, sm: 3 } }}>
-        <Stack spacing={2}>
-          <Typography component="h2" variant="h5">Arcade & Free Play</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Enable always-on to keep the game running as a living cabinet
-            on the wall. Free play auto-inserts a credit at startup.
-          </Typography>
-          {games.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">No games synced yet from this server.</Typography>
-          ) : (
-            <Stack spacing={1.5}>
-              {games.map((g) => {
-                const flags = gameFlags[g.game_id] ?? { always_on: false, free_play: false };
-                const aLoading = flagLoading.has(`${g.game_id}:always_on`);
-                const fLoading = flagLoading.has(`${g.game_id}:free_play`);
-                return (
-                  <Paper key={g.game_id} variant="outlined" sx={{ p: 1.5 }}>
-                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ alignItems: { sm: "center" } }}>
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography noWrap sx={{ fontWeight: 700 }}>{g.name}</Typography>
-                        <Typography variant="body2" color="text.secondary">{g.platform}</Typography>
-                      </Box>
-                      <FormControlLabel
-                        control={<Switch size="small" checked={flags.always_on} disabled={aLoading} onChange={() => toggleFlag(g.game_id, "always_on")} />}
-                        label="Always on"
-                      />
-                      <FormControlLabel
-                        control={<Switch size="small" checked={flags.free_play} disabled={fLoading} onChange={() => toggleFlag(g.game_id, "free_play")} />}
-                        label="Free play"
-                      />
-                    </Stack>
-                  </Paper>
-                );
-              })}
-            </Stack>
-          )}
-        </Stack>
-      </Paper>
     </Stack>
   );
 }

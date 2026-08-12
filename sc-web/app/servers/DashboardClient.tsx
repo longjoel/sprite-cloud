@@ -1,15 +1,50 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Alert, Box, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Paper, Stack, TextField, Typography } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button as MuiButton,
+  Card,
+  CardActions,
+  CardContent,
+  Chip,
+  CircularProgress,
+  Collapse,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  IconButton,
+  Menu,
+  MenuItem,
+  Paper,
+  Skeleton,
+  Stack,
+  TextField,
+  Tooltip,
+  Typography,
+} from "@mui/material";
+import {
+  CloudDoneOutlined,
+  CloudOffOutlined,
+  ErrorOutlined,
+  ExpandLess,
+  ExpandMore,
+  GamesOutlined,
+  MoreVert,
+  PeopleOutlined,
+  RouterOutlined,
+  SystemUpdateAlt,
+} from "@mui/icons-material";
 import { Button } from "@/components/ui";
 import ServerPanel from "./ServerPanel";
 import InviteManager from "./InviteManager";
-import { serverStatus, timeAgo, csrfHeaders } from "./dashboard-utils";
+import { timeAgo, csrfHeaders } from "./dashboard-utils";
 import { probeLanHealth, type LanProbeResult } from "@/lib/lan/probe";
-
-// ── Types ──────────────────────────────────────────────────────────────
+import { runServerUpgrade, type ServerUpdateState } from "@/lib/server-upgrade-client";
 
 interface Membership {
   id: string;
@@ -18,843 +53,414 @@ interface Membership {
   role: string;
 }
 
-interface ServerMetadataSummary {
-  version?: string;
-  lan?: {
-    player_port?: number;
-    player_urls?: string[];
-    health_urls?: string[];
-    lan_player_enabled?: boolean;
-  };
+type Health = "online" | "idle" | "offline";
+type DisplayHealth = Health | "unknown";
+
+interface ServerSummary {
+  serverId: string;
+  role: string;
+  health: Health;
+  lastSeenAt: string | null;
+  installedVersion: string | null;
+  activeSessionCount: number;
+  gameCount: number;
+  lan: { configured: boolean; healthUrls: string[] };
+  activeUpgrade: { commandId: string; status: "pending" | "leased" } | null;
 }
 
 interface Props {
   memberships: Membership[];
 }
 
-// ── Status priority mapping ────────────────────────────────────────────
+interface UpdateView {
+  state: "idle" | ServerUpdateState;
+  message: string | null;
+}
 
-const statusPriority: Record<string, number> = {
-  offline: 0,
-  stale: 1,
-  online: 2,
+const healthOrder: Record<DisplayHealth, number> = { offline: 0, idle: 1, unknown: 2, online: 3 };
+const healthColor: Record<Health, "success" | "warning" | "error"> = {
+  online: "success",
+  idle: "warning",
+  offline: "error",
 };
 
-// ── Component ──────────────────────────────────────────────────────────
+function plural(value: number, noun: string) {
+  return `${value.toLocaleString()} ${noun}${value === 1 ? "" : "s"}`;
+}
 
 export default function DashboardClient({ memberships }: Props) {
   const router = useRouter();
+  const [summaries, setSummaries] = useState<Record<string, ServerSummary>>({});
+  const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [editing, setEditing] = useState<string | null>(null);
+  const [editing, setEditing] = useState<Membership | null>(null);
   const [editName, setEditName] = useState("");
-  const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<Membership | null>(null);
+  const [updateTarget, setUpdateTarget] = useState<Membership | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [inviteTarget, setInviteTarget] = useState<Membership | null>(null);
+  const [menuTarget, setMenuTarget] = useState<Membership | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [pairingError, setPairingError] = useState<string | null>(null);
-  const [inviteTarget, setInviteTarget] = useState<Membership | null>(null);
-  const [metadataByServer, setMetadataByServer] = useState<Record<string, ServerMetadataSummary>>({});
+  const [updates, setUpdates] = useState<Record<string, UpdateView>>({});
   const [lanProbeByServer, setLanProbeByServer] = useState<Record<string, LanProbeResult>>({});
+  const resumedCommands = useRef(new Set<string>());
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
 
-    async function loadMetadata() {
-      const entries = await Promise.all(
-        memberships.map(async (membership) => {
-          try {
-            const resp = await fetch(`/api/servers/${membership.id}/metadata`);
-            if (!resp.ok) return [membership.id, null] as const;
-            const data = await resp.json();
-            return [membership.id, (data?.metadata ?? null) as ServerMetadataSummary | null] as const;
-          } catch {
-            return [membership.id, null] as const;
-          }
-        }),
-      );
+    async function loadSummaries() {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch("/api/servers/summary");
+        if (!response.ok) throw new Error("Unable to load server health.");
+        const data = await response.json() as { servers?: ServerSummary[] };
+        if (cancelled) return;
 
-      if (cancelled) return;
-      const nextMetadata: Record<string, ServerMetadataSummary> = {};
-      for (const [id, metadata] of entries) {
-        if (metadata) nextMetadata[id] = metadata;
+        const next = Object.fromEntries((data.servers ?? []).map((summary) => [summary.serverId, summary]));
+        setSummaries(next);
+        setError(null);
+
+        const probes = await Promise.all((data.servers ?? []).map(async (summary) => {
+          if (!summary.lan.healthUrls.length) return [summary.serverId, { reachable: false, reason: "no_urls" } as LanProbeResult] as const;
+          return [summary.serverId, await probeLanHealth(summary.lan.healthUrls, { timeoutMs: 1_200 })] as const;
+        }));
+        if (!cancelled) setLanProbeByServer(Object.fromEntries(probes));
+      } catch (cause) {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : "Unable to load server health.");
+      } finally {
+        inFlight = false;
+        if (!cancelled) setLoading(false);
       }
-      setMetadataByServer(nextMetadata);
-
-      const probeEntries = await Promise.all(
-        Object.entries(nextMetadata).map(async ([id, metadata]) => {
-          if (!metadata.lan?.health_urls?.length) return [id, { reachable: false, reason: "no_urls" } as LanProbeResult] as const;
-          const result = await probeLanHealth(metadata.lan.health_urls, { timeoutMs: 1_200 });
-          return [id, result] as const;
-        }),
-      );
-      if (cancelled) return;
-      setLanProbeByServer(Object.fromEntries(probeEntries));
     }
 
-    if (memberships.length > 0) {
-      loadMetadata();
-    } else {
-      setMetadataByServer({});
-      setLanProbeByServer({});
-    }
-
+    void loadSummaries();
+    const interval = window.setInterval(() => void loadSummaries(), 30_000);
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
     };
-  }, [memberships]);
+  }, []);
 
-  function toggle(id: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  async function doRename(serverId: string) {
-    if (!editName.trim()) return;
-    setError(null);
-    try {
-      const resp = await fetch(`/api/servers/${serverId}`, {
-        method: "PATCH",
-        headers: csrfHeaders(),
-        body: JSON.stringify({ name: editName.trim() }),
-      });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error || `HTTP ${resp.status}`);
-      }
-      setEditing(null);
-      router.refresh();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Rename failed");
+  useEffect(() => {
+    for (const summary of Object.values(summaries)) {
+      const active = summary.activeUpgrade;
+      if (!active || resumedCommands.current.has(active.commandId)) continue;
+      resumedCommands.current.add(active.commandId);
+      setUpdates((current) => ({
+        ...current,
+        [summary.serverId]: {
+          state: active.status === "pending" ? "queued" : "running",
+          message: active.status === "pending" ? "Update queued; waiting for the server…" : "Update in progress…",
+        },
+      }));
+      void runServerUpgrade(summary.serverId, csrfHeaders(), (state, message) => {
+        setUpdates((current) => ({ ...current, [summary.serverId]: { state, message } }));
+      }, fetch, undefined, active.commandId);
     }
-  }
+  }, [summaries]);
 
-  function startRename(id: string, currentName: string) {
-    setEditing(id);
-    setEditName(currentName);
-    setError(null);
-  }
-
-  async function doDelete(serverId: string) {
-    if (deleteConfirm !== "DELETE") return;
-    setError(null);
-    try {
-      const resp = await fetch(`/api/servers/${serverId}`, {
-        method: "DELETE",
-        headers: csrfHeaders(),
-      });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error || `HTTP ${resp.status}`);
-      }
-      setDeleting(null);
-      router.refresh();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Delete failed");
-    }
-  }
+  const sorted = [...memberships].sort((a, b) => {
+    const aHealth = summaries[a.id]?.health ?? "unknown";
+    const bHealth = summaries[b.id]?.health ?? "unknown";
+    return healthOrder[aHealth] - healthOrder[bHealth];
+  });
+  const attentionCount = sorted.filter((membership) => {
+    const health = summaries[membership.id]?.health;
+    return health === "offline" || health === "idle";
+  }).length;
 
   async function generatePairingCode() {
     setPairingError(null);
     setPairingCode(null);
     try {
-      const resp = await fetch("/api/auth/pair/generate", {
-        method: "POST",
-        headers: csrfHeaders(),
-      });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.error || `HTTP ${resp.status}`);
-      }
-      const data = await resp.json();
+      const response = await fetch("/api/auth/pair/generate", { method: "POST", headers: csrfHeaders() });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
       setPairingCode(data.code);
-    } catch (e: unknown) {
-      setPairingError(
-        e instanceof Error ? e.message : "Generate failed",
-      );
+    } catch (cause) {
+      setPairingError(cause instanceof Error ? cause.message : "Generate failed");
     }
   }
 
-  function renderSummaryPills(serverId: string) {
-    const metadata = metadataByServer[serverId];
-    const lanProbe = lanProbeByServer[serverId];
-    const pills: Array<{ label: string; tone?: "info" | "success" | "warning" | "muted" }> = [];
-
-    if (metadata?.version) {
-      pills.push({ label: `server ${metadata.version}`, tone: "info" });
-    }
-    if (metadata?.lan?.health_urls?.length) {
-      if (!lanProbe) {
-        pills.push({ label: "LAN probing…", tone: "muted" });
-      } else if (lanProbe.reachable) {
-        pills.push({ label: `LAN ${lanProbe.latencyMs.toFixed(0)}ms`, tone: "success" });
-      } else if (lanProbe.reason === "mixed_content_blocked") {
-        pills.push({ label: "LAN blocked by HTTPS", tone: "warning" });
-      } else {
-        pills.push({ label: "LAN fallback", tone: "warning" });
-      }
-    }
-
-    return (
-      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
-        {pills.map((pill) => (
-          <Chip
-            key={pill.label}
-            label={pill.label}
-            size="small"
-            color={pill.tone === "muted" ? "default" : pill.tone ?? "default"}
-          />
-        ))}
-      </Stack>
-    );
+  async function requestUpdate(serverId: string) {
+    setUpdateTarget(null);
+    setUpdates((current) => ({ ...current, [serverId]: { state: "queued", message: "Preparing update…" } }));
+    await runServerUpgrade(serverId, csrfHeaders(), (state, message) => {
+      setUpdates((current) => ({ ...current, [serverId]: { state, message } }));
+    });
   }
 
-  // Sort memberships by status priority: offline → stale → online
-  const sorted = [...memberships].sort((a, b) => {
-    const sa = serverStatus(a.lastSeenAt).label;
-    const sb = serverStatus(b.lastSeenAt).label;
-    return (statusPriority[sa] ?? 99) - (statusPriority[sb] ?? 99);
-  });
+  async function doRename() {
+    if (!editing || !editName.trim()) return;
+    setError(null);
+    try {
+      const response = await fetch(`/api/servers/${editing.id}`, {
+        method: "PATCH",
+        headers: csrfHeaders(),
+        body: JSON.stringify({ name: editName.trim() }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      setEditing(null);
+      router.refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Rename failed");
+    }
+  }
+
+  async function doDelete() {
+    if (!deleting || deleteConfirm !== "DELETE") return;
+    setError(null);
+    try {
+      const response = await fetch(`/api/servers/${deleting.id}`, { method: "DELETE", headers: csrfHeaders() });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      setDeleting(null);
+      router.refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Remove failed");
+    }
+  }
+
+  function openMenu(event: React.MouseEvent<HTMLElement>, membership: Membership) {
+    setMenuAnchor(event.currentTarget);
+    setMenuTarget(membership);
+  }
+
+  function closeMenu() {
+    setMenuAnchor(null);
+    setMenuTarget(null);
+  }
+
+  function startRename(membership: Membership) {
+    closeMenu();
+    setEditing(membership);
+    setEditName(membership.name);
+  }
+
+  function updateButton(summary: ServerSummary | undefined, update: UpdateView) {
+    if (!summary) return { label: "Loading status…", disabled: true };
+    if (update.state === "queued") return { label: "Update queued", disabled: true };
+    if (update.state === "running") return { label: "Updating…", disabled: true };
+    if (update.state === "done") return { label: "Restarting…", disabled: true };
+    if (summary.activeSessionCount > 0) return { label: "Finish active game to update", disabled: true };
+    if (summary.health === "offline") return { label: "Server offline", disabled: true };
+    if (update.state === "failed") return { label: "Retry update", disabled: false };
+    return { label: "Update server", disabled: false };
+  }
 
   return (
-    <>
-      <style>{`
-        @media (max-width: 767px) {
-          .sc-dashboard-table { display: none !important; }
-          .sc-dashboard-cards { display: block !important; }
-        }
-        @media (min-width: 768px) {
-          .sc-dashboard-table { display: block !important; }
-          .sc-dashboard-cards { display: none !important; }
-        }
-      `}</style>
+    <Box component="section" aria-labelledby="servers-heading">
       {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
 
-      <Box component="section" sx={{ mb: 4 }}>
-        <Stack sx={{ mb: 3, gap: 2, flexDirection: { xs: "column", sm: "row" }, justifyContent: "space-between", alignItems: { xs: "stretch", sm: "flex-start" } }}>
-          <Box>
-            <Typography component="h2" variant="h4" sx={{ mb: 1 }}>Servers</Typography>
-            <Typography color="text.secondary" sx={{ maxWidth: 720 }}>
-              Status, health, and pairing. Expand a server for administrator details.
-            </Typography>
-          </Box>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={generatePairingCode}
-          >
-            Generate pairing code
-          </Button>
-        </Stack>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mb: 3, justifyContent: "space-between", alignItems: { xs: "stretch", sm: "flex-start" } }}>
+        <Box>
+          <Typography id="servers-heading" component="h2" variant="h4" sx={{ mb: 0.75 }}>Server health</Typography>
+          <Typography color="text.secondary">A clear view of availability, activity, and software maintenance.</Typography>
+        </Box>
+        <Button variant="secondary" size="sm" onClick={generatePairingCode}>Add server</Button>
+      </Stack>
 
-        {pairingCode && (
-          <Paper variant="outlined" sx={{ mb: 3, p: 2, borderColor: "primary.main" }}>
-            <Typography variant="overline" color="text.secondary">Pairing code</Typography>
-            <Typography component="code" variant="h6" color="success.main" sx={{ display: "block", letterSpacing: "0.15em", mb: 1 }}>
-              {pairingCode}
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Run this on the machine with your ROMs:
-            </Typography>
-            <Paper component="code" variant="outlined" sx={{ display: "block", p: 1.5, bgcolor: "background.default", wordBreak: "break-all" }}>
-              sc-server pair {pairingCode} --sc-web-url {window.location.origin}
-            </Paper>
+      {pairingCode && (
+        <Paper variant="outlined" sx={{ mb: 3, p: 2.5, borderColor: "primary.main" }}>
+          <Typography variant="overline" color="text.secondary">Pairing code</Typography>
+          <Typography component="code" variant="h6" color="success.main" sx={{ display: "block", letterSpacing: "0.15em", mb: 1 }}>{pairingCode}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Run this on the machine with your ROMs:</Typography>
+          <Paper component="code" variant="outlined" sx={{ display: "block", p: 1.5, bgcolor: "background.default", overflowWrap: "anywhere" }}>
+            sc-server pair {pairingCode} --sc-web-url {window.location.origin}
           </Paper>
-        )}
+        </Paper>
+      )}
+      {pairingError && <Alert severity="error" sx={{ mb: 3 }}>Error: {pairingError}</Alert>}
 
-        {pairingError && <Alert severity="error" sx={{ mb: 3 }}>Error: {pairingError}</Alert>}
+      {!loading && attentionCount > 0 && (
+        <Alert severity="warning" icon={<ErrorOutlined />} sx={{ mb: 3 }}>
+          <Typography sx={{ fontWeight: 700 }}>Attention required</Typography>
+          <Typography variant="body2">{plural(attentionCount, "server")} {attentionCount === 1 ? "needs" : "need"} attention. Servers requiring action are shown first.</Typography>
+        </Alert>
+      )}
 
-        {sorted.length === 0 ? (
-          <Typography color="text.secondary" sx={{ fontStyle: "italic" }}>
-            No servers. Pair a sc-server first.
-          </Typography>
-        ) : (
-          <>
-            {/* ── Desktop: table ─────────────────────────────────────────── */}
-            <Box sx={{ display: "block" }} className="sc-dashboard-table">
-              <Paper variant="outlined" sx={{ overflow: "hidden" }}>
-                <table style={S.table}>
-                  <thead>
-                    <tr>
-                      <th style={S.thStatus}>Status</th>
-                      <th style={S.thServer}>Server</th>
-                      <th style={S.thSeen}>Last seen</th>
-                      <th style={S.thActions}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sorted.map((s) => {
-                      const status = serverStatus(s.lastSeenAt);
-                      const isOpen = expanded.has(s.id);
+      {loading ? (
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(2, minmax(0, 1fr))" }, gap: 2.5 }} aria-label="Loading server health">
+          {memberships.map((membership) => <Skeleton key={membership.id} variant="rounded" height={300} />)}
+        </Box>
+      ) : (
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(2, minmax(0, 1fr))" }, gap: 2.5, alignItems: "start" }}>
+          {sorted.map((membership) => {
+            const summary = summaries[membership.id];
+            const health: DisplayHealth = summary?.health ?? "unknown";
+            const isAdmin = membership.role === "admin";
+            const isOpen = expanded.has(membership.id);
+            const update = updates[membership.id] ?? { state: "idle", message: null };
+            const updateAction = updateButton(summary, update);
+            const lanProbe = lanProbeByServer[membership.id];
+            const settingsRegionId = `server-settings-${membership.id}`;
 
-                      return (
-                        <Fragment key={s.id}>
-                          <tr style={isOpen ? S.rowExpanded : undefined}>
-                            <td style={S.tdStatus}>
-                              <Chip
-                                label={status.label}
-                                size="small"
-                                variant="outlined"
-                                sx={{ borderColor: status.color, color: status.color, textTransform: "uppercase" }}
-                              />
-                            </td>
-                            <td style={S.tdServer}>
-                              <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                                <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
-                                  {editing === s.id ? (
-                                    <form
-                                      onSubmit={(e) => {
-                                        e.preventDefault();
-                                        doRename(s.id);
-                                      }}
-                                      style={S.inlineForm}
-                                    >
-                                      <TextField
-                                        size="small"
-                                        variant="outlined"
-                                        value={editName}
-                                        onChange={(e) => setEditName(e.target.value)}
-                                        autoFocus
-                                        slotProps={{ input: { "aria-label": `Rename ${s.name || s.id.slice(0, 8)}` }}}
-                                        sx={{ width: 220 }}
-                                        onBlur={() => setEditing(null)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === "Escape") setEditing(null);
-                                        }}
-                                      />
-                                    </form>
-                                  ) : s.role === "admin" ? (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => startRename(s.id, s.name)}
-                                      title="Click to rename"
-                                      aria-label={`Rename ${s.name || s.id.slice(0, 8)}`}
-                                      sx={{ minWidth: 0, px: 0.5, fontSize: "1.125rem", fontWeight: 600, justifyContent: "flex-start" }}
-                                    >
-                                      {s.name || s.id.slice(0, 8)}
-                                    </Button>
-                                  ) : (
-                                    <Typography component="span" sx={{ fontWeight: 600, fontSize: "1.125rem" }}>
-                                      {s.name || s.id.slice(0, 8)}
-                                    </Typography>
-                                  )}
-                                  <Chip label={s.id.slice(0, 8)} size="small" variant="outlined" />
-                                </Box>
-                                {renderSummaryPills(s.id)}
-                              </Box>
-                            </td>
-                            <td style={S.tdSeen}>
-                              <Stack spacing={0.5}>
-                                <Typography>{timeAgo(s.lastSeenAt)}</Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {s.lastSeenAt ? new Date(s.lastSeenAt).toLocaleString() : "No heartbeat yet"}
-                                </Typography>
-                              </Stack>
-                            </td>
-                            <td style={S.tdActions}>
-                              <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap" }}>
-                                <Button
-                                  variant="primary"
-                                  size="sm"
-                                  disabled={s.role !== "admin"}
-                                  aria-label={`Invite users to ${s.name || s.id.slice(0, 8)}`}
-                                  title={s.role === "admin" ? `Invite users to ${s.name || s.id.slice(0, 8)}` : "Only server administrators can send invitations"}
-                                  onClick={() => setInviteTarget(s)}
-                                >
-                                  Invite user
-                                </Button>
-                                <Button
-                                  variant="secondary"
-                                  size="sm"
-                                  disabled={s.role !== "admin"}
-                                  title={s.role === "admin" ? "Inspect server details" : "Only server administrators can inspect server details"}
-                                  onClick={() => toggle(s.id)}
-                                >
-                                  {isOpen ? "Hide details" : "Details"}
-                                </Button>
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  disabled={s.role !== "admin"}
-                                  title={s.role === "admin" ? "Remove server" : "Only server administrators can remove servers"}
-                                  onClick={() => {
-                                    setDeleting(s.id);
-                                    setDeleteConfirm("");
-                                  }}
-                                >
-                                  Remove
-                                </Button>
-                              </Stack>
-                            </td>
-                          </tr>
-                          {isOpen && s.role === "admin" && (
-                            <tr key={`${s.id}-panel`}>
-                              <td colSpan={4} style={S.panelCell}>
-                                <Paper variant="outlined" sx={{ p: 3, bgcolor: "background.default" }} className="sc-dashboard-panel-shell">
-                                  <Box sx={{ mb: 3 }}>
-                                    <Typography component="h3" variant="h6" color="primary.main">Server details</Typography>
-                                    <Typography color="text.secondary" sx={{ mt: 1 }}>
-                                      Transport, runtime, and core overrides for {s.name || s.id.slice(0, 8)}.
-                                    </Typography>
-                                  </Box>
-                                  <ServerPanel serverId={s.id} />
-                                </Paper>
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </Paper>
-            </Box>
-
-            {/* ── Mobile: cards ──────────────────────────────────────────── */}
-            <Box sx={{ display: "none" }} className="sc-dashboard-cards">
-              {sorted.map((s) => {
-                const status = serverStatus(s.lastSeenAt);
-                const isOpen = expanded.has(s.id);
-
-                return (
-                  <Paper key={s.id} variant="outlined" sx={{ p: 2, mb: 2 }}>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
-                      <Chip
-                        label={status.label}
-                        size="small"
-                        variant="outlined"
-                        sx={{ borderColor: status.color, color: status.color, textTransform: "uppercase" }}
-                      />
-                      <Typography variant="caption" color="text.secondary">
-                        {s.lastSeenAt ? timeAgo(s.lastSeenAt) : "No heartbeat"}
-                      </Typography>
+            return (
+              <Card
+                key={membership.id}
+                data-server-card={membership.id}
+                variant="outlined"
+                sx={{
+                  minWidth: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  borderColor: health === "offline" || health === "idle" ? `${healthColor[health]}.main` : "divider",
+                  boxShadow: health === "offline" || health === "idle" ? 2 : 0,
+                  transition: (theme) => theme.transitions.create(["box-shadow", "border-color"]),
+                }}
+              >
+                <CardContent sx={{ p: { xs: 2.25, sm: 3 }, flexGrow: 1 }}>
+                  <Stack direction="row" spacing={1.5} sx={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", alignItems: "center" }}>
+                        <Typography component="h3" variant="h5" sx={{ overflowWrap: "anywhere" }}>{membership.name}</Typography>
+                        {membership.role === "member" && <Chip label="Shared with you" size="small" variant="outlined" />}
+                      </Stack>
+                      <Stack direction="row" spacing={1} sx={{ mt: 1, alignItems: "center" }}>
+                        {health === "online" ? <CloudDoneOutlined color="success" fontSize="small" /> : <CloudOffOutlined color={summary ? healthColor[summary.health] : "disabled"} fontSize="small" />}
+                        <Chip label={summary ? summary.health : "Unknown"} size="small" color={summary ? healthColor[summary.health] : "default"} variant="outlined" sx={{ textTransform: "capitalize" }} />
+                        <Typography variant="body2" color="text.secondary">{!summary ? "Status unavailable" : summary.lastSeenAt ? `Seen ${timeAgo(summary.lastSeenAt)}` : "No heartbeat yet"}</Typography>
+                      </Stack>
                     </Box>
-
-                    <Box sx={{ mb: 1 }}>
-                      {editing === s.id ? (
-                        <form
-                          onSubmit={(e) => { e.preventDefault(); doRename(s.id); }}
-                          style={S.inlineForm}
-                        >
-                          <TextField
-                            size="small"
-                            fullWidth
-                            value={editName}
-                            onChange={(e) => setEditName(e.target.value)}
-                            autoFocus
-                            slotProps={{ input: { "aria-label": `Rename ${s.name || s.id.slice(0, 8)}` }}}
-                            onBlur={() => setEditing(null)}
-                            onKeyDown={(e) => { if (e.key === "Escape") setEditing(null); }}
-                          />
-                        </form>
-                      ) : s.role === "admin" ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => startRename(s.id, s.name)}
-                          title="Click to rename"
-                          aria-label={`Rename ${s.name || s.id.slice(0, 8)}`}
-                          sx={{ minWidth: 0, px: 0.5, fontSize: "1.125rem", fontWeight: 600, justifyContent: "flex-start" }}
-                        >
-                          {s.name || s.id.slice(0, 8)}
-                        </Button>
-                      ) : (
-                        <Typography component="span" sx={{ fontWeight: 600, fontSize: "1.125rem" }}>
-                          {s.name || s.id.slice(0, 8)}
-                        </Typography>
-                      )}
-                    </Box>
-
-                    {renderSummaryPills(s.id)}
-
-                    <Stack direction="row" spacing={1} useFlexGap sx={{ flexWrap: "wrap", mt: 1.5 }}>
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        disabled={s.role !== "admin"}
-                        onClick={() => setInviteTarget(s)}
-                      >
-                        Invite user
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled={s.role !== "admin"}
-                        onClick={() => toggle(s.id)}
-                      >
-                        {isOpen ? "Hide details" : "Details"}
-                      </Button>
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        disabled={s.role !== "admin"}
-                        onClick={() => { setDeleting(s.id); setDeleteConfirm(""); }}
-                      >
-                        Remove
-                      </Button>
-                    </Stack>
-
-                    {isOpen && s.role === "admin" && (
-                      <Paper variant="outlined" sx={{ mt: 2, p: 2, bgcolor: "background.default" }} className="sc-dashboard-card-panel">
-                        <Typography component="h3" variant="h6" color="primary.main">Server details</Typography>
-                        <Typography color="text.secondary" sx={{ mt: 1, mb: 2 }}>
-                          Transport, runtime, and core overrides for {s.name || s.id.slice(0, 8)}.
-                        </Typography>
-                        <ServerPanel serverId={s.id} />
-                      </Paper>
+                    {isAdmin && (
+                      <Tooltip title={`Manage ${membership.name}`}>
+                        <IconButton aria-label={`Manage ${membership.name}`} onClick={(event) => openMenu(event, membership)}><MoreVert /></IconButton>
+                      </Tooltip>
                     )}
-                  </Paper>
-                );
-              })}
-            </Box>
-          </>
-        )}
-      </Box>
+                  </Stack>
 
-      <Dialog
-        open={inviteTarget !== null}
-        onClose={() => setInviteTarget(null)}
-        maxWidth="md"
-        fullWidth
-        aria-labelledby="invite-dialog-title"
-      >
-        <DialogTitle id="invite-dialog-title">
-          Invite users to {inviteTarget?.name || inviteTarget?.id.slice(0, 8)}
-        </DialogTitle>
-        <DialogContent dividers>
-          {inviteTarget && (
-            <InviteManager serverId={inviteTarget.id} canManage={inviteTarget.role === "admin"} />
-          )}
+                  <Divider sx={{ my: 2.5 }} />
+
+                  <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 2 }}>
+                    <Metric icon={<SystemUpdateAlt fontSize="small" />} label="Software" value={summary?.installedVersion ? `sc-server ${summary.installedVersion}` : "Version unavailable"} />
+                    <Metric icon={<GamesOutlined fontSize="small" />} label="Library" value={summary ? plural(summary.gameCount, "game") : "Unavailable"} />
+                    <Metric icon={<PeopleOutlined fontSize="small" />} label="Activity" value={summary ? plural(summary.activeSessionCount, "active session") : "Unavailable"} />
+                    <Metric
+                      icon={<RouterOutlined fontSize="small" />}
+                      label="LAN path"
+                      value={!summary?.lan.configured ? "Not advertised" : !lanProbe ? "Checking…" : lanProbe.reachable ? `${lanProbe.latencyMs.toFixed(0)} ms direct` : "Cloud fallback"}
+                    />
+                  </Box>
+
+                  {isAdmin && summary && summary.activeSessionCount > 0 && (
+                    <Alert severity="info" sx={{ mt: 2.5 }}>Updates pause until active games finish.</Alert>
+                  )}
+                  {update.message && (
+                    <Alert role="status" aria-live="polite" severity={update.state === "failed" ? "error" : update.state === "done" ? "success" : "info"} sx={{ mt: 2.5 }}>
+                      {update.message}
+                    </Alert>
+                  )}
+                </CardContent>
+
+                {isAdmin && (
+                  <CardActions sx={{ px: { xs: 2.25, sm: 3 }, pb: 2.5, pt: 0, gap: 1, flexWrap: "wrap" }}>
+                    <MuiButton
+                      variant={update.state === "failed" ? "outlined" : "contained"}
+                      startIcon={(update.state === "queued" || update.state === "running") ? <CircularProgress color="inherit" size={16} /> : <SystemUpdateAlt />}
+                      disabled={updateAction.disabled}
+                      onClick={() => setUpdateTarget(membership)}
+                      sx={{ textTransform: "none" }}
+                    >
+                      {updateAction.label}
+                    </MuiButton>
+                    <MuiButton
+                      variant="text"
+                      endIcon={isOpen ? <ExpandLess /> : <ExpandMore />}
+                      onClick={() => setExpanded((current) => {
+                        const next = new Set(current);
+                        if (next.has(membership.id)) next.delete(membership.id); else next.add(membership.id);
+                        return next;
+                      })}
+                      aria-expanded={isOpen}
+                      aria-controls={settingsRegionId}
+                      sx={{ textTransform: "none" }}
+                    >
+                      {isOpen ? "Hide settings" : "Server settings"}
+                    </MuiButton>
+                  </CardActions>
+                )}
+
+                {isAdmin && (
+                  <Collapse in={isOpen} unmountOnExit>
+                    <Divider />
+                    <Box id={settingsRegionId} role="region" aria-label={`${membership.name} advanced settings`} sx={{ p: { xs: 2.25, sm: 3 }, bgcolor: "action.hover" }}>
+                      <Typography variant="h6" sx={{ mb: 0.75 }}>Advanced server settings</Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>Diagnostics and emulator core overrides for {membership.name}.</Typography>
+                      <ServerPanel serverId={membership.id} />
+                    </Box>
+                  </Collapse>
+                )}
+              </Card>
+            );
+          })}
+        </Box>
+      )}
+
+      <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={closeMenu}>
+        <MenuItem onClick={() => menuTarget && startRename(menuTarget)}>Rename server</MenuItem>
+        <MenuItem onClick={() => { const target = menuTarget; closeMenu(); setInviteTarget(target); }}>Invite members</MenuItem>
+        <Divider />
+        <MenuItem sx={{ color: "error.main" }} onClick={() => { const target = menuTarget; closeMenu(); setDeleteConfirm(""); setDeleting(target); }}>Remove server</MenuItem>
+      </Menu>
+
+      <Dialog open={editing !== null} onClose={() => setEditing(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Rename server</DialogTitle>
+        <DialogContent>
+          <TextField autoFocus fullWidth label="Server name" value={editName} onChange={(event) => setEditName(event.target.value)} sx={{ mt: 1 }} onKeyDown={(event) => { if (event.key === "Enter") void doRename(); }} />
+        </DialogContent>
+        <DialogActions><MuiButton onClick={() => setEditing(null)}>Cancel</MuiButton><MuiButton variant="contained" onClick={doRename}>Save</MuiButton></DialogActions>
+      </Dialog>
+
+      <Dialog open={updateTarget !== null} onClose={() => setUpdateTarget(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Update {updateTarget?.name}?</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            The server will restart. Players will be unable to launch games until it reconnects.
+          </Alert>
+          <Typography color="text.secondary">
+            The dashboard will keep showing queued, updating, and restarting status after you confirm.
+          </Typography>
         </DialogContent>
         <DialogActions>
-          <Button variant="secondary" onClick={() => setInviteTarget(null)}>Close</Button>
+          <MuiButton onClick={() => setUpdateTarget(null)}>Cancel</MuiButton>
+          <MuiButton variant="contained" startIcon={<SystemUpdateAlt />} onClick={() => updateTarget && void requestUpdate(updateTarget.id)}>
+            Update server
+          </MuiButton>
         </DialogActions>
       </Dialog>
 
-      {deleting && (
-        <Paper component="section" variant="outlined" sx={{ mb: 3, p: { xs: 2, sm: 3 }, borderColor: "error.main" }}>
-          <Typography component="h2" variant="h5" sx={{ mb: 2 }}>Confirm removal</Typography>
-          <Stack spacing={2}>
-            <Typography color="error.main">
-              This permanently deletes the server, its ROM roots,
-              game files, sessions, and commands. Type DELETE to
-              confirm.
-            </Typography>
-            <Box sx={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
-              <TextField
-                size="small"
-                value={deleteConfirm}
-                onChange={(e) => setDeleteConfirm(e.target.value)}
-                placeholder="Type DELETE"
-                label="Confirmation"
-                autoFocus
-                sx={{ width: 180 }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") doDelete(deleting);
-                  if (e.key === "Escape") setDeleting(null);
-                }}
-              />
-              <Button variant="destructive" size="sm" onClick={() => doDelete(deleting)}>
-                Confirm
-              </Button>
-              <Button variant="secondary" size="sm" onClick={() => setDeleting(null)}>
-                Cancel
-              </Button>
-            </Box>
-          </Stack>
-        </Paper>
-      )}
-    </>
+      <Dialog open={inviteTarget !== null} onClose={() => setInviteTarget(null)} maxWidth="md" fullWidth aria-labelledby="invite-dialog-title">
+        <DialogTitle id="invite-dialog-title">Invite users to {inviteTarget?.name}</DialogTitle>
+        <DialogContent dividers>{inviteTarget && <InviteManager serverId={inviteTarget.id} canManage={inviteTarget.role === "admin"} />}</DialogContent>
+        <DialogActions><MuiButton onClick={() => setInviteTarget(null)}>Close</MuiButton></DialogActions>
+      </Dialog>
+
+      <Dialog open={deleting !== null} onClose={() => setDeleting(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Remove {deleting?.name}</DialogTitle>
+        <DialogContent>
+          <Alert severity="error" sx={{ mb: 2 }}>This permanently deletes the server, its cached library, sessions, and commands.</Alert>
+          <TextField autoFocus fullWidth label="Type DELETE to confirm" value={deleteConfirm} onChange={(event) => setDeleteConfirm(event.target.value)} />
+        </DialogContent>
+        <DialogActions><MuiButton onClick={() => setDeleting(null)}>Cancel</MuiButton><MuiButton color="error" variant="contained" disabled={deleteConfirm !== "DELETE"} onClick={doDelete}>Remove server</MuiButton></DialogActions>
+      </Dialog>
+    </Box>
   );
 }
 
-// ── Styles ─────────────────────────────────────────────────────────────
-
-const S = {
-  section: { marginBottom: "var(--space-8)" },
-  sectionHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: "var(--space-5)",
-    marginBottom: "var(--space-5)",
-    flexWrap: "wrap" as const,
-  },
-  inlineTools: {
-    display: "flex",
-    gap: "var(--space-3)",
-    alignItems: "center",
-    flexWrap: "wrap" as const,
-  },
-  h2: {
-    margin: 0,
-    fontSize: "var(--font-size-h2)",
-    color: "var(--color-muted)",
-    fontFamily: "var(--font-mono)",
-  },
-  sectionSub: {
-    margin: "8px 0 0",
-    maxWidth: 720,
-    color: "var(--color-cloud-dim)",
-    fontSize: "var(--font-size-base)",
-    lineHeight: 1.5,
-  },
-  empty: {
-    fontSize: "var(--font-size-base)",
-    color: "var(--color-muted)",
-    fontStyle: "italic",
-  },
-  error: {
-    padding: "var(--space-4) var(--space-5)",
-    background: "var(--color-errorBg)",
-    border: "1px solid var(--color-error)",
-    borderRadius: "var(--radius-md)",
-    marginBottom: "var(--space-6)",
-    fontSize: "var(--font-size-base)",
-    color: "var(--color-error)",
-  },
-
-  // ── Table (desktop) ──────────────────────────────────────────────
-  tableCard: {
-    border: "1px solid var(--color-sky-high)",
-    background: "var(--color-sky-mid)",
-    overflow: "hidden",
-  },
-  table: { width: "100%", borderCollapse: "collapse" as const },
-  thStatus: {
-    textAlign: "left" as const,
-    padding: "var(--space-4) var(--space-5)",
-    borderBottom: "1px solid var(--color-sky-high)",
-    fontSize: "var(--font-size-sm)",
-    color: "var(--color-muted)",
-    fontFamily: "var(--font-mono)",
-    width: "120px",
-  },
-  thServer: {
-    textAlign: "left" as const,
-    padding: "var(--space-4) var(--space-5)",
-    borderBottom: "1px solid var(--color-sky-high)",
-    fontSize: "var(--font-size-sm)",
-    color: "var(--color-muted)",
-    fontFamily: "var(--font-mono)",
-  },
-  thSeen: {
-    textAlign: "left" as const,
-    padding: "var(--space-4) var(--space-5)",
-    borderBottom: "1px solid var(--color-sky-high)",
-    fontSize: "var(--font-size-sm)",
-    color: "var(--color-muted)",
-    fontFamily: "var(--font-mono)",
-    width: "200px",
-  },
-  thActions: {
-    textAlign: "left" as const,
-    padding: "var(--space-4) var(--space-5)",
-    borderBottom: "1px solid var(--color-sky-high)",
-    fontSize: "var(--font-size-sm)",
-    color: "var(--color-muted)",
-    fontFamily: "var(--font-mono)",
-    width: "180px",
-  },
-  rowExpanded: { background: "rgba(56,189,248,0.04)" },
-  tdStatus: {
-    padding: "var(--space-4) var(--space-5)",
-    borderBottom: "1px solid var(--color-sky-high)",
-    fontSize: "var(--font-size-base)",
-    verticalAlign: "top" as const,
-  },
-  tdServer: {
-    padding: "var(--space-4) var(--space-5)",
-    borderBottom: "1px solid var(--color-sky-high)",
-    fontSize: "var(--font-size-base)",
-    verticalAlign: "top" as const,
-  },
-  tdSeen: {
-    padding: "var(--space-4) var(--space-5)",
-    borderBottom: "1px solid var(--color-sky-high)",
-    fontSize: "var(--font-size-base)",
-    verticalAlign: "top" as const,
-  },
-  tdActions: {
-    padding: "var(--space-4) var(--space-5)",
-    borderBottom: "1px solid var(--color-sky-high)",
-    fontSize: "var(--font-size-base)",
-    verticalAlign: "top" as const,
-  },
-
-  // ── Cards (mobile) ───────────────────────────────────────────────
-  card: {
-    border: "1px solid var(--color-sky-high)",
-    background: "var(--color-sky-mid)",
-    padding: "var(--space-4)",
-    marginBottom: "var(--space-4)",
-  },
-  cardPanel: {
-    marginTop: "var(--space-4)",
-    padding: "var(--space-4)",
-    background: "rgba(10,14,26,0.75)",
-    borderTop: "1px solid rgba(56,189,248,0.12)",
-  },
-
-  // ── Shared elements ──────────────────────────────────────────────
-  statusStack: {
-    display: "flex",
-    alignItems: "center",
-    gap: "var(--space-2)",
-  },
-  statusDot: {
-    display: "inline-block",
-    width: 8,
-    height: 8,
-    borderRadius: "50%",
-  },
-  statusLabel: {
-    textTransform: "uppercase" as const,
-    letterSpacing: "0.06em",
-    fontSize: "var(--font-size-xs)",
-    color: "var(--color-cloud)",
-    fontFamily: "var(--font-mono)",
-  },
-  serverId: {
-    fontSize: "var(--font-size-xs)",
-    color: "var(--color-cloud-dim)",
-    background: "var(--color-sky-deep)",
-    padding: "2px 6px",
-    borderRadius: "2px",
-  },
-  pillRow: {
-    display: "flex",
-    flexWrap: "wrap" as const,
-    gap: "var(--space-2)",
-  },
-  pill: {
-    display: "inline-flex",
-    alignItems: "center",
-    padding: "4px 8px",
-    border: "1px solid var(--color-sky-high)",
-    fontSize: "var(--font-size-xs)",
-    fontFamily: "var(--font-mono)",
-    textTransform: "uppercase" as const,
-    letterSpacing: "0.04em",
-  },
-  pillTones: {
-    info: {
-      color: "var(--color-info)",
-      background: "var(--color-infoBg)",
-      border: "1px solid rgba(56,189,248,0.28)",
-    },
-    success: {
-      color: "var(--color-success)",
-      background: "var(--color-successBg)",
-      border: "1px solid rgba(34,197,94,0.28)",
-    },
-    warning: {
-      color: "var(--color-warning)",
-      background: "var(--color-warningBg)",
-      border: "1px solid rgba(245,158,11,0.28)",
-    },
-    muted: {
-      color: "var(--color-cloud-dim)",
-      background: "rgba(148,163,184,0.08)",
-      border: "1px solid rgba(148,163,184,0.18)",
-    },
-  },
-  seenStack: {
-    display: "flex",
-    flexDirection: "column" as const,
-    gap: "var(--space-1)",
-  },
-  inlineForm: { display: "inline" },
-  inlineInput: {
-    padding: "2px 6px",
-    background: "var(--color-sky-high)",
-    color: "var(--color-cloud)",
-    border: "1px solid var(--color-accent)",
-    fontFamily: "var(--font-mono)",
-    fontSize: "var(--font-size-base)",
-    width: 220,
-  },
-  panelCell: {
-    padding: 0,
-    borderBottom: "1px solid var(--color-sky-high)",
-  },
-  panelShell: {
-    padding: "var(--space-6)",
-    background: "rgba(10,14,26,0.75)",
-    borderTop: "1px solid rgba(56,189,248,0.12)",
-  },
-  confirmBox: {
-    background: "var(--color-sky-mid)",
-    border: "1px solid var(--color-error)",
-    padding: "var(--space-6)",
-  },
-  confirmText: {
-    fontSize: "var(--font-size-base)",
-    color: "var(--color-error)",
-    marginBottom: "var(--space-5)",
-  },
-  confirmRow: {
-    display: "flex",
-    gap: "var(--space-4)",
-    alignItems: "center",
-    flexWrap: "wrap" as const,
-  },
-  confirmInput: {
-    padding: "var(--space-2) var(--space-4)",
-    background: "var(--color-sky-high)",
-    color: "var(--color-cloud)",
-    border: "1px solid var(--color-error)",
-    fontFamily: "var(--font-mono)",
-    fontSize: "var(--font-size-base)",
-    width: 160,
-  },
-  pairingCommand: {
-    marginBottom: "var(--space-5)",
-    padding: "var(--space-5)",
-    background: "var(--color-sky-deep)",
-    border: "1px solid var(--color-accent)",
-  },
-  pairingTopRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: "var(--space-4)",
-    flexWrap: "wrap" as const,
-    marginBottom: "var(--space-3)",
-  },
-  pairingLabel: {
-    color: "var(--color-cloud-dim)",
-    fontSize: "var(--font-size-sm)",
-    textTransform: "uppercase" as const,
-    letterSpacing: "0.06em",
-    fontFamily: "var(--font-mono)",
-  },
-  pairingCode: {
-    fontSize: "var(--font-size-lg)",
-    fontFamily: "var(--font-mono)",
-    color: "var(--color-lime)",
-    letterSpacing: "0.15em",
-  },
-  pairingHint: {
-    fontSize: "var(--font-size-sm)",
-    color: "var(--color-muted)",
-    margin: "0 0 var(--space-3)",
-  },
-  pairingCmd: {
-    display: "block",
-    fontSize: "var(--font-size-md)",
-    fontFamily: "var(--font-mono)",
-    color: "var(--color-lime)",
-    background: "#0d0a06",
-    padding: "var(--space-4) var(--space-5)",
-    wordBreak: "break-all" as const,
-  },
-  pairingError: {
-    marginBottom: "var(--space-5)",
-    fontSize: "var(--font-size-sm)",
-    color: "var(--color-error)",
-  },
-};
+function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <Stack direction="row" spacing={1.25} sx={{ minWidth: 0 }}>
+      <Box sx={{ color: "text.secondary", mt: 0.25, flexShrink: 0 }}>{icon}</Box>
+      <Box sx={{ minWidth: 0 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>{label}</Typography>
+        <Typography variant="body2" sx={{ fontWeight: 600, overflowWrap: "anywhere" }}>{value}</Typography>
+      </Box>
+    </Stack>
+  );
+}

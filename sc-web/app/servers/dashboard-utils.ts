@@ -4,18 +4,6 @@ import { randomUuid } from "@/lib/browser/random-uuid";
 
 // ── Time Helpers ───────────────────────────────────────────────────────
 
-export function serverStatus(
-  lastSeenAt: string | null,
-): { label: string; color: string } {
-  if (!lastSeenAt) return { label: "offline", color: "var(--color-error)" };
-  const age = Date.now() - new Date(lastSeenAt).getTime();
-  if (age < 1_800_000)
-    return { label: "online", color: "var(--color-success)" };
-  if (age < 86_400_000)
-    return { label: "idle", color: "var(--color-muted)" };
-  return { label: "offline", color: "var(--color-error)" };
-}
-
 export function timeAgo(ts: string | null): string {
   if (!ts) return "never";
   const s = Math.round((Date.now() - new Date(ts).getTime()) / 1000);

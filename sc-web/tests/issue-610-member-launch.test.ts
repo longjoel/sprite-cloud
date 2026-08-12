@@ -28,8 +28,8 @@ describe("issue #610 enrolled member session launches", () => {
     expect(schema).toContain('createdBy: uuid("created_by")');
     expect(resolver).toContain("entry.createdBy === browserSession.user.id");
     expect(inviteApi).toContain("requireServerAdmin");
-    expect(dashboard).toContain('title={s.role === "admin" ? "Inspect server details" : "Only server administrators can inspect server details"}');
-    expect(dashboard).toContain('isOpen && s.role === "admin"');
+    expect(dashboard).toContain('const isAdmin = membership.role === "admin"');
+    expect(dashboard).toContain("isAdmin && (");
     expect(serverPanel).toContain("headers: csrfHeaders()");
   });
 });
