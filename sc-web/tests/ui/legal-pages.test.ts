@@ -7,6 +7,7 @@ const footer = readFileSync("components/LegalFooter.tsx", "utf8");
 const privacy = readFileSync("app/privacy/page.tsx", "utf8");
 const cookies = readFileSync("app/cookies/page.tsx", "utf8");
 const terms = readFileSync("app/terms/page.tsx", "utf8");
+const legalPage = readFileSync("components/LegalPage.tsx", "utf8");
 
 describe("public legal disclosures", () => {
   it("links policies and privacy choices from public footers", () => {
@@ -18,6 +19,12 @@ describe("public legal disclosures", () => {
     expect(footer).toContain('href="/terms"');
     expect(footer).toContain("Privacy choices");
     expect(footer).toContain("Joel Longanecker and Sprite Cloud contributors");
+  });
+
+  it("renders the shared route-aware navigation on every legal page", () => {
+    expect(legalPage).toContain('import AppHeader from "@/components/fluent/AppHeader";');
+    expect(legalPage).toContain("<AppHeader");
+    expect(legalPage).toContain("authenticated={Boolean(session?.user?.id)}");
   });
 
   it("accurately distinguishes necessary storage, diagnostics, and optional analytics", () => {
