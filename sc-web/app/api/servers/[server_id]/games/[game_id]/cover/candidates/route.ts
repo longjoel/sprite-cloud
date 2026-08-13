@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { serverGames, serverMembers } from "@/lib/db/schema";
-import { RETROARCH_TYPES, retroarchPlatform, signRetroarchCandidate, type RetroarchArtworkType } from "@/lib/cover-candidates";
+import { RETROARCH_TYPES, retroarchPlatform, searchRetroarchCandidates, signRetroarchCandidate, type RetroarchArtworkType } from "@/lib/cover-candidates";
 
 export const runtime = "nodejs";
 
@@ -29,17 +29,23 @@ export async function GET(request: NextRequest, { params }: Params) {
 
   const url = new URL(request.url);
   const requestedType = url.searchParams.get("type") ?? "boxart";
-  if (!(requestedType in RETROARCH_TYPES)) return NextResponse.json({ error: "unsupported artwork type" }, { status: 400 });
+  if (!Object.hasOwn(RETROARCH_TYPES, requestedType)) return NextResponse.json({ error: "unsupported artwork type" }, { status: 400 });
   const type = requestedType as RetroarchArtworkType;
-  const query = (url.searchParams.get("q") ?? "").trim().toLocaleLowerCase();
-  const titles = [...new Set([
+  const query = (url.searchParams.get("q") ?? "").trim();
+  if (query.length > 100) return NextResponse.json({ error: "search is too long" }, { status: 400 });
+  const trustedTitles = [...new Set([
     game.thumbnailName,
     game.sourceName,
     game.canonicalTitle && game.region ? `${game.canonicalTitle} (${game.region})` : game.canonicalTitle,
-  ].filter((title): title is string => !!title))]
-    .filter((title) => !query || title.toLocaleLowerCase().includes(query))
-    .slice(0, 24);
+  ].filter((title): title is string => !!title))];
   const platform = retroarchPlatform(game.platform);
+  if (!platform) return NextResponse.json({ error: "unsupported game platform" }, { status: 400 });
+  let titles: string[];
+  try {
+    titles = query ? await searchRetroarchCandidates(platform, type, query) : trustedTitles.slice(0, 24);
+  } catch {
+    return NextResponse.json({ error: "RetroArch artwork search is temporarily unavailable" }, { status: 502 });
+  }
   return NextResponse.json({
     candidates: titles.map((title) => ({
       id: signRetroarchCandidate({ serverId, gameId, platform, type, title }),

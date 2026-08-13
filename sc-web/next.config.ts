@@ -16,7 +16,7 @@ const CSP = [
   "style-src 'self' 'unsafe-inline'",
   `connect-src 'self' ws: wss:${posthogHost ? ` ${posthogHost}` : ""}${posthogAssetsHost ? ` ${posthogAssetsHost}` : ""}`,
   "media-src 'self' blob:",
-  "img-src 'self' data:",
+  "img-src 'self' data: blob:",
   "font-src 'self'",
   "worker-src 'self' blob:",
   "frame-ancestors 'none'",
