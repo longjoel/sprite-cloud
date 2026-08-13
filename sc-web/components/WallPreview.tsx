@@ -75,7 +75,6 @@ export default function WallPreview({
         let ontrackFired = false;
         pc.ontrack = (ev) => {
           const tracks = ev.streams[0]?.getTracks() ?? [];
-          console.log("[wall-preview] ontrack:", tracks.map(t => t.kind).join(","));
           for (const track of tracks) {
             stream.addTrack(track);
           }
@@ -86,7 +85,7 @@ export default function WallPreview({
             videoRef.current.playsInline = true;
             // Defer play() until ICE is connected so frames can flow
             if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
-              videoRef.current.play().catch((e: Error) => console.warn("[wall-preview] play:", e.message));
+              videoRef.current.play().catch(() => {});
               setConnected(true);
               onConnected?.();
             }
@@ -94,14 +93,12 @@ export default function WallPreview({
         };
 
         pc.oniceconnectionstatechange = () => {
-          console.log("[wall-preview] ICE:", pc.iceConnectionState);
           if ((pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed")
             && videoRef.current && ontrackFired && !connected) {
             videoRef.current.play().then(() => {
-              console.log("[wall-preview] playing");
               setConnected(true);
               onConnected?.();
-            }).catch((e: Error) => console.warn("[wall-preview] play:", e.message));
+            }).catch(() => {});
           }
         };
 
@@ -114,7 +111,6 @@ export default function WallPreview({
           if (pc.iceGatheringState === "complete") resolve();
           // Timeout fallback
           const fallback = setTimeout(() => {
-            console.warn("[wall-preview] ICE gathering fallback after 3s");
             resolve();
           }, 3000);
           pc.onicegatheringstatechange = () => {
@@ -173,10 +169,7 @@ export default function WallPreview({
             return; // ontrack will fire
           }
         }
-      } catch (err) {
-        if (!cleanup && !controller.signal.aborted) {
-          console.warn("[wall-preview] connect failed:", err);
-        }
+      } catch {
         pcRef.current?.close();
         pcRef.current = null;
       }
