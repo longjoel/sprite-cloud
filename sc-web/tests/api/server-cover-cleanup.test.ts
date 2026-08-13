@@ -54,6 +54,20 @@ describe("DELETE /api/servers/[server_id] cover cleanup", () => {
     expect(mockRemoveCoverAssets).toHaveBeenCalledWith(["asset.webp", "asset.poster.png"]);
   });
 
+  it("deletes short-code capabilities owned by the server", async () => {
+    mockDb.select
+      .mockReturnValueOnce(query([{ role: "admin" }]))
+      .mockReturnValueOnce(query([]))
+      .mockReturnValueOnce(query([]));
+    const { DELETE } = await import("@/app/api/servers/[server_id]/route");
+
+    await DELETE(deleteRequest(), {
+      params: Promise.resolve({ server_id: "server-a" }),
+    });
+
+    expect(mockDb.delete).toHaveBeenCalled();
+  });
+
   it("does not turn a committed server deletion into an error when file cleanup fails", async () => {
     mockDb.select
       .mockReturnValueOnce(query([{ role: "admin" }]))

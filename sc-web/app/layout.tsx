@@ -5,6 +5,7 @@ import Script from "next/script";
 import MaterialThemeProvider from "@/components/MaterialThemeProvider";
 import PostHogProvider from "@/components/PostHogProvider";
 import { SessionProvider } from "next-auth/react";
+import PrivacyConsent from "@/components/PrivacyConsent";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -44,6 +45,7 @@ export default function RootLayout({
           <PostHogProvider>
             <MaterialThemeProvider>
               {children}
+              <PrivacyConsent />
             </MaterialThemeProvider>
           </PostHogProvider>
         </SessionProvider>
