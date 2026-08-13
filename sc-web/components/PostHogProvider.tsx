@@ -10,6 +10,8 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { initPostHog, isPostHogActive, posthog } from "@/lib/posthog";
+import { disablePostHog } from "@/lib/posthog";
+import { PRIVACY_CONSENT_EVENT, readPrivacyConsent } from "@/lib/privacy-consent";
 
 export default function PostHogProvider({
   children,
@@ -20,7 +22,16 @@ export default function PostHogProvider({
 
   useEffect(() => {
     initPostHog();
-  }, []);
+    const update = () => {
+      if (readPrivacyConsent() === "analytics") {
+        const started = initPostHog();
+        if (started) posthog.capture("$pageview", { path: pathname ?? "/" });
+      }
+      else disablePostHog();
+    };
+    window.addEventListener(PRIVACY_CONSENT_EVENT, update);
+    return () => window.removeEventListener(PRIVACY_CONSENT_EVENT, update);
+  }, [pathname]);
 
   useEffect(() => {
     if (!isPostHogActive()) return;
