@@ -37,7 +37,11 @@ describe("PostHog consent gating", () => {
   it("initializes with local-storage persistence after opt-in", () => {
     localStorage.setItem(CONSENT_STORAGE_KEY, "analytics");
     renderProvider();
-    expect(mocks.init).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ persistence: "localStorage" }));
+    expect(mocks.init).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      persistence: "localStorage",
+      disable_external_dependency_loading: true,
+      advanced_disable_flags: true,
+    }));
     expect(mocks.optIn).toHaveBeenCalled();
     expect(mocks.capture).toHaveBeenCalledWith("$pageview", { path: "/privacy" });
   });

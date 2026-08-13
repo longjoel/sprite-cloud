@@ -40,4 +40,11 @@ describe("live gameplay video aspect ratio", () => {
     expect(video?.style.height).toBe("100%");
     expect(video?.style.objectFit).toBe("contain");
   });
+
+  it("does not emit obsolete connection debugging logs", async () => {
+    const source = await import("node:fs").then(({ readFileSync }) => readFileSync("components/WallPreview.tsx", "utf8"));
+    expect(source).not.toContain("[wall-preview]");
+    expect(source).not.toContain("console.log");
+    expect(source).not.toContain("console.warn");
+  });
 });

@@ -45,6 +45,11 @@ export function initPostHog(): boolean {
     // don't need — analytics never cross subdomains here.
     cross_subdomain_cookie: false,
     persistence: "localStorage",
+    // Sprite Cloud only uses pageview/click analytics. Avoid loading PostHog's
+    // remote config and feature-flag assets, which are unnecessary here and
+    // can be blocked by browser privacy protections as third-party scripts.
+    disable_external_dependency_loading: true,
+    advanced_disable_flags: true,
   });
   posthog.opt_in_capturing();
   return true;
