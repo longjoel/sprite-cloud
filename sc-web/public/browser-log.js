@@ -111,7 +111,8 @@
     const searchParams = new URLSearchParams(location.search);
     const safePath = location.pathname
       .replace(/^\/r\/[^/]+/, "/r/[redacted]")
-      .replace(/^\/invite\/[^/]+/, "/invite/[redacted]");
+      .replace(/^\/invite\/[^/]+/, "/invite/[redacted]")
+      .replace(/^\/p\/[^/]+/, "/p/[redacted]");
     const safeQuery = new URLSearchParams();
     for (const key of ["server_id", "role", "seat"]) {
       const value = searchParams.get(key);
@@ -122,7 +123,8 @@
       const referrer = new URL(document.referrer);
       referrer.pathname = referrer.pathname
         .replace(/^\/r\/[^/]+/, "/r/[redacted]")
-        .replace(/^\/invite\/[^/]+/, "/invite/[redacted]");
+        .replace(/^\/invite\/[^/]+/, "/invite/[redacted]")
+        .replace(/^\/p\/[^/]+/, "/p/[redacted]");
       referrer.search = "";
       referrer.hash = "";
       safeReferrer = referrer.toString();
