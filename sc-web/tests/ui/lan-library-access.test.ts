@@ -16,7 +16,7 @@ describe("LAN-owned library access", () => {
     expect(source).toContain("proxy_server_authenticated");
     expect(source).toContain("server_api_key");
     expect(source).toContain("axum::http::header::AUTHORIZATION");
-    expect(source).toContain('matches!(req.uri().path(), "/" | "/help")');
+    expect(source).toContain('matches!(req.uri().path(), "/" | "/help" | "/privacy" | "/cookies" | "/terms")');
   });
 
   it("hands cloud users to the server-owned LAN library", () => {

@@ -166,7 +166,7 @@ async fn proxy_player_page(
         format!("/p/{}?{}", code, query_str)
     };
 
-    if code.is_empty() && matches!(req.uri().path(), "/" | "/help") {
+    if code.is_empty() && matches!(req.uri().path(), "/" | "/help" | "/privacy" | "/cookies" | "/terms") {
         attach_server_bearer(&state, &mut req)?;
     }
     proxy_to_sc_web(&state, req, &path_and_query).await
