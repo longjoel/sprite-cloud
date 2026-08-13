@@ -11,7 +11,7 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { initPostHog, isPostHogActive, posthog } from "@/lib/posthog";
 import { disablePostHog } from "@/lib/posthog";
-import { PRIVACY_CONSENT_EVENT, readPrivacyConsent } from "@/lib/privacy-consent";
+import { CONSENT_STORAGE_KEY, PRIVACY_CONSENT_EVENT, readPrivacyConsent } from "@/lib/privacy-consent";
 
 export default function PostHogProvider({
   children,
@@ -30,7 +30,14 @@ export default function PostHogProvider({
       else disablePostHog();
     };
     window.addEventListener(PRIVACY_CONSENT_EVENT, update);
-    return () => window.removeEventListener(PRIVACY_CONSENT_EVENT, update);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === CONSENT_STORAGE_KEY) update();
+    };
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(PRIVACY_CONSENT_EVENT, update);
+      window.removeEventListener("storage", onStorage);
+    };
   }, [pathname]);
 
   useEffect(() => {

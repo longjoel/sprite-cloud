@@ -274,6 +274,7 @@ server_id = ""`);
     expect(browserLogger).toContain('out[key] = "[REDACTED]"');
     expect(browserLogger).toContain('.replace(/^\\/r\\/[^/]+/, "/r/[redacted]")');
     expect(browserLogger).toContain('.replace(/^\\/invite\\/[^/]+/, "/invite/[redacted]")');
+    expect(browserLogger).toContain('.replace(/^\\/p\\/[^/]+/, "/p/[redacted]")');
   });
 
   it("stages Next static assets inside the nonignored CI Docker context", () => {

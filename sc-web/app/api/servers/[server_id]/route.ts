@@ -8,6 +8,7 @@ import {
   peerTokens,
   commands,
   sessions,
+  shortCodes,
   serverGameCoverOverrides,
 } from "@/lib/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
@@ -134,6 +135,9 @@ export async function DELETE(
 
   await db.delete(sessions).where(eq(sessions.serverId, server_id));
   await db.delete(commands).where(eq(commands.serverId, server_id));
+  // shortCodes has no FK because legacy rows predate server ownership. Remove
+  // them explicitly so room/host capabilities cannot outlive the server.
+  await db.delete(shortCodes).where(eq(shortCodes.serverId, server_id));
 
   await db.delete(serverMembers).where(eq(serverMembers.serverId, server_id));
   await db.delete(servers).where(eq(servers.id, server_id));

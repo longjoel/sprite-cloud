@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_POSTHOG_KEY = "test-key";
-  process.env.NEXT_PUBLIC_POSTHOG_HOST = "https://posthog.example";
+  process.env.NEXT_PUBLIC_POSTHOG_HOST = "https://us.i.posthog.com";
   return { init: vi.fn(), capture: vi.fn(), optIn: vi.fn(), optOut: vi.fn(), reset: vi.fn() };
 });
 vi.mock("posthog-js", () => ({ default: { init: mocks.init, capture: mocks.capture, opt_in_capturing: mocks.optIn, opt_out_capturing: mocks.optOut, reset: mocks.reset } }));
@@ -53,5 +53,21 @@ describe("PostHog consent gating", () => {
     expect(mocks.optOut).toHaveBeenCalled();
     expect(mocks.reset).toHaveBeenCalled();
     expect(localStorage.getItem("ph_active_posthog")).toBeNull();
+  });
+
+  it("responds to consent revocation from another tab", () => {
+    localStorage.setItem(CONSENT_STORAGE_KEY, "analytics");
+    renderProvider();
+    act(() => {
+      localStorage.setItem(CONSENT_STORAGE_KEY, "necessary");
+      window.dispatchEvent(new StorageEvent("storage", {
+        key: CONSENT_STORAGE_KEY,
+        oldValue: "analytics",
+        newValue: "necessary",
+        storageArea: localStorage,
+      }));
+    });
+    expect(mocks.optOut).toHaveBeenCalled();
+    expect(mocks.reset).toHaveBeenCalled();
   });
 });
