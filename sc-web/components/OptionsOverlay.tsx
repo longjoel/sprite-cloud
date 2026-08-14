@@ -2,13 +2,34 @@
 
 import { useCallback, type RefObject } from "react";
 import { Box, Button, Typography } from "@mui/material";
+import type { SvgIconComponent } from "@mui/icons-material";
+import {
+  ArrowBack,
+  Close,
+  Eject,
+  FolderOpen,
+  Fullscreen,
+  FullscreenExit,
+  Gamepad,
+  Groups,
+  Keyboard,
+  QueryStats,
+  QrCode,
+  RestartAlt,
+  Save,
+  TableRows,
+  VpnKey,
+  Visibility,
+  VolumeOff,
+  VolumeUp,
+} from "@mui/icons-material";
 import styles from "./OptionsOverlay.module.css";
 import type { PlayerCapabilities } from "@/lib/capabilities";
 import { APP_NAVIGATION } from "@/lib/ui/app-navigation";
 
 interface ActionItem {
   id: string;
-  icon: string;
+  icon: SvgIconComponent;
   label: string;
   action: () => void;
   danger?: boolean;
@@ -94,12 +115,12 @@ export default function OptionsOverlay({
       id: "game",
       label: "Game",
       actions: [
-        { id: "save", icon: "💾", label: "Save", action: onSave, disabled: !isHost },
-        { id: "load", icon: "📂", label: "Load", action: onLoad, disabled: !isHost },
-        { id: "saves", icon: "▤", label: "Saves", action: onOpenSaves, disabled: !isHost },
+        { id: "save", icon: Save, label: "Save", action: onSave, disabled: !isHost },
+        { id: "load", icon: FolderOpen, label: "Load", action: onLoad, disabled: !isHost },
+        { id: "saves", icon: TableRows, label: "Saves", action: onOpenSaves, disabled: !isHost },
         {
           id: "restart",
-          icon: "↺",
+          icon: RestartAlt,
           label: "Restart",
           action: onRestart,
           danger: true,
@@ -108,7 +129,7 @@ export default function OptionsOverlay({
         ...(onEject && isHost
           ? [{
               id: "eject" as const,
-              icon: "💿",
+              icon: Eject,
               label: "Eject disk",
               action: onEject,
               danger: true,
@@ -122,13 +143,13 @@ export default function OptionsOverlay({
       actions: [
         {
           id: "controls",
-          icon: "🎮",
+          icon: Gamepad,
           label: controlsVisible ? "Hide controls" : "Show controls",
           action: onToggleControls,
           disabled: isSpectator,
         },
-        { id: "controller", icon: "⌖", label: "Controller Layout", action: onOpenController, disabled: isSpectator },
-        { id: "keys", icon: "⌨", label: "Keys", action: onOpenKeys, disabled: isSpectator },
+        { id: "controller", icon: Gamepad, label: "Controller Layout", action: onOpenController, disabled: isSpectator },
+        { id: "keys", icon: Keyboard, label: "Keys", action: onOpenKeys, disabled: isSpectator },
       ],
     },
     ...(roomRelevant
@@ -138,10 +159,10 @@ export default function OptionsOverlay({
             label: "Multiplayer",
             actions: [
               ...(onOpenRoom
-                ? [{ id: "room", icon: "👥", label: "Room", action: onOpenRoom }]
+                ? [{ id: "room", icon: Groups, label: "Room", action: onOpenRoom }]
                 : []),
               ...(onQrCode && isHost
-                ? [{ id: "share", icon: "⌁", label: "Share / QR", action: onQrCode }]
+                ? [{ id: "share", icon: QrCode, label: "Share / QR", action: onQrCode }]
                 : []),
             ],
           },
@@ -154,14 +175,14 @@ export default function OptionsOverlay({
         ...(onToggleAudio
           ? [{
               id: "mute",
-              icon: audioMuted ? "🔇" : "🔊",
+              icon: audioMuted ? VolumeOff : VolumeUp,
               label: audioMuted ? "Unmute" : "Mute",
               action: onToggleAudio,
             }]
           : []),
         {
           id: "fullscreen",
-          icon: isFullscreen ? "↙" : "⛶",
+          icon: isFullscreen ? FullscreenExit : Fullscreen,
           label: isFullscreen ? "Windowed" : "Fullscreen",
           action: onFullscreen,
         },
@@ -171,7 +192,7 @@ export default function OptionsOverlay({
       id: "troubleshooting",
       label: "Troubleshooting",
       actions: [
-        { id: "stats", icon: "▥", label: "Stats for Nerds", action: onStats },
+        { id: "stats", icon: QueryStats, label: "Stats for Nerds", action: onStats },
       ],
     },
   ];
@@ -188,7 +209,7 @@ export default function OptionsOverlay({
       >
         {onClose && (
           <Button variant="text" className={`${styles.card} ${styles.libraryButton}`} onClick={onClose}>
-            <Typography component="span" className={styles.cardIcon} aria-hidden="true">←</Typography>
+            <Typography component="span" className={styles.cardIcon} aria-hidden="true"><ArrowBack /></Typography>
             <Typography component="span" className={styles.cardLabel} aria-label="← Library">
               {`← ${APP_NAVIGATION.library.label}`}
             </Typography>
@@ -197,7 +218,7 @@ export default function OptionsOverlay({
         {capabilities && (
           <Box className={styles.roleBanner}>
             <Typography component="span" className={styles.roleLabel}>
-              {isHost ? "🔑 Host" : isPlayer ? `🎮 ${playerLabel}` : "👁 Spectator"}
+              {isHost ? <><VpnKey aria-hidden="true" /> Host</> : isPlayer ? <><Gamepad aria-hidden="true" /> {playerLabel}</> : <><Visibility aria-hidden="true" /> Spectator</>}
             </Typography>
           </Box>
         )}
@@ -213,7 +234,7 @@ export default function OptionsOverlay({
                   onClick={item.disabled ? undefined : item.action}
                   disabled={item.disabled}
                 >
-                  <Typography component="span" className={styles.cardIcon} aria-hidden="true">{item.icon}</Typography>
+                  <Typography component="span" className={styles.cardIcon} aria-hidden="true"><item.icon /></Typography>
                   <Typography component="span" className={styles.cardLabel}>{item.label}</Typography>
                 </Button>
               ))}
@@ -221,7 +242,7 @@ export default function OptionsOverlay({
           </section>
         ))}
         <Button variant="text" className={styles.closeButton} onClick={onToggle}>
-          <Typography component="span" aria-hidden="true">✕</Typography> Close
+          <Typography component="span" aria-hidden="true"><Close /></Typography> Close
         </Button>
       </div>
     </Box>
