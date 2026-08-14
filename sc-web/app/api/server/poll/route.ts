@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { db } from "@/lib/db";
-import { commands, sessions, gameFlags, serverGames } from "@/lib/db/schema";
+import { commands, sessions, gameFlags, serverGames, servers } from "@/lib/db/schema";
 import { verifyBearerToken, unauthorizedResponse } from "@/lib/server-auth";
 import {
   POLL_FAST_MS,
@@ -44,6 +44,11 @@ interface PollResponse {
 export async function GET(request: Request): Promise<NextResponse<PollResponse>> {
   const server = await verifyBearerToken(request.headers.get("authorization"));
   if (!server) return unauthorizedResponse() as NextResponse<PollResponse>;
+
+  const bootId = request.headers.get("x-sc-server-boot-id");
+  if (bootId && isBootId(bootId)) {
+    await resetStaleRuntime(server.id, bootId);
+  }
 
   // ── Resident convergence ──────────────────────────────────────────
   // Converge the resident (always_on) game set on every poll tick.
@@ -133,6 +138,98 @@ export async function GET(request: Request): Promise<NextResponse<PollResponse>>
   return NextResponse.json({
     commands: leased,
     next_poll_ms: leased.length > 0 ? POLL_FAST_MS : POLL_IDLE_MS,
+  });
+}
+
+// ── Runtime reset ─────────────────────────────────────────────────────
+
+const BOOT_ID_RE = /^(\d{20})-([0-9a-f]{32})$/;
+
+function isBootId(value: string): boolean {
+  return BOOT_ID_RE.test(value);
+}
+
+function isNewerBootId(current: string | null | undefined, incoming: string): boolean {
+  if (!current) return true;
+  const currentMatch = current.match(BOOT_ID_RE);
+  const incomingMatch = incoming.match(BOOT_ID_RE);
+  if (!incomingMatch) return false;
+  if (!currentMatch) return true;
+  return incomingMatch[1] > currentMatch[1]
+    || (incomingMatch[1] === currentMatch[1] && incoming > current);
+}
+
+/**
+ * A sc-server process owns all runtime sessions in memory. When a new boot ID
+ * arrives, the previous process is gone even though its DB rows may still say
+ * connected/playing. End those rows once, cancel their queued signaling, and
+ * let resident convergence recreate always-on games.
+ */
+async function resetStaleRuntime(serverId: string, bootId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [server] = await tx
+      .select({ runtimeBootId: servers.runtimeBootId })
+      .from(servers)
+      .where(eq(servers.id, serverId))
+      .limit(1)
+      .for("update");
+    if (!server || !isNewerBootId(server.runtimeBootId, bootId)) return;
+
+    const staleSessions = await tx
+      .select({ id: sessions.id, gameId: sessions.gameId })
+      .from(sessions)
+      .where(and(
+        eq(sessions.serverId, serverId),
+        inArray(sessions.status, [...ACTIVE_SESSION_STATES]),
+      ));
+
+    const now = new Date();
+    await tx
+      .update(servers)
+      .set({ runtimeBootId: bootId })
+      .where(eq(servers.id, serverId));
+
+    if (staleSessions.length === 0) return;
+
+    await tx
+      .update(sessions)
+      .set({ status: "ended", stateEnteredAt: now, endedAt: now })
+      .where(and(
+        eq(sessions.serverId, serverId),
+        inArray(sessions.id, staleSessions.map((session) => session.id)),
+      ));
+
+    const staleSessionIds = new Set(staleSessions.map((session) => session.id));
+    const staleCommands = await tx
+      .select({ id: commands.id, payload: commands.payload })
+      .from(commands)
+      .where(and(
+        eq(commands.serverId, serverId),
+        inArray(commands.type, ["start_game", "stop_game", "sdp_offer"]),
+        inArray(commands.status, [STATUS_PENDING, STATUS_LEASED]),
+      ));
+    const staleCommandIds = staleCommands
+      .filter((command) => {
+        try {
+          const payload = typeof command.payload === "string"
+            ? JSON.parse(command.payload) as Record<string, unknown>
+            : command.payload as Record<string, unknown>;
+          return typeof payload?.session_id === "string" && staleSessionIds.has(payload.session_id);
+        } catch {
+          return false;
+        }
+      })
+      .map((command) => command.id);
+    if (staleCommandIds.length === 0) return;
+
+    await tx
+      .update(commands)
+      .set({
+        status: "cancelled",
+        completedAt: now,
+        lastError: "runtime reset after sc-server restart",
+      })
+      .where(inArray(commands.id, staleCommandIds));
   });
 }
 
