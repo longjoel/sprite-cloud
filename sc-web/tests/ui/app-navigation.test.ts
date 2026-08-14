@@ -61,9 +61,9 @@ describe("shared app navigation", () => {
     expect(playerOptionsSource).toContain("APP_NAVIGATION.library.label");
   });
 
-  it("keeps the onboarding panel in normal document flow", () => {
+  it("keeps the onboarding panel visible below the shared header", () => {
     const onboardingRule = landingCss.match(/\.onboarding\s*\{([^}]*)\}/)?.[1] ?? "";
-    expect(onboardingRule).not.toMatch(/position:\s*sticky/);
-    expect(onboardingRule).not.toMatch(/top:\s*84px/);
+    expect(onboardingRule).toMatch(/position:\s*sticky/);
+    expect(onboardingRule).toMatch(/top:\s*84px/);
   });
 });
