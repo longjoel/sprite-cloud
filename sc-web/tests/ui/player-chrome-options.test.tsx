@@ -114,6 +114,23 @@ describe("player option hierarchy", () => {
   const button = (label: string) => Array.from(host.querySelectorAll("button"))
     .find((item) => item.textContent?.includes(label));
 
+  it("uses MUI icon components instead of permanent emoji or string icons", async () => {
+    await renderOptions(true);
+
+    for (const label of [
+      "Save", "Load", "Saves", "Restart", "Eject disk", "Hide controls",
+      "Controller Layout", "Keys", "Room", "Share / QR", "Mute", "Fullscreen",
+      "Stats for Nerds",
+    ]) {
+      const action = button(label);
+      expect(action, `${label} action`).toBeDefined();
+      expect(action?.querySelector("svg"), `${label} icon`).toBeDefined();
+      expect(action?.querySelector("svg")?.getAttribute("aria-hidden"), `${label} icon accessibility`).toBe("true");
+    }
+    expect(optionsSource).not.toMatch(/icon:\s*[\"'][^<>{}]*[\"']/);
+    expect(optionsSource).not.toMatch(/[💾📂↺💿🎮⌖⌨👥⌁🔇🔊⛶▤▥]/u);
+  });
+
   it("renders clear text-labelled groups without Snapshot or Cast", async () => {
     await renderOptions(true);
 
