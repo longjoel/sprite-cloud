@@ -1357,6 +1357,61 @@ describe("GET /api/server/poll", () => {
     expect(body.next_poll_ms).toBeGreaterThan(0);
   });
 
+  it("resets stale runtime sessions once when a new server boot is announced", async () => {
+    mockDb.select
+      .mockImplementationOnce(() => mockQueryBuilder([{ runtimeBootId: "00000000000000000001-00000000000000000000000000000001" }]))
+      .mockImplementationOnce(() => mockQueryBuilder([{ id: "session-1", gameId: "game-1" }]))
+      .mockImplementationOnce(() => mockQueryBuilder([{ id: "cmd-1", payload: { game_id: "game-1", session_id: "session-1" } }]))
+      .mockImplementation(() => mockQueryBuilder([]));
+    const req = mkReq("http://localhost/api/server/poll", {
+      headers: { ...authHeader(), "x-sc-server-boot-id": "00000000000000000002-00000000000000000000000000000002" },
+    });
+
+    const { GET } = await import("@/app/api/server/poll/route");
+    const resp = await GET(req);
+
+    expect(resp.status).toBe(200);
+    expect(mockDb.update).toHaveBeenCalled();
+    const updateSets = mockDb.update.mock.results
+      .map((result: { value?: { set?: { mock?: { calls?: unknown[][] } } } }) => result.value?.set?.mock?.calls?.[0]?.[0])
+      .filter(Boolean);
+    expect(updateSets).toEqual(expect.arrayContaining([
+      expect.objectContaining({ runtimeBootId: "00000000000000000002-00000000000000000000000000000002" }),
+      expect.objectContaining({ status: "ended", endedAt: expect.any(Date) }),
+      expect.objectContaining({ status: "cancelled", completedAt: expect.any(Date) }),
+    ]));
+  });
+
+  it("does not reset runtime sessions again for the same boot", async () => {
+    mockDb.select
+      .mockImplementationOnce(() => mockQueryBuilder([{ runtimeBootId: "00000000000000000002-00000000000000000000000000000002" }]))
+      .mockImplementation(() => mockQueryBuilder([]));
+    const req = mkReq("http://localhost/api/server/poll", {
+      headers: { ...authHeader(), "x-sc-server-boot-id": "00000000000000000002-00000000000000000000000000000002" },
+    });
+
+    const { GET } = await import("@/app/api/server/poll/route");
+    await GET(req);
+
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
+  it("ignores a delayed poll from an older boot", async () => {
+    mockDb.select
+      .mockImplementationOnce(() => mockQueryBuilder([{ runtimeBootId: "00000000000000000002-00000000000000000000000000000002" }]))
+      .mockImplementation(() => mockQueryBuilder([]));
+    const req = mkReq("http://localhost/api/server/poll", {
+      headers: { ...authHeader(), "x-sc-server-boot-id": "00000000000000000001-ffffffffffffffffffffffffffffffff" },
+    });
+
+    const { GET } = await import("@/app/api/server/poll/route");
+    const response = await GET(req);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ commands: [], next_poll_ms: expect.any(Number) });
+    expect(mockDb.update).not.toHaveBeenCalled();
+  });
+
   it("creates a matching command before its foreign-keyed resident session", async () => {
     const gameId = "local_0123456789abcdef0123456789abcdef";
     mockDb.select

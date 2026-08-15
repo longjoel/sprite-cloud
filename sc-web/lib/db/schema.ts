@@ -21,6 +21,7 @@ export const servers = pgTable("servers", {
   name: text("name").notNull().default(""),
   apiKeyHash: text("api_key_hash").notNull().unique(),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow(),
+  runtimeBootId: text("runtime_boot_id"),
   metadata: jsonb("metadata").notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
