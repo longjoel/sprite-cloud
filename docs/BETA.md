@@ -68,15 +68,18 @@ a P0/P1 defect.
 
 ## 4. Supported host/client matrix
 
-| Layer | Supported | Qualified evidence required |
+| Layer | Beta-supported / required | Qualified evidence required |
 |---|---|---|
-| Host OS | Bazzite/Steam Deck-class, Debian/Ubuntu (x86-64), Raspberry Pi 5/ARM64 | Clean install reaches first game on each claimed host |
+| Host OS | Bazzite/Steam Deck-class **x86-64**, Debian/Ubuntu **x86-64** | Clean install reaches first game on each claimed x86-64 host row |
 | Browser | Current Chromium-class desktop browser (Chrome/Edge/Brave), Firefox-class | Launch, input, save/load, stop, second launch |
 | Network | Same-LAN, remote direct ICE, forced TURN relay | Each path proven; includes one cellular/hostile-NAT test |
 | Cores/content | Homebrew/public-domain content; already-qualified cores only | No compatibility claims beyond tested set |
 
-Anything not listed here is unsupported until separately qualified. Tester
-reports on unqualified configurations are recorded but do not block the beta.
+**ARM64/aarch64 and other unqualified hosts are unknown/testing, not beta
+requirements or support claims.** Occasional successful ARM64 runs may be recorded
+as observational evidence, but ARM64 does not block the beta and is not promised
+to testers. Anything else remains unsupported until separately qualified. Tester
+reports on unknown/testing configurations are recorded but do not block the beta.
 
 ## 5. Cohort profile
 
@@ -84,8 +87,9 @@ Target **5–10 invited testers**:
 
 - At least three people who did not build the product.
 - At least one Bazzite/Steam Deck-class host.
-- At least one Debian/Ubuntu host.
-- At least one Raspberry Pi 5/ARM64 host **if** ARM64 remains advertised.
+- At least one Debian/Ubuntu x86-64 host.
+- Optional observational testing on Raspberry Pi 5/ARM64; this is not a beta
+  requirement and does not block admission or go/no-go.
 - At least one nontechnical install session observed without prematurely
   rescuing the participant.
 - At least two remote-network tests, including one cellular/hostile-NAT path.
@@ -171,13 +175,13 @@ opt-in, and none is required to participate.
 
 Tracked in epic #658:
 
-- [ ] #659 — Freeze the September limited-beta scope, cohort, metrics, and defect policy (this document)
+- [x] #659 — Freeze the September limited-beta scope, cohort, metrics, and defect policy (this document)
 - [ ] #660 — Make production TURN routing and connectivity diagnostics beta-ready
-- [ ] #661 — Stamp immutable deployment provenance and prove web rollback
+- [x] #661 — Stamp immutable deployment provenance and prove web rollback
 - [ ] #662 — Add a deterministic browser-to-emulator beta E2E harness
-- [ ] #663 — Qualify clean install, upgrade, and service recovery on the beta platform matrix
-  - [ ] #670 — Repair installer managed-path/update readiness (blocking sub-gate; reopened)
-- [ ] #638 — Rewrite the canonical self-hosting and ICE/STUN/TURN setup journey (reused)
+- [ ] #663 — Qualify clean install, upgrade, and service recovery on the beta-required x86-64 platform matrix
+  - [x] #670 — Repair installer managed-path/update readiness (implementation closed; qualification evidence remains in #663)
+- [x] #638 — Rewrite the canonical self-hosting and ICE/STUN/TURN setup journey (reused)
 - [ ] #664 — Add limited-beta backups, restore rehearsal, monitoring, and incident operations
 - [ ] #665 — Add the limited-beta security, privacy, account-lifecycle, and support gate
 - [ ] #666 — Correct all limited-beta-facing claims, release notes, and support surfaces
