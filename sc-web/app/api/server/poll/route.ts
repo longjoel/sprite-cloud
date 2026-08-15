@@ -46,8 +46,12 @@ export async function GET(request: Request): Promise<NextResponse<PollResponse>>
   if (!server) return unauthorizedResponse() as NextResponse<PollResponse>;
 
   const bootId = request.headers.get("x-sc-server-boot-id");
+  let runtimeReset = false;
   if (bootId && isBootId(bootId)) {
-    await resetStaleRuntime(server.id, bootId);
+    runtimeReset = await resetStaleRuntime(server.id, bootId);
+    if (!runtimeReset) {
+      return NextResponse.json({ commands: [], next_poll_ms: POLL_IDLE_MS });
+    }
   }
 
   // ── Resident convergence ──────────────────────────────────────────
@@ -62,6 +66,25 @@ export async function GET(request: Request): Promise<NextResponse<PollResponse>>
   // SELECT … FOR UPDATE locks the rows until the UPDATE commits,
   // preventing concurrent requests from double-leasing.
   const leased = await db.transaction(async (tx) => {
+    if (runtimeReset) {
+      await tx
+        .update(commands)
+        .set({
+          status: "cancelled",
+          completedAt: now,
+          lastError: "runtime reset after sc-server restart",
+        })
+        .where(and(
+          eq(commands.serverId, server.id),
+          inArray(commands.type, ["start_game", "stop_game", "sdp_offer"]),
+          inArray(commands.status, [STATUS_PENDING, STATUS_LEASED]),
+          sql`${commands.payload}->>'session_id' IN (
+            SELECT id::text FROM sessions
+            WHERE server_id = ${server.id} AND status IN ('ended', 'timed_out')
+          )`,
+        ));
+    }
+
     const rows = await tx
       .select({
         id: commands.id,
@@ -165,15 +188,15 @@ function isNewerBootId(current: string | null | undefined, incoming: string): bo
  * connected/playing. End those rows once, cancel their queued signaling, and
  * let resident convergence recreate always-on games.
  */
-async function resetStaleRuntime(serverId: string, bootId: string): Promise<void> {
-  await db.transaction(async (tx) => {
+async function resetStaleRuntime(serverId: string, bootId: string): Promise<boolean> {
+  return db.transaction(async (tx) => {
     const [server] = await tx
       .select({ runtimeBootId: servers.runtimeBootId })
       .from(servers)
       .where(eq(servers.id, serverId))
       .limit(1)
       .for("update");
-    if (!server || !isNewerBootId(server.runtimeBootId, bootId)) return;
+    if (!server || !isNewerBootId(server.runtimeBootId, bootId)) return false;
 
     const staleSessions = await tx
       .select({ id: sessions.id, gameId: sessions.gameId })
@@ -189,7 +212,7 @@ async function resetStaleRuntime(serverId: string, bootId: string): Promise<void
       .set({ runtimeBootId: bootId })
       .where(eq(servers.id, serverId));
 
-    if (staleSessions.length === 0) return;
+    if (staleSessions.length === 0) return true;
 
     await tx
       .update(sessions)
@@ -220,7 +243,7 @@ async function resetStaleRuntime(serverId: string, bootId: string): Promise<void
         }
       })
       .map((command) => command.id);
-    if (staleCommandIds.length === 0) return;
+    if (staleCommandIds.length === 0) return true;
 
     await tx
       .update(commands)
@@ -230,6 +253,7 @@ async function resetStaleRuntime(serverId: string, bootId: string): Promise<void
         lastError: "runtime reset after sc-server restart",
       })
       .where(inArray(commands.id, staleCommandIds));
+    return true;
   });
 }
 

@@ -127,11 +127,12 @@ pub(crate) async fn cmd_start(
     }
 
     let client = sc_web::ScWebClient::new(cfg.sc_web.url.clone(), cfg.auth.clone());
-    let boot_epoch = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let boot_id = format!("{boot_epoch:020}-{}", hex::encode(rand::random::<[u8; 16]>()));
+    let boot_ticks = std::fs::read_to_string("/proc/self/stat")
+        .ok()
+        .and_then(|stat| stat.rsplit_once(") ").map(|(_, rest)| rest.to_string()))
+        .and_then(|rest| rest.split_whitespace().nth(19)?.parse::<u128>().ok())
+        .unwrap_or(0);
+    let boot_id = format!("{boot_ticks:020}-{}", hex::encode(rand::random::<[u8; 16]>()));
 
     // DAT catalog: loaded at startup; SIGHUP reloads it atomically (a failed
     // replacement keeps the last known-good index).

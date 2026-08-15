@@ -1405,8 +1405,10 @@ describe("GET /api/server/poll", () => {
     });
 
     const { GET } = await import("@/app/api/server/poll/route");
-    await GET(req);
+    const response = await GET(req);
 
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ commands: [], next_poll_ms: expect.any(Number) });
     expect(mockDb.update).not.toHaveBeenCalled();
   });
 
