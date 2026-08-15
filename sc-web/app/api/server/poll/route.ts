@@ -28,6 +28,33 @@ interface PollResponse {
   next_poll_ms: number;
 }
 
+function parseRuntimeTelemetry(raw: string | null): Record<string, number> | null {
+  if (!raw || raw.length > 4096) return null;
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const fields = [
+      "cpu_percent",
+      "memory_total_bytes",
+      "memory_available_bytes",
+      "memory_used_bytes",
+      "memory_used_percent",
+      "uptime_seconds",
+      "active_session_count",
+    ];
+    const telemetry: Record<string, number> = {};
+    for (const field of fields) {
+      const number = value[field];
+      if (typeof number !== "number" || !Number.isFinite(number) || number < 0) return null;
+      telemetry[field] = number;
+    }
+    if (telemetry.cpu_percent > 100 || telemetry.memory_used_percent > 100) return null;
+    return telemetry;
+  } catch {
+    return null;
+  }
+}
+
 // ── Handler ────────────────────────────────────────────────────────────
 
 /**
@@ -52,6 +79,14 @@ export async function GET(request: Request): Promise<NextResponse<PollResponse>>
     if (!runtimeReset) {
       return NextResponse.json({ commands: [], next_poll_ms: POLL_IDLE_MS });
     }
+  }
+
+  const runtimeTelemetry = parseRuntimeTelemetry(request.headers.get("x-sc-server-telemetry"));
+  if (runtimeTelemetry) {
+    await db
+      .update(servers)
+      .set({ runtimeTelemetry })
+      .where(eq(servers.id, server.id));
   }
 
   // ── Resident convergence ──────────────────────────────────────────
@@ -196,7 +231,9 @@ async function resetStaleRuntime(serverId: string, bootId: string): Promise<bool
       .where(eq(servers.id, serverId))
       .limit(1)
       .for("update");
-    if (!server || !isNewerBootId(server.runtimeBootId, bootId)) return false;
+    if (!server) return false;
+    if (server.runtimeBootId === bootId) return true;
+    if (!isNewerBootId(server.runtimeBootId, bootId)) return false;
 
     const staleSessions = await tx
       .select({ id: sessions.id, gameId: sessions.gameId })

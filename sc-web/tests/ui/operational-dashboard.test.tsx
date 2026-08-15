@@ -34,6 +34,19 @@ const summaries = {
       activeSessionCount: 1,
       gameCount: 426,
       lan: { configured: true, healthUrls: [] },
+      runtime: {
+        status: "healthy",
+        pressure: "normal",
+        telemetry: {
+          cpuPercent: 42,
+          memoryTotalBytes: 1_000_000_000,
+          memoryAvailableBytes: 400_000_000,
+          memoryUsedBytes: 600_000_000,
+          memoryUsedPercent: 60,
+          uptimeSeconds: 7_200,
+          activeSessionCount: 1,
+        },
+      },
       activeUpgrade: null,
     },
     {
@@ -98,6 +111,8 @@ describe("operational server dashboard", () => {
     expect(host.textContent).toContain("426 games");
     expect(host.textContent).toContain("1 active session");
     expect(host.textContent).toContain("sc-server 0.11.3");
+    expect(host.textContent).toContain("42%");
+    expect(host.textContent).toContain("Memory");
     expect(host.querySelectorAll("[data-server-card]")[0].textContent).toContain("Shared Library");
   });
 

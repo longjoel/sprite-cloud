@@ -37,6 +37,8 @@ import {
   MoreVert,
   PeopleOutlined,
   RouterOutlined,
+  SpeedOutlined,
+  MemoryOutlined,
   SystemUpdateAlt,
 } from "@mui/icons-material";
 import { Button } from "@/components/ui";
@@ -65,6 +67,19 @@ interface ServerSummary {
   activeSessionCount: number;
   gameCount: number;
   lan: { configured: boolean; healthUrls: string[] };
+  runtime?: {
+    status: "healthy" | "pressure" | "connected" | "stale";
+    pressure: "normal" | "elevated" | "critical" | "unknown";
+    telemetry: {
+      cpuPercent: number;
+      memoryTotalBytes: number;
+      memoryAvailableBytes: number;
+      memoryUsedBytes: number;
+      memoryUsedPercent: number;
+      uptimeSeconds: number;
+      activeSessionCount: number;
+    } | null;
+  };
   activeUpgrade: { commandId: string; status: "pending" | "leased" } | null;
 }
 
@@ -87,6 +102,24 @@ const healthColor: Record<Health, "success" | "warning" | "error"> = {
 function plural(value: number, noun: string) {
   return `${value.toLocaleString()} ${noun}${value === 1 ? "" : "s"}`;
 }
+
+function formatBytes(value: number) {
+  if (value >= 1_073_741_824) return `${(value / 1_073_741_824).toFixed(1)} GB`;
+  return `${Math.round(value / 1_048_576)} MB`;
+}
+
+function formatUptime(seconds: number) {
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  return days > 0 ? `${days}d ${hours}h` : `${hours}h ${Math.floor((seconds % 3_600) / 60)}m`;
+}
+
+const runtimeColor = {
+  healthy: "success",
+  pressure: "warning",
+  connected: "info",
+  stale: "error",
+} as const;
 
 export default function DashboardClient({ memberships }: Props) {
   const router = useRouter();
@@ -171,7 +204,8 @@ export default function DashboardClient({ memberships }: Props) {
   });
   const attentionCount = sorted.filter((membership) => {
     const health = summaries[membership.id]?.health;
-    return health === "offline" || health === "idle";
+    const runtime = summaries[membership.id]?.runtime;
+    return health === "offline" || health === "idle" || runtime?.status === "pressure" || runtime?.status === "stale";
   }).length;
 
   async function generatePairingCode() {
@@ -299,6 +333,8 @@ export default function DashboardClient({ memberships }: Props) {
             const update = updates[membership.id] ?? { state: "idle", message: null };
             const updateAction = updateButton(summary, update);
             const lanProbe = lanProbeByServer[membership.id];
+            const runtime = summary?.runtime;
+            const telemetry = runtime?.telemetry;
             const settingsRegionId = `server-settings-${membership.id}`;
 
             return (
@@ -325,6 +361,7 @@ export default function DashboardClient({ memberships }: Props) {
                       <Stack direction="row" spacing={1} sx={{ mt: 1, alignItems: "center" }}>
                         {health === "online" ? <CloudDoneOutlined color="success" fontSize="small" /> : <CloudOffOutlined color={summary ? healthColor[summary.health] : "disabled"} fontSize="small" />}
                         <Chip label={summary ? summary.health : "Unknown"} size="small" color={summary ? healthColor[summary.health] : "default"} variant="outlined" sx={{ textTransform: "capitalize" }} />
+                        {runtime && <Chip label={`Runtime ${runtime.status}`} size="small" color={runtimeColor[runtime.status]} variant="outlined" sx={{ textTransform: "capitalize" }} />}
                         <Typography variant="body2" color="text.secondary">{!summary ? "Status unavailable" : summary.lastSeenAt ? `Seen ${timeAgo(summary.lastSeenAt)}` : "No heartbeat yet"}</Typography>
                       </Stack>
                     </Box>
@@ -341,9 +378,10 @@ export default function DashboardClient({ memberships }: Props) {
                     <Metric icon={<SystemUpdateAlt fontSize="small" />} label="Software" value={summary?.installedVersion ? `sc-server ${summary.installedVersion}` : "Version unavailable"} />
                     <Metric icon={<GamesOutlined fontSize="small" />} label="Library" value={summary ? plural(summary.gameCount, "game") : "Unavailable"} />
                     <Metric icon={<PeopleOutlined fontSize="small" />} label="Activity" value={summary ? plural(summary.activeSessionCount, "active session") : "Unavailable"} />
-                    <Metric
-                      icon={<RouterOutlined fontSize="small" />}
-                      label="LAN path"
+                    <Metric icon={<SpeedOutlined fontSize="small" />} label="CPU" value={telemetry ? `${telemetry.cpuPercent.toFixed(0)}%` : "Unavailable"} />
+                    <Metric icon={<MemoryOutlined fontSize="small" />} label="Memory" value={telemetry ? `${telemetry.memoryUsedPercent.toFixed(0)}% (${formatBytes(telemetry.memoryUsedBytes)})` : "Unavailable"} />
+                    <Metric icon={<SystemUpdateAlt fontSize="small" />} label="Uptime" value={telemetry ? formatUptime(telemetry.uptimeSeconds) : "Unavailable"} />
+                    <Metric icon={<RouterOutlined fontSize="small" />} label="LAN path"
                       value={!summary?.lan.configured ? "Not advertised" : !lanProbe ? "Checking…" : lanProbe.reachable ? `${lanProbe.latencyMs.toFixed(0)} ms direct` : "Cloud fallback"}
                     />
                   </Box>

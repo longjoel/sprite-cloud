@@ -26,6 +26,7 @@ mod scan_cmd;
 mod session;
 mod setup;
 mod streaming;
+mod telemetry;
 mod upgrade;
 mod verification;
 mod webrtc;
