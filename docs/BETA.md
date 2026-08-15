@@ -45,8 +45,11 @@ The following are in scope and must work on a supported configuration:
 6. The existing private guest/share flow where the tested runtime supports it.
 7. The canonical setup/connectivity guide, known-limitations list, support
    route, and safe diagnostic collection (see `docs/STUN-TURN-ICE.md`).
-8. Production backup/restore, monitoring, rollback, privacy notice, and the
-   beta incident process.
+8. Production monitoring, rollback, privacy notice, and the beta incident process.
+
+**Backup boundary:** application-managed backup/restore is outside this beta and
+is not a beta requirement or acceptance criterion. No backup or restore work is
+tracked in the beta operations gate.
 
 ## 3. Explicitly deferred (out of scope for this beta)
 
@@ -153,8 +156,6 @@ opt-in, and none is required to participate.
   - Direct ICE and forced TURN-relay gameplay both succeed on unrelated
     networks; LAN path passes.
   - Save/load, stop, restart, and second-launch paths pass.
-  - Production backup restored into a clean database within the documented
-    two-hour RTO (target RPO 24 hours).
   - Immutable release candidate passes CI, device/network checks,
     installer/download checksums, production deployment, rollback rehearsal,
     and independent fail-closed review.
@@ -182,7 +183,7 @@ Tracked in epic #658:
 - [ ] #663 — Qualify clean install, upgrade, and service recovery on the beta-required x86-64 platform matrix
   - [x] #670 — Repair installer managed-path/update readiness (implementation closed; qualification evidence remains in #663)
 - [x] #638 — Rewrite the canonical self-hosting and ICE/STUN/TURN setup journey (reused)
-- [ ] #664 — Add limited-beta backups, restore rehearsal, monitoring, and incident operations
+- [ ] #664 — Add limited-beta monitoring and incident operations (provider-managed backups are an explicit external dependency)
 - [ ] #665 — Add the limited-beta security, privacy, account-lifecycle, and support gate
 - [ ] #666 — Correct all limited-beta-facing claims, release notes, and support surfaces
 - [ ] #667 — Run staged limited-beta cohorts and burn down evidence-backed defects
