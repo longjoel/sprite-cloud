@@ -1362,16 +1362,19 @@ describe("GET /api/server/poll", () => {
       .mockImplementationOnce(() => mockQueryBuilder([{ runtimeBootId: "00000000000000000001-00000000000000000000000000000001" }]))
       .mockImplementationOnce(() => mockQueryBuilder([{ id: "session-1", gameId: "game-1" }]))
       .mockImplementationOnce(() => mockQueryBuilder([{ id: "cmd-1", payload: { game_id: "game-1", session_id: "session-1" } }]))
+      .mockImplementationOnce(() => mockQueryBuilder([{ runtimeBootId: "00000000000000000002-00000000000000000000000000000002" }]))
       .mockImplementation(() => mockQueryBuilder([]));
     const req = mkReq("http://localhost/api/server/poll", {
-      headers: { ...authHeader(), "x-sc-server-boot-id": "00000000000000000002-00000000000000000000000000000002" },
+      headers: {
+        ...authHeader(),
+        "x-sc-server-boot-id": "00000000000000000002-00000000000000000000000000000002",
+        "x-sc-server-telemetry": JSON.stringify({ cpu_percent: 42, memory_total_bytes: 1000, memory_available_bytes: 400, memory_used_bytes: 600, memory_used_percent: 60, uptime_seconds: 12, active_session_count: 1, secret: "must-not-persist" }),
+      },
     });
-
     const { GET } = await import("@/app/api/server/poll/route");
     const resp = await GET(req);
 
     expect(resp.status).toBe(200);
-    expect(mockDb.update).toHaveBeenCalled();
     const updateSets = mockDb.update.mock.results
       .map((result: { value?: { set?: { mock?: { calls?: unknown[][] } } } }) => result.value?.set?.mock?.calls?.[0]?.[0])
       .filter(Boolean);
@@ -1379,6 +1382,41 @@ describe("GET /api/server/poll", () => {
       expect.objectContaining({ runtimeBootId: "00000000000000000002-00000000000000000000000000000002" }),
       expect.objectContaining({ status: "ended", endedAt: expect.any(Date) }),
       expect.objectContaining({ status: "cancelled", completedAt: expect.any(Date) }),
+      expect.objectContaining({ runtimeTelemetry: {
+        cpu_percent: 42,
+        memory_total_bytes: 1000,
+        memory_available_bytes: 400,
+        memory_used_bytes: 600,
+        memory_used_percent: 60,
+        uptime_seconds: 12,
+        active_session_count: 1,
+      } }),
+    ]));
+  });
+
+  it("rejects mutation when the boot fence changes before poll work begins", async () => {
+    mockDb.select
+      .mockImplementationOnce(() => mockQueryBuilder([{ runtimeBootId: "00000000000000000001-00000000000000000000000000000001" }]))
+      .mockImplementationOnce(() => mockQueryBuilder([]))
+      .mockImplementationOnce(() => mockQueryBuilder([{ runtimeBootId: "00000000000000000003-00000000000000000000000000000003" }]))
+      .mockImplementation(() => mockQueryBuilder([]));
+    const req = mkReq("http://localhost/api/server/poll", {
+      headers: {
+        ...authHeader(),
+        "x-sc-server-boot-id": "00000000000000000002-00000000000000000000000000000002",
+        "x-sc-server-telemetry": JSON.stringify({ cpu_percent: 20, memory_total_bytes: 100, memory_available_bytes: 80, memory_used_bytes: 20, memory_used_percent: 20, uptime_seconds: 1, active_session_count: 0 }),
+      },
+    });
+
+    const { GET } = await import("@/app/api/server/poll/route");
+    const response = await GET(req);
+
+    expect(await response.json()).toEqual({ commands: [], next_poll_ms: expect.any(Number) });
+    const updateSets = mockDb.update.mock.results
+      .map((result: { value?: { set?: { mock?: { calls?: unknown[][] } } } }) => result.value?.set?.mock?.calls?.[0]?.[0])
+      .filter(Boolean);
+    expect(updateSets).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ runtimeTelemetry: expect.anything() }),
     ]));
   });
 
@@ -1393,7 +1431,14 @@ describe("GET /api/server/poll", () => {
     const { GET } = await import("@/app/api/server/poll/route");
     await GET(req);
 
-    expect(mockDb.update).not.toHaveBeenCalled();
+    const updateSets = mockDb.update.mock.results
+      .map((result: { value?: { set?: { mock?: { calls?: unknown[][] } } } }) => result.value?.set?.mock?.calls?.[0]?.[0])
+      .filter(Boolean);
+    expect(updateSets).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ runtimeBootId: expect.any(String) }),
+      expect.objectContaining({ status: "ended" }),
+      expect.objectContaining({ status: "cancelled" }),
+    ]));
   });
 
   it("ignores a delayed poll from an older boot", async () => {

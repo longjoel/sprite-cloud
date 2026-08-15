@@ -251,6 +251,7 @@ pub(crate) async fn cmd_start(
 
     const POLL_ERROR_BACKOFF_MS: u64 = 5_000;
     let mut sessions: HashMap<String, Arc<GameSession>> = HashMap::new();
+    let mut telemetry_sampler = crate::telemetry::HostTelemetrySampler::new();
 
     // SIGHUP → re-read config and atomically replace the DAT catalog index.
     // Any rejected catalog file keeps the last known-good index in place.
@@ -337,7 +338,8 @@ pub(crate) async fn cmd_start(
                 break;
             }
             _ = async {
-                match client.poll(&boot_id).await {
+                let telemetry = telemetry_sampler.sample(sessions.len());
+                match client.poll(&boot_id, &telemetry).await {
                     Ok(resp) => {
                         if !resp.commands.is_empty() {
                             for cmd in &resp.commands {

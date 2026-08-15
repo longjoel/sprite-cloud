@@ -56,6 +56,7 @@ describe("GET /api/servers/summary", () => {
         serverId: "server-1",
         role: "admin",
         health: "online",
+        runtime: { status: "connected", pressure: "unknown", telemetry: null },
         lastSeenAt: recent.toISOString(),
         installedVersion: "0.11.3",
         activeSessionCount: 2,
@@ -64,6 +65,36 @@ describe("GET /api/servers/summary", () => {
         activeUpgrade: { commandId: "upgrade-1", status: "leased" },
       }],
     });
+  });
+
+  it("classifies high host pressure separately from heartbeat connectivity", async () => {
+    select
+      .mockReturnValueOnce(query([{
+        serverId: "server-1",
+        role: "admin",
+        lastSeenAt: new Date(),
+        runtimeTelemetry: {
+          cpu_percent: 92,
+          memory_total_bytes: 1_000,
+          memory_available_bytes: 50,
+          memory_used_bytes: 950,
+          memory_used_percent: 95,
+          uptime_seconds: 120,
+          active_session_count: 2,
+        },
+        metadata: {},
+      }]))
+      .mockReturnValueOnce(query([]))
+      .mockReturnValueOnce(query([]))
+      .mockReturnValueOnce(query([]));
+
+    const { GET } = await import("@/app/api/servers/summary/route");
+    const body = await (await GET()).json();
+
+    expect(body.servers[0].health).toBe("online");
+    expect(body.servers[0].runtime.status).toBe("pressure");
+    expect(body.servers[0].runtime.pressure).toBe("critical");
+    expect(body.servers[0].runtime.telemetry.cpuPercent).toBe(92);
   });
 
   it("does not query server-owned data when the user has no memberships", async () => {

@@ -264,7 +264,11 @@ impl ScWebClient {
     /// Returns a list of commands and the recommended next-poll interval
     /// in milliseconds.  The server uses `next_poll_ms` verbatim — no
     /// hardcoded polling intervals on the client side.
-    pub async fn poll(&self, boot_id: &str) -> Result<PollResponse> {
+    pub async fn poll(
+        &self,
+        boot_id: &str,
+        telemetry: &crate::telemetry::HostTelemetry,
+    ) -> Result<PollResponse> {
         let url = format!("{}/api/server/poll", self.base_url);
 
         let resp = self
@@ -272,6 +276,10 @@ impl ScWebClient {
             .get(&url)
             .bearer_auth(&self.auth.api_key)
             .header("x-sc-server-boot-id", boot_id)
+            .header(
+                "x-sc-server-telemetry",
+                serde_json::to_string(telemetry).context("serialize host telemetry")?,
+            )
             .send()
             .await
             .context("GET /api/server/poll — network error")?;

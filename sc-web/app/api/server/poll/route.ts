@@ -28,6 +28,35 @@ interface PollResponse {
   next_poll_ms: number;
 }
 
+type PollExecutor = Pick<typeof db, "select" | "insert" | "update">;
+
+function parseRuntimeTelemetry(raw: string | null): Record<string, number> | null {
+  if (!raw || raw.length > 4096) return null;
+  try {
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const fields = [
+      "cpu_percent",
+      "memory_total_bytes",
+      "memory_available_bytes",
+      "memory_used_bytes",
+      "memory_used_percent",
+      "uptime_seconds",
+      "active_session_count",
+    ];
+    const telemetry: Record<string, number> = {};
+    for (const field of fields) {
+      const number = value[field];
+      if (typeof number !== "number" || !Number.isFinite(number) || number < 0) return null;
+      telemetry[field] = number;
+    }
+    if (telemetry.cpu_percent > 100 || telemetry.memory_used_percent > 100) return null;
+    return telemetry;
+  } catch {
+    return null;
+  }
+}
+
 // ── Handler ────────────────────────────────────────────────────────────
 
 /**
@@ -54,18 +83,33 @@ export async function GET(request: Request): Promise<NextResponse<PollResponse>>
     }
   }
 
-  // ── Resident convergence ──────────────────────────────────────────
-  // Converge the resident (always_on) game set on every poll tick.
-  // Idempotent — does not create duplicate commands.
-  await convergeResidents(server.id, server.userId);
-
+  const runtimeTelemetry = parseRuntimeTelemetry(request.headers.get("x-sc-server-telemetry"));
   const now = new Date();
   const leaseExpiresAt = new Date(now.getTime() + COMMAND_LEASE_MS);
 
-  // Fetch + atomically lease in one transaction.
-  // SELECT … FOR UPDATE locks the rows until the UPDATE commits,
-  // preventing concurrent requests from double-leasing.
+  // Fence the entire poll mutation under the server row lock. An older poll
+  // that was paused before a newer boot reset must be rejected here, before
+  // telemetry, resident convergence, or command leasing can mutate state.
   const leased = await db.transaction(async (tx) => {
+    if (bootId && isBootId(bootId)) {
+      const [current] = await tx
+        .select({ runtimeBootId: servers.runtimeBootId })
+        .from(servers)
+        .where(eq(servers.id, server.id))
+        .limit(1)
+        .for("update");
+      if (!current || current.runtimeBootId !== bootId) return null;
+    }
+
+    if (runtimeTelemetry) {
+      await tx
+        .update(servers)
+        .set({ runtimeTelemetry })
+        .where(eq(servers.id, server.id));
+    }
+
+    await convergeResidents(tx, server.id, server.userId);
+
     if (runtimeReset) {
       await tx
         .update(commands)
@@ -142,6 +186,10 @@ export async function GET(request: Request): Promise<NextResponse<PollResponse>>
     }));
   });
 
+  if (leased === null) {
+    return NextResponse.json({ commands: [], next_poll_ms: POLL_IDLE_MS });
+  }
+
   await Promise.all(
     leased.map((cmd) => {
       const payload = cmd.payload && typeof cmd.payload === "object" && !Array.isArray(cmd.payload)
@@ -196,7 +244,9 @@ async function resetStaleRuntime(serverId: string, bootId: string): Promise<bool
       .where(eq(servers.id, serverId))
       .limit(1)
       .for("update");
-    if (!server || !isNewerBootId(server.runtimeBootId, bootId)) return false;
+    if (!server) return false;
+    if (server.runtimeBootId === bootId) return true;
+    if (!isNewerBootId(server.runtimeBootId, bootId)) return false;
 
     const staleSessions = await tx
       .select({ id: sessions.id, gameId: sessions.gameId })
@@ -267,9 +317,9 @@ async function resetStaleRuntime(serverId: string, bootId: string): Promise<bool
  * Called on every poll tick — idempotent (skips games that already
  * have a resident command in flight or an active session).
  */
-async function convergeResidents(serverId: string, userId: string): Promise<void> {
+async function convergeResidents(executor: PollExecutor, serverId: string, userId: string): Promise<void> {
   // Always-on flags that should have active sessions
-  const wantedGames = await db
+  const wantedGames = await executor
     .select({
       gameId: gameFlags.gameId,
       maxSeats: gameFlags.maxSeats,
@@ -286,7 +336,7 @@ async function convergeResidents(serverId: string, userId: string): Promise<void
   const wantedIds = wantedGames.map((g) => g.gameId);
 
   // Already-active sessions for these games — skip
-  const activeSessions = await db
+  const activeSessions = await executor
     .select({ gameId: sessions.gameId })
     .from(sessions)
     .where(
@@ -299,7 +349,7 @@ async function convergeResidents(serverId: string, userId: string): Promise<void
   const activeIds = new Set(activeSessions.map((s) => s.gameId));
 
   // Commands already in-flight for these games (pending or leased)
-  const inFlightCommands = await db
+  const inFlightCommands = await executor
     .select({ gameId: commands.payload })
     .from(commands)
     .where(
@@ -327,7 +377,7 @@ async function convergeResidents(serverId: string, userId: string): Promise<void
   if (missing.length === 0 && wantedIds.length > 0) {
     // Nothing to start — but we still need to check for stale resident sessions
     // to stop (games whose always_on flag was turned off).
-    await stopDefunctResidents(serverId, wantedIds);
+    await stopDefunctResidents(executor, serverId, wantedIds);
     return;
   }
 
@@ -338,65 +388,59 @@ async function convergeResidents(serverId: string, userId: string): Promise<void
     const hostToken = crypto.randomUUID();
     const sessionId = crypto.randomUUID();
 
-    // Resident launches must have the same command/session contract as
-    // user-launched games. Create both rows atomically so notify_ready can
-    // resolve the exact session_id carried by the start_game payload.
-    await db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${serverId}:${gameId}`}, 0))`);
+    // The outer server-row fence serializes resident convergence across polls.
+    const [existingSession] = await executor
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(and(
+        eq(sessions.serverId, serverId),
+        eq(sessions.gameId, gameId),
+        inArray(sessions.status, [...ACTIVE_SESSION_STATES]),
+      ))
+      .limit(1);
+    if (existingSession) continue;
 
-      const [existingSession] = await tx
-        .select({ id: sessions.id })
-        .from(sessions)
-        .where(and(
-          eq(sessions.serverId, serverId),
-          eq(sessions.gameId, gameId),
-          inArray(sessions.status, [...ACTIVE_SESSION_STATES]),
-        ))
-        .limit(1);
-      if (existingSession) return;
+    const [inFlight] = await executor
+      .select({ id: commands.id })
+      .from(commands)
+      .where(and(
+        eq(commands.serverId, serverId),
+        eq(commands.type, "start_game"),
+        inArray(commands.status, [STATUS_PENDING, STATUS_LEASED]),
+        sql`${commands.payload}->>'game_id' = ${gameId}`,
+      ))
+      .limit(1);
+    if (inFlight) continue;
 
-      const [inFlight] = await tx
-        .select({ id: commands.id })
-        .from(commands)
-        .where(and(
-          eq(commands.serverId, serverId),
-          eq(commands.type, "start_game"),
-          inArray(commands.status, [STATUS_PENDING, STATUS_LEASED]),
-          sql`${commands.payload}->>'game_id' = ${gameId}`,
-        ))
-        .limit(1);
-      if (inFlight) return;
-
-      await tx.insert(commands).values({
-        id: cmdId,
-        serverId,
-        type: "start_game",
-        payload: {
-          game_id: gameId,
-          host_token: hostToken,
-          session_id: sessionId,
-          resident: true,
-          max_seats: maxSeatsByGame.get(gameId) ?? 4,
-        },
-        status: STATUS_PENDING,
-        createdAt: now,
-      });
-      await tx.insert(sessions).values({
-        id: sessionId,
-        userId,
-        serverId,
-        gameId,
-        commandId: cmdId,
-        hostToken,
-        status: "spawning",
-        maxSeats: maxSeatsByGame.get(gameId) ?? 4,
-        stateEnteredAt: now,
-      });
+    await executor.insert(commands).values({
+      id: cmdId,
+      serverId,
+      type: "start_game",
+      payload: {
+        game_id: gameId,
+        host_token: hostToken,
+        session_id: sessionId,
+        resident: true,
+        max_seats: maxSeatsByGame.get(gameId) ?? 4,
+      },
+      status: STATUS_PENDING,
+      createdAt: now,
+    });
+    await executor.insert(sessions).values({
+      id: sessionId,
+      userId,
+      serverId,
+      gameId,
+      commandId: cmdId,
+      hostToken,
+      status: "spawning",
+      maxSeats: maxSeatsByGame.get(gameId) ?? 4,
+      stateEnteredAt: now,
     });
   }
 
   // Stop any resident sessions whose always_on flag was cleared
-  await stopDefunctResidents(serverId, wantedIds);
+  await stopDefunctResidents(executor, serverId, wantedIds);
 }
 
 /**
@@ -405,11 +449,12 @@ async function convergeResidents(serverId: string, userId: string): Promise<void
  * stop_game commands.
  */
 async function stopDefunctResidents(
+  executor: PollExecutor,
   serverId: string,
   wantedIds: string[],
 ): Promise<void> {
   // Active sessions for this server that are NOT in the wanted set
-  const orphaned = await db
+  const orphaned = await executor
     .select({
       sessionId: sessions.id,
       gameId: sessions.gameId,
@@ -436,7 +481,7 @@ async function stopDefunctResidents(
 
   if (orphanCmdIds.length === 0) return;
 
-  const orphanCmds = await db
+  const orphanCmds = await executor
     .select({ id: commands.id, payload: commands.payload })
     .from(commands)
     .where(inArray(commands.id, orphanCmdIds));
@@ -460,7 +505,7 @@ async function stopDefunctResidents(
   const toStop = orphaned.filter((s) => residentCmdIds.has(s.commandId!));
 
   // Don't stop if there's already a stop_game in-flight
-  const inFlightStops = await db
+  const inFlightStops = await executor
     .select({ gameId: commands.payload })
     .from(commands)
     .where(
@@ -490,7 +535,7 @@ async function stopDefunctResidents(
   const now = new Date();
   for (const s of toStop) {
     if (inFlightStopIds.has(s.gameId)) continue;
-    await db.insert(commands).values({
+    await executor.insert(commands).values({
       id: crypto.randomUUID(),
       serverId,
       type: "stop_game",

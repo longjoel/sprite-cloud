@@ -18,6 +18,57 @@ type ServerMetadata = {
   };
 };
 
+type RuntimeTelemetry = {
+  cpuPercent: number;
+  memoryTotalBytes: number;
+  memoryAvailableBytes: number;
+  memoryUsedBytes: number;
+  memoryUsedPercent: number;
+  uptimeSeconds: number;
+  activeSessionCount: number;
+};
+
+type RuntimeStatus = "healthy" | "pressure" | "connected" | "stale";
+
+type RuntimeSummary = {
+  status: RuntimeStatus;
+  pressure: "normal" | "elevated" | "critical" | "unknown";
+  telemetry: RuntimeTelemetry | null;
+};
+
+function runtimeSummary(lastSeenAt: Date | string | null, value: unknown, now = Date.now()): RuntimeSummary {
+  const age = lastSeenAt ? now - new Date(lastSeenAt).getTime() : Number.POSITIVE_INFINITY;
+  const raw = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const numbers = [
+    raw.cpu_percent,
+    raw.memory_total_bytes,
+    raw.memory_available_bytes,
+    raw.memory_used_bytes,
+    raw.memory_used_percent,
+    raw.uptime_seconds,
+    raw.active_session_count,
+  ];
+  const valid = numbers.every((item) => typeof item === "number" && Number.isFinite(item) && item >= 0);
+  if (!valid) return { status: age >= OFFLINE_THRESHOLD_MS ? "stale" : "connected", pressure: "unknown", telemetry: null };
+
+  const telemetry: RuntimeTelemetry = {
+    cpuPercent: raw.cpu_percent as number,
+    memoryTotalBytes: raw.memory_total_bytes as number,
+    memoryAvailableBytes: raw.memory_available_bytes as number,
+    memoryUsedBytes: raw.memory_used_bytes as number,
+    memoryUsedPercent: raw.memory_used_percent as number,
+    uptimeSeconds: raw.uptime_seconds as number,
+    activeSessionCount: raw.active_session_count as number,
+  };
+  const peak = Math.max(telemetry.cpuPercent, telemetry.memoryUsedPercent);
+  const pressure = peak >= 90 ? "critical" : peak >= 75 ? "elevated" : "normal";
+  return {
+    status: age >= OFFLINE_THRESHOLD_MS ? "stale" : pressure === "normal" ? "healthy" : "pressure",
+    pressure,
+    telemetry,
+  };
+}
+
 function serverHealth(lastSeenAt: Date | string | null, now = Date.now()): ServerHealth {
   if (!lastSeenAt) return "offline";
   const timestamp = new Date(lastSeenAt).getTime();
@@ -55,6 +106,7 @@ export async function GET() {
       serverId: servers.id,
       role: serverMembers.role,
       lastSeenAt: servers.lastSeenAt,
+      runtimeTelemetry: servers.runtimeTelemetry,
       metadata: servers.metadata,
     })
     .from(serverMembers)
@@ -102,6 +154,7 @@ export async function GET() {
         serverId: membership.serverId,
         role: membership.role,
         health: serverHealth(membership.lastSeenAt),
+        runtime: runtimeSummary(membership.lastSeenAt, membership.runtimeTelemetry),
         lastSeenAt: membership.lastSeenAt
           ? new Date(membership.lastSeenAt).toISOString()
           : null,
