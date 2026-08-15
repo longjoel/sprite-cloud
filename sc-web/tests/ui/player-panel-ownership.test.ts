@@ -38,7 +38,7 @@ describe("GamePlayer panel ownership", () => {
   });
 
   it("keeps child-to-Options navigation reachable inside every child focus scope", () => {
-    expect(playerSource.match(/>← Options<\/Button>/g)).toHaveLength(4);
+    expect(playerSource.match(/<Button[^>]*>[\s\S]*?← Options<\/Button>/g)).toHaveLength(4);
     expect(playerSource).toContain('onBack={() => openPanel("options")}');
     expect(optionsSource).toContain('label: "Room", action: onOpenRoom');
   });

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useInterval } from "@/lib/poll";
 import { Button, Toast } from "@/components/ui";
+import { ArrowBack, Close, QueryStats } from "@mui/icons-material";
 import { csrfHeaders } from "@/components/library-utils";
 
 import { QRCodeSVG } from "qrcode.react";
@@ -791,8 +792,8 @@ export default function GamePlayer({
             onClick={(e) => e.stopPropagation()}
             data-player-panel role="dialog" aria-modal="true" aria-label="Stats for Nerds" tabIndex={-1}
           >
-            <Button variant="ghost" size="sm" onClick={() => openPanel("options")}>← Options</Button>
-            <p className={styles.overlayTitle}>Stats for Nerds</p>
+            <Button variant="ghost" size="sm" onClick={() => openPanel("options")}><ArrowBack aria-hidden="true" /> ← Options</Button>
+            <p className={styles.overlayTitle}><QueryStats aria-hidden="true" /> Stats for Nerds</p>
             {Object.entries(statsData).map(([section, data]) =>
               data && typeof data === "object" && Object.keys(data as object).length > 0 ? (
                 <div key={section} style={{ marginTop: 8 }}>
@@ -887,8 +888,8 @@ export default function GamePlayer({
           <div className={styles.slotPanel} data-player-panel role="dialog" aria-modal="true" aria-label="Save Stack" tabIndex={-1}>
             <div className={styles.slotHeader}>
               <span>Save Stack</span>
-              <Button variant="ghost" size="sm" onClick={() => openPanel("options")}>← Options</Button>
-              <Button variant="ghost" onClick={closePanel}>✕ Close</Button>
+              <Button variant="ghost" size="sm" onClick={() => openPanel("options")}><ArrowBack aria-hidden="true" /> ← Options</Button>
+              <Button variant="ghost" onClick={closePanel}><Close aria-hidden="true" /> ✕ Close</Button>
             </div>
             <div className={styles.roomGrid}>
               <Button variant="secondary" size="sm" onClick={() => { handleSave(); handleListSaves(); }}>
@@ -953,8 +954,8 @@ export default function GamePlayer({
           <div className={styles.roomPanel} data-player-panel role="dialog" aria-modal="true" aria-label="Room controls" tabIndex={-1}>
             <div className={styles.slotHeader}>
               <span>Room</span>
-              <Button variant="ghost" size="sm" onClick={() => openPanel("options")}>← Options</Button>
-              <Button variant="ghost" onClick={closePanel}>✕ Close</Button>
+              <Button variant="ghost" size="sm" onClick={() => openPanel("options")}><ArrowBack aria-hidden="true" /> ← Options</Button>
+              <Button variant="ghost" onClick={closePanel}><Close aria-hidden="true" /> ✕ Close</Button>
             </div>
             <div className={styles.roomGrid}>
               {inviteCode && (
@@ -990,8 +991,8 @@ export default function GamePlayer({
           <div className={styles.roomPanel} data-player-panel role="dialog" aria-modal="true" aria-label="Scan to Join" tabIndex={-1}>
             <div className={styles.slotHeader}>
               <span>Scan to Join</span>
-              <Button variant="ghost" size="sm" onClick={() => openPanel("options")}>← Options</Button>
-              <Button variant="ghost" onClick={closePanel}>✕ Close</Button>
+              <Button variant="ghost" size="sm" onClick={() => openPanel("options")}><ArrowBack aria-hidden="true" /> ← Options</Button>
+              <Button variant="ghost" onClick={closePanel}><Close aria-hidden="true" /> ✕ Close</Button>
             </div>
             {inviteCode ? (<>
             <div style={{ display: "flex", justifyContent: "center", padding: "var(--space-5)" }}>

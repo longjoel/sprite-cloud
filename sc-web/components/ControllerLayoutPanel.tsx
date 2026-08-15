@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ArrowBack, Close } from "@mui/icons-material";
 import { Button, Stack, Typography } from "@mui/material";
 import styles from "./ControllerLayoutPanel.module.css";
 
@@ -67,9 +68,9 @@ export default function ControllerLayoutPanel({
         onClick={(event) => event.stopPropagation()}
       >
         <header className={styles.header}>
-          <Button variant="text" className={styles.headerButton} onClick={onBack}>← Options</Button>
+          <Button variant="text" className={styles.headerButton} onClick={onBack}><ArrowBack aria-hidden="true" /> ← Options</Button>
           <Typography component="h2">Controller Layout</Typography>
-          <Button variant="text" className={styles.headerButton} onClick={onClose} aria-label="Close Controller Layout">✕ Close</Button>
+          <Button variant="text" className={styles.headerButton} onClick={onClose} aria-label="Close Controller Layout"><Close aria-hidden="true" /> ✕ Close</Button>
         </header>
 
         <div className={styles.section}>

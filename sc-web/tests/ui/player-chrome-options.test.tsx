@@ -13,6 +13,7 @@ const optionsSource = readFileSync("components/OptionsOverlay.tsx", "utf8");
 const optionsCss = readFileSync("components/OptionsOverlay.module.css", "utf8");
 const remapSource = readFileSync("components/GamePlayerRemapPanel.tsx", "utf8");
 const controllerPanelSource = readFileSync("components/ControllerLayoutPanel.tsx", "utf8");
+const gamePlayerSource = readFileSync("components/GamePlayer.tsx", "utf8");
 
 describe("simplified player chrome", () => {
   it("uses the top chrome title as the sole persistent game identity", () => {
@@ -55,6 +56,15 @@ describe("simplified player chrome", () => {
 
   it("keeps ← Options navigation in sub-panels so players can return to Options", () => {
     expect(playerSource).toContain("← Options");
+  });
+
+  it("uses MUI icons across controller, remap, and stats panels", () => {
+    expect(controllerPanelSource).toContain("ArrowBack");
+    expect(controllerPanelSource).toContain("Close");
+    expect(remapSource).toContain("ArrowBack");
+    expect(remapSource).toContain("Close");
+    expect(gamePlayerSource).toContain("ArrowBack");
+    expect(gamePlayerSource).toContain("Close");
   });
 });
 

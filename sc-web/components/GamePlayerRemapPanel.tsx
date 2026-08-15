@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { ArrowBack, Close } from "@mui/icons-material";
 import { Box, Button, Paper, Stack, Typography } from "@mui/material";
 
 const BUTTON_LABELS: Record<number, string> = {
@@ -65,7 +66,7 @@ export default function RemapPanel({
     >
       <Stack spacing={2}>
         <Stack direction="row" spacing={1} sx={{ alignItems: "center", justifyContent: "space-between" }}>
-          <Button size="small" variant="text" onClick={onBack}>← Options</Button>
+          <Button size="small" variant="text" onClick={onBack}><ArrowBack aria-hidden="true" /> ← Options</Button>
           <Typography variant="subtitle2" color="text.secondary">Key Mapping</Typography>
           <Stack direction="row" spacing={0.5}>
             <Button
@@ -78,7 +79,7 @@ export default function RemapPanel({
             >
               Reset
             </Button>
-            <Button size="small" variant="text" onClick={onClose}>✕ Close</Button>
+            <Button size="small" variant="text" onClick={onClose}><Close aria-hidden="true" /> ✕ Close</Button>
           </Stack>
         </Stack>
         {waiting && (
