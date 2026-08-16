@@ -179,28 +179,25 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
     const sessionCommandIds = accountSessions
       .map((session) => session.commandId)
       .filter((commandId): commandId is string => !!commandId);
-    const stringFieldMatch = (field: string, value: string) => sql`
-      jsonb_typeof(${commands.payload}) = 'string'
-      AND ${commands.payload}#>>'{}' ~ ${`(^|[,{])\\s*"${field}"\\s*:\\s*"${value}"\\s*([,}]|$)`}
-    `;
-    const commandOwnership = [
-      sql`jsonb_typeof(${commands.payload}) = 'object' AND ${commands.payload}->>'user_id' = ${userId}`,
-      sql`jsonb_typeof(${commands.payload}) = 'object' AND ${commands.payload}->>'authorized_user_id' = ${userId}`,
-      stringFieldMatch("user_id", userId),
-      stringFieldMatch("authorized_user_id", userId),
-    ];
-    if (sessionCommandIds.length > 0) {
-      commandOwnership.push(inArray(commands.id, sessionCommandIds));
-    }
-    if (sessionIds.length > 0) {
-      const objectSessionOwnership = sql`jsonb_typeof(${commands.payload}) = 'object' AND ${commands.payload}->>'session_id' IN (${sql.join(sessionIds.map((id) => sql`${id}`), sql`, `)})`;
-      const stringSessionOwnership = or(...sessionIds.map((sessionId) => stringFieldMatch("session_id", sessionId)))!;
-      commandOwnership.push(or(objectSessionOwnership, stringSessionOwnership)!);
-    }
-    const associatedCommands = await tx
-      .select({ id: commands.id, status: commands.status })
-      .from(commands)
-      .where(or(...commandOwnership));
+    const allCommands = await tx
+      .select({ id: commands.id, status: commands.status, payload: commands.payload })
+      .from(commands);
+    const associatedCommands = allCommands.filter((command) => {
+      if (sessionCommandIds.includes(command.id)) return true;
+      let payload: unknown = command.payload;
+      if (typeof payload === "string") {
+        try {
+          payload = JSON.parse(payload);
+        } catch {
+          return false;
+        }
+      }
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+      const fields = payload as Record<string, unknown>;
+      return fields.user_id === userId
+        || fields.authorized_user_id === userId
+        || (typeof fields.session_id === "string" && sessionIds.includes(fields.session_id));
+    });
     const pendingCommandIds = associatedCommands
       .filter((command) => !TERMINAL_COMMAND_STATUSES.includes(command.status as (typeof TERMINAL_COMMAND_STATUSES)[number]))
       .map((command) => command.id);
