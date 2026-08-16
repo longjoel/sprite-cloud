@@ -4,6 +4,7 @@
 //! (IPC ring buffer), and sc-server (fan_out_frames) is now one struct.
 //! No cross-process IPC, no spawn, no WORKER_READY parsing.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::sync::atomic::{AtomicBool, AtomicU32};
@@ -46,6 +47,12 @@ pub struct GameSession {
     pub dc: Mutex<Option<Arc<RTCDataChannel>>>,
     /// Guest peer connections — host is `session.pc`, guests are here.
     pub guests: Mutex<Vec<Arc<GuestPeer>>>,
+    /// Serializes guest replacement/removal with claim and cancellation side effects.
+    pub guest_lifecycle: Mutex<()>,
+    /// Number of guest SDP exchanges currently building or negotiating a PC.
+    pub pending_guest_exchanges: Arc<AtomicU32>,
+    /// Peer tokens with an exchange currently in progress.
+    pub pending_guest_tokens: Arc<StdMutex<HashSet<String>>>,
     /// True while the host DataChannel is open. Guest leave only
     /// cancels the session if this is false (host already gone).
     pub host_connected: AtomicBool,

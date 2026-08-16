@@ -24,6 +24,24 @@ describe("API rate-limit isolation", () => {
     expect(applyRateLimit(commandRequest, 30)).toBeNull();
   });
 
+  it("caps repeated offers for one guest capability without blocking another peer", () => {
+    const firstPeer = new Request("https://sprite-cloud.com/api/server/command", {
+      method: "POST",
+      headers: { "x-forwarded-for": "198.51.100.101" },
+    });
+    const secondPeer = new Request("https://sprite-cloud.com/api/server/command", {
+      method: "POST",
+      headers: { "x-forwarded-for": "198.51.100.101" },
+    });
+
+    for (let i = 0; i < 6; i += 1) {
+      expect(applyRateLimit(firstPeer, 6, 60_000, "guest-sdp:peer-a")).toBeNull();
+    }
+    expect(applyRateLimit(firstPeer, 6, 60_000, "guest-sdp:peer-a")?.status).toBe(429);
+    expect(applyRateLimit(secondPeer, 6, 60_000, "guest-sdp:peer-b")).toBeNull();
+  });
+
+
   it("retains long-window attempts across the one-minute cleanup tick", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-28T12:00:00Z"));

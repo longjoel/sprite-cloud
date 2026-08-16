@@ -1,7 +1,36 @@
 //! Game lifecycle and WebRTC SDP handlers.
 
 use super::*;
-use std::sync::atomic::AtomicBool;
+use std::collections::HashSet;
+use std::sync::Mutex as StdMutex;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
+pub(crate) const MAX_ACTIVE_GUESTS: usize = 8;
+pub(crate) const MAX_PENDING_GUEST_EXCHANGES: u32 = 4;
+
+fn guest_admission_allowed(
+    active_guests: usize,
+    pending_exchanges: u32,
+    pending_new_guests: usize,
+) -> bool {
+    active_guests + pending_new_guests < MAX_ACTIVE_GUESTS
+        && pending_exchanges < MAX_PENDING_GUEST_EXCHANGES
+}
+
+struct GuestExchangePermit {
+    pending: Arc<AtomicU32>,
+    pending_tokens: Arc<StdMutex<HashSet<String>>>,
+    peer_token: String,
+}
+
+impl Drop for GuestExchangePermit {
+    fn drop(&mut self) {
+        self.pending.fetch_sub(1, Ordering::AcqRel);
+        if let Ok(mut tokens) = self.pending_tokens.lock() {
+            tokens.remove(&self.peer_token);
+        }
+    }
+}
 
 fn signal_log(flow: &str, stage: &str, details: &str) {
     if details.is_empty() {
@@ -233,6 +262,9 @@ pub(super) async fn handle_start_game(
         audio_track: std::sync::Mutex::new(stack.audio_track),
         dc: tokio::sync::Mutex::new(None),
         guests: tokio::sync::Mutex::new(Vec::new()),
+        guest_lifecycle: tokio::sync::Mutex::new(()),
+        pending_guest_exchanges: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
+        pending_guest_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
         host_connected: AtomicBool::new(false),
         claimed_peer: tokio::sync::Mutex::new(None),
         local_players: std::sync::atomic::AtomicU32::new(1),
@@ -827,7 +859,79 @@ pub(super) async fn handle_sdp_offer(
     }
 }
 
-/// Guest SDP exchange — builds a clean PC (no pre-added tracks), adds session
+fn guest_sdp_has_ice_credentials(sdp: &str) -> bool {
+    let has_ufrag = sdp.lines().any(|line| {
+        line.strip_prefix("a=ice-ufrag:")
+            .is_some_and(|value| !value.trim().is_empty())
+    });
+    let has_pwd = sdp.lines().any(|line| {
+        line.strip_prefix("a=ice-pwd:")
+            .is_some_and(|value| !value.trim().is_empty())
+    });
+    has_ufrag && has_pwd
+}
+
+async fn remove_guest_if_current_locked(
+    session: &Arc<GameSession>,
+    peer_token: &str,
+    pc: &Arc<::webrtc::peer_connection::RTCPeerConnection>,
+) -> bool {
+    let mut guests = session.guests.lock().await;
+    let before = guests.len();
+    guests.retain(|guest| {
+        !(guest.peer_token == peer_token && Arc::ptr_eq(&guest.pc, pc))
+    });
+    before != guests.len()
+}
+
+async fn remove_guest_if_current(
+    session: &Arc<GameSession>,
+    peer_token: &str,
+    pc: &Arc<::webrtc::peer_connection::RTCPeerConnection>,
+) -> bool {
+    let _lifecycle = session.guest_lifecycle.lock().await;
+    remove_guest_if_current_locked(session, peer_token, pc).await
+}
+
+async fn admit_guest_exchange(
+    session: &Arc<GameSession>,
+    peer_token: &str,
+) -> Result<GuestExchangePermit, &'static str> {
+    let _lifecycle = session.guest_lifecycle.lock().await;
+    let guests = session.guests.lock().await;
+    let existing = guests.iter().any(|guest| guest.peer_token == peer_token);
+    let active_guests = guests.len().saturating_sub(existing as usize);
+    let pending = session.pending_guest_exchanges.load(Ordering::Acquire);
+    let mut pending_tokens = session
+        .pending_guest_tokens
+        .lock()
+        .map_err(|_| "guest_admission_state_unavailable")?;
+    if pending_tokens.contains(peer_token) {
+        return Err("guest_exchange_in_progress");
+    }
+    let pending_new_guests = pending_tokens
+        .iter()
+        .filter(|token| !guests.iter().any(|guest| &guest.peer_token == *token))
+        .count()
+        + usize::from(!existing);
+    if !guest_admission_allowed(active_guests, pending, pending_new_guests) {
+        return Err(if active_guests + pending_new_guests >= MAX_ACTIVE_GUESTS {
+            "guest_capacity_exhausted"
+        } else {
+            "guest_exchange_capacity_exhausted"
+        });
+    }
+    pending_tokens.insert(peer_token.to_string());
+    session
+        .pending_guest_exchanges
+        .fetch_add(1, Ordering::AcqRel);
+    Ok(GuestExchangePermit {
+        pending: Arc::clone(&session.pending_guest_exchanges),
+        pending_tokens: Arc::clone(&session.pending_guest_tokens),
+        peer_token: peer_token.to_string(),
+    })
+}
+
 /// tracks, does SDP exchange, stores the guest, and wires the DC handler.
 ///
 /// IMPORTANT: never uses the pool — pool PCs come with pre-added tracks, and
@@ -867,6 +971,33 @@ pub(super) async fn handle_guest_sdp(
     );
     tracing::info!("[SDP] guest SDP exchange (peer capability present)");
 
+    if !guest_sdp_has_ice_credentials(sdp) {
+        tracing::warn!("[SDP] guest offer missing ICE credentials — rejecting before PC creation");
+        let _ = client
+            .command_result(
+                &cmd.id,
+                &cmd.lease_token,
+                &serde_json::json!({"error": "malformed_guest_sdp"}),
+            )
+            .await;
+        return;
+    }
+
+    let _exchange_permit = match admit_guest_exchange(session, peer_token).await {
+        Ok(permit) => permit,
+        Err(error) => {
+            tracing::warn!("[SDP] guest offer rejected by admission control: {error}");
+            let _ = client
+                .command_result(
+                    &cmd.id,
+                    &cmd.lease_token,
+                    &serde_json::json!({"error": error}),
+                )
+                .await;
+            return;
+        }
+    };
+
     // Build a FRESH PC with NO pre-added tracks.
     // Pool PCs carry their own video/audio tracks — adding session tracks on
     // top creates a 4-track PC whose SDP answer has 4 m= sections against the
@@ -889,6 +1020,7 @@ pub(super) async fn handle_guest_sdp(
         Ok(t) => t.clone(),
         Err(_) => {
             report_error("video_track mutex poisoned");
+            let _ = pc.close().await;
             return;
         }
     };
@@ -896,6 +1028,7 @@ pub(super) async fn handle_guest_sdp(
         Ok(t) => t.clone(),
         Err(_) => {
             report_error("audio_track mutex poisoned");
+            let _ = pc.close().await;
             return;
         }
     };
@@ -905,6 +1038,7 @@ pub(super) async fn handle_guest_sdp(
     {
         tracing::error!("[SDP] guest add video track failed: {e}");
         report_error(&e.to_string());
+        let _ = pc.close().await;
         return;
     }
     if let Err(e) = pc
@@ -913,6 +1047,7 @@ pub(super) async fn handle_guest_sdp(
     {
         tracing::error!("[SDP] guest add audio track failed: {e}");
         report_error(&e.to_string());
+        let _ = pc.close().await;
         return;
     }
 
@@ -922,6 +1057,7 @@ pub(super) async fn handle_guest_sdp(
         Err(e) => {
             tracing::error!("[SDP] guest exchange failed: {e}");
             report_error(&e);
+            let _ = pc.close().await;
             return;
         }
     };
@@ -949,16 +1085,36 @@ pub(super) async fn handle_guest_sdp(
     };
     let seat = peer_seat.unwrap_or(fallback_seat);
 
-    // Store guest peer
     let guest = Arc::new(crate::session::GuestPeer {
         pc,
         peer_token: peer_token.to_string(),
         role: peer_role.clone(),
     });
-    session.guests.lock().await.push(Arc::clone(&guest));
+
+    // Replace the old peer atomically with this capability's new PC. Closing
+    // old PCs happens after releasing the list lock so callbacks cannot race
+    // the identity decision and delete the replacement.
+    let stale_guests = {
+        let _lifecycle = session.guest_lifecycle.lock().await;
+        let mut guests = session.guests.lock().await;
+        let mut stale = Vec::new();
+        guests.retain(|existing| {
+            if existing.peer_token == peer_token {
+                stale.push(Arc::clone(existing));
+                false
+            } else {
+                true
+            }
+        });
+        guests.push(Arc::clone(&guest));
+        stale
+    };
+    for stale in stale_guests {
+        let _ = stale.pc.close().await;
+    }
 
     // Wire DC handler with the role and seat authenticated by sc-web.
-    wire_dc_handler_for_guest(session, peer_token, seat, &peer_role, peer_seat).await;
+    wire_dc_handler_for_guest(session, &guest, seat, &peer_role, peer_seat).await;
 
     // Send SDP answer back via notify_sdp
     let worker_url = worker_url(&session.game_id);
@@ -975,6 +1131,9 @@ pub(super) async fn handle_guest_sdp(
         .await
     {
         tracing::error!("[SDP] guest notify_sdp failed: {e:#}");
+        if remove_guest_if_current(session, peer_token, &guest.pc).await {
+            let _ = guest.pc.close().await;
+        }
     } else {
         signal_log(
             "guest_offer",
@@ -1000,28 +1159,15 @@ pub(super) async fn handle_guest_sdp(
 /// Guests cannot save/load/list — only the host can.
 pub(super) async fn wire_dc_handler_for_guest(
     session: &Arc<GameSession>,
-    peer_token: &str,
+    guest: &Arc<crate::session::GuestPeer>,
     seat: u32,
     peer_role: &str,
     authoritative_seat: Option<u32>,
 ) {
     let session = Arc::clone(session);
-    let pc = {
-        let guests = session.guests.lock().await;
-        guests
-            .iter()
-            .find(|g| g.peer_token == peer_token)
-            .map(|g| g.pc.clone())
-    };
-
-    let Some(pc) = pc else {
-        tracing::warn!("[DC] guest PC not found for supplied peer capability");
-        return;
-    };
-
-    let peer_token = peer_token.to_string();
-    let _pt_for_close = peer_token.clone();
-    let _session_for_close = Arc::clone(&session);
+    let pc = Arc::clone(&guest.pc);
+    let peer_token = guest.peer_token.clone();
+    let pc_for_close = Arc::clone(&pc);
     let pc_for_ice = Arc::clone(&pc);
     let session_for_ice = Arc::clone(&session);
     let pt_for_ice = peer_token.clone();
@@ -1029,6 +1175,7 @@ pub(super) async fn wire_dc_handler_for_guest(
 
     pc.on_data_channel(Box::new(move |dc: Arc<_>| {
         let session = Arc::clone(&session);
+        let pc_for_close = Arc::clone(&pc_for_close);
         let pt = peer_token.clone();
         let peer_role = peer_role.clone();
         Box::pin(async move {
@@ -1053,10 +1200,15 @@ pub(super) async fn wire_dc_handler_for_guest(
             dc_for_open.on_close(Box::new(move || {
                 let session = Arc::clone(&session_cleanup);
                 let pt = pt_cleanup.clone();
+                let pc_for_close = Arc::clone(&pc_for_close);
                 Box::pin(async move {
                     tracing::info!("[DC] guest disconnected");
-                    let mut guests = session.guests.lock().await;
-                    guests.retain(|g| g.peer_token != pt);
+                    let _lifecycle = session.guest_lifecycle.lock().await;
+                    if !remove_guest_if_current_locked(&session, &pt, &pc_for_close).await {
+                        // This callback belongs to a superseded PC. Never let
+                        // it remove or release state for the replacement peer.
+                        return;
+                    }
                     // If the departing peer was the claimer, release the claim
                     // so the next viewer can grab the cabinet.
                     let mut claimed = session.claimed_peer.lock().await;
@@ -1216,9 +1368,19 @@ pub(super) async fn wire_dc_handler_for_guest(
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
             let state = pc_for_ice.connection_state().to_string();
             if state == "failed" || state == "disconnected" {
-                let mut guests = session_for_ice.guests.lock().await;
-                guests.retain(|g| g.peer_token != pt_for_ice);
-                if guests.is_empty() {
+                let _lifecycle = session_for_ice.guest_lifecycle.lock().await;
+                let removed = remove_guest_if_current_locked(
+                    &session_for_ice,
+                    &pt_for_ice,
+                    &pc_for_ice,
+                )
+                .await;
+                if !removed {
+                    // This watcher belongs to a superseded PC.
+                    break;
+                }
+                let guest_count = session_for_ice.guests.lock().await.len();
+                if guest_count == 0 {
                     // Arcade: release the claimed seat so next viewer can grab it
                     *session_for_ice.claimed_peer.lock().await = None;
                 } else {
@@ -1230,7 +1392,7 @@ pub(super) async fn wire_dc_handler_for_guest(
                         *claimed = None;
                     }
                 }
-                if guests.is_empty()
+                if guest_count == 0
                     && !session_for_ice
                         .host_connected
                         .load(std::sync::atomic::Ordering::Relaxed)
@@ -1319,6 +1481,25 @@ fn is_binary_input_frame(is_string: bool, data: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn guest_sdp_without_ice_credentials_is_rejected_before_pc_creation() {
+        let malformed = "v=0\r\na=group:BUNDLE 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n";
+        assert!(!guest_sdp_has_ice_credentials(malformed));
+    }
+
+    #[test]
+    fn guest_sdp_with_ice_credentials_is_eligible_for_exchange() {
+        let offer = "v=0\r\na=ice-ufrag:abc123\r\na=ice-pwd:secret123\r\n";
+        assert!(guest_sdp_has_ice_credentials(offer));
+    }
+
+    #[test]
+    fn guest_sdp_requires_both_ice_credentials() {
+        assert!(!guest_sdp_has_ice_credentials("a=ice-ufrag:abc\r\n"));
+        assert!(!guest_sdp_has_ice_credentials("a=ice-pwd:secret\r\n"));
+        assert!(!guest_sdp_has_ice_credentials("a=ice-ufrag: \r\na=ice-pwd:\t\r\n"));
+    }
 
     #[test]
     fn viewer_data_channel_input_cannot_reach_the_core() {
@@ -1423,6 +1604,29 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn guest_admission_rejects_full_active_and_pending_limits() {
+        assert!(guest_admission_allowed(0, 0, 0));
+        assert!(!guest_admission_allowed(MAX_ACTIVE_GUESTS, 0, 0));
+        assert!(!guest_admission_allowed(0, MAX_PENDING_GUEST_EXCHANGES, 0));
+    }
+
+    #[test]
+    fn guest_admission_reserves_slots_for_pending_new_guests() {
+        assert!(guest_admission_allowed(7, 0, 0));
+        assert!(!guest_admission_allowed(7, 1, 1));
+        assert!(!guest_admission_allowed(6, 2, 2));
+        assert!(guest_admission_allowed(6, 2, 1));
+    }
+
+    #[test]
+    fn guest_admission_allows_capacity_boundary() {
+        assert!(guest_admission_allowed(
+            MAX_ACTIVE_GUESTS - 1,
+            MAX_PENDING_GUEST_EXCHANGES - 1,
+            0
+        ));
+    }
     #[test]
     fn malformed_or_unproven_player_authority_fails_closed() {
         assert!(guest_input_command("player", None, 1, &[1, 0x34, 0x12]).is_none());
