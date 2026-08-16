@@ -17,24 +17,56 @@ import {
 type AccountLifecycleDb = typeof db;
 const TERMINAL_SESSION_STATUSES = ["ended", "timed_out"] as const;
 
+async function legacyUserCollections(tx: any, userId: string) {
+  const tables = await tx.execute(sql`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name IN ('favorites', 'recent_plays', 'pinned_games')
+  `) as unknown as Array<{ table_name: string }>;
+  const present = new Set(tables.map((row) => row.table_name));
+  const result: {
+    favorites: Array<Record<string, unknown>>;
+    recentPlays: Array<Record<string, unknown>>;
+    pinnedGames: Array<Record<string, unknown>>;
+  } = { favorites: [], recentPlays: [], pinnedGames: [] };
+  if (present.has("favorites")) {
+    result.favorites = [...await tx.execute(sql`SELECT game_id, created_at FROM favorites WHERE user_id = ${userId}`) as unknown as Array<Record<string, unknown>>];
+  }
+  if (present.has("recent_plays")) {
+    result.recentPlays = [...await tx.execute(sql`SELECT id, game_id, played_at FROM recent_plays WHERE user_id = ${userId}`) as unknown as Array<Record<string, unknown>>];
+  }
+  if (present.has("pinned_games")) {
+    result.pinnedGames = [...await tx.execute(sql`SELECT game_id, position, created_at FROM pinned_games WHERE user_id = ${userId}`) as unknown as Array<Record<string, unknown>>];
+  }
+  return result;
+}
+
 type AccountDeletionBlock = {
   serverIds?: string[];
   activeSessionIds?: string[];
+  pendingCommandIds?: string[];
 };
+
+const TERMINAL_COMMAND_STATUSES = ["completed", "failed"] as const;
 
 export class AccountDeletionBlockedError extends Error {
   readonly serverIds: string[];
   readonly activeSessionIds: string[];
+  readonly pendingCommandIds: string[];
 
-  constructor({ serverIds = [], activeSessionIds = [] }: AccountDeletionBlock) {
+  constructor({ serverIds = [], activeSessionIds = [], pendingCommandIds = [] }: AccountDeletionBlock) {
     super(
-      activeSessionIds.length > 0
+      pendingCommandIds.length > 0
+        ? "wait for queued commands to reach a terminal state before deleting the account"
+        : activeSessionIds.length > 0
         ? "end active sessions before deleting the account"
         : "account owns servers that must be transferred or deleted first",
     );
     this.name = "AccountDeletionBlockedError";
     this.serverIds = serverIds;
     this.activeSessionIds = activeSessionIds;
+    this.pendingCommandIds = pendingCommandIds;
   }
 }
 
@@ -61,6 +93,9 @@ export async function exportAccountData(database: AccountLifecycleDb, userId: st
         inviteRedemptions: [],
         shortCodes: [],
         sessions: [],
+        favorites: [],
+        recentPlays: [],
+        pinnedGames: [],
       };
     }
 
@@ -94,6 +129,7 @@ export async function exportAccountData(database: AccountLifecycleDb, userId: st
         .from(sessions)
         .where(eq(sessions.userId, userId)),
     ]);
+    const legacy = await legacyUserCollections(tx, userId);
 
     return {
       account,
@@ -104,6 +140,7 @@ export async function exportAccountData(database: AccountLifecycleDb, userId: st
       inviteRedemptions: accountInviteRedemptions,
       shortCodes: accountShortCodes,
       sessions: accountSessions,
+      ...legacy,
     };
   }, { isolationLevel: "repeatable read" });
 }
@@ -152,12 +189,20 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
       commandOwnership.push(inArray(commands.id, sessionCommandIds));
     }
     if (sessionIds.length > 0) {
-      commandOwnership.push(sql`${commands.payload}->>'session_id' IN (${sql.join(sessionIds.map((id) => sql`${id}`), sql`, `)})`);
+      for (const sessionId of sessionIds) {
+        commandOwnership.push(sql`${commands.payload}::text LIKE ${`%${sessionId}%`}`);
+      }
     }
     const associatedCommands = await tx
-      .select({ id: commands.id })
+      .select({ id: commands.id, status: commands.status })
       .from(commands)
       .where(or(...commandOwnership));
+    const pendingCommandIds = associatedCommands
+      .filter((command) => !TERMINAL_COMMAND_STATUSES.includes(command.status as (typeof TERMINAL_COMMAND_STATUSES)[number]))
+      .map((command) => command.id);
+    if (pendingCommandIds.length > 0) {
+      throw new AccountDeletionBlockedError({ pendingCommandIds });
+    }
     const commandIds = associatedCommands.map((command) => command.id);
 
     if (sessionIds.length > 0) {
@@ -189,6 +234,22 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
     await tx.delete(shortCodes).where(eq(shortCodes.createdBy, userId));
     await tx.delete(pairingCodes).where(eq(pairingCodes.userId, userId));
     await tx.delete(inviteRedemptions).where(eq(inviteRedemptions.userId, userId));
+    const legacyTables = await tx.execute(sql`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name IN ('favorites', 'recent_plays', 'pinned_games')
+    `) as unknown as Array<{ table_name: string }>;
+    const legacyTableNames = new Set(legacyTables.map((row) => row.table_name));
+    if (legacyTableNames.has("favorites")) {
+      await tx.execute(sql`DELETE FROM favorites WHERE user_id = ${sql`${userId}::uuid`}`);
+    }
+    if (legacyTableNames.has("recent_plays")) {
+      await tx.execute(sql`DELETE FROM recent_plays WHERE user_id = ${sql`${userId}::uuid`}`);
+    }
+    if (legacyTableNames.has("pinned_games")) {
+      await tx.execute(sql`DELETE FROM pinned_games WHERE user_id = ${sql`${userId}::uuid`}`);
+    }
     await tx.delete(serverMembers).where(eq(serverMembers.userId, userId));
     await tx.delete(users).where(eq(users.id, userId));
   });

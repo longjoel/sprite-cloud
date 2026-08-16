@@ -91,6 +91,12 @@ async function seedAccountGraph() {
     seat: 0,
     role: "host",
   });
+  const [residentStopCommand] = await db.insert(commands).values({
+    serverId: server.id,
+    type: "stop_game",
+    payload: JSON.stringify({ session_id: session.id }),
+    status: "completed",
+  }).returning();
   await db.insert(launchEvents).values({
     sessionId: session.id,
     commandId: command.id,
@@ -107,7 +113,7 @@ async function seedAccountGraph() {
     serverId: server.id,
     createdBy: owner.id,
   });
-  return { owner, other, server, invite, command, session };
+  return { owner, other, server, invite, command, residentStopCommand, session };
 }
 
 describe("exportAccountData", () => {
@@ -155,6 +161,9 @@ describe("exportAccountData", () => {
       inviteRedemptions: [],
       shortCodes: [],
       sessions: [],
+      favorites: [],
+      recentPlays: [],
+      pinnedGames: [],
     });
     expect(exported).not.toHaveProperty("other");
     expect(graph.other.email).toBe("other@example.com");
@@ -184,6 +193,17 @@ describe("deleteAccount", () => {
     expect((await getTestDb().select().from(sessions).where(eq(sessions.id, graph.session.id)))).toHaveLength(1);
   });
 
+  it("fails closed while an owned command is pending or leased", async () => {
+    const graph = await seedAccountGraph();
+    await getTestDb().update(servers).set({ userId: graph.other.id }).where(eq(servers.id, graph.server.id));
+    await getTestDb().update(commands).set({ status: "leased" }).where(eq(commands.id, graph.command.id));
+
+    await expect(deleteAccount(getTestDb(), graph.owner.id)).rejects.toMatchObject({
+      pendingCommandIds: [graph.command.id],
+    });
+    expect((await getTestDb().select().from(users).where(eq(users.id, graph.owner.id)))).toHaveLength(1);
+  });
+
   it("removes the account's owned lifecycle records after server ownership is resolved", async () => {
     const graph = await seedAccountGraph();
     await getTestDb().update(servers).set({ userId: graph.other.id }).where(eq(servers.id, graph.server.id));
@@ -197,6 +217,7 @@ describe("deleteAccount", () => {
     expect((await getTestDb().select().from(peerTokens).where(eq(peerTokens.sessionId, graph.session.id)))).toHaveLength(0);
     expect((await getTestDb().select().from(launchEvents).where(eq(launchEvents.sessionId, graph.session.id)))).toHaveLength(0);
     expect((await getTestDb().select().from(commands).where(eq(commands.id, graph.command.id)))).toHaveLength(0);
+    expect((await getTestDb().select().from(commands).where(eq(commands.id, graph.residentStopCommand.id)))).toHaveLength(0);
     expect((await getTestDb().select().from(shortCodes).where(eq(shortCodes.createdBy, graph.owner.id)))).toHaveLength(0);
     expect((await getTestDb().select().from(inviteCodes).where(eq(inviteCodes.createdBy, graph.owner.id)))).toHaveLength(0);
     expect((await getTestDb().select().from(servers).where(eq(servers.id, graph.server.id)))).toHaveLength(1);

@@ -41,6 +41,7 @@ const mockDb = {
   insert: vi.fn(() => mockQueryBuilder([{ id: "cmd-1" }])),
   update: vi.fn(() => mockQueryBuilder(undefined)),
   delete: vi.fn(() => mockQueryBuilder(undefined)),
+  transaction: vi.fn(async (callback: (tx: typeof mockDb) => unknown) => callback(mockDb)),
 };
 
 vi.mock("@/lib/db", () => ({ db: mockDb }));

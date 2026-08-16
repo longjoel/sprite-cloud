@@ -47,11 +47,14 @@ export async function DELETE(request: Request) {
     if (error instanceof AccountDeletionBlockedError) {
       return NextResponse.json(
         {
-          error: error.activeSessionIds.length > 0
+          error: (error.pendingCommandIds?.length ?? 0) > 0
+            ? "wait for queued commands to finish before deleting the account"
+            : error.activeSessionIds.length > 0
             ? "end active sessions before deleting the account"
             : "transfer or delete owned servers before deleting the account",
           serverIds: error.serverIds,
           activeSessionIds: error.activeSessionIds,
+          pendingCommandIds: error.pendingCommandIds ?? [],
         },
         { status: 409 },
       );
