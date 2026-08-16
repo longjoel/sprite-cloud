@@ -1,4 +1,4 @@
-import { eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   users,
@@ -164,7 +164,7 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
     }
 
     const accountSessions = await tx
-      .select({ id: sessions.id, status: sessions.status, commandId: sessions.commandId })
+      .select({ id: sessions.id, serverId: sessions.serverId, status: sessions.status, commandId: sessions.commandId })
       .from(sessions)
       .where(eq(sessions.userId, userId))
       .for("update");
@@ -179,25 +179,44 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
     const sessionCommandIds = accountSessions
       .map((session) => session.commandId)
       .filter((commandId): commandId is string => !!commandId);
-    const allCommands = await tx
-      .select({ id: commands.id, status: commands.status, payload: commands.payload })
-      .from(commands);
-    const associatedCommands = allCommands.filter((command) => {
-      if (sessionCommandIds.includes(command.id)) return true;
-      let payload: unknown = command.payload;
-      if (typeof payload === "string") {
-        try {
-          payload = JSON.parse(payload);
-        } catch {
-          return false;
-        }
+    const sessionServerIds = accountSessions.map((session) => session.serverId);
+    const memberServerRows = await tx
+      .select({ serverId: serverMembers.serverId })
+      .from(serverMembers)
+      .where(eq(serverMembers.userId, userId));
+    const commandServerIds = [...new Set([
+      ...sessionServerIds,
+      ...memberServerRows.map((row) => row.serverId),
+    ])].filter((serverId): serverId is string => typeof serverId === "string");
+    const flatStringFieldMatch = (field: string, value: string) => sql`
+      jsonb_typeof(${commands.payload}) = 'string'
+      AND ${commands.payload}#>>'{}' ~ ${`^\\s*\\{[^{}\\[\\]]*"${field}"\\s*:\\s*"${value}"[^{}\\[\\]]*\\}\\s*$`}
+    `;
+    const commandOwnership = [
+      sql`jsonb_typeof(${commands.payload}) = 'object' AND ${commands.payload}->>'user_id' = ${userId}`,
+      sql`jsonb_typeof(${commands.payload}) = 'object' AND ${commands.payload}->>'authorized_user_id' = ${userId}`,
+      flatStringFieldMatch("user_id", userId),
+      flatStringFieldMatch("authorized_user_id", userId),
+    ];
+    if (sessionCommandIds.length > 0) {
+      commandOwnership.push(inArray(commands.id, sessionCommandIds));
+    }
+    if (sessionIds.length > 0) {
+      commandOwnership.push(sql`
+        (jsonb_typeof(${commands.payload}) = 'object' AND ${commands.payload}->>'session_id' IN (${sql.join(sessionIds.map((id) => sql`${id}`), sql`, `)}))
+        OR ${flatStringFieldMatch("session_id", sessionIds[0])}
+      `);
+      for (const sessionId of sessionIds.slice(1)) {
+        commandOwnership[commandOwnership.length - 1] = or(commandOwnership[commandOwnership.length - 1], flatStringFieldMatch("session_id", sessionId))!;
       }
-      if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
-      const fields = payload as Record<string, unknown>;
-      return fields.user_id === userId
-        || fields.authorized_user_id === userId
-        || (typeof fields.session_id === "string" && sessionIds.includes(fields.session_id));
-    });
+    }
+    const associatedCommands = await tx
+      .select({ id: commands.id, status: commands.status })
+      .from(commands)
+      .where(and(
+        commandServerIds.length > 0 ? inArray(commands.serverId, commandServerIds) : sql`false`,
+        or(...commandOwnership),
+      ));
     const pendingCommandIds = associatedCommands
       .filter((command) => !TERMINAL_COMMAND_STATUSES.includes(command.status as (typeof TERMINAL_COMMAND_STATUSES)[number]))
       .map((command) => command.id);
