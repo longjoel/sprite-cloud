@@ -188,15 +188,17 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
       ...sessionServerIds,
       ...memberServerRows.map((row) => row.serverId),
     ])].filter((serverId): serverId is string => typeof serverId === "string");
-    const flatStringFieldMatch = (field: string, value: string) => sql`
+    const parsedStringPayload = sql`try_parse_jsonb(${commands.payload}#>>'{}')`;
+    const stringFieldMatch = (field: "user_id" | "authorized_user_id" | "session_id", value: string) => sql`
       jsonb_typeof(${commands.payload}) = 'string'
-      AND ${commands.payload}#>>'{}' ~ ${`^\\s*\\{[^{}\\[\\]]*"${field}"\\s*:\\s*"${value}"[^{}\\[\\]]*\\}\\s*$`}
+      AND jsonb_typeof(${parsedStringPayload}) = 'object'
+      AND ${parsedStringPayload}->>${sql.raw(`'${field}'`)} = ${value}
     `;
     const commandOwnership = [
       sql`jsonb_typeof(${commands.payload}) = 'object' AND ${commands.payload}->>'user_id' = ${userId}`,
       sql`jsonb_typeof(${commands.payload}) = 'object' AND ${commands.payload}->>'authorized_user_id' = ${userId}`,
-      flatStringFieldMatch("user_id", userId),
-      flatStringFieldMatch("authorized_user_id", userId),
+      stringFieldMatch("user_id", userId),
+      stringFieldMatch("authorized_user_id", userId),
     ];
     if (sessionCommandIds.length > 0) {
       commandOwnership.push(inArray(commands.id, sessionCommandIds));
@@ -204,10 +206,10 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
     if (sessionIds.length > 0) {
       commandOwnership.push(sql`
         (jsonb_typeof(${commands.payload}) = 'object' AND ${commands.payload}->>'session_id' IN (${sql.join(sessionIds.map((id) => sql`${id}`), sql`, `)}))
-        OR ${flatStringFieldMatch("session_id", sessionIds[0])}
+        OR ${stringFieldMatch("session_id", sessionIds[0])}
       `);
       for (const sessionId of sessionIds.slice(1)) {
-        commandOwnership[commandOwnership.length - 1] = or(commandOwnership[commandOwnership.length - 1], flatStringFieldMatch("session_id", sessionId))!;
+        commandOwnership[commandOwnership.length - 1] = or(commandOwnership[commandOwnership.length - 1], stringFieldMatch("session_id", sessionId))!;
       }
     }
     const associatedCommands = await tx
