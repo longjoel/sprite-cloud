@@ -13,6 +13,8 @@ import crypto from "crypto";
 import { hostCapabilities, type PlayerCapabilities } from "@/lib/capabilities";
 
 const COMMAND_RATE_LIMIT = 30; // requests per minute per IP
+const GUEST_SDP_RATE_LIMIT = 6; // guest offers per minute per peer capability
+const GUEST_SESSION_SDP_RATE_LIMIT = 60; // aggregate guest offers per session
 
 // ── Validation ─────────────────────────────────────────────────────────
 
@@ -314,6 +316,20 @@ export async function POST(request: NextRequest) {
       if (!peer) {
         return NextResponse.json({ error: "peer_token does not match room session" }, { status: 403 });
       }
+      const guestSdpRateLimited = applyRateLimit(
+        request,
+        GUEST_SDP_RATE_LIMIT,
+        60_000,
+        `guest-sdp:${peerToken}`,
+      );
+      if (guestSdpRateLimited) return guestSdpRateLimited;
+      const guestSessionSdpRateLimited = applyRateLimit(
+        request,
+        GUEST_SESSION_SDP_RATE_LIMIT,
+        60_000,
+        `guest-sdp-session:${roomSession.id}`,
+      );
+      if (guestSessionSdpRateLimited) return guestSessionSdpRateLimited;
       authenticatedPeer = { ...peer, sessionId: roomSession.id };
       serverId = roomSession.serverId!;
       // Guest auth successful — skip session + CSRF + membership checks

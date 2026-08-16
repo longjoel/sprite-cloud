@@ -5,6 +5,9 @@ import { eq } from "drizzle-orm";
 import { logSignalingStage } from "@/lib/signaling";
 import { playerCapabilities, spectatorCapabilities } from "@/lib/capabilities";
 import { issueRoomPeer } from "@/lib/peer-tokens";
+import { applyRateLimit } from "@/lib/rate-limit";
+
+const ROOM_JOIN_RATE_LIMIT = 12; // peer-token issuances per minute per IP
 
 // ── POST /api/room/join — guest resolves a room_token to session details
 //
@@ -102,6 +105,11 @@ export async function POST(request: NextRequest) {
       worker_token: session.commandWorkerToken,
       capabilities: spectatorCapabilities(),
     });
+  }
+
+  if (clientId) {
+    const joinRateLimited = applyRateLimit(request, ROOM_JOIN_RATE_LIMIT, 60_000);
+    if (joinRateLimited) return joinRateLimited;
   }
 
   const peer = await issueRoomPeer(db, {
