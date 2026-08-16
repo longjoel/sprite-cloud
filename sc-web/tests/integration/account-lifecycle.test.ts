@@ -224,6 +224,18 @@ describe("deleteAccount", () => {
     expect((await getTestDb().select().from(users).where(eq(users.id, graph.other.id)))).toHaveLength(1);
   });
 
+  it("ignores malformed, scalar, and field-absent string payloads during deletion", async () => {
+    const graph = await seedAccountGraph();
+    await getTestDb().update(servers).set({ userId: graph.other.id }).where(eq(servers.id, graph.server.id));
+    await getTestDb().insert(commands).values([
+      { serverId: graph.server.id, type: "legacy", payload: "{malformed", status: "completed" },
+      { serverId: graph.server.id, type: "legacy", payload: "legacy", status: "completed" },
+      { serverId: graph.server.id, type: "legacy", payload: JSON.stringify({ game_id: "unrelated" }), status: "completed" },
+    ]);
+
+    await expect(deleteAccount(getTestDb(), graph.owner.id)).resolves.toBeUndefined();
+    expect((await getTestDb().select().from(users).where(eq(users.id, graph.owner.id)))).toHaveLength(0);
+  });
   it("deletes a non-owner account without deleting the shared server or its owner", async () => {
     const graph = await seedAccountGraph();
 
