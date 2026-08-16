@@ -207,6 +207,13 @@ describe("deleteAccount", () => {
   it("removes the account's owned lifecycle records after server ownership is resolved", async () => {
     const graph = await seedAccountGraph();
     await getTestDb().update(servers).set({ userId: graph.other.id }).where(eq(servers.id, graph.server.id));
+    await getTestDb().delete(serverMembers).where(eq(serverMembers.userId, graph.owner.id));
+    const [orphanedOwnershipCommand] = await getTestDb().insert(commands).values({
+      serverId: graph.server.id,
+      type: "start_game",
+      payload: { user_id: graph.owner.id, game_id: "orphaned" },
+      status: "completed",
+    }).returning();
 
     await deleteAccount(getTestDb(), graph.owner.id);
 
@@ -216,6 +223,7 @@ describe("deleteAccount", () => {
     expect((await getTestDb().select().from(sessions).where(eq(sessions.id, graph.session.id)))).toHaveLength(0);
     expect((await getTestDb().select().from(peerTokens).where(eq(peerTokens.sessionId, graph.session.id)))).toHaveLength(0);
     expect((await getTestDb().select().from(launchEvents).where(eq(launchEvents.sessionId, graph.session.id)))).toHaveLength(0);
+    expect((await getTestDb().select().from(commands).where(eq(commands.id, orphanedOwnershipCommand.id)))).toHaveLength(0);
     expect((await getTestDb().select().from(commands).where(eq(commands.id, graph.command.id)))).toHaveLength(0);
     expect((await getTestDb().select().from(commands).where(eq(commands.id, graph.residentStopCommand.id)))).toHaveLength(0);
     expect((await getTestDb().select().from(shortCodes).where(eq(shortCodes.createdBy, graph.owner.id)))).toHaveLength(0);

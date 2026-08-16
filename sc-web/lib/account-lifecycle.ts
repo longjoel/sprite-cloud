@@ -1,4 +1,4 @@
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   users,
@@ -179,15 +179,6 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
     const sessionCommandIds = accountSessions
       .map((session) => session.commandId)
       .filter((commandId): commandId is string => !!commandId);
-    const sessionServerIds = accountSessions.map((session) => session.serverId);
-    const memberServerRows = await tx
-      .select({ serverId: serverMembers.serverId })
-      .from(serverMembers)
-      .where(eq(serverMembers.userId, userId));
-    const commandServerIds = [...new Set([
-      ...sessionServerIds,
-      ...memberServerRows.map((row) => row.serverId),
-    ])].filter((serverId): serverId is string => typeof serverId === "string");
     const parsedStringPayload = sql`try_parse_jsonb(${commands.payload}#>>'{}')`;
     const stringFieldMatch = (field: "user_id" | "authorized_user_id" | "session_id", value: string) => sql`
       jsonb_typeof(${commands.payload}) = 'string'
@@ -215,10 +206,7 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
     const associatedCommands = await tx
       .select({ id: commands.id, status: commands.status })
       .from(commands)
-      .where(and(
-        commandServerIds.length > 0 ? inArray(commands.serverId, commandServerIds) : sql`false`,
-        or(...commandOwnership),
-      ));
+      .where(or(...commandOwnership));
     const pendingCommandIds = associatedCommands
       .filter((command) => !TERMINAL_COMMAND_STATUSES.includes(command.status as (typeof TERMINAL_COMMAND_STATUSES)[number]))
       .map((command) => command.id);

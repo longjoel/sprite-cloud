@@ -2,6 +2,7 @@
  * Integration test harness — disposable Postgres for DB-level tests.
  */
 import { execFileSync, execSync } from "child_process";
+import { readFileSync } from "fs";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "@/lib/db/schema";
@@ -61,7 +62,7 @@ export function setupTestDb(): void {
 
   waitForPostgresSync(_dbUrl);
   pushSchema();
-  installSafePayloadFunction();
+  installSafePayloadMigration();
   _pgClient = postgres(_dbUrl);
   _db = drizzle(_pgClient, { schema });
 }
@@ -106,17 +107,8 @@ function waitForPostgresSync(url: string, maxAttempts: number = 30): void {
   throw new Error("Postgres did not become ready");
 }
 
-function installSafePayloadFunction(): void {
-  execFileSync("docker", ["exec", _containerId!, "psql", "-U", "postgres", "-d", "sc_web_test", "-c", `
-    CREATE OR REPLACE FUNCTION try_parse_jsonb(input text)
-    RETURNS jsonb LANGUAGE plpgsql IMMUTABLE STRICT AS $$
-    BEGIN
-      RETURN input::jsonb;
-    EXCEPTION WHEN others THEN
-      RETURN NULL;
-    END;
-    $$;
-  `], { stdio: "ignore", timeout: 30_000 });
+function installSafePayloadMigration(): void {
+  execFileSync("docker", ["exec", _containerId!, "psql", "-U", "postgres", "-d", "sc_web_test", "-v", "ON_ERROR_STOP=1", "-c", readFileSync("drizzle/0030_safe_command_payload_matching.sql", "utf8")], { stdio: "ignore", timeout: 30_000 });
 }
 
 function pushSchema(): void {
