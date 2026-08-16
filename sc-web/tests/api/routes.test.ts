@@ -13,6 +13,7 @@ import { NextRequest } from "next/server";
 import { mkdtempSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { users } from "@/lib/db/schema";
 
 const mockWebVersionEnv = {
   GV_WEB_VERSION: "0.1.0",
@@ -34,8 +35,9 @@ const mockDb = {
 
 // Chainable query builder mocks
 function mockQueryBuilder(returnValue: unknown) {
+  let fromTable: unknown;
   const builder: Record<string, Mock> = {
-    from: vi.fn().mockReturnThis(),
+    from: vi.fn((table: unknown) => { fromTable = table; return thenable; }),
     where: vi.fn().mockReturnThis(),
     innerJoin: vi.fn().mockReturnThis(),
     leftJoin: vi.fn().mockReturnThis(),
@@ -47,7 +49,9 @@ function mockQueryBuilder(returnValue: unknown) {
     values: vi.fn().mockReturnThis(),
     set: vi.fn().mockReturnThis(),
     onConflictDoUpdate: vi.fn().mockReturnThis(),
-    for: vi.fn().mockReturnThis(),
+    for: vi.fn((mode?: string, option?: string) => mode === "update" && option === undefined && fromTable === users
+      ? mockQueryBuilder([{ id: "user-1" }])
+      : thenable),
   };
   const thenable = Promise.resolve(returnValue);
   return Object.assign(thenable, builder);
@@ -817,7 +821,7 @@ describe("POST /api/server/command", () => {
 
     expect(resp.status).toBe(201);
     expect(commandInsertBuilder.values).toHaveBeenCalledWith(expect.objectContaining({
-      payload: { game_id: gameId },
+      payload: { game_id: gameId, user_id: "user-1" },
       status: "preparing",
     }));
     expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
@@ -1638,6 +1642,7 @@ describe("POST /api/servers/[server_id]/upgrade", () => {
       .mockReturnValueOnce(mockQueryBuilder([{ role: "admin" }]))
       .mockReturnValueOnce(mockQueryBuilder([]))
       .mockReturnValueOnce(mockQueryBuilder([]))
+      .mockReturnValueOnce(mockQueryBuilder([{ id: "user-1" }]))
       .mockReturnValueOnce(mockQueryBuilder([{ id: "upgrade-winner", status: "pending" }]));
     mockDb.insert.mockReturnValueOnce(mockQueryBuilder(Promise.reject(Object.assign(new Error("duplicate"), { code: "23505" }))));
     const { POST } = await import("@/app/api/servers/[server_id]/upgrade/route");
