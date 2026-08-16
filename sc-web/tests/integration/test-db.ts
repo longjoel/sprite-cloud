@@ -5,6 +5,7 @@ import { execSync } from "child_process";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "@/lib/db/schema";
+import { sql } from "drizzle-orm";
 import type { db as appDb } from "@/lib/db";
 
 const PG_PW = process.env.TEST_PG_PASSWORD || ("test" + "-" + "password");
@@ -86,6 +87,8 @@ export async function resetTestDb(): Promise<void> {
   await db.delete(schema.serverMembers);
   await db.delete(schema.pairingCodes);
   await db.delete(schema.shortCodes);
+  await db.execute(sql`DELETE FROM favorites`);
+  await db.execute(sql`DELETE FROM recent_plays`);
   await db.delete(schema.servers);
   await db.delete(schema.users);
 }
@@ -111,4 +114,8 @@ function pushSchema(): void {
     stdio: "ignore",
     timeout: 30_000,
   });
+  execSync(
+    "docker exec " + _containerId + " psql -U postgres -d sc_web_test -c \"CREATE TABLE IF NOT EXISTS favorites (user_id uuid NOT NULL, game_id uuid NOT NULL, created_at timestamptz NOT NULL DEFAULT now()); CREATE TABLE IF NOT EXISTS recent_plays (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), user_id uuid NOT NULL, game_id uuid NOT NULL, played_at timestamptz NOT NULL DEFAULT now());\"",
+    { stdio: "ignore", timeout: 10_000 },
+  );
 }

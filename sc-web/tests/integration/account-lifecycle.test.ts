@@ -152,6 +152,8 @@ describe("exportAccountData", () => {
       ownedServers: [],
       pairingCodes: [],
       createdInvites: [],
+      inviteRedemptions: [],
+      shortCodes: [],
       sessions: [],
     });
     expect(exported).not.toHaveProperty("other");

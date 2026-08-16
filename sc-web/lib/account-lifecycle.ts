@@ -15,7 +15,7 @@ import {
 } from "@/lib/db/schema";
 
 type AccountLifecycleDb = typeof db;
-const ACTIVE_SESSION_STATUSES = ["spawning", "ready", "connected", "playing"] as const;
+const TERMINAL_SESSION_STATUSES = ["ended", "timed_out"] as const;
 
 type AccountDeletionBlock = {
   serverIds?: string[];
@@ -58,6 +58,8 @@ export async function exportAccountData(database: AccountLifecycleDb, userId: st
         ownedServers: [],
         pairingCodes: [],
         createdInvites: [],
+        inviteRedemptions: [],
+        shortCodes: [],
         sessions: [],
       };
     }
@@ -130,7 +132,7 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
       .where(eq(sessions.userId, userId))
       .for("update");
     const activeSessionIds = accountSessions
-      .filter((session) => ACTIVE_SESSION_STATUSES.includes(session.status as (typeof ACTIVE_SESSION_STATUSES)[number]))
+      .filter((session) => !TERMINAL_SESSION_STATUSES.includes(session.status as (typeof TERMINAL_SESSION_STATUSES)[number]))
       .map((session) => session.id);
     if (activeSessionIds.length > 0) {
       throw new AccountDeletionBlockedError({ activeSessionIds });
@@ -140,7 +142,10 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
     const sessionCommandIds = accountSessions
       .map((session) => session.commandId)
       .filter((commandId): commandId is string => !!commandId);
-    const commandOwnership = [sql`${commands.payload}->>'user_id' = ${userId}`];
+    const commandOwnership = [
+      sql`${commands.payload}->>'user_id' = ${userId}`,
+      sql`${commands.payload}->>'authorized_user_id' = ${userId}`,
+    ];
     if (sessionCommandIds.length > 0) {
       commandOwnership.push(inArray(commands.id, sessionCommandIds));
     }
@@ -179,6 +184,8 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
       await tx.delete(inviteCodes).where(inArray(inviteCodes.id, inviteIds));
     }
 
+    await tx.execute(sql`DELETE FROM favorites WHERE user_id = ${userId}`);
+    await tx.execute(sql`DELETE FROM recent_plays WHERE user_id = ${userId}`);
     await tx.delete(shortCodes).where(eq(shortCodes.createdBy, userId));
     await tx.delete(pairingCodes).where(eq(pairingCodes.userId, userId));
     await tx.delete(inviteRedemptions).where(eq(inviteRedemptions.userId, userId));
