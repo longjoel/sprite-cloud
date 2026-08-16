@@ -43,10 +43,15 @@ The following are in scope and must work on a supported configuration:
    launch.
 5. Same-LAN, remote direct ICE, and forced TURN-relay connection paths.
 6. The existing private guest/share flow where the tested runtime supports it.
-7. The canonical setup/connectivity guide, known-limitations list, support
-   route, and safe diagnostic collection (see `docs/STUN-TURN-ICE.md`).
-8. Production backup/restore, monitoring, rollback, privacy notice, and the
-   beta incident process.
+7. The canonical setup/connectivity guide and known-limitations list (see
+   `docs/STUN-TURN-ICE.md`).
+8. Dashboard server metrics/telemetry, operator reboot when needed, privacy notice,
+   and the existing communication channel if support is required.
+
+**Operations boundary:** the dashboard already provides server monitoring,
+metrics, and telemetry. A server reboot is the available operator recovery action.
+Incident-management, rollback, safe-diagnostics, backup, and restore programs are
+not limited-beta requirements.
 
 ## 3. Explicitly deferred (out of scope for this beta)
 
@@ -125,20 +130,11 @@ defined source; none requires a sensitive identifier.
 No metric may be attributed to an individual tester without their explicit
 opt-in, and none is required to participate.
 
-## 8. Support route and safe diagnostics
+## 8. Communication
 
-- **Reporting route:** open an issue with the
-  [beta report template](../.github/ISSUE_TEMPLATE/beta_report.yml) (or the
-  linked template in the issue chooser). Include release/commit, host/client,
-  route type, failure stage, sanitized logs, reproduction steps, and severity.
-- **Do NOT include** in any report: ROM files or names you are not authorized
-  to share, invite links, credentials/tokens, cookies, or personal data. Logs
-  must be sanitized before upload.
-- **Support destination:** the maintainer responds on the report issue.
-  Private DMs are not the support route.
-- **Incidents:** a P0 report triggers the beta incident process (stop/rollback
-  evaluation, evidence capture, post-incident review) per #664/#668.
-
+Support is optional for this limited beta. If communication is needed, use the
+project's existing Discord channel. No new incident process, diagnostic-upload
+workflow, or private support destination is required.
 ## 9. Go/no-go decision
 
 - **Owner:** the maintainer (repository owner) makes the final GO/NO-GO on
@@ -153,12 +149,8 @@ opt-in, and none is required to participate.
   - Direct ICE and forced TURN-relay gameplay both succeed on unrelated
     networks; LAN path passes.
   - Save/load, stop, restart, and second-launch paths pass.
-  - Production backup restored into a clean database within the documented
-    two-hour RTO (target RPO 24 hours).
   - Immutable release candidate passes CI, device/network checks,
-    installer/download checksums, production deployment, rollback rehearsal,
-    and independent fail-closed review.
-  - Every tester knows the support route and what to redact.
+    installer/download checksums, and production deployment.
 - **A missed burndown target triggers scope reduction, not compressed testing.**
 
 ## 10. Burndown policy
@@ -182,7 +174,7 @@ Tracked in epic #658:
 - [ ] #663 — Qualify clean install, upgrade, and service recovery on the beta-required x86-64 platform matrix
   - [x] #670 — Repair installer managed-path/update readiness (implementation closed; qualification evidence remains in #663)
 - [x] #638 — Rewrite the canonical self-hosting and ICE/STUN/TURN setup journey (reused)
-- [ ] #664 — Add limited-beta backups, restore rehearsal, monitoring, and incident operations
+- [x] #664 — Not required for limited beta: dashboard monitoring/telemetry and operator reboot already exist; optional communication uses Discord
 - [ ] #665 — Add the limited-beta security, privacy, account-lifecycle, and support gate
 - [ ] #666 — Correct all limited-beta-facing claims, release notes, and support surfaces
 - [ ] #667 — Run staged limited-beta cohorts and burn down evidence-backed defects
