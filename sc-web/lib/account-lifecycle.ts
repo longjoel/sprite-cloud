@@ -113,21 +113,18 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
       throw new AccountDeletionBlockedError({ serverIds: owned.map((server) => server.id) });
     }
 
-    const activeSessions = await tx
+    const accountSessions = await tx
       .select({ id: sessions.id, status: sessions.status })
       .from(sessions)
-      .where(eq(sessions.userId, userId));
-    const activeSessionIds = activeSessions
+      .where(eq(sessions.userId, userId))
+      .for("update");
+    const activeSessionIds = accountSessions
       .filter((session) => ACTIVE_SESSION_STATUSES.includes(session.status as (typeof ACTIVE_SESSION_STATUSES)[number]))
       .map((session) => session.id);
     if (activeSessionIds.length > 0) {
       throw new AccountDeletionBlockedError({ activeSessionIds });
     }
 
-    const accountSessions = await tx
-      .select({ id: sessions.id })
-      .from(sessions)
-      .where(eq(sessions.userId, userId));
     const sessionIds = accountSessions.map((session) => session.id);
 
     if (sessionIds.length > 0) {
