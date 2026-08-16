@@ -145,6 +145,8 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
     const commandOwnership = [
       sql`${commands.payload}->>'user_id' = ${userId}`,
       sql`${commands.payload}->>'authorized_user_id' = ${userId}`,
+      sql`${commands.payload}::text LIKE ${`%\\\"user_id\\\":\\\"${userId}\\\"%`}`,
+      sql`${commands.payload}::text LIKE ${`%\\\"authorized_user_id\\\":\\\"${userId}\\\"%`}`,
     ];
     if (sessionCommandIds.length > 0) {
       commandOwnership.push(inArray(commands.id, sessionCommandIds));
@@ -184,8 +186,6 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
       await tx.delete(inviteCodes).where(inArray(inviteCodes.id, inviteIds));
     }
 
-    await tx.execute(sql`DELETE FROM favorites WHERE user_id = ${userId}`);
-    await tx.execute(sql`DELETE FROM recent_plays WHERE user_id = ${userId}`);
     await tx.delete(shortCodes).where(eq(shortCodes.createdBy, userId));
     await tx.delete(pairingCodes).where(eq(pairingCodes.userId, userId));
     await tx.delete(inviteRedemptions).where(eq(inviteRedemptions.userId, userId));
