@@ -4,7 +4,9 @@ import { NextRequest } from "next/server";
 const mockAuth = vi.fn();
 const mockExportAccountData = vi.fn();
 const mockDeleteAccount = vi.fn();
-const mockAccountDeletionBlockedError = class extends Error {};
+const mockAccountDeletionBlockedError = class extends Error {
+  serverIds = ["server-1"];
+};
 
 vi.mock("@/lib/auth", () => ({ auth: mockAuth }));
 vi.mock("@/lib/account-lifecycle", () => ({
@@ -65,6 +67,19 @@ describe("DELETE /api/account", () => {
     expect(mockDeleteAccount).not.toHaveBeenCalled();
   });
 
+  it("rejects an authenticated request without a matching CSRF token", async () => {
+    const { DELETE } = await import("@/app/api/account/route");
+
+    const response = await DELETE(request("http://localhost/api/account", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirm: "DELETE MY ACCOUNT" }),
+    }));
+
+    expect(response.status).toBe(403);
+    expect(mockDeleteAccount).not.toHaveBeenCalled();
+  });
+
   it("requires the explicit account-deletion confirmation", async () => {
     const { DELETE } = await import("@/app/api/account/route");
 
@@ -76,6 +91,21 @@ describe("DELETE /api/account", () => {
 
     expect(response.status).toBe(400);
     expect(mockDeleteAccount).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 with owned server IDs when deletion is blocked", async () => {
+    const blocked = new mockAccountDeletionBlockedError("blocked");
+    mockDeleteAccount.mockRejectedValueOnce(blocked);
+    const { DELETE } = await import("@/app/api/account/route");
+
+    const response = await DELETE(request("http://localhost/api/account", {
+      method: "DELETE",
+      headers: { "content-type": "application/json", "x-csrf-token": "csrf", cookie: "sc_csrf_token=csrf" },
+      body: JSON.stringify({ confirm: "DELETE MY ACCOUNT" }),
+    }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ serverIds: ["server-1"] });
   });
 
   it("deletes the authenticated account only after CSRF and confirmation pass", async () => {

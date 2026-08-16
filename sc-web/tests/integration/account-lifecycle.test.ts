@@ -153,6 +153,24 @@ describe("deleteAccount", () => {
     expect((await getTestDb().select().from(servers).where(eq(servers.id, graph.server.id)))).toHaveLength(1);
   });
 
+  it("removes the account's owned lifecycle records after server ownership is resolved", async () => {
+    const graph = await seedAccountGraph();
+    await getTestDb().update(servers).set({ userId: graph.other.id }).where(eq(servers.id, graph.server.id));
+
+    await deleteAccount(getTestDb(), graph.owner.id);
+
+    expect((await getTestDb().select().from(users).where(eq(users.id, graph.owner.id)))).toHaveLength(0);
+    expect((await getTestDb().select().from(serverMembers).where(eq(serverMembers.userId, graph.owner.id)))).toHaveLength(0);
+    expect((await getTestDb().select().from(pairingCodes).where(eq(pairingCodes.userId, graph.owner.id)))).toHaveLength(0);
+    expect((await getTestDb().select().from(sessions).where(eq(sessions.id, graph.session.id)))).toHaveLength(0);
+    expect((await getTestDb().select().from(peerTokens).where(eq(peerTokens.sessionId, graph.session.id)))).toHaveLength(0);
+    expect((await getTestDb().select().from(launchEvents).where(eq(launchEvents.sessionId, graph.session.id)))).toHaveLength(0);
+    expect((await getTestDb().select().from(shortCodes).where(eq(shortCodes.createdBy, graph.owner.id)))).toHaveLength(0);
+    expect((await getTestDb().select().from(inviteCodes).where(eq(inviteCodes.createdBy, graph.owner.id)))).toHaveLength(0);
+    expect((await getTestDb().select().from(servers).where(eq(servers.id, graph.server.id)))).toHaveLength(1);
+    expect((await getTestDb().select().from(users).where(eq(users.id, graph.other.id)))).toHaveLength(1);
+  });
+
   it("deletes a non-owner account without deleting the shared server or its owner", async () => {
     const graph = await seedAccountGraph();
 

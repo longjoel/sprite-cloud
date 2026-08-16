@@ -27,72 +27,81 @@ export class AccountDeletionBlockedError extends Error {
 }
 
 export async function exportAccountData(database: AccountLifecycleDb, userId: string) {
-  const [account] = await database
-    .select({
-      id: users.id,
-      email: users.email,
-      name: users.name,
-      createdAt: users.createdAt,
-    })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
+  return database.transaction(async (tx) => {
+    const [account] = await tx
+      .select({
+        id: users.id,
+        email: users.email,
+        name: users.name,
+        createdAt: users.createdAt,
+      })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
 
-  if (!account) {
+    if (!account) {
+      return {
+        account: null,
+        memberships: [],
+        ownedServers: [],
+        pairingCodes: [],
+        createdInvites: [],
+        sessions: [],
+      };
+    }
+
+    const [memberships, ownedServers, accountPairingCodes, createdInvites, accountSessions] = await Promise.all([
+      tx
+        .select({ serverId: serverMembers.serverId, role: serverMembers.role, createdAt: serverMembers.createdAt })
+        .from(serverMembers)
+        .where(eq(serverMembers.userId, userId)),
+      tx
+        .select({ id: servers.id, name: servers.name, createdAt: servers.createdAt, lastSeenAt: servers.lastSeenAt })
+        .from(servers)
+        .where(eq(servers.userId, userId)),
+      tx
+        .select({ status: pairingCodes.status, expiresAt: pairingCodes.expiresAt, claimedAt: pairingCodes.claimedAt, createdAt: pairingCodes.createdAt })
+        .from(pairingCodes)
+        .where(eq(pairingCodes.userId, userId)),
+      tx
+        .select({ id: inviteCodes.id, codePrefix: inviteCodes.codePrefix, kind: inviteCodes.kind, serverId: inviteCodes.serverId, maxRedemptions: inviteCodes.maxRedemptions, redemptionCount: inviteCodes.redemptionCount, expiresAt: inviteCodes.expiresAt, revokedAt: inviteCodes.revokedAt, createdAt: inviteCodes.createdAt })
+        .from(inviteCodes)
+        .where(eq(inviteCodes.createdBy, userId)),
+      tx
+        .select({ id: sessions.id, serverId: sessions.serverId, commandId: sessions.commandId, gameId: sessions.gameId, maxSeats: sessions.maxSeats, generation: sessions.generation, status: sessions.status, stateEnteredAt: sessions.stateEnteredAt, createdAt: sessions.createdAt, endedAt: sessions.endedAt })
+        .from(sessions)
+        .where(eq(sessions.userId, userId)),
+    ]);
+
     return {
-      account: null,
-      memberships: [],
-      ownedServers: [],
-      pairingCodes: [],
-      createdInvites: [],
-      sessions: [],
+      account,
+      memberships,
+      ownedServers,
+      pairingCodes: accountPairingCodes,
+      createdInvites,
+      sessions: accountSessions,
     };
-  }
-
-  const [memberships, ownedServers, accountPairingCodes, createdInvites, accountSessions] = await Promise.all([
-    database
-      .select({ serverId: serverMembers.serverId, role: serverMembers.role, createdAt: serverMembers.createdAt })
-      .from(serverMembers)
-      .where(eq(serverMembers.userId, userId)),
-    database
-      .select({ id: servers.id, name: servers.name, createdAt: servers.createdAt, lastSeenAt: servers.lastSeenAt })
-      .from(servers)
-      .where(eq(servers.userId, userId)),
-    database
-      .select({ status: pairingCodes.status, expiresAt: pairingCodes.expiresAt, claimedAt: pairingCodes.claimedAt, createdAt: pairingCodes.createdAt })
-      .from(pairingCodes)
-      .where(eq(pairingCodes.userId, userId)),
-    database
-      .select({ id: inviteCodes.id, codePrefix: inviteCodes.codePrefix, kind: inviteCodes.kind, serverId: inviteCodes.serverId, maxRedemptions: inviteCodes.maxRedemptions, redemptionCount: inviteCodes.redemptionCount, expiresAt: inviteCodes.expiresAt, revokedAt: inviteCodes.revokedAt, createdAt: inviteCodes.createdAt })
-      .from(inviteCodes)
-      .where(eq(inviteCodes.createdBy, userId)),
-    database
-      .select({ id: sessions.id, serverId: sessions.serverId, commandId: sessions.commandId, gameId: sessions.gameId, maxSeats: sessions.maxSeats, generation: sessions.generation, status: sessions.status, stateEnteredAt: sessions.stateEnteredAt, createdAt: sessions.createdAt, endedAt: sessions.endedAt })
-      .from(sessions)
-      .where(eq(sessions.userId, userId)),
-  ]);
-
-  return {
-    account,
-    memberships,
-    ownedServers,
-    pairingCodes: accountPairingCodes,
-    createdInvites,
-    sessions: accountSessions,
-  };
+  });
 }
 
 export async function deleteAccount(database: AccountLifecycleDb, userId: string): Promise<void> {
-  const owned = await database
-    .select({ id: servers.id })
-    .from(servers)
-    .where(eq(servers.userId, userId));
-
-  if (owned.length > 0) {
-    throw new AccountDeletionBlockedError(owned.map((server) => server.id));
-  }
-
   await database.transaction(async (tx) => {
+    await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, userId))
+      .for("update");
+
+    const owned = await tx
+      .select({ id: servers.id })
+      .from(servers)
+      .where(eq(servers.userId, userId))
+      .for("update");
+
+    if (owned.length > 0) {
+      throw new AccountDeletionBlockedError(owned.map((server) => server.id));
+    }
+
     const accountSessions = await tx
       .select({ id: sessions.id })
       .from(sessions)
