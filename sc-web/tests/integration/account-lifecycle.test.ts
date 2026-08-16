@@ -95,7 +95,7 @@ async function seedAccountGraph() {
     serverId: server.id,
     type: "stop_game",
     payload: JSON.stringify({ session_id: session.id }),
-    status: "completed",
+    status: "cancelled",
   }).returning();
   await db.insert(launchEvents).values({
     sessionId: session.id,

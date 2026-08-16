@@ -1364,6 +1364,7 @@ describe("GET /api/server/poll", () => {
   it("resets stale runtime sessions once when a new server boot is announced", async () => {
     mockDb.select
       .mockImplementationOnce(() => mockQueryBuilder([{ runtimeBootId: "00000000000000000001-00000000000000000000000000000001" }]))
+      .mockImplementationOnce(() => mockQueryBuilder([{ id: "user-1" }]))
       .mockImplementationOnce(() => mockQueryBuilder([{ id: "session-1", gameId: "game-1" }]))
       .mockImplementationOnce(() => mockQueryBuilder([{ id: "cmd-1", payload: { game_id: "game-1", session_id: "session-1" } }]))
       .mockImplementationOnce(() => mockQueryBuilder([{ runtimeBootId: "00000000000000000002-00000000000000000000000000000002" }]))
@@ -1464,7 +1465,12 @@ describe("GET /api/server/poll", () => {
   it("creates a matching command before its foreign-keyed resident session", async () => {
     const gameId = "local_0123456789abcdef0123456789abcdef";
     mockDb.select
+      .mockImplementationOnce(() => mockQueryBuilder([{ id: "user-1" }]))
       .mockImplementationOnce(() => mockQueryBuilder([{ gameId, maxSeats: 2 }]))
+      .mockImplementationOnce(() => mockQueryBuilder([]))
+      .mockImplementationOnce(() => mockQueryBuilder([]))
+      .mockImplementationOnce(() => mockQueryBuilder([{ id: "user-1" }]))
+      .mockImplementationOnce(() => mockQueryBuilder([]))
       .mockImplementationOnce(() => mockQueryBuilder([]))
       .mockImplementation(() => mockQueryBuilder([]));
 
@@ -1502,6 +1508,8 @@ describe("GET /api/server/poll", () => {
       status: "pending",
       payload: {
         game_id: gameId,
+        user_id: "user-1",
+        authorized_user_id: "user-1",
         session_id: sessionInsert?.values.id,
         resident: true,
         max_seats: 2,

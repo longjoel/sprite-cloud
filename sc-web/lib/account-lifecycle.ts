@@ -48,7 +48,7 @@ type AccountDeletionBlock = {
   pendingCommandIds?: string[];
 };
 
-const TERMINAL_COMMAND_STATUSES = ["completed", "failed"] as const;
+const TERMINAL_COMMAND_STATUSES = ["completed", "failed", "cancelled"] as const;
 
 export class AccountDeletionBlockedError extends Error {
   readonly serverIds: string[];
@@ -180,18 +180,18 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
       .map((session) => session.commandId)
       .filter((commandId): commandId is string => !!commandId);
     const commandOwnership = [
-      sql`${commands.payload}->>'user_id' = ${userId}`,
-      sql`${commands.payload}->>'authorized_user_id' = ${userId}`,
-      sql`${commands.payload}::text LIKE ${`%\\\"user_id\\\":\\\"${userId}\\\"%`}`,
-      sql`${commands.payload}::text LIKE ${`%\\\"authorized_user_id\\\":\\\"${userId}\\\"%`}`,
+      sql`jsonb_typeof(${commands.payload}) = 'object' AND ${commands.payload}->>'user_id' = ${userId}`,
+      sql`jsonb_typeof(${commands.payload}) = 'object' AND ${commands.payload}->>'authorized_user_id' = ${userId}`,
+      sql`jsonb_typeof(${commands.payload}) = 'string' AND ${commands.payload}#>>'{}' LIKE ${`%\"user_id\":\"${userId}\"%`}`,
+      sql`jsonb_typeof(${commands.payload}) = 'string' AND ${commands.payload}#>>'{}' LIKE ${`%\"authorized_user_id\":\"${userId}\"%`}`,
     ];
     if (sessionCommandIds.length > 0) {
       commandOwnership.push(inArray(commands.id, sessionCommandIds));
     }
     if (sessionIds.length > 0) {
-      for (const sessionId of sessionIds) {
-        commandOwnership.push(sql`${commands.payload}::text LIKE ${`%${sessionId}%`}`);
-      }
+      const objectSessionOwnership = sql`jsonb_typeof(${commands.payload}) = 'object' AND ${commands.payload}->>'session_id' IN (${sql.join(sessionIds.map((id) => sql`${id}`), sql`, `)})`;
+      const stringSessionOwnership = or(...sessionIds.map((sessionId) => sql`jsonb_typeof(${commands.payload}) = 'string' AND ${commands.payload}#>>'{}' LIKE ${`%\"session_id\":\"${sessionId}\"%`}`))!;
+      commandOwnership.push(or(objectSessionOwnership, stringSessionOwnership)!);
     }
     const associatedCommands = await tx
       .select({ id: commands.id, status: commands.status })
