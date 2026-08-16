@@ -52,7 +52,17 @@ async function seedAccountGraph() {
     serverId: server.id,
     createdBy: owner.id,
   }).returning();
-  await db.insert(inviteRedemptions).values({ inviteCodeId: invite.id, userId: other.id });
+  await db.insert(inviteRedemptions).values([
+    { inviteCodeId: invite.id, userId: owner.id },
+    { inviteCodeId: invite.id, userId: other.id },
+  ]);
+  await db.insert(shortCodes).values({
+    code: "OWNER-CODE",
+    gameId: "fixture",
+    hostToken: "short-code-secret",
+    serverId: server.id,
+    createdBy: owner.id,
+  });
   await db.insert(pairingCodes).values({
     code: "PAIRING",
     userId: owner.id,
@@ -62,7 +72,7 @@ async function seedAccountGraph() {
   const [command] = await db.insert(commands).values({
     serverId: server.id,
     type: "start_game",
-    payload: { game_id: "fixture" },
+    payload: { game_id: "fixture", user_id: owner.id },
     status: "completed",
   }).returning();
   const [session] = await db.insert(sessions).values({
@@ -122,6 +132,12 @@ describe("exportAccountData", () => {
     expect(exported.ownedServers).toHaveLength(1);
     expect(exported.pairingCodes).toHaveLength(1);
     expect(exported.createdInvites).toHaveLength(1);
+    expect(exported.inviteRedemptions).toHaveLength(1);
+    expect(exported.shortCodes).toHaveLength(2);
+    expect(exported.shortCodes).toEqual(expect.arrayContaining([
+      { code: "OWNER-CODE", gameId: "fixture", serverId: graph.server.id, mintedViaProxy: false },
+      { code: "SHORTCODE", gameId: "fixture", serverId: graph.server.id, mintedViaProxy: false },
+    ]));
     expect(exported.sessions).toHaveLength(1);
   });
 
@@ -178,6 +194,7 @@ describe("deleteAccount", () => {
     expect((await getTestDb().select().from(sessions).where(eq(sessions.id, graph.session.id)))).toHaveLength(0);
     expect((await getTestDb().select().from(peerTokens).where(eq(peerTokens.sessionId, graph.session.id)))).toHaveLength(0);
     expect((await getTestDb().select().from(launchEvents).where(eq(launchEvents.sessionId, graph.session.id)))).toHaveLength(0);
+    expect((await getTestDb().select().from(commands).where(eq(commands.id, graph.command.id)))).toHaveLength(0);
     expect((await getTestDb().select().from(shortCodes).where(eq(shortCodes.createdBy, graph.owner.id)))).toHaveLength(0);
     expect((await getTestDb().select().from(inviteCodes).where(eq(inviteCodes.createdBy, graph.owner.id)))).toHaveLength(0);
     expect((await getTestDb().select().from(servers).where(eq(servers.id, graph.server.id)))).toHaveLength(1);

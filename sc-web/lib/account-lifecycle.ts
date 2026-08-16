@@ -1,4 +1,4 @@
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   users,
@@ -7,6 +7,7 @@ import {
   inviteCodes,
   inviteRedemptions,
   pairingCodes,
+  commands,
   sessions,
   peerTokens,
   launchEvents,
@@ -61,7 +62,7 @@ export async function exportAccountData(database: AccountLifecycleDb, userId: st
       };
     }
 
-    const [memberships, ownedServers, accountPairingCodes, createdInvites, accountSessions] = await Promise.all([
+    const [memberships, ownedServers, accountPairingCodes, createdInvites, accountInviteRedemptions, accountShortCodes, accountSessions] = await Promise.all([
       tx
         .select({ serverId: serverMembers.serverId, role: serverMembers.role, createdAt: serverMembers.createdAt })
         .from(serverMembers)
@@ -79,6 +80,14 @@ export async function exportAccountData(database: AccountLifecycleDb, userId: st
         .from(inviteCodes)
         .where(eq(inviteCodes.createdBy, userId)),
       tx
+        .select({ id: inviteRedemptions.id, inviteCodeId: inviteRedemptions.inviteCodeId, redeemedAt: inviteRedemptions.redeemedAt })
+        .from(inviteRedemptions)
+        .where(eq(inviteRedemptions.userId, userId)),
+      tx
+        .select({ code: shortCodes.code, gameId: shortCodes.gameId, serverId: shortCodes.serverId, mintedViaProxy: shortCodes.mintedViaProxy })
+        .from(shortCodes)
+        .where(eq(shortCodes.createdBy, userId)),
+      tx
         .select({ id: sessions.id, serverId: sessions.serverId, commandId: sessions.commandId, gameId: sessions.gameId, maxSeats: sessions.maxSeats, generation: sessions.generation, status: sessions.status, stateEnteredAt: sessions.stateEnteredAt, createdAt: sessions.createdAt, endedAt: sessions.endedAt })
         .from(sessions)
         .where(eq(sessions.userId, userId)),
@@ -90,6 +99,8 @@ export async function exportAccountData(database: AccountLifecycleDb, userId: st
       ownedServers,
       pairingCodes: accountPairingCodes,
       createdInvites,
+      inviteRedemptions: accountInviteRedemptions,
+      shortCodes: accountShortCodes,
       sessions: accountSessions,
     };
   }, { isolationLevel: "repeatable read" });
@@ -114,7 +125,7 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
     }
 
     const accountSessions = await tx
-      .select({ id: sessions.id, status: sessions.status })
+      .select({ id: sessions.id, status: sessions.status, commandId: sessions.commandId })
       .from(sessions)
       .where(eq(sessions.userId, userId))
       .for("update");
@@ -126,11 +137,36 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
     }
 
     const sessionIds = accountSessions.map((session) => session.id);
+    const sessionCommandIds = accountSessions
+      .map((session) => session.commandId)
+      .filter((commandId): commandId is string => !!commandId);
+    const commandOwnership = [sql`${commands.payload}->>'user_id' = ${userId}`];
+    if (sessionCommandIds.length > 0) {
+      commandOwnership.push(inArray(commands.id, sessionCommandIds));
+    }
+    if (sessionIds.length > 0) {
+      commandOwnership.push(sql`${commands.payload}->>'session_id' IN (${sql.join(sessionIds.map((id) => sql`${id}`), sql`, `)})`);
+    }
+    const associatedCommands = await tx
+      .select({ id: commands.id })
+      .from(commands)
+      .where(or(...commandOwnership));
+    const commandIds = associatedCommands.map((command) => command.id);
 
     if (sessionIds.length > 0) {
       await tx.delete(peerTokens).where(inArray(peerTokens.sessionId, sessionIds));
-      await tx.delete(launchEvents).where(inArray(launchEvents.sessionId, sessionIds));
+      await tx.delete(launchEvents).where(
+        or(
+          inArray(launchEvents.sessionId, sessionIds),
+          commandIds.length > 0 ? inArray(launchEvents.commandId, commandIds) : sql`false`,
+        ),
+      );
       await tx.delete(sessions).where(inArray(sessions.id, sessionIds));
+    } else if (commandIds.length > 0) {
+      await tx.delete(launchEvents).where(inArray(launchEvents.commandId, commandIds));
+    }
+    if (commandIds.length > 0) {
+      await tx.delete(commands).where(inArray(commands.id, commandIds));
     }
 
     const createdInvites = await tx
