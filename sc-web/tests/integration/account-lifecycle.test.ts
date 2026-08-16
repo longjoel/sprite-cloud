@@ -153,6 +153,19 @@ describe("deleteAccount", () => {
     expect((await getTestDb().select().from(servers).where(eq(servers.id, graph.server.id)))).toHaveLength(1);
   });
 
+  it("fails closed when an owned session is still active", async () => {
+    const graph = await seedAccountGraph();
+    await getTestDb().update(servers).set({ userId: graph.other.id }).where(eq(servers.id, graph.server.id));
+    await getTestDb().update(sessions).set({ status: "playing", endedAt: null }).where(eq(sessions.id, graph.session.id));
+
+    await expect(deleteAccount(getTestDb(), graph.owner.id)).rejects.toMatchObject({
+      activeSessionIds: [graph.session.id],
+    });
+
+    expect((await getTestDb().select().from(users).where(eq(users.id, graph.owner.id)))).toHaveLength(1);
+    expect((await getTestDb().select().from(sessions).where(eq(sessions.id, graph.session.id)))).toHaveLength(1);
+  });
+
   it("removes the account's owned lifecycle records after server ownership is resolved", async () => {
     const graph = await seedAccountGraph();
     await getTestDb().update(servers).set({ userId: graph.other.id }).where(eq(servers.id, graph.server.id));

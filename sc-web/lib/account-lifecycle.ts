@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   users,
@@ -7,7 +7,6 @@ import {
   inviteCodes,
   inviteRedemptions,
   pairingCodes,
-  commands,
   sessions,
   peerTokens,
   launchEvents,
@@ -15,14 +14,26 @@ import {
 } from "@/lib/db/schema";
 
 type AccountLifecycleDb = typeof db;
+const ACTIVE_SESSION_STATUSES = ["spawning", "ready", "connected", "playing"] as const;
+
+type AccountDeletionBlock = {
+  serverIds?: string[];
+  activeSessionIds?: string[];
+};
 
 export class AccountDeletionBlockedError extends Error {
   readonly serverIds: string[];
+  readonly activeSessionIds: string[];
 
-  constructor(serverIds: string[]) {
-    super("account owns servers that must be transferred or deleted first");
+  constructor({ serverIds = [], activeSessionIds = [] }: AccountDeletionBlock) {
+    super(
+      activeSessionIds.length > 0
+        ? "end active sessions before deleting the account"
+        : "account owns servers that must be transferred or deleted first",
+    );
     this.name = "AccountDeletionBlockedError";
     this.serverIds = serverIds;
+    this.activeSessionIds = activeSessionIds;
   }
 }
 
@@ -81,7 +92,7 @@ export async function exportAccountData(database: AccountLifecycleDb, userId: st
       createdInvites,
       sessions: accountSessions,
     };
-  });
+  }, { isolationLevel: "repeatable read" });
 }
 
 export async function deleteAccount(database: AccountLifecycleDb, userId: string): Promise<void> {
@@ -99,7 +110,18 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
       .for("update");
 
     if (owned.length > 0) {
-      throw new AccountDeletionBlockedError(owned.map((server) => server.id));
+      throw new AccountDeletionBlockedError({ serverIds: owned.map((server) => server.id) });
+    }
+
+    const activeSessions = await tx
+      .select({ id: sessions.id, status: sessions.status })
+      .from(sessions)
+      .where(eq(sessions.userId, userId));
+    const activeSessionIds = activeSessions
+      .filter((session) => ACTIVE_SESSION_STATUSES.includes(session.status as (typeof ACTIVE_SESSION_STATUSES)[number]))
+      .map((session) => session.id);
+    if (activeSessionIds.length > 0) {
+      throw new AccountDeletionBlockedError({ activeSessionIds });
     }
 
     const accountSessions = await tx

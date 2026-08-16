@@ -6,6 +6,7 @@ const mockExportAccountData = vi.fn();
 const mockDeleteAccount = vi.fn();
 const mockAccountDeletionBlockedError = class extends Error {
   serverIds = ["server-1"];
+  activeSessionIds: string[] = [];
 };
 
 vi.mock("@/lib/auth", () => ({ auth: mockAuth }));
@@ -73,6 +74,19 @@ describe("DELETE /api/account", () => {
     const response = await DELETE(request("http://localhost/api/account", {
       method: "DELETE",
       headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirm: "DELETE MY ACCOUNT" }),
+    }));
+
+    expect(response.status).toBe(403);
+    expect(mockDeleteAccount).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 for a malformed CSRF cookie", async () => {
+    const { DELETE } = await import("@/app/api/account/route");
+
+    const response = await DELETE(request("http://localhost/api/account", {
+      method: "DELETE",
+      headers: { "content-type": "application/json", "x-csrf-token": "csrf", cookie: "sc_csrf_token=%E0%A4%A" },
       body: JSON.stringify({ confirm: "DELETE MY ACCOUNT" }),
     }));
 

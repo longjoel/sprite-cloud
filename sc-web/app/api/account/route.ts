@@ -12,7 +12,12 @@ function validCsrf(request: Request): boolean {
     .find(([key]) => key === "sc_csrf_token")
     ?.slice(1)
     .join("=");
-  return !!header && !!cookie && header === decodeURIComponent(cookie);
+  if (!header || !cookie) return false;
+  try {
+    return header === decodeURIComponent(cookie);
+  } catch {
+    return false;
+  }
 }
 
 export async function DELETE(request: Request) {
@@ -41,7 +46,13 @@ export async function DELETE(request: Request) {
   } catch (error) {
     if (error instanceof AccountDeletionBlockedError) {
       return NextResponse.json(
-        { error: "transfer or delete owned servers before deleting the account", serverIds: error.serverIds },
+        {
+          error: error.activeSessionIds.length > 0
+            ? "end active sessions before deleting the account"
+            : "transfer or delete owned servers before deleting the account",
+          serverIds: error.serverIds,
+          activeSessionIds: error.activeSessionIds,
+        },
         { status: 409 },
       );
     }
