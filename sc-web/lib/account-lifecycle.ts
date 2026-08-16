@@ -182,15 +182,15 @@ export async function deleteAccount(database: AccountLifecycleDb, userId: string
     const commandOwnership = [
       sql`jsonb_typeof(${commands.payload}) = 'object' AND ${commands.payload}->>'user_id' = ${userId}`,
       sql`jsonb_typeof(${commands.payload}) = 'object' AND ${commands.payload}->>'authorized_user_id' = ${userId}`,
-      sql`jsonb_typeof(${commands.payload}) = 'string' AND ${commands.payload}#>>'{}' LIKE ${`%\"user_id\":\"${userId}\"%`}`,
-      sql`jsonb_typeof(${commands.payload}) = 'string' AND ${commands.payload}#>>'{}' LIKE ${`%\"authorized_user_id\":\"${userId}\"%`}`,
+      sql`(CASE WHEN jsonb_typeof(${commands.payload}) = 'string' THEN ((${commands.payload}#>>'{}')::jsonb ->> 'user_id') END) = ${userId}`,
+      sql`(CASE WHEN jsonb_typeof(${commands.payload}) = 'string' THEN ((${commands.payload}#>>'{}')::jsonb ->> 'authorized_user_id') END) = ${userId}`,
     ];
     if (sessionCommandIds.length > 0) {
       commandOwnership.push(inArray(commands.id, sessionCommandIds));
     }
     if (sessionIds.length > 0) {
       const objectSessionOwnership = sql`jsonb_typeof(${commands.payload}) = 'object' AND ${commands.payload}->>'session_id' IN (${sql.join(sessionIds.map((id) => sql`${id}`), sql`, `)})`;
-      const stringSessionOwnership = or(...sessionIds.map((sessionId) => sql`jsonb_typeof(${commands.payload}) = 'string' AND ${commands.payload}#>>'{}' LIKE ${`%\"session_id\":\"${sessionId}\"%`}`))!;
+      const stringSessionOwnership = or(...sessionIds.map((sessionId) => sql`(CASE WHEN jsonb_typeof(${commands.payload}) = 'string' THEN ((${commands.payload}#>>'{}')::jsonb ->> 'session_id') END) = ${sessionId}`))!;
       commandOwnership.push(or(objectSessionOwnership, stringSessionOwnership)!);
     }
     const associatedCommands = await tx

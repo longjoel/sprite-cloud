@@ -680,6 +680,12 @@ export async function POST(request: NextRequest) {
       // Serialize all launches from the same host identity before reading or
       // ending prior sessions. The lock is released automatically on commit.
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${launchLockKey}, 0))`);
+      const [account] = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, uid))
+        .for("update");
+      if (!account) throw new Error("authenticated account missing");
 
       // End prior sessions for this stable server/owner identity, create the new generation and peer
       // capability, and publish the prepared command as one atomic unit.
@@ -708,7 +714,7 @@ export async function POST(request: NextRequest) {
         await tx.insert(commands).values({
           serverId,
           type: CMD_STOP_GAME,
-          payload: { game_id: victim.gameId, session_id: victim.id },
+          payload: { user_id: uid, authorized_user_id: uid, game_id: victim.gameId, session_id: victim.id },
           workerToken: crypto.randomBytes(16).toString("hex"),
           status: STATUS_PENDING,
         });

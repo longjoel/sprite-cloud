@@ -664,12 +664,7 @@ describe("POST /api/server/command", () => {
         }),
       )
       .mockReturnValueOnce(mockQueryBuilder([]))
-      .mockReturnValueOnce(
-        Object.assign(Promise.resolve([]), {
-          from: vi.fn().mockReturnThis(),
-          where: vi.fn().mockReturnThis(),
-        }),
-      );
+      .mockReturnValueOnce(mockQueryBuilder([]));
 
     const { launchEvents, commands: commandsTable, sessions: sessionsTable, peerTokens: peerTokensTable } = await import("@/lib/db/schema");
     const commandInsertBuilder = {
@@ -1111,12 +1106,7 @@ describe("POST /api/server/command", () => {
         }),
       )
       .mockReturnValueOnce(mockQueryBuilder([]))
-      .mockReturnValueOnce(
-        Object.assign(Promise.resolve([]), {
-          from: vi.fn().mockReturnThis(),
-          where: vi.fn().mockReturnThis(),
-        }),
-      );
+      .mockReturnValueOnce(mockQueryBuilder([]));
 
     const insertedValues: Array<Record<string, unknown>> = [];
     const { launchEvents, commands: commandsTable, sessions: sessionsTable, peerTokens: peerTokensTable } = await import("@/lib/db/schema");
