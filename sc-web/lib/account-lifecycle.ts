@@ -1,0 +1,124 @@
+import { and, eq, inArray } from "drizzle-orm";
+import { db } from "@/lib/db";
+import {
+  users,
+  servers,
+  serverMembers,
+  inviteCodes,
+  inviteRedemptions,
+  pairingCodes,
+  commands,
+  sessions,
+  peerTokens,
+  launchEvents,
+  shortCodes,
+} from "@/lib/db/schema";
+
+type AccountLifecycleDb = typeof db;
+
+export class AccountDeletionBlockedError extends Error {
+  readonly serverIds: string[];
+
+  constructor(serverIds: string[]) {
+    super("account owns servers that must be transferred or deleted first");
+    this.name = "AccountDeletionBlockedError";
+    this.serverIds = serverIds;
+  }
+}
+
+export async function exportAccountData(database: AccountLifecycleDb, userId: string) {
+  const [account] = await database
+    .select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      createdAt: users.createdAt,
+    })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!account) {
+    return {
+      account: null,
+      memberships: [],
+      ownedServers: [],
+      pairingCodes: [],
+      createdInvites: [],
+      sessions: [],
+    };
+  }
+
+  const [memberships, ownedServers, accountPairingCodes, createdInvites, accountSessions] = await Promise.all([
+    database
+      .select({ serverId: serverMembers.serverId, role: serverMembers.role, createdAt: serverMembers.createdAt })
+      .from(serverMembers)
+      .where(eq(serverMembers.userId, userId)),
+    database
+      .select({ id: servers.id, name: servers.name, createdAt: servers.createdAt, lastSeenAt: servers.lastSeenAt })
+      .from(servers)
+      .where(eq(servers.userId, userId)),
+    database
+      .select({ status: pairingCodes.status, expiresAt: pairingCodes.expiresAt, claimedAt: pairingCodes.claimedAt, createdAt: pairingCodes.createdAt })
+      .from(pairingCodes)
+      .where(eq(pairingCodes.userId, userId)),
+    database
+      .select({ id: inviteCodes.id, codePrefix: inviteCodes.codePrefix, kind: inviteCodes.kind, serverId: inviteCodes.serverId, maxRedemptions: inviteCodes.maxRedemptions, redemptionCount: inviteCodes.redemptionCount, expiresAt: inviteCodes.expiresAt, revokedAt: inviteCodes.revokedAt, createdAt: inviteCodes.createdAt })
+      .from(inviteCodes)
+      .where(eq(inviteCodes.createdBy, userId)),
+    database
+      .select({ id: sessions.id, serverId: sessions.serverId, commandId: sessions.commandId, gameId: sessions.gameId, maxSeats: sessions.maxSeats, generation: sessions.generation, status: sessions.status, stateEnteredAt: sessions.stateEnteredAt, createdAt: sessions.createdAt, endedAt: sessions.endedAt })
+      .from(sessions)
+      .where(eq(sessions.userId, userId)),
+  ]);
+
+  return {
+    account,
+    memberships,
+    ownedServers,
+    pairingCodes: accountPairingCodes,
+    createdInvites,
+    sessions: accountSessions,
+  };
+}
+
+export async function deleteAccount(database: AccountLifecycleDb, userId: string): Promise<void> {
+  const owned = await database
+    .select({ id: servers.id })
+    .from(servers)
+    .where(eq(servers.userId, userId));
+
+  if (owned.length > 0) {
+    throw new AccountDeletionBlockedError(owned.map((server) => server.id));
+  }
+
+  await database.transaction(async (tx) => {
+    const accountSessions = await tx
+      .select({ id: sessions.id })
+      .from(sessions)
+      .where(eq(sessions.userId, userId));
+    const sessionIds = accountSessions.map((session) => session.id);
+
+    if (sessionIds.length > 0) {
+      await tx.delete(peerTokens).where(inArray(peerTokens.sessionId, sessionIds));
+      await tx.delete(launchEvents).where(inArray(launchEvents.sessionId, sessionIds));
+      await tx.delete(sessions).where(inArray(sessions.id, sessionIds));
+    }
+
+    const createdInvites = await tx
+      .select({ id: inviteCodes.id })
+      .from(inviteCodes)
+      .where(eq(inviteCodes.createdBy, userId));
+    const inviteIds = createdInvites.map((invite) => invite.id);
+    if (inviteIds.length > 0) {
+      await tx.delete(inviteRedemptions).where(inArray(inviteRedemptions.inviteCodeId, inviteIds));
+      await tx.delete(inviteCodes).where(inArray(inviteCodes.id, inviteIds));
+    }
+
+    await tx.delete(shortCodes).where(eq(shortCodes.createdBy, userId));
+    await tx.delete(pairingCodes).where(eq(pairingCodes.userId, userId));
+    await tx.delete(inviteRedemptions).where(eq(inviteRedemptions.userId, userId));
+    await tx.delete(serverMembers).where(eq(serverMembers.userId, userId));
+    await tx.delete(users).where(eq(users.id, userId));
+  });
+}

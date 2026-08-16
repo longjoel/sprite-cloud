@@ -5,6 +5,7 @@ import { execSync } from "child_process";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "@/lib/db/schema";
+import type { db as appDb } from "@/lib/db";
 
 const PG_PW = process.env.TEST_PG_PASSWORD || ("test" + "-" + "password");
 let _containerId: string | null = null;
@@ -41,9 +42,9 @@ function randomPort(): number {
 }
 
 
-export function getTestDb() {
+export function getTestDb(): typeof appDb {
   if (!_db) throw new Error("Test DB not started — call setupTestDb first");
-  return _db;
+  return _db as typeof appDb;
 }
 
 export function setupTestDb(): void {
@@ -84,6 +85,7 @@ export async function resetTestDb(): Promise<void> {
   await db.delete(schema.inviteCodes);
   await db.delete(schema.serverMembers);
   await db.delete(schema.pairingCodes);
+  await db.delete(schema.shortCodes);
   await db.delete(schema.servers);
   await db.delete(schema.users);
 }
