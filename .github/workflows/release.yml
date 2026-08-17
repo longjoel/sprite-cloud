@@ -117,10 +117,17 @@ jobs:
               with open(path, "rb") as f:
                   return tomllib.load(f)["package"]["version"]
 
+          server_package_version = cargo_version("sc-server/Cargo.toml")
+          tag = os.environ.get("GITHUB_REF_NAME", "")
+          if tag.startswith("v") and tag[1:] != server_package_version:
+              raise SystemExit(
+                  f"release tag {tag} does not match sc-server package version {server_package_version}"
+              )
+
           manifest = {
-              "tag": os.environ.get("GITHUB_REF_NAME", ""),
+              "tag": tag,
               "git_sha": os.environ.get("GITHUB_SHA", ""),
-              "server_package_version": cargo_version("sc-server/Cargo.toml"),
+              "server_package_version": server_package_version,
               "core_package_version": cargo_version("sc-core/Cargo.toml"),
               "artifacts": {},
           }
