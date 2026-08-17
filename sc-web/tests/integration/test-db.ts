@@ -1,10 +1,12 @@
 /**
  * Integration test harness — disposable Postgres for DB-level tests.
  */
-import { execSync } from "child_process";
+import { execFileSync, execSync } from "child_process";
+import { readFileSync } from "fs";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "@/lib/db/schema";
+import type { db as appDb } from "@/lib/db";
 
 const PG_PW = process.env.TEST_PG_PASSWORD || ("test" + "-" + "password");
 let _containerId: string | null = null;
@@ -41,9 +43,9 @@ function randomPort(): number {
 }
 
 
-export function getTestDb() {
+export function getTestDb(): typeof appDb {
   if (!_db) throw new Error("Test DB not started — call setupTestDb first");
-  return _db;
+  return _db as typeof appDb;
 }
 
 export function setupTestDb(): void {
@@ -60,6 +62,7 @@ export function setupTestDb(): void {
 
   waitForPostgresSync(_dbUrl);
   pushSchema();
+  installSafePayloadMigration();
   _pgClient = postgres(_dbUrl);
   _db = drizzle(_pgClient, { schema });
 }
@@ -84,6 +87,7 @@ export async function resetTestDb(): Promise<void> {
   await db.delete(schema.inviteCodes);
   await db.delete(schema.serverMembers);
   await db.delete(schema.pairingCodes);
+  await db.delete(schema.shortCodes);
   await db.delete(schema.servers);
   await db.delete(schema.users);
 }
@@ -101,6 +105,10 @@ function waitForPostgresSync(url: string, maxAttempts: number = 30): void {
     const s = Date.now(); while (Date.now() - s < 500) {}
   }
   throw new Error("Postgres did not become ready");
+}
+
+function installSafePayloadMigration(): void {
+  execFileSync("docker", ["exec", _containerId!, "psql", "-U", "postgres", "-d", "sc_web_test", "-v", "ON_ERROR_STOP=1", "-c", readFileSync("drizzle/0030_safe_command_payload_matching.sql", "utf8")], { stdio: "ignore", timeout: 30_000 });
 }
 
 function pushSchema(): void {

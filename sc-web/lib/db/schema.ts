@@ -239,6 +239,7 @@ export const commands = pgTable("commands", {
   uniqueIndex("uq_commands_active_upgrade_per_server")
     .on(table.serverId)
     .where(sql`${table.type} = 'upgrade_server' AND ${table.status} IN ('pending', 'leased')`),
+  index("idx_commands_server_id").on(table.serverId),
 ]);
 
 // ── Game sessions (one per game start) ────────────────────────────────

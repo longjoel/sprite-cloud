@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { commands, serverMembers, servers, sessions } from "@/lib/db/schema";
+import { commands, serverMembers, servers, sessions, users } from "@/lib/db/schema";
 import { ACTIVE_SESSION_STATES, STATUS_LEASED, STATUS_PENDING } from "@/lib/constants";
 
 const CMD_UPGRADE_SERVER = "upgrade_server";
@@ -68,10 +68,14 @@ export async function POST(
 
   let command: { id: string; status: string };
   try {
-    [command] = await db
-      .insert(commands)
-      .values({ serverId: server_id, type: CMD_UPGRADE_SERVER, payload: {} })
-      .returning({ id: commands.id, status: commands.status });
+    const accountUserId = session.user.id;
+    [command] = await db.transaction(async (tx) => {
+      const [account] = await tx.select({ id: users.id }).from(users).where(eq(users.id, accountUserId)).for("update");
+      if (!account) throw new Error("account no longer exists");
+      return tx.insert(commands)
+        .values({ serverId: server_id, type: CMD_UPGRADE_SERVER, payload: { authorized_user_id: accountUserId } })
+        .returning({ id: commands.id, status: commands.status });
+    });
   } catch (error) {
     if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "23505") {
       throw error;

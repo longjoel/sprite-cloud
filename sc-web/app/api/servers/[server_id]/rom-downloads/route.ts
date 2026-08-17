@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { commands, serverMembers, servers } from "@/lib/db/schema";
+import { commands, serverMembers, servers, users } from "@/lib/db/schema";
 import { applyRateLimit } from "@/lib/rate-limit";
 import { and, eq } from "drizzle-orm";
 
@@ -75,15 +75,17 @@ export async function POST(
   }
 
   // Queue download command for sc-server
-  const [cmd] = await db
-    .insert(commands)
-    .values({
+  const accountUserId = session.user.id;
+  const [cmd] = await db.transaction(async (tx) => {
+    const [account] = await tx.select({ id: users.id }).from(users).where(eq(users.id, accountUserId)).for("update");
+    if (!account) throw new Error("account no longer exists");
+    return tx.insert(commands).values({
       serverId: server_id,
       type: "rom_download",
-      payload: { game_id, server_id },
+      payload: { game_id, server_id, authorized_user_id: accountUserId },
       status: "pending",
-    })
-    .returning({ id: commands.id });
+    }).returning({ id: commands.id });
+  });
 
   return NextResponse.json({ ok: true, command_id: cmd.id, game_id });
 }

@@ -13,6 +13,7 @@ import { NextRequest } from "next/server";
 import { mkdtempSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { users } from "@/lib/db/schema";
 
 const mockWebVersionEnv = {
   GV_WEB_VERSION: "0.1.0",
@@ -34,8 +35,9 @@ const mockDb = {
 
 // Chainable query builder mocks
 function mockQueryBuilder(returnValue: unknown) {
+  let fromTable: unknown;
   const builder: Record<string, Mock> = {
-    from: vi.fn().mockReturnThis(),
+    from: vi.fn((table: unknown) => { fromTable = table; return thenable; }),
     where: vi.fn().mockReturnThis(),
     innerJoin: vi.fn().mockReturnThis(),
     leftJoin: vi.fn().mockReturnThis(),
@@ -47,7 +49,9 @@ function mockQueryBuilder(returnValue: unknown) {
     values: vi.fn().mockReturnThis(),
     set: vi.fn().mockReturnThis(),
     onConflictDoUpdate: vi.fn().mockReturnThis(),
-    for: vi.fn().mockReturnThis(),
+    for: vi.fn((mode?: string, option?: string) => mode === "update" && option === undefined && fromTable === users
+      ? mockQueryBuilder([{ id: "user-1" }])
+      : thenable),
   };
   const thenable = Promise.resolve(returnValue);
   return Object.assign(thenable, builder);
@@ -660,12 +664,7 @@ describe("POST /api/server/command", () => {
         }),
       )
       .mockReturnValueOnce(mockQueryBuilder([]))
-      .mockReturnValueOnce(
-        Object.assign(Promise.resolve([]), {
-          from: vi.fn().mockReturnThis(),
-          where: vi.fn().mockReturnThis(),
-        }),
-      );
+      .mockReturnValueOnce(mockQueryBuilder([]));
 
     const { launchEvents, commands: commandsTable, sessions: sessionsTable, peerTokens: peerTokensTable } = await import("@/lib/db/schema");
     const commandInsertBuilder = {
@@ -817,7 +816,7 @@ describe("POST /api/server/command", () => {
 
     expect(resp.status).toBe(201);
     expect(commandInsertBuilder.values).toHaveBeenCalledWith(expect.objectContaining({
-      payload: { game_id: gameId },
+      payload: { game_id: gameId, user_id: "user-1" },
       status: "preparing",
     }));
     expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
@@ -1107,12 +1106,7 @@ describe("POST /api/server/command", () => {
         }),
       )
       .mockReturnValueOnce(mockQueryBuilder([]))
-      .mockReturnValueOnce(
-        Object.assign(Promise.resolve([]), {
-          from: vi.fn().mockReturnThis(),
-          where: vi.fn().mockReturnThis(),
-        }),
-      );
+      .mockReturnValueOnce(mockQueryBuilder([]));
 
     const insertedValues: Array<Record<string, unknown>> = [];
     const { launchEvents, commands: commandsTable, sessions: sessionsTable, peerTokens: peerTokensTable } = await import("@/lib/db/schema");
@@ -1360,6 +1354,7 @@ describe("GET /api/server/poll", () => {
   it("resets stale runtime sessions once when a new server boot is announced", async () => {
     mockDb.select
       .mockImplementationOnce(() => mockQueryBuilder([{ runtimeBootId: "00000000000000000001-00000000000000000000000000000001" }]))
+      .mockImplementationOnce(() => mockQueryBuilder([{ id: "user-1" }]))
       .mockImplementationOnce(() => mockQueryBuilder([{ id: "session-1", gameId: "game-1" }]))
       .mockImplementationOnce(() => mockQueryBuilder([{ id: "cmd-1", payload: { game_id: "game-1", session_id: "session-1" } }]))
       .mockImplementationOnce(() => mockQueryBuilder([{ runtimeBootId: "00000000000000000002-00000000000000000000000000000002" }]))
@@ -1460,7 +1455,12 @@ describe("GET /api/server/poll", () => {
   it("creates a matching command before its foreign-keyed resident session", async () => {
     const gameId = "local_0123456789abcdef0123456789abcdef";
     mockDb.select
+      .mockImplementationOnce(() => mockQueryBuilder([{ id: "user-1" }]))
       .mockImplementationOnce(() => mockQueryBuilder([{ gameId, maxSeats: 2 }]))
+      .mockImplementationOnce(() => mockQueryBuilder([]))
+      .mockImplementationOnce(() => mockQueryBuilder([]))
+      .mockImplementationOnce(() => mockQueryBuilder([{ id: "user-1" }]))
+      .mockImplementationOnce(() => mockQueryBuilder([]))
       .mockImplementationOnce(() => mockQueryBuilder([]))
       .mockImplementation(() => mockQueryBuilder([]));
 
@@ -1498,6 +1498,8 @@ describe("GET /api/server/poll", () => {
       status: "pending",
       payload: {
         game_id: gameId,
+        user_id: "user-1",
+        authorized_user_id: "user-1",
         session_id: sessionInsert?.values.id,
         resident: true,
         max_seats: 2,
@@ -1638,6 +1640,7 @@ describe("POST /api/servers/[server_id]/upgrade", () => {
       .mockReturnValueOnce(mockQueryBuilder([{ role: "admin" }]))
       .mockReturnValueOnce(mockQueryBuilder([]))
       .mockReturnValueOnce(mockQueryBuilder([]))
+      .mockReturnValueOnce(mockQueryBuilder([{ id: "user-1" }]))
       .mockReturnValueOnce(mockQueryBuilder([{ id: "upgrade-winner", status: "pending" }]));
     mockDb.insert.mockReturnValueOnce(mockQueryBuilder(Promise.reject(Object.assign(new Error("duplicate"), { code: "23505" }))));
     const { POST } = await import("@/app/api/servers/[server_id]/upgrade/route");

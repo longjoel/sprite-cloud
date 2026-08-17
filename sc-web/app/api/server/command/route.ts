@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { commands, peerTokens, serverMembers, servers, sessions, shortCodes } from "@/lib/db/schema";
+import { commands, peerTokens, serverMembers, servers, sessions, shortCodes, users } from "@/lib/db/schema";
 import { ACTIVE_SESSION_STATES, CMD_SDP_OFFER, CMD_START_GAME, CMD_STOP_GAME, SESSION_CONNECTED, SESSION_PLAYING, SESSION_READY, SESSION_SPAWNING, SESSION_STATE_TIMEOUT_MS, STATUS_PENDING } from "@/lib/constants";
 import { and, desc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import { applyRateLimit } from "@/lib/rate-limit";
@@ -214,7 +214,7 @@ export async function POST(request: NextRequest) {
   }
 
   let lanStartUserId: string | undefined;
-  let authenticatedPeer: { role: string; seat: number | null; sessionId: string } | null = null;
+  let authenticatedPeer: { role: string; seat: number | null; sessionId: string; userId: string } | null = null;
 
   // ── LAN host start via short-code bearer token ─────────────────────
   // The embedded LAN player runs on http://<server-ip>:8787, so it cannot
@@ -291,7 +291,7 @@ export async function POST(request: NextRequest) {
       }
       // Resolve room_token → active session → server_id
       const [roomSession] = await db
-        .select({ id: sessions.id, serverId: sessions.serverId, gameId: sessions.gameId, status: sessions.status })
+        .select({ id: sessions.id, userId: sessions.userId, serverId: sessions.serverId, gameId: sessions.gameId, status: sessions.status })
         .from(sessions)
         .where(eq(sessions.roomToken, roomToken))
         .limit(1);
@@ -330,7 +330,7 @@ export async function POST(request: NextRequest) {
         `guest-sdp-session:${roomSession.id}`,
       );
       if (guestSessionSdpRateLimited) return guestSessionSdpRateLimited;
-      authenticatedPeer = { ...peer, sessionId: roomSession.id };
+      authenticatedPeer = { ...peer, sessionId: roomSession.id, userId: roomSession.userId };
       serverId = roomSession.serverId!;
       // Guest auth successful — skip session + CSRF + membership checks
     } else if (!serverId) {
@@ -513,19 +513,33 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Insert command
-  const [cmd] = await db
-    .insert(commands)
-    .values({
-      serverId: serverId,
-      type: body.type,
-      payload: enrichedPayload,
-      workerToken,
-      // start_game remains invisible to server polling until its exact session,
-      // peer capability, and final payload have been committed below.
-      status: body.type === CMD_START_GAME ? "preparing" : STATUS_PENDING,
-    })
-    .returning({ id: commands.id });
+  const commandUserId = session?.user?.id || lanStartUserId || authenticatedPeer?.userId;
+
+  // Insert the command while holding the account row lock shared with
+  // account deletion. This prevents a command from being created in the
+  // deletion-to-user-row-removal window.
+  const [cmd] = await db.transaction(async (tx) => {
+    if (commandUserId) {
+      const [account] = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, commandUserId))
+        .for("update");
+      if (!account) throw new Error("account no longer exists");
+    }
+    return tx
+      .insert(commands)
+      .values({
+        serverId: serverId,
+        type: body.type,
+        payload: commandUserId ? { ...enrichedPayload, user_id: commandUserId } : enrichedPayload,
+        workerToken,
+        // start_game remains invisible to server polling until its exact session,
+        // peer capability, and final payload have been committed below.
+        status: body.type === CMD_START_GAME ? "preparing" : STATUS_PENDING,
+      })
+      .returning({ id: commands.id });
+  });
 
   if (signalingFlow) {
     logSignalingStage(signalingFlow, "command_inserted", {
@@ -666,6 +680,12 @@ export async function POST(request: NextRequest) {
       // Serialize all launches from the same host identity before reading or
       // ending prior sessions. The lock is released automatically on commit.
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${launchLockKey}, 0))`);
+      const [account] = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, uid))
+        .for("update");
+      if (!account) throw new Error("authenticated account missing");
 
       // End prior sessions for this stable server/owner identity, create the new generation and peer
       // capability, and publish the prepared command as one atomic unit.
@@ -694,7 +714,7 @@ export async function POST(request: NextRequest) {
         await tx.insert(commands).values({
           serverId,
           type: CMD_STOP_GAME,
-          payload: { game_id: victim.gameId, session_id: victim.id },
+          payload: { user_id: uid, authorized_user_id: uid, game_id: victim.gameId, session_id: victim.id },
           workerToken: crypto.randomBytes(16).toString("hex"),
           status: STATUS_PENDING,
         });
