@@ -45,6 +45,26 @@ describe("probeLanHealth", () => {
     );
   });
 
+  it("tries every interface when the first LAN address is unreachable", async () => {
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url).includes("192.0.2.1")) {
+        throw new Error("unreachable interface");
+      }
+      return jsonResponse({ status: "ok", lan_player: true, server_id: "server-1" });
+    }) as unknown as typeof fetch;
+
+    const result = await probeLanHealth([
+      "http://192.0.2.1:8787/health",
+      "http://192.0.2.2:8787/health",
+    ], { fetchImpl, pageProtocol: "http:" });
+
+    expect(result).toMatchObject({
+      reachable: true,
+      url: "http://192.0.2.2:8787/health",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("classifies HTTPS page to HTTP LAN probe as mixed-content blocked without fetch", async () => {
     const fetchImpl = vi.fn() as unknown as typeof fetch;
 
