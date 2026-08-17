@@ -7,6 +7,32 @@ set -euo pipefail
 REPO="longjoel/sprite-cloud"
 BINARIES=("sc-server" "sc-core")
 INSTALL_DIR="${SC_INSTALL_DIR:-/usr/local/bin}"
+PRINT_PATHS=false
+
+for arg in "$@"; do
+  case "$arg" in
+    --print-paths) PRINT_PATHS=true ;;
+    --help|-h)
+      printf '%s\n' "Usage: install.sh [--print-paths]"
+      printf '%s\n' "  --print-paths  Print resolved install paths without changing the system"
+      exit 0
+      ;;
+    *) printf 'error: unknown option: %s\n' "$arg" >&2; exit 1 ;;
+  esac
+done
+
+if [ "$(id -u)" -ne 0 ] && [ ! -w "$INSTALL_DIR" ] && [ -z "${SC_INSTALL_DIR:-}" ]; then
+  INSTALL_DIR="$HOME/.local/bin"
+fi
+
+if "$PRINT_PATHS"; then
+  printf 'MODE=%s\n' "$(if [ "$(id -u)" -eq 0 ]; then printf 'system-wide (root)'; else printf 'rootless (user)'; fi)"
+  printf 'INSTALL_DIR=%s\n' "$INSTALL_DIR"
+  printf 'SC_SERVER_PATH=%s/sc-server\n' "$INSTALL_DIR"
+  printf 'SC_CORE_PATH=%s/sc-core\n' "$INSTALL_DIR"
+  exit 0
+fi
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 

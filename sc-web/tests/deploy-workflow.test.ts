@@ -136,6 +136,7 @@ describe("production deploy workflow", () => {
     expect(releaseWorkflow).toContain("server_package_version");
     expect(releaseWorkflow).toContain("core_package_version");
     expect(releaseWorkflow).toContain("git_sha");
+    expect(releaseWorkflow).toContain("does not match sc-server package version");
   });
 
   it("makes a verified backup mandatory in the canonical migration helper", () => {
@@ -173,6 +174,8 @@ describe("production deploy workflow", () => {
     expect(hostInstaller).toContain('mv -f "$STAGED_SERVER" "$BIN_PATH"');
     expect(publicInstaller).toContain('mktemp "$INSTALL_DIR/.sc-server.XXXXXX"');
     expect(publicInstaller).toContain('mv -f "$STAGED_SERVER" "$INSTALL_DIR/sc-server"');
+    expect(publicInstaller).toContain("--print-paths");
+    expect(publicInstaller).toContain("without changing the system");
     expect(rootReadme).toContain("curl -fsSL https://sprite-cloud.com/install.sh | bash");
     expect(scriptsReadme).toContain("curl -fsSL https://sprite-cloud.com/install.sh | bash");
     expect(scriptsReadme).toContain("sudo ./scripts/install.sh");
