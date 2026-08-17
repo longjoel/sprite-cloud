@@ -30,9 +30,12 @@ sc-server host runtime
 ## First-run setup
 
 1. `sc-web` starts with an empty `users` table.
-2. The production entrypoint prints a one-time setup code to logs.
-3. The admin visits `/setup`, enters the code, and creates the first account.
-4. Normal sign-in uses DB-backed email/password credentials.
+2. Startup creates a protected, one-time bootstrap invitation and emits its
+   URL only to server logs.
+3. The operator opens that invitation at `/setup` and creates the first
+   account.
+4. Later accounts join through administrator-issued invitations.
+5. Normal sign-in uses DB-backed email/password credentials.
 
 There is no public LAN username/password bootstrap path.
 

@@ -4,7 +4,7 @@ All notable changes to Sprite Cloud will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project aims for [Semantic Versioning](https://semver.org/spec/v2.0.0.html) after the initial public release.
 
-## v0.3.5 — 2026-07-15
+## v0.3.5 — 2026-07-15 (historical prototype, not beta-supported)
 
 ### Added
 - **Steam Deck desktop client**: Tauri v2 native app with AppImage build
@@ -24,7 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `scripts/release-appimage.sh` — release packaging with SHA256 checksums
 - GitHub Actions release workflow builds AppImage on tag push
 
-## v0.3.4 — 2026-07-14
+## v0.3.4 — 2026-07-14 (historical prototype, not beta-supported)
 
 ### Added
 - XMB keyboard and gamepad navigation wraps at all boundaries
@@ -85,7 +85,7 @@ Initial public release preparation. The project is pre-1.0; all changes so far a
 - Docker build cache masking Next.js changes (`--no-cache` forced rebuilds)
 - Server name in dashboard now uses `os.hostname()` (VAULT) instead of UUID prefix
 
-## v0.6.0 — 2026-06-27
+## v0.6.0 — 2026-06-27 (historical pre-beta architecture)
 
 ### Added
 

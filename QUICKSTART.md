@@ -188,10 +188,13 @@ docker compose up -d
 ### 2. First-run setup
 
 ```bash
-docker logs sc-web-sc-web-1   # shows the setup code
+docker logs sc-web-sc-web-1   # find the protected bootstrap invitation URL
 ```
 
-Visit `https://your-domain.com/setup` → enter the code → create admin account.
+Open the bootstrap invitation URL from the protected logs at
+`https://your-domain.com/setup` to create the first admin account. Later
+accounts join through administrator-issued invitations; there is no public
+signup flow.
 
 ### 3. Connectivity health check
 
