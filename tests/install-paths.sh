@@ -35,6 +35,12 @@ assert_line "$system_output" "DATA_DIR=/var/lib/sprite-cloud"
 assert_line "$system_output" "CONFIG_DIR=/etc/sprite-cloud"
 assert_line "$system_output" "SYSTEMD_DIR=/etc/systemd/system"
 
+public_output="$(bash "$REPO_ROOT/sc-web/public/install.sh" --print-paths)"
+assert_line "$public_output" "MODE=system-wide (root)"
+assert_line "$public_output" "INSTALL_DIR=/usr/local/bin"
+assert_line "$public_output" "SC_SERVER_PATH=/usr/local/bin/sc-server"
+assert_line "$public_output" "SC_CORE_PATH=/usr/local/bin/sc-core"
+
 if [[ -e "${TMP_HOME}/.local/bin" || -e "${TMP_HOME}/.config/sprite-cloud" || -e "${TMP_HOME}/.local/share/sprite-cloud" ]]; then
   echo "--print-paths must not create installation directories" >&2
   exit 1
