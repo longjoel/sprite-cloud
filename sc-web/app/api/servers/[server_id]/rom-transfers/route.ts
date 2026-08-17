@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { commands, serverMembers, servers } from "@/lib/db/schema";
+import { commands, serverMembers, servers, users } from "@/lib/db/schema";
 import { CMD_ROM_TRANSFER } from "@/lib/constants";
 import { applyRateLimit } from "@/lib/rate-limit";
 import { and, eq } from "drizzle-orm";
@@ -181,6 +181,7 @@ export async function POST(
   // ── Queue transfer command for sc-server ───────────────────────────
   const transferId = crypto.randomUUID();
 
+  const accountUserId = session.user.id;
   const commandPayload = {
     transfer_id: transferId,
     operation: "upload" as const,
@@ -195,15 +196,16 @@ export async function POST(
     expires_at: expiresAt.toISOString(),
   };
 
-  const [cmd] = await db
-    .insert(commands)
-    .values({
+  const [cmd] = await db.transaction(async (tx) => {
+    const [account] = await tx.select({ id: users.id }).from(users).where(eq(users.id, accountUserId)).for("update");
+    if (!account) throw new Error("account no longer exists");
+    return tx.insert(commands).values({
       serverId: server_id,
       type: CMD_ROM_TRANSFER,
       payload: commandPayload,
-      status: "preparing" as const, // waits for SDP offer before sc-server picks it up
-    })
-    .returning({ id: commands.id });
+      status: "preparing" as const,
+    }).returning({ id: commands.id });
+  });
 
   // ── Return capability to browser (once) ────────────────────────────
   return NextResponse.json({

@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { revokeDeletedUserToken } from "@/lib/jwt-revocation";
 
 interface DbUser {
   id: string;
@@ -115,6 +116,9 @@ export const { handlers, auth } = NextAuth({
     signIn: "/signin",
   },
   callbacks: {
+    async jwt({ token }) {
+      return revokeDeletedUserToken(token);
+    },
     session({ session, token }) {
       if (session.user && token.sub) {
         session.user.id = token.sub;

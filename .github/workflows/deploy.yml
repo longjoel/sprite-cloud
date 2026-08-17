@@ -93,6 +93,7 @@ jobs:
             sc-web/drizzle/0027_add_server_game_cover_overrides.sql \
             sc-web/drizzle/0028_add_runtime_boot_id.sql \
             sc-web/drizzle/0029_add_runtime_telemetry.sql \
+            sc-web/drizzle/0030_safe_command_payload_matching.sql \
           ; do
             if [ ! -f "$migration" ]; then
               echo "  skip (not present): $migration"

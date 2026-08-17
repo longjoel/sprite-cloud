@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { db } from "@/lib/db";
-import { commands, sessions, gameFlags, serverGames, servers } from "@/lib/db/schema";
+import { commands, sessions, gameFlags, serverGames, servers, users } from "@/lib/db/schema";
 import { verifyBearerToken, unauthorizedResponse } from "@/lib/server-auth";
 import {
   POLL_FAST_MS,
@@ -91,6 +91,13 @@ export async function GET(request: Request): Promise<NextResponse<PollResponse>>
   // that was paused before a newer boot reset must be rejected here, before
   // telemetry, resident convergence, or command leasing can mutate state.
   const leased = await db.transaction(async (tx) => {
+    const [account] = await tx
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, server.userId))
+      .for("update");
+    if (!account) return null;
+
     if (bootId && isBootId(bootId)) {
       const [current] = await tx
         .select({ runtimeBootId: servers.runtimeBootId })
@@ -374,10 +381,18 @@ async function convergeResidents(executor: PollExecutor, serverId: string, userI
 
   // Create start_game for games that are wanted but not active and not in-flight
   const missing = wantedIds.filter((id) => !activeIds.has(id) && !inFlightIds.has(id));
+  // The user-row lock is held for the entire resident convergence transaction,
+  // matching account deletion and fencing command/session lineage atomically.
+  const [account] = await executor
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, userId))
+    .for("update");
+  if (!account) return;
+
   if (missing.length === 0 && wantedIds.length > 0) {
-    // Nothing to start — but we still need to check for stale resident sessions
     // to stop (games whose always_on flag was turned off).
-    await stopDefunctResidents(executor, serverId, wantedIds);
+    await stopDefunctResidents(executor, serverId, wantedIds, userId);
     return;
   }
 
@@ -418,6 +433,8 @@ async function convergeResidents(executor: PollExecutor, serverId: string, userI
       type: "start_game",
       payload: {
         game_id: gameId,
+        user_id: userId,
+        authorized_user_id: userId,
         host_token: hostToken,
         session_id: sessionId,
         resident: true,
@@ -440,7 +457,7 @@ async function convergeResidents(executor: PollExecutor, serverId: string, userI
   }
 
   // Stop any resident sessions whose always_on flag was cleared
-  await stopDefunctResidents(executor, serverId, wantedIds);
+  await stopDefunctResidents(executor, serverId, wantedIds, userId);
 }
 
 /**
@@ -452,6 +469,7 @@ async function stopDefunctResidents(
   executor: PollExecutor,
   serverId: string,
   wantedIds: string[],
+  userId: string,
 ): Promise<void> {
   // Active sessions for this server that are NOT in the wanted set
   const orphaned = await executor
@@ -541,6 +559,8 @@ async function stopDefunctResidents(
       type: "stop_game",
       payload: JSON.stringify({
         game_id: s.gameId,
+        user_id: userId,
+        authorized_user_id: userId,
         host_token: s.hostToken,
         session_id: s.sessionId,
       }),
