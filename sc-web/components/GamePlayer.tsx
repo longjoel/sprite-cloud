@@ -691,7 +691,7 @@ export default function GamePlayer({
       onFullscreen={toggleFullscreen}
       stageRef={stageRef}
     >
-      <div className={styles.shell} onMouseMove={wakeControls} onPointerDown={wakeControls} onKeyDown={wakeControls}>
+      <div className={styles.shell} data-sc-immersive={isFullscreen ? "true" : "false"} onMouseMove={wakeControls} onPointerDown={wakeControls} onKeyDown={wakeControls}>
 
       <Script src="/player/touch-gamepad-v2.js" />
       {/* Canonical browser player bootstrap path — use Next.js <Script>

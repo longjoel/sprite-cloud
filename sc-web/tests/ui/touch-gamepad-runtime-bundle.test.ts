@@ -49,6 +49,7 @@ describe("generated touch gamepad runtime bundle", () => {
       },
     }));
     const shell = document.createElement("div");
+    shell.dataset.scImmersive = "true";
     const video = document.createElement("video");
     shell.appendChild(video);
     document.body.appendChild(shell);

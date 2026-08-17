@@ -12,8 +12,10 @@ const sizePresetKey = "gv:touch-size-preset";
 function createGamepad(
   layout: "horizontal" | "vertical" = "horizontal",
   preset: "nes" | "snes" = "nes",
+  immersive = false,
 ) {
   const shell = document.createElement("div");
+  if (immersive) shell.dataset.scImmersive = "true";
   const video = document.createElement("video");
   shell.appendChild(video);
   document.body.appendChild(shell);
@@ -213,7 +215,7 @@ describe("mobile touch-control islands", () => {
   });
 
   it("applies full-viewport four-edge safe-area geometry to portrait canvas and target layer", () => {
-    const { shell } = createGamepad("vertical");
+    const { shell } = createGamepad("vertical", "nes", true);
     const canvas = shell.querySelector<HTMLCanvasElement>("canvas")!;
     const layer = shell.querySelector<HTMLElement>("[data-touch-islands]")!;
     const targets = Array.from(shell.querySelectorAll<HTMLElement>("[data-touch-target]"));
@@ -240,6 +242,27 @@ describe("mobile touch-control islands", () => {
     expect(targets.every((target) => target.style.borderWidth === "2px")).toBe(true);
     expect(targets.every((target) => !target.style.left.includes("touch-safe"))).toBe(true);
     expect(targets.every((target) => !target.style.top.includes("touch-safe"))).toBe(true);
+  });
+
+  it("keeps portrait hit geometry aligned to the stage before immersive mode", () => {
+    const shell = document.createElement("div");
+    const video = document.createElement("video");
+    shell.appendChild(video);
+    document.body.appendChild(shell);
+    Object.defineProperty(video, "getBoundingClientRect", {
+      value: () => ({ left: 24, top: 48, width: 320, height: 180, right: 344, bottom: 228, x: 24, y: 48, toJSON() {} }),
+    });
+    Object.defineProperty(shell, "getBoundingClientRect", {
+      value: () => ({ left: 0, top: 0, width: 400, height: 800, right: 400, bottom: 800, x: 0, y: 0, toJSON() {} }),
+    });
+    const gamepad = new (TouchGamepad as any)(video, { preset: "nes", layout: "vertical" });
+    gamepad.show();
+    const canvas = shell.querySelector<HTMLCanvasElement>("canvas")!;
+    expect(canvas.style.position).toBe("absolute");
+    expect(canvas.style.left).toBe("24px");
+    expect(canvas.style.top).toBe("48px");
+    expect(canvas.style.width).toBe("320px");
+    expect(canvas.style.height).toBe("180px");
   });
 
   it("leaves the upper portrait half pass-through while controls default to the lower half", () => {
@@ -280,7 +303,7 @@ describe("mobile touch-control islands", () => {
       "nes:horizontal": horizontal,
     }));
 
-    const first = createGamepad("vertical").gamepad;
+    const first = createGamepad("vertical", "nes", true).gamepad;
     expect(first._dpad).toEqual({ x: 0.17, y: 0.56, w: 0.29, h: 0.2 });
     expect(first._face[0]).toEqual({ x: 0.61, y: 0.6, w: 0.13, h: 0.09, label: "B" });
     expect(first._system[1]).toEqual({ x: 0.54, y: 0.89, w: 0.13, h: 0.08, label: "START" });
@@ -451,6 +474,21 @@ describe("mobile touch-control islands", () => {
     expect(face.setPointerCapture).toHaveBeenCalledWith(12);
     dispatchPointer(face, "pointerup", 700, 340, 12, "pen");
     expect(face.releasePointerCapture).toHaveBeenCalledWith(12);
+  });
+
+  it("fires optional haptics once per new press and never requires them", () => {
+    const vibrate = vi.fn(() => true);
+    Object.defineProperty(navigator, "vibrate", { configurable: true, value: vibrate });
+    const { gamepad, shell } = createGamepad();
+    const face = shell.querySelector<HTMLElement>('[data-touch-target="face-0"]')!;
+    dispatchPointer(face, "pointerdown", 700, 340, 81);
+    dispatchPointer(face, "pointermove", 700, 340, 81);
+    expect(vibrate).toHaveBeenCalledTimes(1);
+    expect(vibrate).toHaveBeenCalledWith(8);
+    dispatchPointer(face, "pointerup", 700, 340, 81);
+    delete (navigator as any).vibrate;
+    expect(() => dispatchPointer(face, "pointerdown", 700, 340, 82)).not.toThrow();
+    gamepad.hide();
   });
 
   it("suspend mid-pointer disables actual targets and blocks later move and up", () => {

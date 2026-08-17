@@ -614,13 +614,15 @@ var __touchGamepadBundle = (() => {
     this._canvas.style.setProperty("--touch-safe-right", safeRight);
     this._canvas.style.setProperty("--touch-safe-top", safeTop);
     this._canvas.style.setProperty("--touch-safe-bottom", safeBottom);
-    if (this._castMode) {
+    const parent = this._canvas.parentNode;
+    const immersive = this._castMode || Boolean(parent?.closest('[data-sc-immersive="true"]'));
+    if (immersive) {
       Object.assign(this._canvas.style, {
         position: "fixed",
-        left: safeLeft,
-        right: safeRight,
-        top: safeTop,
-        bottom: safeBottom,
+        left: "var(--touch-safe-left, 0px)",
+        right: "var(--touch-safe-right, 0px)",
+        top: "var(--touch-safe-top, 0px)",
+        bottom: "var(--touch-safe-bottom, 0px)",
         width: `calc(100vw - ${safeLeft} - ${safeRight})`,
         height: `calc(100vh - ${safeTop} - ${safeBottom})`,
         zIndex: "20"
@@ -628,20 +630,22 @@ var __touchGamepadBundle = (() => {
       w = Math.round(window.innerWidth);
       h = Math.round(window.innerHeight);
     } else if (orientation === "vertical") {
+      const vr = this._video.getBoundingClientRect();
+      const pr = parent?.getBoundingClientRect();
+      w = Math.round(vr.width);
+      h = Math.round(vr.height);
       Object.assign(this._canvas.style, {
-        position: "fixed",
-        left: "var(--touch-safe-left, 0px)",
-        right: "var(--touch-safe-right, 0px)",
-        top: "var(--touch-safe-top, 0px)",
-        bottom: "var(--touch-safe-bottom, 0px)",
-        width: "calc(100vw - var(--touch-safe-left, 0px) - var(--touch-safe-right, 0px))",
-        height: "calc(100vh - var(--touch-safe-top, 0px) - var(--touch-safe-bottom, 0px))",
+        position: "absolute",
+        left: `${vr.left - (pr?.left || 0)}px`,
+        top: `${vr.top - (pr?.top || 0)}px`,
+        right: "auto",
+        bottom: "auto",
+        width: `${w}px`,
+        height: `${h}px`,
         zIndex: "10"
       });
-      this._video.style.maxHeight = "50vh";
+      this._video.style.maxHeight = "";
       this._video.style.objectFit = "contain";
-      w = Math.round(window.innerWidth);
-      h = Math.round(window.innerHeight);
     } else {
       const vr = this._video.getBoundingClientRect();
       const pr = this._canvas.parentNode.getBoundingClientRect();
@@ -1042,7 +1046,7 @@ var __touchGamepadBundle = (() => {
         };
         const z2 = gp._findTouchZone(n2);
         if (z2 && z2.kind !== "resize") {
-          applyInput(gp, z2, n2);
+          applyInput(gp, z2, n2, false);
         }
       }
       gp._emitState();
@@ -1074,25 +1078,38 @@ var __touchGamepadBundle = (() => {
         };
         const zm = gp._findTouchZone(nm);
         if (zm && zm.kind !== "resize") {
-          applyInput(gp, zm, nm);
+          applyInput(gp, zm, nm, false);
         }
       }
       gp._emitState();
     }
   }
-  function applyInput(gp, zone, n) {
+  function applyInput(gp, zone, n, allowHaptic = true) {
+    const vibrate = () => {
+      if (allowHaptic && typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+        navigator.vibrate(8);
+      }
+    };
     if (zone.kind === "dpad") {
       const d = gp._dpad;
       const cx = (n.x - d.x) / d.w;
       const cy = (n.y - d.y) / d.h;
-      gp._dpadActive[0] = cy < 0.35 && cx > 0.25 && cx < 0.75;
-      gp._dpadActive[1] = cy > 0.65 && cx > 0.25 && cx < 0.75;
-      gp._dpadActive[2] = cx < 0.35 && cy > 0.25 && cy < 0.75;
-      gp._dpadActive[3] = cx > 0.65 && cy > 0.25 && cy < 0.75;
+      const next = [
+        cy < 0.35 && cx > 0.2 && cx < 0.8,
+        cy > 0.65 && cx > 0.2 && cx < 0.8,
+        cx < 0.35 && cy > 0.2 && cy < 0.8,
+        cx > 0.65 && cy > 0.2 && cy < 0.8
+      ];
+      if (next.some((pressed, index) => pressed && !gp._dpadActive[index])) vibrate();
+      gp._dpadActive = next;
     } else if (zone.kind === "face" && zone.zone !== void 0) {
-      gp._faceStates[parseInt(zone.zone, 10)] = true;
+      const index = parseInt(zone.zone, 10);
+      if (!gp._faceStates[index]) vibrate();
+      gp._faceStates[index] = true;
     } else if (zone.kind === "system" && zone.zone !== void 0) {
-      gp._systemStates[parseInt(zone.zone, 10)] = true;
+      const index = parseInt(zone.zone, 10);
+      if (!gp._systemStates[index]) vibrate();
+      gp._systemStates[index] = true;
     }
   }
   function pointerSample(e, target) {
