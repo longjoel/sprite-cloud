@@ -392,8 +392,8 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
     return host.capabilities.lan && probe ? canUseLanPlayer(probe) : false;
   }
 
-  function lanPlayerUrlsWhenDirectOrPolicyBlocked(host: PlayableHost): string[] | null {
-    const probe = lanProbeByServer[host.server_id];
+  function lanPlayerUrlsWhenDirectOrPolicyBlocked(host: PlayableHost, probeOverride?: LanProbeResult): string[] | null {
+    const probe = probeOverride ?? lanProbeByServer[host.server_id];
     if (!canAttemptLanLaunch(probe, host)) return null;
     // Launch through the exact interface that responded to the browser's
     // health probe. On multi-interface hosts, the first OS-reported address
@@ -426,7 +426,7 @@ export default function LibraryClient({ serverIds, lanLibraries = [], session, i
           ? await probeLanHealth(host.lan?.health_urls, { timeoutMs: 1_200 })
           : { reachable: false, reason: "no_urls" } as LanProbeResult;
         if (!launchGate.current.isCurrent(generation)) return;
-        await navigateToGame(game.id, host.server_id, generation, lanPlayerUrlsWhenDirectOrPolicyBlocked(host));
+        await navigateToGame(game.id, host.server_id, generation, lanPlayerUrlsWhenDirectOrPolicyBlocked(host, probe));
         if (launchGate.current.isCurrent(generation)) closeHostPicker();
         return;
       }
