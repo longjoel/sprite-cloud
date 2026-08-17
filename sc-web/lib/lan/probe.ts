@@ -143,28 +143,12 @@ export async function probeLanHealth(
     pageProtocol: options.pageProtocol ?? currentPageProtocol(),
   };
 
-  // Fast pre-probe: try the first URL with a 300ms timeout.
-  // If a remote host doesn't answer in 300ms, skip the remaining URLs
-  // instead of burning 1200ms per URL on unreachable targets.
-  if (candidates.length > 1) {
-    const quickOptions = { ...resolvedOptions, timeoutMs: 300 };
-    const quickResult = await probeOne(candidates[0], quickOptions);
-    if (!quickResult.reachable) {
-      // Mixed-content blocked is instant — still worth trying other URLs
-      // (e.g. one might be HTTPS). All other failures mean the host is
-      // likely remote — don't waste time on the rest.
-      if (quickResult.reason !== "mixed_content_blocked") {
-        return quickResult;
-      }
-    }
-  }
+  // Probe every interface in parallel. A host can have multiple LAN
+  // addresses (for example wired + Wi-Fi); the first address reported by
+  // the OS is not necessarily reachable from this browser's network.
+  const results = await Promise.all(candidates.map((url) => probeOne(url, resolvedOptions)));
+  const reachable = results.find((result): result is LanProbeReachable => result.reachable);
+  if (reachable) return reachable;
 
-  let lastFailure: LanProbeUnreachable | null = null;
-  for (const url of candidates) {
-    const result = await probeOne(url, resolvedOptions);
-    if (result.reachable) return result;
-    lastFailure = result;
-  }
-
-  return lastFailure ?? { reachable: false, reason: "no_urls" };
+  return results.at(-1) ?? { reachable: false, reason: "no_urls" };
 }
