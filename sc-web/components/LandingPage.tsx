@@ -23,7 +23,8 @@ interface LandingPageProps {
 }
 
 const CTA_LINKS = [
-  { label: "Make your own account", href: "/help#account", primary: true },
+  { label: "Get an invitation", href: "https://discord.gg/zujXa48kyS", primary: true },
+  { label: "Read the beta guide", href: "https://github.com/longjoel/sprite-cloud/blob/main/docs/BETA.md" },
   { label: "Check out the code on GitHub", href: "https://github.com/longjoel/sprite-cloud" },
   { label: "Join the Discord", href: "https://discord.gg/zujXa48kyS" },
   { label: "Read the blog", href: "https://lngnckr.tech/" },
@@ -55,7 +56,7 @@ export default function LandingPage({ userName, authenticated = false }: Landing
         </Box>
 
         <Box component="aside" className={styles.onboarding} aria-labelledby="welcome-heading">
-          <Typography component="p" className={styles.eyebrow}>The arcade is open</Typography>
+          <Typography component="p" className={styles.eyebrow}>Invite-only limited beta</Typography>
           <Typography id="welcome-heading" component="h2" className={styles.title}>
             Play from anywhere.
             <br />

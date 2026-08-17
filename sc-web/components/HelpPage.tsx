@@ -27,7 +27,7 @@ const STEPS: Step[] = [
   {
     num: 1,
     title: "Install the server",
-    desc: "Run this one-liner on your gaming machine (Linux, Bazzite, Steam Deck, Raspberry Pi):",
+    desc: "Run this one-liner on a qualified beta host (Debian/Ubuntu x86-64 or Bazzite/Steam Deck-class x86-64):",
     code: "curl -fsSL https://sprite-cloud.com/install.sh | bash",
   },
   {
@@ -126,6 +126,9 @@ export default function HelpPage({ userName, authenticated = false, isLanProxy =
             </Stack>
           ))}
         </Stack>
+        <Typography color="text.secondary" sx={{ mt: 3, textAlign: "center" }}>
+          Read the <MuiLink href="https://github.com/longjoel/sprite-cloud/blob/main/docs/BETA.md" target="_blank" rel="noopener noreferrer">beta guide</MuiLink> for supported configurations and known limitations, or use the <MuiLink href="https://github.com/longjoel/sprite-cloud/issues/new?template=beta_report.yml" target="_blank" rel="noopener noreferrer">beta report form</MuiLink> for a sanitized defect report.
+        </Typography>
       </Container>
 
       <Container component="section" maxWidth="lg" sx={{ pb: { xs: 6, sm: 8 } }}>

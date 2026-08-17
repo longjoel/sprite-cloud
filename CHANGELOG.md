@@ -4,40 +4,12 @@ All notable changes to Sprite Cloud will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project aims for [Semantic Versioning](https://semver.org/spec/v2.0.0.html) after the initial public release.
 
-## v0.3.5 — 2026-07-15 (historical prototype, not beta-supported)
+## Historical prototype notes
 
-### Added
-- **Steam Deck desktop client**: Tauri v2 native app with AppImage build
-  - Native gamepad polling via `gilrs` — bypasses Steam Input and browser Gamepad API entirely
-  - Bridges raw gamepad state into webview, replacing `navigator.getGamepads()`
-  - RetroPad button mapping for SNES/Genesis/Game Boy controller layouts
-  - Fullscreen XMB shell with F11 toggle
-  - Session persistence via freedesktop Secret Service keyring
-  - Download from GitHub Releases as single `.AppImage` file
-
-### Fixed
-- Steam Deck built-in controller no longer claims P1 in browser — native gilrs owns the gamepad
-- Big Picture mode no longer kills input — `gilrs` reads directly from `/dev/input/event*`
-
-### Build
-- `scripts/build-appimage.sh` — one-command AppImage build
-- `scripts/release-appimage.sh` — release packaging with SHA256 checksums
-- GitHub Actions release workflow builds AppImage on tag push
-
-## v0.3.4 — 2026-07-14 (historical prototype, not beta-supported)
-
-### Added
-- XMB keyboard and gamepad navigation wraps at all boundaries
-- Max controller opacity level (0.95) for daylight visibility
-
-### Changed
-- Edit-mode resize handles enlarged to 56px hit areas with blue square indicators
-- Drag feedback shows control name during repositioning
-- "Return to Library" moved from top chrome into Options menu
-- Room panel uses mobile bottom sheet on phones
-
-### Fixed
-- 114 lines of dead code removed (stale bottom bar, disconnect overlay, unused state)
+The pre-beta `v0.3.x` notes below described an abandoned desktop/AppImage
+prototype and are retained only as project history. The current beta is the
+browser player plus Linux `sc-server` host runtime; there is no supported
+Tauri desktop client, AppImage download, or XMB shell.
 
 ## v0.5.0 — 2026-06-27
 
@@ -94,9 +66,10 @@ Initial public release preparation. The project is pre-1.0; all changes so far a
 - Contribution guide (`CONTRIBUTING.md`) and security policy (`SECURITY.md`)
 - Third-party notice file (`NOTICE`) with GStreamer LGPL attribution
 - GitHub pull request template, issue templates, and CODE_OF_CONDUCT
-- DB-backed email/password authentication with setup-wizard first-user flow
-  - `POST /api/auth/setup` — one-time setup code creates the first admin
-  - `POST /api/auth/signup` — subsequent account creation
+- DB-backed email/password authentication with protected bootstrap invitation and invite-only enrollment
+  - `/api/auth/setup` and `/api/auth/signup` are retired and return `410`
+  - First admin uses the one-time bootstrap invitation emitted to protected logs
+  - Later accounts join through administrator-issued invitations
   - `POST /api/auth/verify` — host API key validation
 - Pairing system: short-lived codes exchanged for server ID + API key
   - `POST /api/auth/pair/generate`
