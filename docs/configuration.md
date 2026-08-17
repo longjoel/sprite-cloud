@@ -19,9 +19,12 @@ File: `sc-web/.env.local` for local dev, or container environment in production.
 | `GV_ICE_TURN_CREDENTIAL` | no | TURN credential |
 | `GV_ICE_TRANSPORT_POLICY` | no | `all` or `relay`; default `all` |
 
-Auth is DB-backed email/password. First-run setup uses `/setup` and the setup code printed in container logs.
-
-First admin account creation is handled by the `/setup` flow. When the `users` table is empty, the production entrypoint prints a one-time setup code to logs. Sign in to `/setup` with that code to create the first account.
+Auth is DB-backed email/password and enrollment is invite-only. When the
+`users` table is empty, the server initializes a protected one-time bootstrap
+invitation and emits its URL to server logs. Open that invitation at `/setup`
+to create the first admin account. Subsequent accounts require an invitation
+from an existing administrator; there is no public signup or reusable setup
+code.
 
 ## sc-server host runtime
 

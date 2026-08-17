@@ -6,11 +6,21 @@ This is the canonical guide for installing, configuring, upgrading, running, and
 
 ## Supported systems
 
-- Linux on `x86_64`
-- Linux on 64-bit ARM (`aarch64`/`arm64`), including Raspberry Pi 3/4/5 with a 64-bit OS
-- Debian/Ubuntu, Fedora/Bazzite, and Arch-family distributions
+Release artifacts are built for Linux `x86_64` and `aarch64`, and the
+installer rejects unsupported architectures. That release availability is
+not the same as a beta support claim:
 
-32-bit ARM (`armv7l`) is not supported. The installer stops with a clear error instead of downloading an incompatible binary.
+- **Limited-beta supported:** Debian/Ubuntu `x86_64` and Fedora/Bazzite or
+  Steam Deck-class `x86_64`, subject to the qualification matrix in
+  [BETA.md](BETA.md).
+- **Observational only:** `aarch64`/`arm64`, including Raspberry Pi-class
+  hosts. ARM64 must not be advertised as beta-supported until a real-device
+  clean-install and gameplay qualification is recorded.
+- **Other distributions/architectures:** use for development only unless
+  separately qualified.
+
+32-bit ARM (`armv7l`) is not supported. The installer stops with a clear
+error instead of downloading an incompatible binary.
 
 ## Runtime dependencies
 

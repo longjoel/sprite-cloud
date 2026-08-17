@@ -41,7 +41,10 @@ pnpm exec drizzle-kit push
 pnpm dev
 ```
 
-Open `http://localhost:3000/setup`. On first run, the server prints a setup code to the console — use that code to create the first admin account.
+Open `http://localhost:3000/setup`. On an empty database, the protected
+bootstrap-invitation URL is emitted to the server logs; open that invitation
+to create the first admin account. Do not treat the bootstrap URL or its
+claim value as public documentation or commit it to a shell history.
 
 ### Configure, pair, and run a host
 
@@ -70,7 +73,7 @@ curl -fsSL https://sprite-cloud.com/install.sh | bash
 sc-server setup
 ```
 
-The public installer detects Linux architecture, downloads the latest checksummed `sc-server` release, verifies SHA-256, and atomically installs the binary. Follow **[the host installation guide](docs/SC-SERVER-INSTALL.md)** for pairing, user-systemd setup, upgrades, persistence, troubleshooting, and managed/system-wide installations.
+The public installer detects Linux architecture, downloads the latest checksummed `sc-server` release, verifies SHA-256, and atomically installs the binary. Follow **[the host installation guide](docs/SC-SERVER-INSTALL.md)** for the beta support matrix, pairing, user-systemd setup, upgrades, persistence, troubleshooting, and managed/system-wide installations.
 
 ## Docker host
 

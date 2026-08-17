@@ -16,8 +16,8 @@ Secrets and bearer tokens are examples only in this document; never commit real 
 
 | Route | Method | Auth | Purpose |
 |---|---:|---|---|
-| `/api/auth/setup` | `POST` | setup code | Create the first admin account when no users exist |
-| `/api/auth/signup` | `POST` | session/setup policy | Create a DB-backed user account |
+| `/api/auth/setup` | `POST` | none | Retired; returns `410` (use the protected bootstrap invitation) |
+| `/api/auth/signup` | `POST` | none | Retired; returns `410` (use an administrator invitation) |
 | `/api/auth/[...nextauth]` | `GET/POST` | Auth.js | Sign-in/sign-out/session handling |
 | `/api/auth/verify` | `GET` | host bearer | Validate a paired host API key |
 

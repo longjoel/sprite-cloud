@@ -27,7 +27,8 @@ const composeFile = readFileSync("../docker-compose.yml", "utf8");
 const devStart = readFileSync("../scripts/dev-start.sh", "utf8");
 const migration = readFileSync("drizzle/0016_remove_cloud_library.sql", "utf8");
 const gamePlayer = readFileSync("components/GamePlayer.tsx", "utf8");
-const landingPage = readFileSync("components/LandingPage.tsx", "utf8");
+const landingSource = readFileSync("components/LandingPage.tsx", "utf8");
+const helpSource = readFileSync("components/HelpPage.tsx", "utf8");
 const homePage = readFileSync("app/page.tsx", "utf8");
 const shareRoute = readFileSync("app/api/room/share/route.ts", "utf8");
 const nextConfig = readFileSync("next.config.ts", "utf8");
@@ -37,6 +38,10 @@ const commandRoute = readFileSync("app/api/server/command/route.ts", "utf8");
 const playerServer = readFileSync("../sc-server/src/player_server.rs", "utf8");
 const rootReadme = readFileSync("../README.md", "utf8");
 const quickstart = readFileSync("../QUICKSTART.md", "utf8");
+const installGuide = readFileSync("../docs/SC-SERVER-INSTALL.md", "utf8");
+const configurationGuide = readFileSync("../docs/configuration.md", "utf8");
+const apiGuide = readFileSync("../docs/API.md", "utf8");
+const architectureGuide = readFileSync("../docs/ARCHITECTURE.md", "utf8");
 
 describe("production deploy workflow", () => {
   it("installs with the checked-in workspace policy and pinned package manager", () => {
@@ -178,6 +183,25 @@ describe("production deploy workflow", () => {
     expect(quickstart).not.toContain("https://get.gamesvault.app");
   });
 
+  it("keeps beta-facing setup and support claims aligned with invite-only enrollment", () => {
+    expect(rootReadme).toContain("bootstrap-invitation URL");
+    expect(rootReadme).not.toContain("prints a setup code");
+    expect(quickstart).toContain("protected bootstrap invitation URL");
+    expect(quickstart).not.toContain("shows the setup code");
+    expect(installGuide).toContain("Limited-beta supported");
+    expect(installGuide).toContain("Observational only");
+    expect(configurationGuide).toContain("enrollment is invite-only");
+    expect(configurationGuide).toContain("no public signup or reusable setup");
+    expect(apiGuide).toContain("Retired; returns `410`");
+    expect(architectureGuide).toContain("protected, one-time bootstrap invitation");
+    expect(architectureGuide).not.toContain("prints a one-time setup code");
+    expect(landingSource).toContain("Get an invitation");
+    expect(landingSource).toContain("Invite-only limited beta");
+    expect(landingSource).not.toContain("Make your own account");
+    expect(helpSource).toContain("qualified beta host");
+    expect(helpSource).not.toContain("Raspberry Pi");
+    expect(helpSource).toContain("beta report form");
+  });
   it("persists setup choices through pairing and gives a direct connection URL", () => {
     expect(serverCommands).toContain("config::effective_rom_roots(existing.as_ref())");
     expect(serverCommands).toContain("core_bridge::configure_cores_dir(&cores.dir)");
@@ -322,8 +346,8 @@ server_id = ""`);
     expect(existsSync("components/PublicRoomPlayer.tsx")).toBe(false);
     expect(existsSync("components/PlayerShell.tsx")).toBe(true);
     expect(homePage).not.toContain("public-watch");
-    expect(landingPage).not.toContain("/watch");
-    expect(landingPage).not.toMatch(/Watch Live|Try Public Demo|Watch \/ Try/);
+    expect(landingSource).not.toContain("/watch");
+    expect(landingSource).not.toMatch(/Watch Live|Try Public Demo|Watch \/ Try/);
     expect(shareRoute).not.toContain("public_");
     expect(deployScript).not.toContain("/watch");
     expect(deployGuide).not.toContain("/watch");
