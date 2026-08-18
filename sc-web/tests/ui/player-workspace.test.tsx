@@ -84,6 +84,8 @@ describe("Material UI player room workspace", () => {
     expect(host.textContent).toContain("Metal Slug");
     expect(host.textContent).toContain("Arcade");
     expect(host.textContent).toContain("Room");
+    expect(host.textContent).toContain("Options");
+    expect(host.textContent).not.toContain("will appear here as they become available");
     expect(Array.from(host.querySelectorAll("button")).some((button) => button.textContent?.includes("Fullscreen"))).toBe(false);
     expect(playerWorkspaceSource).not.toContain("onFullscreen={onFullscreen}");
   });

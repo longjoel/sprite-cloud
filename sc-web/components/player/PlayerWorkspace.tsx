@@ -41,7 +41,7 @@ function RoomSummary() {
       </Box>
       <Divider />
       <Alert severity="info" variant="outlined">
-        Participant presence, chat, and shared room tools will appear here as they become available.
+        Use Options to access save/load, controls, sharing, display, and diagnostics for this session.
       </Alert>
     </Stack>
   );
