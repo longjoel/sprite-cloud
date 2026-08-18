@@ -688,6 +688,7 @@ export default function GamePlayer({
       platform={platform}
       isFullscreen={isFullscreen}
       isLanProxy={isLanProxy}
+      roomRelevant={roomControlsRelevant}
       stageRef={stageRef}
     >
       <div className={styles.shell} onMouseMove={wakeControls} onPointerDown={wakeControls} onKeyDown={wakeControls}>
