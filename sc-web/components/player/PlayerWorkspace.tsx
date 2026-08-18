@@ -27,7 +27,6 @@ interface PlayerWorkspaceProps {
   platform?: string;
   isFullscreen: boolean;
   isLanProxy: boolean;
-  onFullscreen: () => void;
   stageRef: RefObject<HTMLDivElement | null>;
 }
 
@@ -54,7 +53,6 @@ export default function PlayerWorkspace({
   platform,
   isFullscreen,
   isLanProxy,
-  onFullscreen,
   stageRef,
 }: PlayerWorkspaceProps) {
   const theme = useTheme();
@@ -96,7 +94,6 @@ export default function PlayerWorkspace({
           <Box sx={{ minWidth: 0 }}>
             <GameStage ref={stageRef}>{children}</GameStage>
             <PlayerActionBar
-              onFullscreen={onFullscreen}
               onOpenRoom={() => setRoomOpen(true)}
               showRoomAction={compactWorkspace}
             />

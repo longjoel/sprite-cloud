@@ -70,7 +70,6 @@ describe("Material UI player room workspace", () => {
             platform="Arcade"
             isFullscreen={false}
             isLanProxy={false}
-            onFullscreen={vi.fn()}
             stageRef={{ current: null }}
           >
             <div data-testid="game-stream">stream</div>
@@ -85,7 +84,8 @@ describe("Material UI player room workspace", () => {
     expect(host.textContent).toContain("Metal Slug");
     expect(host.textContent).toContain("Arcade");
     expect(host.textContent).toContain("Room");
-    expect(Array.from(host.querySelectorAll("button")).some((button) => button.textContent?.includes("Fullscreen"))).toBe(true);
+    expect(Array.from(host.querySelectorAll("button")).some((button) => button.textContent?.includes("Fullscreen"))).toBe(false);
+    expect(playerWorkspaceSource).not.toContain("onFullscreen={onFullscreen}");
   });
 
   it("preserves authenticated navigation in Room view", async () => {
@@ -97,7 +97,6 @@ describe("Material UI player room workspace", () => {
             gameName="Metal Slug"
             isFullscreen={false}
             isLanProxy={false}
-            onFullscreen={vi.fn()}
             stageRef={{ current: null }}
           >
             <div>stream</div>
@@ -120,7 +119,6 @@ describe("Material UI player room workspace", () => {
             gameName="Metal Slug"
             isFullscreen={false}
             isLanProxy
-            onFullscreen={vi.fn()}
             stageRef={{ current: null }}
           >
             <div>stream</div>
