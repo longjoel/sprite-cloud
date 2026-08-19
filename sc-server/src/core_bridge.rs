@@ -217,6 +217,38 @@ fn deliver_latest_frame(sender: &mpsc::SyncSender<CoreFrame>, frame: CoreFrame) 
     }
 }
 
+/// Deliver the zero-size core-crash sentinel without letting it be dropped by
+/// a full single-slot channel, and do it *before* cancellation is signalled.
+///
+/// Unlike `deliver_latest_frame`, a crash must not be loseable: the streaming
+/// loop depends on seeing the width-0 sentinel to relay `core_died` to the
+/// player. The one-frame channel can legitimately hold a normal frame when the
+/// core dies, so `try_send` may report Full; the consumer drains that slot on
+/// its next ~frame-interval tick, so a short bounded retry lands the sentinel.
+/// We give up (letting cancellation dominate) only if the consumer is gone —
+/// in which case there is no stream left to notify.
+fn deliver_crash_sentinel(sender: &mpsc::SyncSender<CoreFrame>) -> bool {
+    let sentinel = CoreFrame {
+        pixels: Vec::new(),
+        width: 0,
+        height: 0,
+        audio: Vec::new(),
+    };
+    let deadline = std::time::Instant::now() + Duration::from_millis(200);
+    loop {
+        match sender.try_send(sentinel.clone()) {
+            Ok(()) => return true,
+            Err(mpsc::TrySendError::Full(_)) if std::time::Instant::now() < deadline => {
+                // The streaming loop drains the single slot each tick; retry
+                // briefly so the sentinel wins over whatever live frame filled it.
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(mpsc::TrySendError::Full(_)) => return false,
+            Err(mpsc::TrySendError::Disconnected(_)) => return false,
+        }
+    }
+}
+
 /// Run bridge work and always invoke its shutdown lifecycle, even when the
 /// processing loop panics. The panic is contained so SRAM capture and child
 /// termination can complete before the daemon observes bridge completion.
@@ -884,30 +916,19 @@ pub async fn load_core_into_session(
                                 })
                                 .unwrap_or_default();
                             tracing::warn!("[BRIDGE] child exited with {status}: {stderr_out}");
-                            let _ = deliver_latest_frame(
-                                &frame_tx,
-                                CoreFrame {
-                                    pixels: vec![],
-                                    width: 0,
-                                    height: 0,
-                                    audio: vec![],
-                                },
-                            );
+                            // Deliver the crash sentinel *before* cancelling: a
+                            // zero-width sentinel is the streaming loop's signal
+                            // to relay core_died to the player, and it must not
+                            // be dropped by a full channel nor bypassed by the
+                            // cancellation branch winning the select first.
+                            let _ = deliver_crash_sentinel(&frame_tx);
                             cancel.cancel();
                             break;
                         }
                         Ok(None) => {} // still running
                         Err(e) => {
                             tracing::error!("[BRIDGE] try_wait error: {e}");
-                            let _ = deliver_latest_frame(
-                                &frame_tx,
-                                CoreFrame {
-                                    pixels: vec![],
-                                    width: 0,
-                                    height: 0,
-                                    audio: vec![],
-                                },
-                            );
+                            let _ = deliver_crash_sentinel(&frame_tx);
                             cancel.cancel();
                             break;
                         }
@@ -1068,6 +1089,56 @@ mod tests {
             "a full frame channel must drop a stale frame instead of blocking cancellation"
         );
         assert_eq!(rx.recv().unwrap().pixels, vec![1]);
+    }
+
+    #[test]
+    fn crash_sentinel_is_not_dropped_by_a_full_frame_channel() {
+        // A core-crash sentinel must survive a full single-slot channel: the
+        // streaming loop depends on the width-0 sentinel to relay core_died to
+        // the player. Unlike deliver_latest_frame, which drops stale frames,
+        // deliver_crash_sentinel retries until the consumer drains, so the
+        // crash is never lost.
+        let (tx, rx) = mpsc::sync_channel::<CoreFrame>(1);
+        tx.send(CoreFrame {
+            pixels: vec![9],
+            width: 640,
+            height: 480,
+            audio: vec![],
+        })
+        .unwrap();
+
+        // The "consumer" drains the fill frame shortly after send so the
+        // retry loop can land the sentinel. Keep rx alive (shared, not owned by
+        // the drainer) so the channel isn't disconnected while we call
+        // deliver_crash_sentinel — a dropped receiver means "consumer gone".
+        let rx_shared = std::sync::Arc::new(std::sync::Mutex::new(rx));
+        let rx_clone = std::sync::Arc::clone(&rx_shared);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(20));
+            let _ = rx_clone.lock().unwrap().try_recv();
+        });
+
+        // Must return true (sentinel enqueued) despite the full channel.
+        assert!(deliver_crash_sentinel(&tx));
+    }
+
+    #[test]
+    fn crash_sentinel_drains_past_a_normal_frame_and_lands() {
+        let (tx, rx) = mpsc::sync_channel::<CoreFrame>(1);
+        tx.send(CoreFrame {
+            pixels: vec![1],
+            width: 640,
+            height: 480,
+            audio: vec![],
+        })
+        .unwrap();
+
+        // Drain the normal frame, then enqueue the sentinel.
+        let _ = rx.recv();
+        assert!(deliver_crash_sentinel(&tx));
+        let sentinel = rx.recv().unwrap();
+        assert_eq!(sentinel.width, 0);
+        assert!(sentinel.pixels.is_empty());
     }
 
     #[tokio::test]

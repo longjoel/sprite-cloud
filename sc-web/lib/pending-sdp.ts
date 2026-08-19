@@ -7,8 +7,11 @@
 // This eliminates the browser-side polling loop — the answer comes directly
 // in the POST response.
 
-const SDP_TIMEOUT_MS = 60_000; // how long to wait for the answer (accommodates SDP retry)
+import { SDP_ANSWER_WAIT_MS } from "@/lib/constants";
 
+// How long to hold the answer request open. Must exceed the lifecycle lease
+// (120s) plus one redelivered execution so a crashed sc-server's command can
+// be re-leased and answered within the client's patience (see SDP_ANSWER_WAIT_MS).
 interface PendingEntry {
   resolve: (sdpAnswer: string) => void;
   reject: (err: Error) => void;
@@ -30,7 +33,7 @@ export function waitForSdpAnswer(commandId: string): Promise<string> {
     const timer = setTimeout(() => {
       pending.delete(commandId);
       reject(new Error("Timed out waiting for SDP answer from server"));
-    }, SDP_TIMEOUT_MS);
+    }, SDP_ANSWER_WAIT_MS);
 
     pending.set(commandId, { resolve, reject, timer });
   });

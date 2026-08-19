@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { SDP_ANSWER_WAIT_MS } from "@/lib/constants";
 
 // ── WallPreview — lightweight WebRTC viewer for wall game cards
 
@@ -148,9 +149,15 @@ export default function WallPreview({
         if (!cmdRes.ok) throw new Error(`command failed: ${cmdRes.status}`);
         const cmd = await cmdRes.json() as { id: string; worker_token: string };
 
-        // 5. Poll for SDP answer via notify/poll
+        // 5. Poll for SDP answer via notify/poll. Deadline-based so the join
+        //    also survives a sc-server crash: the command stays leased for the
+        //    lifecycle lease (120s), then after expiry a redelivered execution
+        //    runs up to the SDP/ICE ceiling before the answer lands. Match the
+        //    host long-poll budget (SDP_ANSWER_WAIT_MS) so wall joins benefit
+        //    from the lease retry mechanism instead of timing out early.
         const workerToken = cmd.worker_token;
-        for (let i = 0; i < 60; i++) {
+        const pollDeadline = Date.now() + SDP_ANSWER_WAIT_MS;
+        while (Date.now() < pollDeadline) {
           if (cleanup || controller.signal.aborted) break;
           await new Promise((r) => setTimeout(r, 500));
           const pollRes = await fetch("/api/server/notify/poll", {
