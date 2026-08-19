@@ -7,8 +7,9 @@
 //   - Transitions stuck sessions to timed_out (>60s in spawning/ready/connected)
 
 import { db } from "@/lib/db";
-import { commands, launchEvents, peerTokens, sessions } from "@/lib/db/schema";
+import { commands, launchEvents, peerTokens, sessions, servers } from "@/lib/db/schema";
 import { SESSION_STATE_TIMEOUT_MS, SESSION_SPAWNING, SESSION_READY, SESSION_CONNECTED } from "@/lib/constants";
+import { commandSessionId } from "@/lib/command-payload";
 import { and, lt, ne, inArray, notInArray, sql } from "drizzle-orm";
 
 const CLEANUP_INTERVAL_MS = 60_000;
@@ -17,21 +18,96 @@ const SESSION_RETENTION_MS = 3_600_000; // 1 hour
 
 const STUCK_STATES = [SESSION_SPAWNING, SESSION_READY, SESSION_CONNECTED];
 
+
 export async function cleanupOnce(database = db) {
   try {
     const now = Date.now();
 
     // ── Time out stuck sessions ─────────────────────────────────────
     const timeoutCutoff = new Date(now - SESSION_STATE_TIMEOUT_MS);
-    await database
-      .update(sessions)
-      .set({ status: "timed_out", endedAt: new Date() })
-      .where(
-        and(
+    await database.transaction(async (tx) => {
+      const staleServerRows = await tx
+        .select({ serverId: sessions.serverId })
+        .from(sessions)
+        .where(and(
           lt(sessions.stateEnteredAt, timeoutCutoff),
           inArray(sessions.status, STUCK_STATES),
-        ),
-      );
+        ));
+      const staleServerIds = Array.from(new Set(
+        staleServerRows.map((row) => row.serverId).filter((id): id is string => !!id),
+      )).sort();
+      if (staleServerIds.length === 0) return;
+
+      // Serialize with /poll's server-row lock, then re-evaluate eligibility.
+      // No command can be leased between convergence and session timeout.
+      await tx
+        .select({ id: servers.id })
+        .from(servers)
+        .where(inArray(servers.id, staleServerIds))
+        .orderBy(servers.id)
+        .for("update");
+
+      const staleRows = await tx
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(and(
+          lt(sessions.stateEnteredAt, timeoutCutoff),
+          inArray(sessions.status, STUCK_STATES),
+          inArray(sessions.serverId, staleServerIds),
+        ));
+      const staleIds = new Set(staleRows.map((row) => row.id));
+      const lifecycleRows = await tx
+        .select({
+          id: commands.id,
+          type: commands.type,
+          payload: commands.payload,
+          status: commands.status,
+          leaseExpiresAt: commands.leaseExpiresAt,
+        })
+        .from(commands)
+        .where(and(
+          inArray(commands.serverId, staleServerIds),
+          inArray(commands.type, ["start_game", "stop_game", "sdp_offer"]),
+          inArray(commands.status, ["pending", "leased", "failed"]),
+        ));
+      const activeSessionIds = new Set(lifecycleRows
+        .filter((row) =>
+          (row.type === "stop_game" && ["pending", "leased", "failed"].includes(row.status))
+          || (row.status === "leased" && row.leaseExpiresAt && row.leaseExpiresAt.getTime() >= now),
+        )
+        .map((row) => commandSessionId(row.payload))
+        .filter((id): id is string => !!id));
+      const eligibleIds = [...staleIds].filter((id) => !activeSessionIds.has(id));
+      if (eligibleIds.length === 0) return;
+
+      const retryableRows = lifecycleRows.filter((row) => {
+        const sessionId = commandSessionId(row.payload);
+        const leaseExpired = row.status === "pending"
+          || (row.status === "leased" && !!row.leaseExpiresAt && row.leaseExpiresAt.getTime() < now);
+        return !!sessionId && eligibleIds.includes(sessionId) && leaseExpired;
+      });
+      const failedIds = retryableRows
+        .filter((row) => row.type === "start_game" || row.type === "sdp_offer")
+        .map((row) => row.id);
+
+      if (failedIds.length > 0) await tx.update(commands)
+        .set({
+          status: "failed",
+          completedAt: new Date(),
+          lastError: "target session timed out",
+          result: { error: "session_timed_out" },
+          leaseToken: null,
+          leaseExpiresAt: null,
+        })
+        .where(inArray(commands.id, failedIds));
+      await tx.update(sessions)
+        .set({ status: "timed_out", endedAt: new Date() })
+        .where(and(
+          inArray(sessions.id, eligibleIds),
+          lt(sessions.stateEnteredAt, timeoutCutoff),
+          inArray(sessions.status, STUCK_STATES),
+        ));
+    });
 
     const commandCutoff = new Date(now - COMMAND_RETENTION_MS);
     const sessionCutoff = new Date(now - SESSION_RETENTION_MS);
@@ -68,6 +144,7 @@ export async function cleanupOnce(database = db) {
       .where(
         and(
           ne(commands.status, "pending"),
+          sql`(${commands.type} <> 'stop_game' or ${commands.status} in ('completed', 'cancelled'))`,
           lt(commands.createdAt, commandCutoff),
           sql`not exists (select 1 from ${sessions} where ${sessions.commandId} = ${commands.id})`,
           sql`not exists (select 1 from ${launchEvents} where ${launchEvents.commandId} = ${commands.id})`,

@@ -13,7 +13,7 @@ import { NextRequest } from "next/server";
 import { mkdtempSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { users } from "@/lib/db/schema";
+import { servers, users } from "@/lib/db/schema";
 
 const mockWebVersionEnv = {
   GV_WEB_VERSION: "0.1.0",
@@ -49,9 +49,18 @@ function mockQueryBuilder(returnValue: unknown) {
     values: vi.fn().mockReturnThis(),
     set: vi.fn().mockReturnThis(),
     onConflictDoUpdate: vi.fn().mockReturnThis(),
-    for: vi.fn((mode?: string, option?: string) => mode === "update" && option === undefined && fromTable === users
-      ? mockQueryBuilder([{ id: "user-1" }])
-      : thenable),
+    for: vi.fn((mode?: string, option?: string) => {
+      if (mode === "update" && option === undefined && fromTable === users) {
+        return mockQueryBuilder([{ id: "user-1" }]);
+      }
+      if (mode === "update" && option === undefined && fromTable === servers) {
+        if (Array.isArray(returnValue) && returnValue.some((row) => row && typeof row === "object" && "runtimeBootId" in row)) {
+          return thenable;
+        }
+        return mockQueryBuilder([{ runtimeBootId: null }]);
+      }
+      return thenable;
+    }),
   };
   const thenable = Promise.resolve(returnValue);
   return Object.assign(thenable, builder);
@@ -1351,6 +1360,30 @@ describe("GET /api/server/poll", () => {
     expect(body.next_poll_ms).toBeGreaterThan(0);
   });
 
+  it("terminalizes stale start and SDP targets before returning an idle poll", async () => {
+    const updateSets: Array<Record<string, unknown>> = [];
+    mockDb.select.mockReturnValue(mockQueryBuilder([]));
+    mockDb.transaction.mockImplementation(async (fn: any) => fn({
+      ...mockDb,
+      update: vi.fn(() => ({
+        set: vi.fn((value: Record<string, unknown>) => {
+          updateSets.push(value);
+          return { where: vi.fn(() => Promise.resolve(undefined)) };
+        }),
+      })),
+    }));
+
+    const { GET } = await import("@/app/api/server/poll/route");
+    const resp = await GET(mkReq("http://localhost/api/server/poll", { headers: authHeader() }));
+
+    expect(resp.status).toBe(200);
+    expect(await resp.json()).toEqual({ commands: [], next_poll_ms: expect.any(Number) });
+    expect(updateSets).toContainEqual(expect.objectContaining({
+      status: "failed",
+      lastError: "target session is no longer active",
+    }));
+  });
+
   it("resets stale runtime sessions once when a new server boot is announced", async () => {
     mockDb.select
       .mockImplementationOnce(() => mockQueryBuilder([{ runtimeBootId: "00000000000000000001-00000000000000000000000000000001" }]))
@@ -1456,6 +1489,7 @@ describe("GET /api/server/poll", () => {
     const gameId = "local_0123456789abcdef0123456789abcdef";
     mockDb.select
       .mockImplementationOnce(() => mockQueryBuilder([{ id: "user-1" }]))
+      .mockImplementationOnce(() => mockQueryBuilder([{ runtimeBootId: null }]))
       .mockImplementationOnce(() => mockQueryBuilder([{ gameId, maxSeats: 2 }]))
       .mockImplementationOnce(() => mockQueryBuilder([]))
       .mockImplementationOnce(() => mockQueryBuilder([]))
@@ -1510,7 +1544,7 @@ describe("GET /api/server/poll", () => {
 
   it("leases pending commands and returns lease metadata", async () => {
     const rows = [
-      { id: "cmd-1", type: "start_game", payload: { game_id: "local_0123456789abcdef0123456789abcdef" }, attempts: 0 },
+      { id: "cmd-1", type: "start_game", payload: JSON.stringify({ game_id: "local_0123456789abcdef0123456789abcdef" }), attempts: 0 },
     ];
     let updateSet: Record<string, unknown> | undefined;
     mockDb.transaction.mockImplementation(async (fn: any) => {
@@ -1549,6 +1583,41 @@ describe("GET /api/server/poll", () => {
 
     const { launchEvents } = await import("@/lib/db/schema");
     expect(mockDb.insert).toHaveBeenCalledWith(launchEvents);
+  });
+
+  it("terminalizes a command after its bounded retry budget", async () => {
+    const rows = [
+      { id: "cmd-exhausted", type: "sdp_offer", payload: { game_id: "local_0123456789abcdef0123456789abcdef" }, attempts: 5 },
+    ];
+    const updateSets: Array<Record<string, unknown>> = [];
+    mockDb.transaction.mockImplementation(async (fn: any) => {
+      const tx = {
+        select: vi.fn(() => mockQueryBuilder(rows)),
+        update: vi.fn(() => ({
+          set: vi.fn((value: Record<string, unknown>) => {
+            updateSets.push(value);
+            return { where: vi.fn(() => Promise.resolve(undefined)) };
+          }),
+        })),
+      };
+      return fn(tx);
+    });
+
+    const { GET } = await import("@/app/api/server/poll/route");
+    const req = mkReq("http://localhost/api/server/poll", { headers: authHeader() });
+    const response = await GET(req);
+
+    expect(await response.json()).toMatchObject({ commands: [] });
+    expect(updateSets).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        status: "failed",
+        lastError: "command retry budget exhausted",
+        result: { error: "command_retry_exhausted" },
+      }),
+    ]));
+    expect(updateSets).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "leased" }),
+    ]));
   });
 
   it("prioritizes signaling commands before slower control work", async () => {
@@ -1820,6 +1889,72 @@ describe("POST /api/server/notify", () => {
     expect(mockDb.update).not.toHaveBeenCalled();
   });
 
+  it.each(["ended", "timed_out"])(
+    "idempotently accepts worker-dead notification for an exact %s session",
+    async (status) => {
+      mockDb.select
+        .mockReturnValueOnce(mockQueryBuilder([{ id: "server-1" }]))
+        .mockReturnValueOnce(mockQueryBuilder([{
+          id: "session-ended",
+          status,
+          serverId: "server-1",
+          gameId: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        }]));
+      const { POST } = await import("@/app/api/server/notify/route");
+      const req = mkReq("http://localhost/api/server/notify", {
+        ...jsonBody({
+          command_id: "__worker_dead__",
+          game_id: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          session_id: "session-ended",
+          action: "stop",
+        }),
+        headers: authHeader(),
+      });
+      const resp = await POST(req as any);
+      expect(resp.status).toBe(200);
+      expect(await resp.json()).toMatchObject({ ok: true, already_ended: true });
+      expect(mockDb.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it("completes a legacy-string redelivered stop after cleanup timed out the session", async () => {
+    mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ id: "server-1" }]))
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "stop-redelivery",
+        serverId: "server-1",
+        type: "stop_game",
+        payload: JSON.stringify({
+          game_id: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          session_id: "session-ended",
+        }),
+        status: "leased",
+        leaseToken: "lease-redelivery",
+      }]))
+      .mockReturnValueOnce(mockQueryBuilder([{
+        id: "session-ended",
+        status: "timed_out",
+        serverId: "server-1",
+        gameId: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      }]));
+    mockDb.update.mockReturnValueOnce(mockQueryBuilder([{ id: "stop-redelivery" }]));
+    const { POST } = await import("@/app/api/server/notify/route");
+    const req = mkReq("http://localhost/api/server/notify", {
+      ...jsonBody({
+        command_id: "stop-redelivery",
+        game_id: "local_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        session_id: "session-ended",
+        action: "stop",
+        lease_token: "lease-redelivery",
+      }),
+      headers: authHeader(),
+    });
+    const resp = await POST(req as any);
+    expect(resp.status).toBe(200);
+    expect(await resp.json()).toMatchObject({ ok: true, already_ended: true });
+    expect(mockDb.update).toHaveBeenCalledTimes(1);
+  });
+
   it("does not revive an ended session from a leased callback", async () => {
     mockDb.select
       .mockReturnValueOnce(mockQueryBuilder([{
@@ -1909,6 +2044,7 @@ describe("POST /api/server/notify", () => {
 
   it("accepts an authorized stop action without worker_url", async () => {
     mockDb.select
+      .mockReturnValueOnce(mockQueryBuilder([{ id: "server-1" }]))
       .mockReturnValueOnce(mockQueryBuilder([{
         id: "cmd-1",
         serverId: "server-1",

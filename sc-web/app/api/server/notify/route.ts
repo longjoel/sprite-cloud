@@ -9,6 +9,7 @@ import { randomBytes } from "crypto";
 import { recordLaunchEvent } from "@/lib/launch-events";
 import { resolveSdpAnswer } from "@/lib/pending-sdp";
 import { logSignalingStage, type SignalingFlow } from "@/lib/signaling";
+import { commandPayloadObject } from "@/lib/command-payload";
 
 const NOTIFY_RATE_LIMIT = 300; // requests per minute per IP (server-to-server, burst-tolerant)
 
@@ -106,27 +107,49 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "stop notification requires session_id" }, { status: 400 });
     }
 
+    try {
+      const outcome = await db.transaction(async (tx) => {
+        // Shared terminalization fence with /poll and cleanup. Holding the
+        // server row through command/session validation and mutation prevents
+        // stale lifecycle work from being leased concurrently.
+        await tx
+          .select({ id: servers.id })
+          .from(servers)
+          .where(eq(servers.id, server.id))
+          .for("update");
+
+        let stopCommand: {
+      id: string;
+      serverId: string;
+      type: string;
+      payload: unknown;
+      status: string;
+      leaseToken: string | null;
+    } | undefined;
     if (!isWorkerDead) {
       if (!body.lease_token) {
         return NextResponse.json({ error: "lease_token required" }, { status: 400 });
       }
-      const [stopCommand] = await db
+      [stopCommand] = await tx
         .select({
           id: commands.id,
           serverId: commands.serverId,
           type: commands.type,
           payload: commands.payload,
+          status: commands.status,
+          leaseToken: commands.leaseToken,
         })
         .from(commands)
         .where(and(eq(commands.id, body.command_id), eq(commands.serverId, server.id)))
-        .limit(1);
-      const stopPayload = (stopCommand?.payload || {}) as Record<string, unknown>;
+        .limit(1)
+        .for("update");
+      const stopPayload = commandPayloadObject(stopCommand?.payload);
       if (
         !stopCommand
         || stopCommand.serverId !== server.id
         || stopCommand.type !== "stop_game"
-        || stopPayload.game_id !== body.game_id
-        || stopPayload.session_id !== body.session_id
+        || stopPayload?.game_id !== body.game_id
+        || stopPayload?.session_id !== body.session_id
       ) {
         return NextResponse.json({ error: "stop command does not match session game" }, { status: 409 });
       }
@@ -139,7 +162,7 @@ export async function POST(request: NextRequest) {
       serverId: string | null;
       gameId: string;
     } | undefined;
-    [session] = await db
+    [session] = await tx
       .select({
         id: sessions.id,
         status: sessions.status,
@@ -149,18 +172,44 @@ export async function POST(request: NextRequest) {
       .from(sessions)
       .where(
         and(
-          eq(sessions.id, body.session_id),
+          eq(sessions.id, body.session_id!),
           eq(sessions.serverId, server.id),
-          eq(sessions.gameId, body.game_id),
+          eq(sessions.gameId, body.game_id!),
         ),
       )
-      .limit(1);
+      .limit(1)
+      .for("update");
 
     if (
       session?.serverId !== server.id
       || session?.gameId !== body.game_id
-      || !VALID_TRANSITIONS[session.status]?.includes(SESSION_ENDED)
     ) {
+      return NextResponse.json({ error: "active session not found" }, { status: 409 });
+    }
+
+    // Idempotent for the exact owned generation: the transition may have
+    // committed even when its HTTP response was lost. A redelivered stop can
+    // also complete after worker-dead cleanup already ended the session.
+    if (session.status === SESSION_ENDED || session.status === "timed_out") {
+      if (isWorkerDead || stopCommand?.status === STATUS_COMPLETED) {
+        return NextResponse.json({ ok: true, already_ended: true });
+      }
+      const [lease] = await tx
+        .update(commands)
+        .set({ status: STATUS_COMPLETED, completedAt: new Date(), lastError: null })
+        .where(and(
+          eq(commands.id, body.command_id),
+          eq(commands.serverId, server.id),
+          eq(commands.status, STATUS_LEASED),
+          eq(commands.leaseToken, body.lease_token!),
+        ))
+        .returning({ id: commands.id });
+      if (!lease) {
+        return NextResponse.json({ error: "command lease not found" }, { status: 409 });
+      }
+      return NextResponse.json({ ok: true, already_ended: true });
+    }
+    if (!VALID_TRANSITIONS[session.status]?.includes(SESSION_ENDED)) {
       return NextResponse.json({ error: "active session not found" }, { status: 409 });
     }
 
@@ -169,34 +218,35 @@ export async function POST(request: NextRequest) {
       session_id: session.id,
       session_status: session.status,
     });
-    try {
-      await db.transaction(async (tx) => {
-        const [ended] = await tx
-          .update(sessions)
-          .set({ status: SESSION_ENDED, endedAt: new Date(), stateEnteredAt: new Date() })
-          .where(and(
-            eq(sessions.id, session.id),
-            eq(sessions.serverId, server.id),
-            eq(sessions.gameId, body.game_id!),
-            eq(sessions.status, session.status),
-          ))
-          .returning({ id: sessions.id });
-        if (!ended) throw new NotifyConflict("session");
+    const [ended] = await tx
+      .update(sessions)
+      .set({ status: SESSION_ENDED, endedAt: new Date(), stateEnteredAt: new Date() })
+      .where(and(
+        eq(sessions.id, session.id),
+        eq(sessions.serverId, server.id),
+        eq(sessions.gameId, body.game_id!),
+        eq(sessions.status, session.status),
+      ))
+      .returning({ id: sessions.id });
+    if (!ended) throw new NotifyConflict("session");
 
-        if (!isWorkerDead) {
-          const [lease] = await tx
-            .update(commands)
-            .set({ status: STATUS_COMPLETED, completedAt: new Date(), lastError: null })
-            .where(and(
-              eq(commands.id, body.command_id),
-              eq(commands.serverId, server.id),
-              eq(commands.status, STATUS_LEASED),
-              eq(commands.leaseToken, body.lease_token!),
-            ))
-            .returning({ id: commands.id });
-          if (!lease) throw new NotifyConflict("lease");
-        }
+    if (!isWorkerDead) {
+      const [lease] = await tx
+        .update(commands)
+        .set({ status: STATUS_COMPLETED, completedAt: new Date(), lastError: null })
+        .where(and(
+          eq(commands.id, body.command_id),
+          eq(commands.serverId, server.id),
+          eq(commands.status, STATUS_LEASED),
+          eq(commands.leaseToken, body.lease_token!),
+        ))
+        .returning({ id: commands.id });
+      if (!lease) throw new NotifyConflict("lease");
+    }
+
+    return NextResponse.json({ ok: true });
       });
+      return outcome;
     } catch (error) {
       if (error instanceof NotifyConflict) {
         const message = error.kind === "lease" ? "command lease not found" : "session state changed";
@@ -204,8 +254,6 @@ export async function POST(request: NextRequest) {
       }
       throw error;
     }
-
-    return NextResponse.json({ ok: true });
   }
 
   // Verify this server owns the command
@@ -215,18 +263,18 @@ export async function POST(request: NextRequest) {
     .where(and(eq(commands.id, body.command_id), eq(commands.serverId, server.id)))
     .limit(1);
 
+  const commandPayload = commandPayloadObject(cmd?.payload) ?? {};
   notifyFlow = effectiveAction === "stop"
     ? "stop"
     : cmd
       ? (cmd.type === "sdp_offer"
-          ? (((cmd.payload as Record<string, unknown> | null)?.peer_token || (cmd.payload as Record<string, unknown> | null)?.room_token) ? "guest_offer" : "host_reconnect")
+          ? ((commandPayload.peer_token || commandPayload.room_token) ? "guest_offer" : "host_reconnect")
           : "host_start")
       : "notify";
 
   if (!cmd || cmd.serverId !== server.id) {
     return NextResponse.json({ error: "command not found" }, { status: 404 });
   }
-  const commandPayload = (cmd.payload || {}) as Record<string, unknown>;
 
   // ── ROM transfer branch: no sessions, no game_id ──────────────────
   if (cmd.type === "rom_transfer") {

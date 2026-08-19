@@ -82,6 +82,58 @@ fn is_resident(cmd: &sc_web::Command) -> bool {
     cmd.payload.get("resident").and_then(|v| v.as_bool()).unwrap_or(false)
 }
 
+async fn cleanup_failed_start(
+    game_id: &str,
+    session: &Arc<GameSession>,
+    sessions: &mut HashMap<String, Arc<GameSession>>,
+) {
+    let stopped = core_bridge::cancel_and_wait_for_core(
+        &session.cancel,
+        &session.core_stopped,
+        Duration::from_secs(2),
+    )
+    .await;
+    if !stopped {
+        // Keep the cancelled session as the per-game fence until child reaping.
+        tracing::error!("[SESSION] failed launch core did not stop within shutdown deadline");
+    } else if sessions
+        .get(game_id)
+        .is_some_and(|current| Arc::ptr_eq(current, session))
+    {
+        sessions.remove(game_id);
+    }
+
+    close_session_peers(session).await;
+}
+
+async fn close_host_peer(session: &Arc<GameSession>) {
+    let pc = {
+        let _host_guard = session.host_lifecycle.lock().await;
+        session.pc.lock().expect("mutex poisoned").clone()
+    };
+    if let Err(error) = pc.close().await {
+        tracing::warn!("[SESSION] host peer close failed: {error}");
+    }
+}
+
+pub(super) async fn close_session_peers(session: &Arc<GameSession>) {
+    session.cancel.cancel();
+    close_host_peer(session).await;
+    *session.dc.lock().await = None;
+    session
+        .host_connected
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+    let guests = {
+        let _lifecycle = session.guest_lifecycle.lock().await;
+        std::mem::take(&mut *session.guests.lock().await)
+    };
+    for guest in guests {
+        if let Err(error) = guest.pc.close().await {
+            tracing::warn!("[SESSION] guest peer close failed: {error}");
+        }
+    }
+}
+
 pub(super) async fn handle_start_game(
     cmd: &sc_web::Command,
     client: &sc_web::ScWebClient,
@@ -129,14 +181,52 @@ pub(super) async fn handle_start_game(
     );
     let t_total = std::time::Instant::now();
 
-    // Kill existing session for this game_id
-    if let Some(old) = sessions.remove(game_id) {
+    // Stop and reap any existing runtime before reusing this game's shared-
+    // memory names. Starting the replacement early can orphan the old sc-core
+    // and make both processes race the same IPC files.
+    if let Some(old) = sessions.get(game_id).cloned() {
         signal_log(
             "host_start",
             "previous_session_cancelled",
             &format!("game_id={}", game_id),
         );
-        old.cancel.cancel();
+        if !core_bridge::cancel_and_wait_for_core(
+            &old.cancel,
+            &old.core_stopped,
+            Duration::from_secs(2),
+        )
+        .await
+        {
+            tracing::error!(
+                "[SESSION] previous core did not stop; refusing overlapping replacement"
+            );
+            let _ = client
+                .command_result(
+                    &cmd.id,
+                    &cmd.lease_token,
+                    &serde_json::json!({
+                        "error": "core_shutdown_timeout",
+                        "message": "previous game runtime did not stop cleanly"
+                    }),
+                )
+                .await;
+            return;
+        }
+        close_session_peers(&old).await;
+        if old.cloud_session_id.is_some()
+            && let Err(error) = client
+                .notify_worker_dead(game_id, old.cloud_session_id.as_deref())
+                .await
+        {
+            tracing::warn!("[SESSION] replacement teardown notify failed: {error:#}");
+            return;
+        }
+        if sessions
+            .get(game_id)
+            .is_some_and(|current| Arc::ptr_eq(current, &old))
+        {
+            sessions.remove(game_id);
+        }
     }
 
     // Resolve opaque local IDs inside sc-server. Legacy path/platform fields are
@@ -261,6 +351,7 @@ pub(super) async fn handle_start_game(
         video_track: std::sync::Mutex::new(stack.video_track),
         audio_track: std::sync::Mutex::new(stack.audio_track),
         dc: tokio::sync::Mutex::new(None),
+        host_lifecycle: tokio::sync::Mutex::new(()),
         guests: tokio::sync::Mutex::new(Vec::new()),
         guest_lifecycle: tokio::sync::Mutex::new(()),
         pending_guest_exchanges: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
@@ -271,6 +362,7 @@ pub(super) async fn handle_start_game(
         // #745: identity comes from the gateway-enriched start_game payload
         // (membership + short-code validated), never from the browser.
         account_id: tokio::sync::Mutex::new(payload_account_id(cmd)),
+        core_started: std::sync::atomic::AtomicBool::new(false),
         core_loaded: std::sync::atomic::AtomicBool::new(false),
         core_loading: std::sync::atomic::AtomicBool::new(false),
         core_cmd_tx: tokio::sync::Mutex::new(None),
@@ -295,8 +387,8 @@ pub(super) async fn handle_start_game(
     )
     .await
     {
-        session.cancel.cancel();
         tracing::error!("[SESSION] core startup failed: {error}");
+        cleanup_failed_start(game_id, &session, sessions).await;
         let _ = client
             .command_result(
                 &cmd.id,
@@ -314,9 +406,11 @@ pub(super) async fn handle_start_game(
 
     // Spawn streaming loop
     let stream_session = Arc::clone(&session);
-    let _stream_cancel = session.cancel.clone();
+    let stream_cancel = session.cancel.clone();
     tokio::spawn(async move {
         streaming::run_stream(stream_session).await;
+        // Encoder/push failures must tear down a runtime that no longer drains.
+        stream_cancel.cancel();
     });
 
     // Store session (clone before moving into HashMap)
@@ -324,7 +418,6 @@ pub(super) async fn handle_start_game(
     let t3 = std::time::Instant::now();
 
     // Notify sc-web — include SDP answer if offer was provided
-    let mut launch_ready = false;
     if let Some(offer) = sdp_offer {
         // SDP exchange with retry: first attempt on session PC,
         // then acquire fresh PC from pool and retry if needed
@@ -357,11 +450,18 @@ pub(super) async fn handle_start_game(
                             match webrtc::build_session_pc_lan().await {
                                 Ok(fresh) => {
                                     tracing::info!("[SESSION] SDP retry (LAN): built fresh PC");
+                                    let old_pc = {
+                                        let _host_guard = session.host_lifecycle.lock().await;
+                                        let mut current = session.pc.lock().expect("mutex poisoned");
+                                        std::mem::replace(&mut *current, fresh.pc)
+                                    };
+                                    if let Err(error) = old_pc.close().await {
+                                        tracing::warn!("[SESSION] failed host peer close failed: {error}");
+                                    }
                                     *session.video_track.lock().expect("mutex poisoned") =
                                         fresh.video_track;
                                     *session.audio_track.lock().expect("mutex poisoned") =
                                         fresh.audio_track;
-                                    *session.pc.lock().expect("mutex poisoned") = fresh.pc;
                                     dc_handler::wire_dc_handler(&session);
                                     tokio::time::sleep(Duration::from_millis(500)).await;
                                 }
@@ -379,12 +479,19 @@ pub(super) async fn handle_start_game(
                                     tracing::info!(
                                         "[SESSION] SDP retry: swapped in fresh PC from pool"
                                     );
+                                    let old_pc = {
+                                        let _host_guard = session.host_lifecycle.lock().await;
+                                        let mut current = session.pc.lock().expect("mutex poisoned");
+                                        std::mem::replace(&mut *current, fresh.pc)
+                                    };
+                                    if let Err(error) = old_pc.close().await {
+                                        tracing::warn!("[SESSION] failed host peer close failed: {error}");
+                                    }
                                     // Swap tracks too — the streaming loop references them
                                     *session.video_track.lock().expect("mutex poisoned") =
                                         fresh.video_track;
                                     *session.audio_track.lock().expect("mutex poisoned") =
                                         fresh.audio_track;
-                                    *session.pc.lock().expect("mutex poisoned") = fresh.pc;
                                     // Re-wire DC handler on the new PC
                                     dc_handler::wire_dc_handler(&session);
                                     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -416,8 +523,9 @@ pub(super) async fn handle_start_game(
                     .await
                 {
                     tracing::error!("[NOTIFY] notify_sdp failed: {e:#}");
+                    cleanup_failed_start(game_id, &session, sessions).await;
+                    return;
                 } else {
-                    launch_ready = true;
                     signal_log(
                         "host_start",
                         "notify_sdp_sent",
@@ -433,6 +541,7 @@ pub(super) async fn handle_start_game(
             }
             Err(e) => {
                 tracing::error!("[SESSION] SDP exchange failed after {max_attempts} attempts: {e}");
+                cleanup_failed_start(game_id, &session, sessions).await;
                 let _ = client
                     .command_result(
                         &cmd.id,
@@ -455,8 +564,9 @@ pub(super) async fn handle_start_game(
             .await
         {
             tracing::error!("[NOTIFY] failed: {e:#}");
+            cleanup_failed_start(game_id, &session, sessions).await;
+            return;
         } else {
-            launch_ready = true;
             signal_log(
                 "host_start",
                 "notify_ready_sent",
@@ -469,7 +579,7 @@ pub(super) async fn handle_start_game(
         }
     }
 
-    record_server_local_play(library_preferences, game_id, launch_ready, server_local).await;
+    record_server_local_play(library_preferences, game_id, true, server_local).await;
 
     // ── Resident checkpoint timer ────────────────────────────────────
     // Resident sessions save state every 5 minutes so crash recovery
@@ -525,31 +635,32 @@ pub(super) async fn handle_stop_game(
             .get(game_id)
             .and_then(|session| session.cloud_session_id.as_deref())
             == Some(target_session_id);
-        if matches_current && let Some(session) = sessions.remove(game_id) {
-            session.cancel.cancel();
-            stopped = true;
+        if matches_current && let Some(session) = sessions.get(game_id).cloned() {
+            if core_bridge::cancel_and_wait_for_core(
+                &session.cancel,
+                &session.core_stopped,
+                Duration::from_secs(2),
+            )
+            .await
+            {
+                close_session_peers(&session).await;
+                stopped = true;
+            } else {
+                tracing::error!("[POLL] stop_game core shutdown timed out for {game_id}");
+                // Keep both the command lease and per-game tombstone retryable.
+                // Once core_stopped fires, dead-session cleanup durably notifies
+                // sc-web before removing the authoritative local fence.
+                return;
+            }
         } else if sessions.contains_key(game_id) {
             tracing::warn!("[POLL] ignoring stale stop for a superseded game session");
-            // Command is valid (a session exists for this game_id) but the
-            // cloud session ID no longer matches — mark completed so it
-            // doesn't cycle in the poll loop forever.
             let _ = client
-                .command_result(
-                    &cmd.id,
-                    &cmd.lease_token,
-                    &serde_json::json!({"ok": true, "reason": "session superseded"}),
-                )
+                .notify_stop(&cmd.id, &cmd.lease_token, game_id, Some(target_session_id))
                 .await;
         } else {
-            tracing::info!("[POLL] stop_game for already-ended session {game_id}, skipping notify");
-            // Session already gone — desired outcome is already achieved.
-            // Mark completed so the gateway doesn't re-issue it forever.
+            tracing::info!("[POLL] stop_game for absent runtime {game_id}; converging cloud state");
             let _ = client
-                .command_result(
-                    &cmd.id,
-                    &cmd.lease_token,
-                    &serde_json::json!({"ok": true, "reason": "session already ended"}),
-                )
+                .notify_stop(&cmd.id, &cmd.lease_token, game_id, Some(target_session_id))
                 .await;
         }
     } else {
@@ -564,10 +675,22 @@ pub(super) async fn handle_stop_game(
             .await;
     }
     if stopped {
-        let _ = client
+        match client
             .notify_stop(&cmd.id, &cmd.lease_token, game_id, target_session_id)
             .await
-            .map_err(|e| tracing::warn!("[POLL] notify_stop failed for {}: {:#}", game_id, e));
+        {
+            Ok(()) => {
+                if let Some(session) = sessions.get(game_id)
+                    && session.cloud_session_id.as_deref() == target_session_id
+                {
+                    sessions.remove(game_id);
+                }
+            }
+            Err(error) => {
+                tracing::warn!("[POLL] notify_stop failed for {game_id}: {error:#}");
+                // Keep the cancelled/reaped session as a durable retry tombstone.
+            }
+        }
     }
 }
 
@@ -686,9 +809,16 @@ pub(super) async fn handle_sdp_offer(
                     Ok(fresh) => {
                         let rebind_video = fresh.video_track.clone();
                         let rebind_audio = fresh.audio_track.clone();
+                        let old_pc = {
+                            let _host_guard = session.host_lifecycle.lock().await;
+                            let mut current = session.pc.lock().expect("mutex poisoned");
+                            std::mem::replace(&mut *current, fresh.pc)
+                        };
+                        if let Err(error) = old_pc.close().await {
+                            tracing::warn!("[SDP] failed superseded host peer close: {error}");
+                        }
                         *session.video_track.lock().expect("mutex poisoned") = fresh.video_track;
                         *session.audio_track.lock().expect("mutex poisoned") = fresh.audio_track;
-                        *session.pc.lock().expect("mutex poisoned") = fresh.pc;
                         rebind_guest_tracks(session, rebind_video, rebind_audio).await;
                         dc_handler::wire_dc_handler(session);
 
@@ -711,7 +841,7 @@ pub(super) async fn handle_sdp_offer(
                                 let worker_url = worker_url(game_id);
                                 let session_id =
                                     cmd.payload.get("session_id").and_then(|v| v.as_str());
-                                let _ = client
+                                if let Err(error) = client
                                     .notify_sdp(
                                         &cmd.id,
                                         &cmd.lease_token,
@@ -720,10 +850,15 @@ pub(super) async fn handle_sdp_offer(
                                         &answer_sdp,
                                         session_id,
                                     )
-                                    .await;
+                                    .await
+                                {
+                                    tracing::error!("[SDP] reconnection notify failed: {error:#}");
+                                    close_host_peer(session).await;
+                                }
                             }
                             Err(e) => {
                                 tracing::error!("[SDP] reconnection exchange failed: {e}");
+                                close_host_peer(session).await;
                                 let _ = client.command_result(
                                     &cmd.id, &cmd.lease_token,
                                     &serde_json::json!({"error": "sdp_handshake_failed", "message": e}),
@@ -772,11 +907,18 @@ pub(super) async fn handle_sdp_offer(
                                     tracing::info!("[SDP] retry: swapped in fresh PC from pool");
                                     let rebind_video = fresh.video_track.clone();
                                     let rebind_audio = fresh.audio_track.clone();
+                                    let old_pc = {
+                                        let _host_guard = session.host_lifecycle.lock().await;
+                                        let mut current = session.pc.lock().expect("mutex poisoned");
+                                        std::mem::replace(&mut *current, fresh.pc)
+                                    };
+                                    if let Err(error) = old_pc.close().await {
+                                        tracing::warn!("[SDP] failed superseded host peer close: {error}");
+                                    }
                                     *session.video_track.lock().expect("mutex poisoned") =
                                         fresh.video_track;
                                     *session.audio_track.lock().expect("mutex poisoned") =
                                         fresh.audio_track;
-                                    *session.pc.lock().expect("mutex poisoned") = fresh.pc;
                                     rebind_guest_tracks(session, rebind_video, rebind_audio).await;
                                     dc_handler::wire_dc_handler(session);
                                     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -807,6 +949,7 @@ pub(super) async fn handle_sdp_offer(
                         .await
                     {
                         tracing::error!("[SDP] notify_sdp failed: {e:#}");
+                        close_host_peer(session).await;
                     } else {
                         signal_log(
                             flow,
@@ -823,6 +966,7 @@ pub(super) async fn handle_sdp_offer(
                 }
                 Err(e) => {
                     tracing::error!("[SDP] exchange failed after {max_attempts} attempts: {e}");
+                    close_host_peer(session).await;
                     let _ = client
                         .command_result(
                             &cmd.id,
@@ -882,6 +1026,20 @@ async fn remove_guest_if_current_locked(
         !(guest.peer_token == peer_token && Arc::ptr_eq(&guest.pc, pc))
     });
     before != guests.len()
+}
+
+async fn remove_and_close_guest_if_current_locked(
+    session: &Arc<GameSession>,
+    peer_token: &str,
+    pc: &Arc<::webrtc::peer_connection::RTCPeerConnection>,
+) -> bool {
+    if !remove_guest_if_current_locked(session, peer_token, pc).await {
+        return false;
+    }
+    if let Err(error) = pc.close().await {
+        tracing::warn!("[DC] guest peer close failed: {error}");
+    }
+    true
 }
 
 async fn remove_guest_if_current(
@@ -1204,7 +1362,13 @@ pub(super) async fn wire_dc_handler_for_guest(
                 Box::pin(async move {
                     tracing::info!("[DC] guest disconnected");
                     let _lifecycle = session.guest_lifecycle.lock().await;
-                    if !remove_guest_if_current_locked(&session, &pt, &pc_for_close).await {
+                    if !remove_and_close_guest_if_current_locked(
+                        &session,
+                        &pt,
+                        &pc_for_close,
+                    )
+                    .await
+                    {
                         // This callback belongs to a superseded PC. Never let
                         // it remove or release state for the replacement peer.
                         return;
@@ -1363,11 +1527,18 @@ pub(super) async fn wire_dc_handler_for_guest(
     }));
 
     // ICE disconnect watcher — if guest PC fails, remove it
+    let guest_cancel = session_for_ice.cancel.clone();
     tokio::spawn(async move {
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            tokio::select! {
+                _ = guest_cancel.cancelled() => {
+                    let _ = pc_for_ice.close().await;
+                    break;
+                },
+                _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {}
+            }
             let state = pc_for_ice.connection_state().to_string();
-            if state == "failed" || state == "disconnected" {
+            if state == "failed" || state == "disconnected" || state == "closed" {
                 let _lifecycle = session_for_ice.guest_lifecycle.lock().await;
                 let removed = remove_guest_if_current_locked(
                     &session_for_ice,
@@ -1379,6 +1550,7 @@ pub(super) async fn wire_dc_handler_for_guest(
                     // This watcher belongs to a superseded PC.
                     break;
                 }
+                let _ = pc_for_ice.close().await;
                 let guest_count = session_for_ice.guests.lock().await.len();
                 if guest_count == 0 {
                     // Arcade: release the claimed seat so next viewer can grab it
@@ -1481,6 +1653,74 @@ fn is_binary_input_frame(is_string: bool, data: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn peer_cleanup_test_session() -> (Arc<GameSession>, Arc<::webrtc::peer_connection::RTCPeerConnection>) {
+        let host = crate::webrtc::build_session_pc_lan().await.unwrap();
+        let guest = crate::webrtc::build_session_pc_lan().await.unwrap();
+        let guest_pc = Arc::clone(&guest.pc);
+        let session = Arc::new(GameSession {
+            game_id: "cleanup-test".into(),
+            cloud_session_id: Some("cloud-session".into()),
+            cancel: tokio_util::sync::CancellationToken::new(),
+            core_stopped: tokio_util::sync::CancellationToken::new(),
+            pc: std::sync::Mutex::new(host.pc),
+            video_track: std::sync::Mutex::new(host.video_track),
+            audio_track: std::sync::Mutex::new(host.audio_track),
+            dc: tokio::sync::Mutex::new(None),
+            host_lifecycle: tokio::sync::Mutex::new(()),
+            guests: tokio::sync::Mutex::new(vec![Arc::new(crate::session::GuestPeer {
+                pc: guest.pc,
+                peer_token: "guest".into(),
+                role: "viewer".into(),
+            })]),
+            guest_lifecycle: tokio::sync::Mutex::new(()),
+            pending_guest_exchanges: Arc::new(std::sync::atomic::AtomicU32::new(0)),
+            pending_guest_tokens: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+            host_connected: std::sync::atomic::AtomicBool::new(true),
+            claimed_peer: tokio::sync::Mutex::new(None),
+            local_players: std::sync::atomic::AtomicU32::new(1),
+            account_id: tokio::sync::Mutex::new(None),
+            core_started: std::sync::atomic::AtomicBool::new(false),
+            core_loaded: std::sync::atomic::AtomicBool::new(false),
+            core_loading: std::sync::atomic::AtomicBool::new(false),
+            core_cmd_tx: tokio::sync::Mutex::new(None),
+            core_frame_rx: tokio::sync::Mutex::new(None),
+            core_response_rx: tokio::sync::Mutex::new(None),
+            video_enc: tokio::sync::Mutex::new(None),
+            audio_enc: tokio::sync::Mutex::new(None),
+            rom_hash: tokio::sync::Mutex::new(None),
+            core_width: tokio::sync::Mutex::new(0),
+            core_height: tokio::sync::Mutex::new(0),
+            core_fps: tokio::sync::Mutex::new(0.0),
+            core_sample_rate: tokio::sync::Mutex::new(48_000.0),
+            resident: std::sync::atomic::AtomicBool::new(false),
+        });
+        (session, guest_pc)
+    }
+
+    #[tokio::test]
+    async fn terminal_cleanup_closes_host_and_guest_peers() {
+        let (session, guest_pc) = peer_cleanup_test_session().await;
+        let host_pc = session.pc.lock().expect("mutex poisoned").clone();
+
+        close_session_peers(&session).await;
+
+        assert!(session.cancel.is_cancelled());
+        assert!(session.guests.lock().await.is_empty());
+        assert!(!session.host_connected.load(std::sync::atomic::Ordering::Relaxed));
+        assert_eq!(host_pc.connection_state().to_string(), "closed");
+        assert_eq!(guest_pc.connection_state().to_string(), "closed");
+    }
+
+    #[tokio::test]
+    async fn removing_guest_on_dc_close_closes_the_unlisted_peer() {
+        let (session, guest_pc) = peer_cleanup_test_session().await;
+        let _lifecycle = session.guest_lifecycle.lock().await;
+
+        assert!(remove_and_close_guest_if_current_locked(&session, "guest", &guest_pc).await);
+        assert!(session.guests.lock().await.is_empty());
+        assert_eq!(guest_pc.connection_state().to_string(), "closed");
+    }
 
     #[test]
     fn guest_sdp_without_ice_credentials_is_rejected_before_pc_creation() {

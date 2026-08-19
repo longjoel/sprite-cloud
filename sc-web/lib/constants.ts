@@ -37,4 +37,6 @@ export const ACTIVE_SESSION_STATES = new Set([
 ]);
 
 /** How long a session can stay in a single state before timing out. */
-export const SESSION_STATE_TIMEOUT_MS = 60_000; // 60s
+// Three 240s lifecycle leases plus a one-minute convergence margin. Cleanup
+// must not terminalize a session while the final bounded attempt can run.
+export const SESSION_STATE_TIMEOUT_MS = 13 * 60_000;

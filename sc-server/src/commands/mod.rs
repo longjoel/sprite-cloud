@@ -460,15 +460,32 @@ pub(crate) async fn cmd_start(
                         // Dead session cleanup
                         let mut dead: Vec<String> = Vec::new();
                         for (gid, s) in sessions.iter() {
-                            if s.cancel.is_cancelled() {
+                            // Keep cancelled sessions as fences until child reaping.
+                            if s.cancel.is_cancelled() && s.core_stopped.is_cancelled() {
                                 dead.push(gid.clone());
                             }
                         }
                         for gid in &dead {
-                            if let Some(session) = sessions.remove(gid) {
-                                let _ = client
+                            if let Some(session) = sessions.get(gid).cloned() {
+                                game::close_session_peers(&session).await;
+                                match client
                                     .notify_worker_dead(gid, session.cloud_session_id.as_deref())
-                                    .await;
+                                    .await
+                                {
+                                    Ok(()) => {
+                                        if sessions
+                                            .get(gid)
+                                            .is_some_and(|current| Arc::ptr_eq(current, &session))
+                                        {
+                                            sessions.remove(gid);
+                                        }
+                                    }
+                                    Err(error) => {
+                                        tracing::warn!(
+                                            "[SESSION] worker-dead notify failed; retaining tombstone: {error:#}"
+                                        );
+                                    }
+                                }
                             }
                         }
 

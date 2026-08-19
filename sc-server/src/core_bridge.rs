@@ -192,6 +192,31 @@ pub(crate) async fn shutdown_all_core_bridges(timeout: Duration) -> bool {
         .await
 }
 
+/// Cancel one core bridge and wait until SRAM capture, child termination, and
+/// shared-memory cleanup have completed. Callers must not start a replacement
+/// for the same game until this barrier succeeds.
+pub(crate) async fn cancel_and_wait_for_core(
+    cancel: &tokio_util::sync::CancellationToken,
+    stopped: &tokio_util::sync::CancellationToken,
+    timeout: Duration,
+) -> bool {
+    cancel.cancel();
+    tokio::time::timeout(timeout, stopped.cancelled())
+        .await
+        .is_ok()
+}
+
+/// Deliver a core frame without allowing a slow/stopped async consumer to pin
+/// the bridge thread forever. A full one-frame channel means the consumer has
+/// not drained the previous frame yet; dropping this frame is correct for a
+/// real-time stream and leaves cancellation observable.
+fn deliver_latest_frame(sender: &mpsc::SyncSender<CoreFrame>, frame: CoreFrame) -> bool {
+    match sender.try_send(frame) {
+        Ok(()) | Err(mpsc::TrySendError::Full(_)) => true,
+        Err(mpsc::TrySendError::Disconnected(_)) => false,
+    }
+}
+
 /// Run bridge work and always invoke its shutdown lifecycle, even when the
 /// processing loop panics. The panic is contained so SRAM capture and child
 /// termination can complete before the daemon observes bridge completion.
@@ -577,6 +602,15 @@ pub async fn load_core_into_session(
     content_path: Option<&str>,
     platform: Option<&str>,
 ) -> Result<(), String> {
+    struct LoadingGuard<'a>(&'a std::sync::atomic::AtomicBool);
+    impl Drop for LoadingGuard<'_> {
+        fn drop(&mut self) {
+            self.0.store(false, Ordering::Release);
+        }
+    }
+
+    session.core_loading.store(true, Ordering::Release);
+    let _loading_guard = LoadingGuard(&session.core_loading);
     let game_id = &session.game_id;
 
     // Mono-hardware platforms get the live audio channel mirrored into both
@@ -764,11 +798,11 @@ pub async fn load_core_into_session(
     *session.core_cmd_tx.lock().await = Some(cmd_tx);
     *session.core_response_rx.lock().await = Some(response_rx);
     session
+        .core_started
+        .store(true, std::sync::atomic::Ordering::Release);
+    session
         .core_loaded
         .store(true, std::sync::atomic::Ordering::Relaxed);
-    session
-        .core_loading
-        .store(false, std::sync::atomic::Ordering::Relaxed);
 
     let cancel = session.cancel.clone();
     let core_stopped = session.core_stopped.clone();
@@ -850,23 +884,31 @@ pub async fn load_core_into_session(
                                 })
                                 .unwrap_or_default();
                             tracing::warn!("[BRIDGE] child exited with {status}: {stderr_out}");
-                            let _ = frame_tx.send(CoreFrame {
-                                pixels: vec![],
-                                width: 0,
-                                height: 0,
-                                audio: vec![],
-                            });
+                            let _ = deliver_latest_frame(
+                                &frame_tx,
+                                CoreFrame {
+                                    pixels: vec![],
+                                    width: 0,
+                                    height: 0,
+                                    audio: vec![],
+                                },
+                            );
+                            cancel.cancel();
                             break;
                         }
                         Ok(None) => {} // still running
                         Err(e) => {
                             tracing::error!("[BRIDGE] try_wait error: {e}");
-                            let _ = frame_tx.send(CoreFrame {
-                                pixels: vec![],
-                                width: 0,
-                                height: 0,
-                                audio: vec![],
-                            });
+                            let _ = deliver_latest_frame(
+                                &frame_tx,
+                                CoreFrame {
+                                    pixels: vec![],
+                                    width: 0,
+                                    height: 0,
+                                    audio: vec![],
+                                },
+                            );
+                            cancel.cancel();
                             break;
                         }
                     }
@@ -899,15 +941,15 @@ pub async fn load_core_into_session(
 
                         out.frame_ready.store(false, Ordering::Release);
 
-                        if frame_tx
-                            .send(CoreFrame {
+                        if !deliver_latest_frame(
+                            &frame_tx,
+                            CoreFrame {
                                 pixels,
                                 width: fw,
                                 height: fh,
                                 audio,
-                            })
-                            .is_err()
-                        {
+                            },
+                        ) {
                             break;
                         }
                         frame_num = frame_num.wrapping_add(1);
@@ -993,6 +1035,70 @@ mod tests {
             !observed_stopped.is_cancelled(),
             "panic unwinding must not falsely report completed shutdown"
         );
+    }
+
+    #[test]
+    fn full_frame_channel_never_blocks_bridge_progress() {
+        let (tx, rx) = mpsc::sync_channel::<CoreFrame>(1);
+        tx.send(CoreFrame {
+            pixels: vec![1],
+            width: 1,
+            height: 1,
+            audio: vec![],
+        })
+        .unwrap();
+
+        let (finished_tx, finished_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let connected = deliver_latest_frame(
+                &tx,
+                CoreFrame {
+                    pixels: vec![2],
+                    width: 1,
+                    height: 1,
+                    audio: vec![],
+                },
+            );
+            finished_tx.send(connected).unwrap();
+        });
+
+        assert_eq!(
+            finished_rx.recv_timeout(Duration::from_millis(100)),
+            Ok(true),
+            "a full frame channel must drop a stale frame instead of blocking cancellation"
+        );
+        assert_eq!(rx.recv().unwrap().pixels, vec![1]);
+    }
+
+    #[tokio::test]
+    async fn replacement_waits_for_core_shutdown_completion() {
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let stopped = tokio_util::sync::CancellationToken::new();
+        let worker_cancel = cancel.clone();
+        let worker_stopped = stopped.clone();
+
+        tokio::spawn(async move {
+            worker_cancel.cancelled().await;
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            worker_stopped.cancel();
+        });
+
+        let started = std::time::Instant::now();
+        assert!(cancel_and_wait_for_core(&cancel, &stopped, Duration::from_millis(250),).await);
+        assert!(started.elapsed() >= Duration::from_millis(25));
+    }
+
+    #[test]
+    fn game_replacement_uses_core_shutdown_barrier() {
+        let source = include_str!("commands/game.rs");
+        assert!(source.contains("cancel_and_wait_for_core"));
+        assert!(source.matches("cleanup_failed_start(").count() >= 5);
+        assert!(source.matches("old_pc.close().await").count() >= 4);
+        assert!(source.contains("sessions.get(game_id).cloned()"));
+        assert!(source.contains("stream_cancel.cancel()"));
+
+        let command_loop = include_str!("commands/mod.rs");
+        assert!(command_loop.contains("s.cancel.is_cancelled() && s.core_stopped.is_cancelled()"));
     }
 
     #[tokio::test]
@@ -1231,15 +1337,19 @@ mod tests {
             video_track: std::sync::Mutex::new(stack.video_track),
             audio_track: std::sync::Mutex::new(stack.audio_track),
             dc: tokio::sync::Mutex::new(None),
+            host_lifecycle: tokio::sync::Mutex::new(()),
             guests: tokio::sync::Mutex::new(Vec::new()),
             guest_lifecycle: tokio::sync::Mutex::new(()),
             pending_guest_exchanges: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
-            pending_guest_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+            pending_guest_tokens: std::sync::Arc::new(std::sync::Mutex::new(
+                std::collections::HashSet::new(),
+            )),
             host_connected: std::sync::atomic::AtomicBool::new(false),
             local_players: std::sync::atomic::AtomicU32::new(1),
             claimed_peer: tokio::sync::Mutex::new(None),
             resident: std::sync::atomic::AtomicBool::new(false),
             account_id: tokio::sync::Mutex::new(None),
+            core_started: std::sync::atomic::AtomicBool::new(false),
             core_loaded: std::sync::atomic::AtomicBool::new(false),
             core_loading: std::sync::atomic::AtomicBool::new(false),
             core_cmd_tx: tokio::sync::Mutex::new(None),

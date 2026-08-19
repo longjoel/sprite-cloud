@@ -29,6 +29,26 @@ pub(crate) fn should_cancel_ice_watch(
     ice_state == "failed" || ice_state == "disconnected"
 }
 
+fn should_exit_host_ice_watch(ice_state: &str) -> bool {
+    ice_state == "closed"
+}
+
+fn is_current_generation<T>(current: Option<&Arc<T>>, candidate: &Arc<T>) -> bool {
+    current.is_some_and(|value| Arc::ptr_eq(value, candidate))
+}
+
+async fn lock_current_host_generation<'a>(
+    session: &'a GameSession,
+    candidate: &Arc<::webrtc::peer_connection::RTCPeerConnection>,
+) -> Option<tokio::sync::MutexGuard<'a, ()>> {
+    let guard = session.host_lifecycle.lock().await;
+    let is_current = {
+        let current = session.pc.lock().expect("mutex poisoned");
+        is_current_generation(Some(&current), candidate)
+    };
+    is_current.then_some(guard)
+}
+
 // ── DC handler wiring ────────────────────────────────────────────────
 
 /// Parse an auth message's identity fields onto the session (#745).
@@ -86,10 +106,25 @@ pub(crate) fn wire_dc_handler(session: &Arc<GameSession>) {
     // `disconnected` ~3s after connect while media flows fine).
     let pc_for_ice = Arc::clone(&pc);
     let session_for_ice = Arc::clone(&session);
+    let ice_cancel = session.cancel.clone();
     tokio::spawn(async move {
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            tokio::select! {
+                _ = ice_cancel.cancelled() => break,
+                _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {}
+            }
             let state = pc_for_ice.connection_state().to_string();
+            let Some(_host_guard) =
+                lock_current_host_generation(&session_for_ice, &pc_for_ice).await
+            else {
+                break;
+            };
+            if session_for_ice.cancel.is_cancelled() {
+                break;
+            }
+            if should_exit_host_ice_watch(&state) {
+                break;
+            }
             let host_dc_open = session_for_ice
                 .host_connected
                 .load(std::sync::atomic::Ordering::Relaxed);
@@ -128,14 +163,18 @@ pub(crate) fn wire_dc_handler(session: &Arc<GameSession>) {
         }
     });
 
+    let pc_generation = Arc::clone(&pc);
     pc.on_data_channel(Box::new(move |dc: Arc<_>| {
         let session = Arc::clone(&session);
+        let pc_generation = Arc::clone(&pc_generation);
         Box::pin(async move {
             tracing::info!("[DC] browser data channel received: {}", dc.label());
 
             let dc_for_open = Arc::clone(&dc);
             let dc_for_msg = Arc::clone(&dc);
+            let dc_for_close = Arc::clone(&dc);
             let session_for_msg = Arc::clone(&session);
+            let pc_generation_for_msg = Arc::clone(&pc_generation);
 
             dc_for_open.on_open(Box::new(move || {
                 tracing::info!("[DC] browser channel opened");
@@ -148,12 +187,26 @@ pub(crate) fn wire_dc_handler(session: &Arc<GameSession>) {
             let session_close = Arc::clone(&session);
             dc_for_open.on_close(Box::new(move || {
                 let session = Arc::clone(&session_close);
+                let candidate = Arc::clone(&dc_for_close);
+                let pc_generation = Arc::clone(&pc_generation);
                 Box::pin(async move {
                     tracing::warn!("[DC] host DC closed — preserving media until ICE disconnects");
+                    let Some(_host_guard) =
+                        lock_current_host_generation(&session, &pc_generation).await
+                    else {
+                        return;
+                    };
+                    if session.cancel.is_cancelled() {
+                        return;
+                    }
+                    let mut current = session.dc.lock().await;
+                    if !is_current_generation(current.as_ref(), &candidate) {
+                        return;
+                    }
                     session
                         .host_connected
                         .store(false, std::sync::atomic::Ordering::Relaxed);
-                    *session.dc.lock().await = None;
+                    *current = None;
                 })
             }));
 
@@ -161,7 +214,19 @@ pub(crate) fn wire_dc_handler(session: &Arc<GameSession>) {
             dc_for_msg.on_message(Box::new(move |msg| {
                 let session = Arc::clone(&session_for_msg);
                 let dc = Arc::clone(&dc_for_move);
+                let pc_generation = Arc::clone(&pc_generation_for_msg);
                 Box::pin(async move {
+                    // Replacement takes the same lock before swapping PCs.
+                    // Holding it across every await makes callback validation
+                    // and all session-wide mutations one generation-atomic unit.
+                    let Some(_host_guard) =
+                        lock_current_host_generation(&session, &pc_generation).await
+                    else {
+                        return;
+                    };
+                    if session.cancel.is_cancelled() {
+                        return;
+                    }
                     let data = if msg.is_string {
                         String::from_utf8_lossy(&msg.data).into_owned().into_bytes()
                     } else {
@@ -240,7 +305,10 @@ pub(crate) fn wire_dc_handler(session: &Arc<GameSession>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_auth_identity, should_cancel_ice_watch};
+    use super::{
+        apply_auth_identity, is_current_generation, lock_current_host_generation,
+        should_cancel_ice_watch, should_exit_host_ice_watch,
+    };
     use crate::session::GameSession;
     use std::sync::Arc;
 
@@ -258,15 +326,19 @@ mod tests {
             video_track: std::sync::Mutex::new(stack.video_track),
             audio_track: std::sync::Mutex::new(stack.audio_track),
             dc: tokio::sync::Mutex::new(None),
+            host_lifecycle: tokio::sync::Mutex::new(()),
             guests: tokio::sync::Mutex::new(Vec::new()),
             guest_lifecycle: tokio::sync::Mutex::new(()),
             pending_guest_exchanges: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
-            pending_guest_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+            pending_guest_tokens: std::sync::Arc::new(std::sync::Mutex::new(
+                std::collections::HashSet::new(),
+            )),
             host_connected: std::sync::atomic::AtomicBool::new(false),
             local_players: std::sync::atomic::AtomicU32::new(1),
             claimed_peer: tokio::sync::Mutex::new(None),
             resident: std::sync::atomic::AtomicBool::new(false),
             account_id: tokio::sync::Mutex::new(None),
+            core_started: std::sync::atomic::AtomicBool::new(false),
             core_loaded: std::sync::atomic::AtomicBool::new(false),
             core_loading: std::sync::atomic::AtomicBool::new(false),
             core_cmd_tx: tokio::sync::Mutex::new(None),
@@ -317,6 +389,104 @@ mod tests {
     fn connected_never_cancels() {
         assert!(!should_cancel_ice_watch(true, "connected", false));
         assert!(!should_cancel_ice_watch(false, "connected", false));
+    }
+
+    #[test]
+    fn closed_superseded_host_peer_ends_its_watcher() {
+        assert!(should_exit_host_ice_watch("closed"));
+        assert!(!should_exit_host_ice_watch("connected"));
+    }
+
+    #[test]
+    fn delayed_old_generation_callbacks_cannot_match_replacement_state() {
+        let old = Arc::new(());
+        let replacement = Arc::new(());
+        assert!(is_current_generation(Some(&replacement), &replacement));
+        assert!(!is_current_generation(Some(&replacement), &old));
+        assert!(!is_current_generation(None, &old));
+    }
+
+    #[tokio::test]
+    async fn delayed_old_callback_cannot_mutate_replacement_generation_state() {
+        use std::sync::atomic::Ordering;
+
+        let old = crate::webrtc::build_session_pc_lan().await.unwrap();
+        let session = Arc::new(GameSession {
+            game_id: "g".into(),
+            cloud_session_id: None,
+            cancel: tokio_util::sync::CancellationToken::new(),
+            core_stopped: tokio_util::sync::CancellationToken::new(),
+            pc: std::sync::Mutex::new(old.pc.clone()),
+            video_track: std::sync::Mutex::new(old.video_track),
+            audio_track: std::sync::Mutex::new(old.audio_track),
+            dc: tokio::sync::Mutex::new(None),
+            host_lifecycle: tokio::sync::Mutex::new(()),
+            guests: tokio::sync::Mutex::new(Vec::new()),
+            guest_lifecycle: tokio::sync::Mutex::new(()),
+            pending_guest_exchanges: Arc::new(std::sync::atomic::AtomicU32::new(0)),
+            pending_guest_tokens: Arc::new(std::sync::Mutex::new(
+                std::collections::HashSet::new(),
+            )),
+            host_connected: std::sync::atomic::AtomicBool::new(false),
+            claimed_peer: tokio::sync::Mutex::new(None),
+            local_players: std::sync::atomic::AtomicU32::new(1),
+            account_id: tokio::sync::Mutex::new(None),
+            core_started: std::sync::atomic::AtomicBool::new(false),
+            core_loaded: std::sync::atomic::AtomicBool::new(false),
+            core_loading: std::sync::atomic::AtomicBool::new(false),
+            core_cmd_tx: tokio::sync::Mutex::new(None),
+            core_frame_rx: tokio::sync::Mutex::new(None),
+            core_response_rx: tokio::sync::Mutex::new(None),
+            video_enc: tokio::sync::Mutex::new(None),
+            audio_enc: tokio::sync::Mutex::new(None),
+            rom_hash: tokio::sync::Mutex::new(Some("abc".into())),
+            core_width: tokio::sync::Mutex::new(0),
+            core_height: tokio::sync::Mutex::new(0),
+            core_fps: tokio::sync::Mutex::new(0.0),
+            core_sample_rate: tokio::sync::Mutex::new(48_000.0),
+            resident: std::sync::atomic::AtomicBool::new(false),
+        });
+        let stale_dc = old.pc.create_data_channel("stale", None).await.unwrap();
+        let replacement = crate::webrtc::build_session_pc_lan().await.unwrap();
+        let release = Arc::new(tokio::sync::Notify::new());
+        let (input_tx, input_rx) = std::sync::mpsc::sync_channel(1);
+        *session.core_cmd_tx.lock().await = Some(input_tx);
+
+        let delayed_session = Arc::clone(&session);
+        let delayed_release = Arc::clone(&release);
+        let delayed_pc = Arc::clone(&old.pc);
+        let delayed = tokio::spawn(async move {
+            delayed_release.notified().await;
+            if let Some(_guard) =
+                lock_current_host_generation(&delayed_session, &delayed_pc).await
+            {
+                delayed_session.local_players.store(9, Ordering::Release);
+                delayed_session.host_connected.store(true, Ordering::Release);
+                *delayed_session.account_id.lock().await = Some("stale".into());
+                *delayed_session.dc.lock().await = Some(stale_dc);
+                *delayed_session.rom_hash.lock().await = Some("stale-save".into());
+                if let Some(tx) = delayed_session.core_cmd_tx.lock().await.as_ref() {
+                    let _ = tx.try_send(crate::core_bridge::CoreCommand::SetInput {
+                        port: 0,
+                        state: 1,
+                    });
+                }
+            }
+        });
+
+        {
+            let _guard = session.host_lifecycle.lock().await;
+            *session.pc.lock().unwrap() = replacement.pc;
+        }
+        release.notify_one();
+        delayed.await.unwrap();
+
+        assert_eq!(session.local_players.load(Ordering::Acquire), 1);
+        assert!(!session.host_connected.load(Ordering::Acquire));
+        assert_eq!(*session.account_id.lock().await, None);
+        assert!(session.dc.lock().await.is_none());
+        assert_eq!(session.rom_hash.lock().await.as_deref(), Some("abc"));
+        assert!(input_rx.try_recv().is_err());
     }
 
     #[test]

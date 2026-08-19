@@ -801,12 +801,75 @@ struct LocalLaunchRequest {
     sdp: String,
 }
 
-async fn shutdown_local_session(session: &Arc<crate::session::GameSession>) {
+async fn wait_for_local_core_shutdown(
+    core_started: &std::sync::atomic::AtomicBool,
+    core_loading: &std::sync::atomic::AtomicBool,
+    cancel: &tokio_util::sync::CancellationToken,
+    stopped: &tokio_util::sync::CancellationToken,
+    timeout: std::time::Duration,
+) -> bool {
+    cancel.cancel();
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        if core_started.load(std::sync::atomic::Ordering::Acquire) {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            return crate::core_bridge::cancel_and_wait_for_core(cancel, stopped, remaining).await;
+        }
+        if !core_loading.load(std::sync::atomic::Ordering::Acquire)
+            && !core_started.load(std::sync::atomic::Ordering::Acquire)
+        {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
+
+async fn shutdown_local_session(session: &Arc<crate::session::GameSession>) -> bool {
     session.cancel.cancel();
-    let pc = session.pc.lock().ok().map(|pc| pc.clone());
+    let pc = {
+        let _host_guard = session.host_lifecycle.lock().await;
+        session.pc.lock().ok().map(|pc| pc.clone())
+    };
     if let Some(pc) = pc {
         let _ = pc.close().await;
     }
+    wait_for_local_core_shutdown(
+        &session.core_started,
+        &session.core_loading,
+        &session.cancel,
+        &session.core_stopped,
+        std::time::Duration::from_secs(2),
+    )
+    .await
+}
+
+fn register_local_session_cleanup(
+    sessions: Arc<
+        tokio::sync::Mutex<std::collections::HashMap<String, Arc<crate::session::GameSession>>>,
+    >,
+    session_id: String,
+    session: Arc<crate::session::GameSession>,
+) {
+    tokio::spawn(async move {
+        session.cancel.cancelled().await;
+        if !shutdown_local_session(&session).await {
+            tracing::error!(
+                "[STANDALONE] retaining session {} because core missed shutdown deadline",
+                session_id
+            );
+            return;
+        }
+        let mut sessions = sessions.lock().await;
+        if sessions
+            .get(&session_id)
+            .is_some_and(|current| Arc::ptr_eq(current, &session))
+        {
+            sessions.remove(&session_id);
+        }
+    });
 }
 
 async fn launch_game(
@@ -853,14 +916,18 @@ async fn launch_game(
         video_track: std::sync::Mutex::new(stack.video_track),
         audio_track: std::sync::Mutex::new(stack.audio_track),
         dc: tokio::sync::Mutex::new(None),
+        host_lifecycle: tokio::sync::Mutex::new(()),
         guests: tokio::sync::Mutex::new(Vec::new()),
         guest_lifecycle: tokio::sync::Mutex::new(()),
         pending_guest_exchanges: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
-        pending_guest_tokens: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
+        pending_guest_tokens: std::sync::Arc::new(std::sync::Mutex::new(
+            std::collections::HashSet::new(),
+        )),
         host_connected: std::sync::atomic::AtomicBool::new(false),
         claimed_peer: tokio::sync::Mutex::new(None),
         local_players: std::sync::atomic::AtomicU32::new(1),
         account_id: tokio::sync::Mutex::new(None),
+        core_started: std::sync::atomic::AtomicBool::new(false),
         core_loaded: std::sync::atomic::AtomicBool::new(false),
         core_loading: std::sync::atomic::AtomicBool::new(false),
         core_cmd_tx: tokio::sync::Mutex::new(None),
@@ -875,6 +942,17 @@ async fn launch_game(
         core_sample_rate: tokio::sync::Mutex::new(48_000.0),
         resident: std::sync::atomic::AtomicBool::new(false),
     });
+
+    state
+        .sessions
+        .lock()
+        .await
+        .insert(session_id.clone(), Arc::clone(&session));
+    register_local_session_cleanup(
+        Arc::clone(&state.sessions),
+        session_id.clone(),
+        Arc::clone(&session),
+    );
 
     if let Err(message) = crate::core_bridge::load_core_into_session(
         &session,
@@ -912,28 +990,8 @@ async fn launch_game(
 
     let streaming_session = Arc::clone(&session);
     tokio::spawn(async move {
-        crate::streaming::run_stream(streaming_session).await;
-    });
-
-    state
-        .sessions
-        .lock()
-        .await
-        .insert(session_id.clone(), Arc::clone(&session));
-
-    let cleanup_sessions = Arc::clone(&state.sessions);
-    let cleanup_session = Arc::clone(&session);
-    let cleanup_id = session_id.clone();
-    tokio::spawn(async move {
-        cleanup_session.cancel.cancelled().await;
-        shutdown_local_session(&cleanup_session).await;
-        let mut sessions = cleanup_sessions.lock().await;
-        if sessions
-            .get(&cleanup_id)
-            .is_some_and(|current| Arc::ptr_eq(current, &cleanup_session))
-        {
-            sessions.remove(&cleanup_id);
-        }
+        crate::streaming::run_stream(Arc::clone(&streaming_session)).await;
+        streaming_session.cancel.cancel();
     });
     if let Ok(played_at) = current_timestamp()
         && let Err(error) = state
@@ -961,11 +1019,27 @@ async fn stop_game(
     State(state): State<Arc<AppState>>,
     Json(request): Json<LocalStopRequest>,
 ) -> Json<serde_json::Value> {
-    let stopped = if let Some(session) = state.sessions.lock().await.remove(&request.session_id) {
-        session.cancel.cancel();
-        true
-    } else {
-        false
+    let session = state
+        .sessions
+        .lock()
+        .await
+        .get(&request.session_id)
+        .cloned();
+    let stopped = match session {
+        Some(session) => {
+            let stopped = shutdown_local_session(&session).await;
+            if stopped {
+                let mut sessions = state.sessions.lock().await;
+                if sessions
+                    .get(&request.session_id)
+                    .is_some_and(|current| Arc::ptr_eq(current, &session))
+                {
+                    sessions.remove(&request.session_id);
+                }
+            }
+            stopped
+        }
+        None => false,
     };
     Json(serde_json::json!({ "status": "ok", "stopped": stopped }))
 }
@@ -1688,6 +1762,54 @@ mod tests {
         let roots = vec!["/roms".to_string()];
 
         assert!(resolve_local_game(&game_id, &[game], &roots).is_err());
+    }
+
+    #[tokio::test]
+    async fn standalone_shutdown_waits_for_started_core_completion() {
+        let started = std::sync::atomic::AtomicBool::new(true);
+        let not_loading = std::sync::atomic::AtomicBool::new(false);
+        let unresolved_cancel = tokio_util::sync::CancellationToken::new();
+        let unresolved_stopped = tokio_util::sync::CancellationToken::new();
+        assert!(
+            !wait_for_local_core_shutdown(
+                &started,
+                &not_loading,
+                &unresolved_cancel,
+                &unresolved_stopped,
+                std::time::Duration::from_millis(1),
+            )
+            .await
+        );
+        assert!(unresolved_cancel.is_cancelled());
+
+        let completed_cancel = tokio_util::sync::CancellationToken::new();
+        let completed_stopped = tokio_util::sync::CancellationToken::new();
+        completed_stopped.cancel();
+        assert!(
+            wait_for_local_core_shutdown(
+                &started,
+                &not_loading,
+                &completed_cancel,
+                &completed_stopped,
+                std::time::Duration::from_millis(1),
+            )
+            .await
+        );
+
+        let not_started = std::sync::atomic::AtomicBool::new(false);
+        let loading = std::sync::atomic::AtomicBool::new(true);
+        let startup_cancel = tokio_util::sync::CancellationToken::new();
+        let startup_stopped = tokio_util::sync::CancellationToken::new();
+        assert!(
+            !wait_for_local_core_shutdown(
+                &not_started,
+                &loading,
+                &startup_cancel,
+                &startup_stopped,
+                std::time::Duration::from_millis(1),
+            )
+            .await
+        );
     }
 
     #[tokio::test]
