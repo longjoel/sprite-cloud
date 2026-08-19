@@ -180,6 +180,32 @@ async fn drain_to_track_audio(session: &GameSession, mut audio_ts: u32) -> u32 {
 
 // ── Main streaming loop ─────────────────────────────────────────────
 
+/// True if a crash sentinel (width-0, empty frame) is the latest frame the
+/// core bridge enqueued. Used on the cancellation branch so a core crash that
+/// enqueues its sentinel just before cancel.cancel() is still relayed instead
+/// of being dropped when cancellation wins the select.
+async fn latest_frame_is_crash_sentinel(session: &GameSession) -> bool {
+    let frame_rx_guard = session.core_frame_rx.lock().await;
+    let Some(ref rx) = *frame_rx_guard else { return false };
+    let mut latest = None;
+    while let Ok(f) = rx.try_recv() {
+        latest = Some(f);
+    }
+    matches!(latest, Some(f) if f.width == 0)
+}
+
+/// Send `core_died` to the player via the host DataChannel. The core bridge
+/// sets the sentinel that leads here; relay it independently of how the loop
+/// exited (tick branch or cancellation branch) so the player always leaves the
+/// frozen stream for its fatal-error/disconnect path.
+async fn relay_core_died(session: &GameSession) {
+    tracing::error!("[STREAM] Core sentinel — died");
+    if let Some(ref dc) = *session.dc.lock().await {
+        let msg = serde_json::json!({"cmd":"core_died","reason":"core process crashed"});
+        let _ = dc.send_text(msg.to_string()).await;
+    }
+}
+
 pub async fn run_stream(session: Arc<GameSession>) {
     let fps = *session.core_fps.lock().await;
     let frame_interval = Duration::from_secs_f64(1.0 / fps.max(1.0));
@@ -202,6 +228,15 @@ pub async fn run_stream(session: Arc<GameSession>) {
     loop {
         tokio::select! {
             _ = session.cancel.cancelled() => {
+                // A core crash enqueues its width-0 sentinel *before* calling
+                // cancel.cancel(), so the cancellation branch must drain the
+                // frame channel for that sentinel and relay core_died to the
+                // player — otherwise a crash that lands just as cancellation
+                // fires would leave the player frozen with no fatal error.
+                if latest_frame_is_crash_sentinel(&session).await {
+                    relay_core_died(&session).await;
+                    break;
+                }
                 tracing::info!("[STREAM] Cancelled");
                 break;
             }
@@ -219,12 +254,8 @@ pub async fn run_stream(session: Arc<GameSession>) {
                         }
                         match latest {
                             Some(f) if f.width == 0 => {
-                                tracing::error!("[STREAM] Core sentinel — died");
                                 // Notify player via DataChannel
-                                if let Some(ref dc) = *session.dc.lock().await {
-                                    let msg = serde_json::json!({"cmd":"core_died","reason":"core process crashed"});
-                                    let _ = dc.send_text(msg.to_string()).await;
-                                }
+                                relay_core_died(&session).await;
                                 // Clean up session state
                                 session.core_loaded.store(false, std::sync::atomic::Ordering::Relaxed);
                                 *session.core_frame_rx.lock().await = None;
@@ -324,5 +355,20 @@ mod tests {
         let frames = 60 * 60 * 5;
         let last_timestamp = (frames - 1) as u64 * ticks_per_frame;
         assert_eq!(last_timestamp, 26_998_500);
+    }
+
+    #[test]
+    fn run_stream_relays_crash_sentinel_on_the_cancellation_path_too() {
+        // Review follow-up on #831: the core bridge enqueues its width-0
+        // crash sentinel *before* calling cancel.cancel(). The streaming loop
+        // must relay core_died even when the select picks the cancellation arm
+        // first, otherwise a crash landing just as cancellation fires leaves
+        // the player frozen with no fatal error. Verify the cancellation branch
+        // drains for the sentinel and uses the shared relayer.
+        let source = include_str!("streaming.rs");
+        assert!(source.contains("latest_frame_is_crash_sentinel(&session).await"));
+        assert!(source.contains("relay_core_died(&session).await"));
+        assert!(source.contains("session.cancel.cancelled()"));
+        assert!(source.contains("tokio::select!"));
     }
 }

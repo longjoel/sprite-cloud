@@ -8,11 +8,18 @@ import {
   POLL_IDLE_MS,
   STATUS_LEASED,
   STATUS_PENDING,
-  COMMAND_LEASE_MS,
   ACTIVE_SESSION_STATES,
 } from "@/lib/constants";
-import { eq, and, inArray, or, lt, sql, isNull } from "drizzle-orm";
+import { eq, and, inArray, notInArray, or, lt, sql, isNull } from "drizzle-orm";
 import { recordLaunchEvent } from "@/lib/launch-events";
+import { commandPayloadObject, residentStopPayload } from "@/lib/command-payload";
+import {
+  MAX_COMMAND_ATTEMPTS,
+  POLL_BATCH_SIZE,
+  POLL_SCAN_SIZE,
+  commandLeaseMs,
+  isCommandAttemptExhausted,
+} from "@/lib/command-lease-policy";
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -85,7 +92,6 @@ export async function GET(request: Request): Promise<NextResponse<PollResponse>>
 
   const runtimeTelemetry = parseRuntimeTelemetry(request.headers.get("x-sc-server-telemetry"));
   const now = new Date();
-  const leaseExpiresAt = new Date(now.getTime() + COMMAND_LEASE_MS);
 
   // Fence the entire poll mutation under the server row lock. An older poll
   // that was paused before a newer boot reset must be rejected here, before
@@ -98,15 +104,17 @@ export async function GET(request: Request): Promise<NextResponse<PollResponse>>
       .for("update");
     if (!account) return null;
 
-    if (bootId && isBootId(bootId)) {
-      const [current] = await tx
-        .select({ runtimeBootId: servers.runtimeBootId })
-        .from(servers)
-        .where(eq(servers.id, server.id))
-        .limit(1)
-        .for("update");
-      if (!current || current.runtimeBootId !== bootId) return null;
-    }
+    // Shared lifecycle fence with cleanupOnce: every poll locks its server
+    // before selecting commands, while cleanup locks affected servers before
+    // timing out sessions or commands.
+    const [current] = await tx
+      .select({ runtimeBootId: servers.runtimeBootId })
+      .from(servers)
+      .where(eq(servers.id, server.id))
+      .limit(1)
+      .for("update");
+    if (!current) return null;
+    if (bootId && isBootId(bootId) && current.runtimeBootId !== bootId) return null;
 
     if (runtimeTelemetry) {
       await tx
@@ -136,7 +144,65 @@ export async function GET(request: Request): Promise<NextResponse<PollResponse>>
         ));
     }
 
-    const rows = await tx
+    // Normalize pre-fix lifecycle payloads before SQL field extraction or
+    // delivery. The old resident-stop writer stored JSON objects as strings.
+    const legacyPayloadRows = await tx
+      .select({ id: commands.id, payload: commands.payload })
+      .from(commands)
+      .where(and(
+        eq(commands.serverId, server.id),
+        inArray(commands.type, ["start_game", "stop_game", "sdp_offer"]),
+        inArray(commands.status, [STATUS_PENDING, STATUS_LEASED]),
+        sql`jsonb_typeof(${commands.payload}) <> 'object'`,
+      ))
+      .limit(POLL_SCAN_SIZE)
+      .for("update");
+    for (const legacy of legacyPayloadRows) {
+      const normalized = commandPayloadObject(legacy.payload);
+      await tx
+        .update(commands)
+        .set(normalized
+          ? { payload: normalized }
+          : {
+              status: "failed",
+              completedAt: now,
+              lastError: "invalid lifecycle command payload",
+              result: { error: "invalid_command_payload" },
+              leaseToken: null,
+              leaseExpiresAt: null,
+            })
+        .where(eq(commands.id, legacy.id));
+    }
+
+    // Excluding stale targets is insufficient: pending rows would otherwise
+    // remain immortal because retry exhaustion only sees selected rows.
+    await tx
+      .update(commands)
+      .set({
+        status: "failed",
+        completedAt: now,
+        lastError: "target session is no longer active",
+        result: { error: "session_not_active" },
+        leaseToken: null,
+        leaseExpiresAt: null,
+      })
+      .where(and(
+        eq(commands.serverId, server.id),
+        inArray(commands.type, ["start_game", "sdp_offer"]),
+        sql`jsonb_typeof(${commands.payload}) = 'object'`,
+        or(
+          eq(commands.status, STATUS_PENDING),
+          and(eq(commands.status, STATUS_LEASED), lt(commands.leaseExpiresAt, now)),
+        ),
+        sql`not exists (
+          select 1 from ${sessions}
+          where ${sessions.id}::text = ${commands.payload}->>'session_id'
+            and ${sessions.serverId} = ${server.id}
+            and ${sessions.status} in (${sql.join(Array.from(ACTIVE_SESSION_STATES, (state) => sql`${state}`), sql`, `)})
+        )`,
+      ));
+
+    const selectedRows = await tx
       .select({
         id: commands.id,
         type: commands.type,
@@ -154,24 +220,64 @@ export async function GET(request: Request): Promise<NextResponse<PollResponse>>
               lt(commands.leaseExpiresAt, now),
             ),
           ),
+          or(
+            notInArray(commands.type, ["start_game", "sdp_offer"]),
+            sql`exists (
+              select 1 from ${sessions}
+              where ${sessions.id}::text = ${commands.payload}->>'session_id'
+                and ${sessions.serverId} = ${server.id}
+                and ${sessions.status} in (${sql.join(Array.from(ACTIVE_SESSION_STATES, (state) => sql`${state}`), sql`, `)})
+            )`,
+          ),
         ),
       )
       .orderBy(
         sql`case ${commands.type}
-          when 'sdp_offer' then 0
-          when 'stop_game' then 1
+          when 'stop_game' then 0
+          when 'sdp_offer' then 1
           when 'start_game' then 2
           else 3
         end`,
         commands.createdAt,
       )
-      .limit(25)
+      .limit(POLL_SCAN_SIZE)
       .for("update");
 
+    const rows = selectedRows.flatMap((row) => {
+      if (!["start_game", "stop_game", "sdp_offer"].includes(row.type)) return [row];
+      const payload = commandPayloadObject(row.payload);
+      return payload ? [{ ...row, payload }] : [];
+    });
     if (rows.length === 0) return [];
 
-    const ids = rows.map((c) => c.id);
+    // Drain a bounded set of poisoned rows without delaying useful lifecycle
+    // work until the next poll. Stop commands are ordered first so an SDP
+    // flood cannot starve runtime teardown.
+    const exhaustedIds = rows
+      .filter((row) => isCommandAttemptExhausted(row.attempts ?? 0))
+      .map((row) => row.id);
+    if (exhaustedIds.length > 0) {
+      await tx
+        .update(commands)
+        .set({
+          status: "failed",
+          completedAt: now,
+          lastError: "command retry budget exhausted",
+          result: { error: "command_retry_exhausted" },
+          leaseToken: null,
+          leaseExpiresAt: null,
+        })
+        .where(and(inArray(commands.id, exhaustedIds), eq(commands.serverId, server.id)));
+    }
+
+    const leaseable = rows
+      .filter((row) => !isCommandAttemptExhausted(row.attempts ?? 0))
+      .slice(0, POLL_BATCH_SIZE);
+    if (leaseable.length === 0) return [];
+
+    const ids = leaseable.map((c) => c.id);
     const leaseToken = crypto.randomBytes(16).toString("hex");
+    const leaseExpiresAt = new Date(now.getTime() + commandLeaseMs(leaseable[0].type));
     await tx
       .update(commands)
       .set({
@@ -183,7 +289,7 @@ export async function GET(request: Request): Promise<NextResponse<PollResponse>>
       })
       .where(inArray(commands.id, ids));
 
-    return rows.map((row) => ({
+    return leaseable.map((row) => ({
       id: row.id,
       type: row.type,
       payload: row.payload,
@@ -557,12 +663,11 @@ async function stopDefunctResidents(
       id: crypto.randomUUID(),
       serverId,
       type: "stop_game",
-      payload: JSON.stringify({
-        game_id: s.gameId,
-        user_id: userId,
-        authorized_user_id: userId,
-        host_token: s.hostToken,
-        session_id: s.sessionId,
+      payload: residentStopPayload({
+        gameId: s.gameId,
+        userId,
+        hostToken: s.hostToken,
+        sessionId: s.sessionId,
       }),
       status: STATUS_PENDING,
       createdAt: now,

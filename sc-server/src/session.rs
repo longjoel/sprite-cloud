@@ -45,6 +45,8 @@ pub struct GameSession {
     /// DataChannel to the host browser — set after auth handshake.
     /// Used by the streaming loop to send `core_died` on crash.
     pub dc: Mutex<Option<Arc<RTCDataChannel>>>,
+    /// Serializes host-PC replacement with callbacks that mutate host state.
+    pub host_lifecycle: Mutex<()>,
     /// Guest peer connections — host is `session.pc`, guests are here.
     pub guests: Mutex<Vec<Arc<GuestPeer>>>,
     /// Serializes guest replacement/removal with claim and cancellation side effects.
@@ -72,6 +74,7 @@ pub struct GameSession {
     pub account_id: tokio::sync::Mutex<Option<String>>,
 
     // ── Core (libretro) ─────────────────────────────────────────────
+    pub core_started: AtomicBool,
     pub core_loaded: AtomicBool,
     pub core_loading: AtomicBool,
     pub core_cmd_tx: Mutex<Option<std::sync::mpsc::SyncSender<CoreCommand>>>,

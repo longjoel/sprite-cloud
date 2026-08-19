@@ -38,8 +38,8 @@ describe("Session timeout", () => {
     const db = getTestDb();
     const { userId, serverId } = await seedUserAndServer();
 
-    // Create a session stuck in spawning for >60s
-    const oldDate = new Date(Date.now() - 120_000); // 2 minutes ago
+    // Create a session stuck in spawning beyond the coordinated 13m timeout.
+    const oldDate = new Date(Date.now() - 840_000); // 14 minutes ago
     await db.insert(sessions).values({
       userId, serverId, gameId: "smw", status: "spawning", stateEnteredAt: oldDate,
     });
@@ -71,7 +71,7 @@ describe("Session timeout", () => {
   it("transitions stuck ready/connected to timed_out", async () => {
     const db = getTestDb();
     const { userId, serverId } = await seedUserAndServer();
-    const oldDate = new Date(Date.now() - 120_000);
+    const oldDate = new Date(Date.now() - 840_000);
 
     await db.insert(sessions).values({
       userId, serverId, gameId: "smw", status: "ready", stateEnteredAt: oldDate,
@@ -89,7 +89,7 @@ describe("Session timeout", () => {
   it("does not time out playing or ended sessions", async () => {
     const db = getTestDb();
     const { userId, serverId } = await seedUserAndServer();
-    const oldDate = new Date(Date.now() - 120_000);
+    const oldDate = new Date(Date.now() - 840_000);
 
     await db.insert(sessions).values({
       userId, serverId, gameId: "smw", status: "playing", stateEnteredAt: oldDate,
@@ -103,6 +103,130 @@ describe("Session timeout", () => {
     const rows = await db.select().from(sessions);
     expect(rows.some(r => r.status === "playing")).toBe(true);
     expect(rows.some(r => r.status === "ended")).toBe(true);
+  });
+
+  it("does not time out a stale session while a lifecycle lease is still active", async () => {
+    const db = getTestDb();
+    const { userId, serverId } = await seedUserAndServer();
+    const oldDate = new Date(Date.now() - 840_000);
+    const [session] = await db.insert(sessions).values({
+      userId,
+      serverId,
+      gameId: "active-lease-game",
+      status: "spawning",
+      stateEnteredAt: oldDate,
+    }).returning();
+    const [command] = await db.insert(commands).values({
+      serverId,
+      type: "sdp_offer",
+      payload: { game_id: "active-lease-game", session_id: session.id },
+      status: "leased",
+      leaseToken: "active-token",
+      leaseExpiresAt: new Date(Date.now() + 120_000),
+    }).returning();
+
+    await runCleanup();
+
+    let [keptSession] = await db.select().from(sessions).where(eq(sessions.id, session.id));
+    let [keptCommand] = await db.select().from(commands).where(eq(commands.id, command.id));
+    expect(keptSession.status).toBe("spawning");
+    expect(keptCommand.status).toBe("leased");
+
+    await db.update(commands)
+      .set({ leaseExpiresAt: oldDate })
+      .where(eq(commands.id, command.id));
+    await runCleanup();
+
+    [keptSession] = await db.select().from(sessions).where(eq(sessions.id, session.id));
+    [keptCommand] = await db.select().from(commands).where(eq(commands.id, command.id));
+    expect(keptSession.status).toBe("timed_out");
+    expect(keptCommand.status).toBe("failed");
+  });
+
+  it("terminalizes lifecycle commands when their target session times out", async () => {
+    const db = getTestDb();
+    const { userId, serverId } = await seedUserAndServer();
+    const oldDate = new Date(Date.now() - 840_000);
+    const [command] = await db.insert(commands).values({
+      serverId,
+      type: "sdp_offer",
+      payload: {},
+      status: "leased",
+      leaseToken: "expired-token",
+      leaseExpiresAt: oldDate,
+    }).returning();
+    const [session] = await db.insert(sessions).values({
+      userId,
+      serverId,
+      gameId: "smw",
+      commandId: command.id,
+      status: "spawning",
+      stateEnteredAt: oldDate,
+    }).returning();
+    await db.update(commands)
+      .set({ payload: { game_id: "smw", session_id: session.id } })
+      .where(eq(commands.id, command.id));
+    await runCleanup();
+
+    const [cleanedCommand] = await db.select().from(commands).where(eq(commands.id, command.id));
+    expect(cleanedCommand.status).toBe("failed");
+    expect(cleanedCommand.lastError).toBe("target session timed out");
+    expect(cleanedCommand.leaseToken).toBeNull();
+    const [cleanedSession] = await db.select().from(sessions).where(eq(sessions.id, session.id));
+    expect(cleanedSession.status).toBe("timed_out");
+  });
+
+  it("keeps pending, expired-leased, and failed stops as durable runtime fences", async () => {
+    const db = getTestDb();
+    const { userId, serverId } = await seedUserAndServer();
+    const oldDate = new Date(Date.now() - 840_000);
+    const [pendingSession] = await db.insert(sessions).values({
+      userId, serverId, gameId: "pending-stop", status: "ready", stateEnteredAt: oldDate,
+    }).returning();
+    const [leasedSession] = await db.insert(sessions).values({
+      userId, serverId, gameId: "leased-stop", status: "ready", stateEnteredAt: oldDate,
+    }).returning();
+    const [failedSession] = await db.insert(sessions).values({
+      userId, serverId, gameId: "failed-stop", status: "ready", stateEnteredAt: oldDate,
+    }).returning();
+    const [pendingStop] = await db.insert(commands).values({
+      serverId,
+      type: "stop_game",
+      payload: { game_id: "pending-stop", session_id: pendingSession.id },
+      status: "pending",
+    }).returning();
+    const [legacyLeasedStop] = await db.insert(commands).values({
+      serverId,
+      type: "stop_game",
+      payload: JSON.stringify({ game_id: "leased-stop", session_id: leasedSession.id }),
+      status: "leased",
+      leaseToken: "expired-stop-token",
+      leaseExpiresAt: oldDate,
+    }).returning();
+    const [failedStop] = await db.insert(commands).values({
+      serverId,
+      type: "stop_game",
+      payload: { game_id: "failed-stop", session_id: failedSession.id },
+      status: "failed",
+      completedAt: oldDate,
+      lastError: "retry budget exhausted",
+      createdAt: oldDate,
+    }).returning();
+
+    await runCleanup();
+
+    const [keptPendingSession] = await db.select().from(sessions).where(eq(sessions.id, pendingSession.id));
+    const [keptLeasedSession] = await db.select().from(sessions).where(eq(sessions.id, leasedSession.id));
+    const [keptFailedSession] = await db.select().from(sessions).where(eq(sessions.id, failedSession.id));
+    const [keptPendingStop] = await db.select().from(commands).where(eq(commands.id, pendingStop.id));
+    const [keptLeasedStop] = await db.select().from(commands).where(eq(commands.id, legacyLeasedStop.id));
+    const [keptFailedStop] = await db.select().from(commands).where(eq(commands.id, failedStop.id));
+    expect(keptPendingSession.status).toBe("ready");
+    expect(keptLeasedSession.status).toBe("ready");
+    expect(keptFailedSession.status).toBe("ready");
+    expect(keptPendingStop.status).toBe("pending");
+    expect(keptLeasedStop.status).toBe("leased");
+    expect(keptFailedStop.status).toBe("failed");
   });
 });
 
