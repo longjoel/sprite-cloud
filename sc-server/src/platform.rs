@@ -193,6 +193,14 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         core: "ppsspp_libretro.so",
         mono: false,
     },
+    // ── Sony — PlayStation 2 ───────────────────────────────────────
+    PlatformManifest {
+        short_name: "PlayStation 2",
+        aliases: &["Sony - PlayStation 2"],
+        extensions: &["iso", "chd", "cue"],
+        core: "pcsx2_libretro.so",
+        mono: false,
+    },
     // ── Atari — 2600 / 5200 / 7800 / Lynx ──────────────────────────
     PlatformManifest {
         short_name: "Atari 2600",
@@ -366,8 +374,11 @@ fn peek_zip_extension(path: &std::path::Path) -> Option<String> {
 /// Detect a platform name from a file path.
 ///
 /// For `.zip` files, peeks inside to find a known ROM extension before
-/// falling back. Otherwise tries the extension first, then parent directory
-/// name (RetroArch-style: "Nintendo - Game Boy" → "Game Boy").
+/// falling back. Otherwise the parent directory name (RetroArch-style:
+/// "Nintendo - Game Boy" → "Game Boy") takes precedence over the extension,
+/// because CD-based platforms (PlayStation, PlayStation 2, Dreamcast) share
+/// `.iso/.cue/.bin/.chd` extensions and can only be disambiguated by the
+/// system directory they live in.
 pub fn detect_platform_name(path: &std::path::Path) -> Option<String> {
     let ext = path.extension()?.to_str()?.to_lowercase();
 
@@ -392,18 +403,18 @@ pub fn detect_platform_name(path: &std::path::Path) -> Option<String> {
         return Some("Arcade".to_string());
     }
 
-    // ── Normal extension-based detection ──────────────────────────────
-    if let Some(pm) = by_extension(&ext) {
-        return Some(pm.short_name.to_string());
-    }
-
-    // Fallback: parent directory name
+    // ── Parent directory name first (disambiguates shared CD extensions) ─
     let parent = path.parent()?.file_name()?.to_str()?;
     if let Some(system) = parent.split(" - ").nth(1)
         && let Some(pm) = PLATFORMS
             .iter()
             .find(|p| p.short_name == system || p.aliases.contains(&system))
     {
+        return Some(pm.short_name.to_string());
+    }
+
+    // ── Extension-based detection (only trusted when no dir match) ─────
+    if let Some(pm) = by_extension(&ext) {
         return Some(pm.short_name.to_string());
     }
 
@@ -447,6 +458,24 @@ mod tests {
         assert_eq!(
             detect_platform_name(std::path::Path::new("/roms/Nintendo - Game Boy/game.gb")),
             Some("Game Boy".into())
+        );
+    }
+
+    #[test]
+    fn detect_platform_dir_name_disambiguates_shared_cd_extensions() {
+        // .iso is shared by PlayStation (PS1) and PlayStation 2; the parent
+        // directory must win so PS2 discs don't get mis-detected as PS1.
+        assert_eq!(
+            detect_platform_name(std::path::Path::new("/roms/Sony - PlayStation 2/game.iso")),
+            Some("PlayStation 2".into())
+        );
+        assert_eq!(
+            detect_platform_name(std::path::Path::new("/roms/Sony - PlayStation/game.cue")),
+            Some("PlayStation".into())
+        );
+        assert_eq!(
+            detect_platform_name(std::path::Path::new("/roms/Sega - Dreamcast/game.gdi")),
+            Some("Dreamcast".into())
         );
     }
 
