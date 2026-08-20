@@ -16,6 +16,12 @@ use crate::{AvInfo, CoreConfig, Error};
 
 mod pixels;
 
+// Forwarder that ships the compiled C log shim (see build.rs / src/log_shim.c).
+// Exposed so `GET_LOG_INTERFACE` can hand a variadic `retro_log_printf_t` to cores.
+unsafe extern "C" {
+    fn sc_log_printf(level: u32, fmt: *const std::ffi::c_char, ...);
+}
+
 /// Native callback allocation limits. Keep in sync with sc-core's shared-memory bound.
 const MAX_FRAME_WIDTH: u32 = 640;
 const MAX_FRAME_HEIGHT: u32 = 480;
@@ -34,6 +40,9 @@ thread_local! {
 
     /// Save directory path (for GET_SAVE_DIRECTORY env command).
     static SAVE_DIR: RefCell<Option<CString>> = const { RefCell::new(None) };
+
+    /// Path to the loaded core .so (for GET_LIBRETRO_PATH env command).
+    static LIBRETRO_PATH: RefCell<Option<CString>> = const { RefCell::new(None) };
 
     /// Content path CString — must outlive the retro_load_game call.
     static CONTENT_PATH_CSTR: RefCell<Option<CString>> = const { RefCell::new(None) };
@@ -233,6 +242,10 @@ impl Core {
         });
         SAVE_DIR.with(|cell| {
             *cell.borrow_mut() = CString::new(config.save_dir.to_string_lossy().as_bytes()).ok();
+        });
+        LIBRETRO_PATH.with(|cell| {
+            *cell.borrow_mut() =
+                CString::new(config.core_path.to_string_lossy().as_bytes()).ok();
         });
         AUDIO_CHANNELS.with(|channels| channels.set(config.audio_channels));
 
@@ -798,9 +811,42 @@ unsafe extern "C" fn environment_callback(cmd: u32, data: *mut std::ffi::c_void)
             true
         }
 
+        // Provide a log interface so cores can report errors to stderr.
+        // Crucial for diagnosing cores that crash during GL init.
+        RETRO_ENVIRONMENT_GET_LOG_INTERFACE if !data.is_null() => {
+            // SAFETY: `data` points to a retro_log_callback the core owns and
+            // filled in read-only; we only write the `log` field with the shim.
+            unsafe {
+                let cb = &mut *(data as *mut RetroLogCallback);
+                cb.log = Some(sc_log_printf);
+            }
+            true
+        }
+
+        // Provide the path of the loaded core (some cores resolve shaders/roms
+        // relative to their own location).
+        RETRO_ENVIRONMENT_GET_LIBRETRO_PATH if !data.is_null() => {
+            LIBRETRO_PATH.with(|cell| {
+                if let Some(ref path) = *cell.borrow() {
+                    // SAFETY: `data` points to a `*const c_char` slot the core
+                    // owns; we write a pointer to our (stable for the load)
+                    // C string. The core reads it before we can free it.
+                    unsafe {
+                        *(data as *mut *const std::ffi::c_char) = path.as_ptr();
+                    }
+                    true
+                } else {
+                    false
+                }
+            })
+        }
+
         // For all other commands, return false (core will try fallbacks)
         _ => {
             tracing::debug!("[CORE] unhandled env cmd: {} (0x{:x})", cmd, cmd);
+            // sc-core has no tracing subscriber, so surface unhandled env
+            // requests to stderr for diagnosing cores that fail to load.
+            eprintln!("[CORE ENV] unhandled env cmd: {cmd} (0x{cmd:x})");
             false
         }
     }

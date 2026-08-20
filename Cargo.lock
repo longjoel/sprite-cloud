@@ -1593,6 +1593,7 @@ name = "libretro-runner"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "cc",
  "libloading",
  "png",
  "tempfile",
