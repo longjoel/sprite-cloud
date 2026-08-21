@@ -93,11 +93,14 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         mono: false,
     },
     // ── Nintendo — N64 ────────────────────────────────────────────
+    // Use parallel_n64, not mupen64plus_next: the latter (GLES2 GLideN64)
+    // leaves its GL plugin interface NULL and SIGSEGVs at first retro_run in
+    // the headless runner. parallel_n64 (desktop-GL glide64) renders reliably.
     PlatformManifest {
         short_name: "Nintendo 64",
         aliases: &["Nintendo - Nintendo 64"],
         extensions: &["n64", "z64", "v64"],
-        core: "mupen64plus_next_libretro.so",
+        core: "parallel_n64_libretro.so",
         mono: false,
     },
     // ── Nintendo — DS ─────────────────────────────────────────────
