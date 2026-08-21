@@ -168,3 +168,30 @@ part of finishing the N64 frame-capture work.
    has no software fallback.)
 2. Should the EGL context be owned by `libretro-runner` (shared) or injected per
    platform by sc-server?
+
+## 8. Resolution: N64 playback (2026-08-21)
+
+**Outcome:** N64 (parallel-n64 + Super Mario 64) now renders video through the full
+`sc-core` pipeline on drone0 (native Mesa 26.0.8), verified at ~62% nonzero frames
+with no regression to Flycast (GLES, ~76%) or PS1 (software).
+
+**Root cause of the "near-black / no video" the runner saw (NOT a capture readback
+bug):** the deployed `parallel_n64` core `.so` on drone0 was a **bad build** that runs
+the emulator at full speed but never calls `video_refresh` — so every captured frame
+stayed identical black. Demonstrated with the standalone `07_n64_parallel_gles`
+harness: the broken core yields `0 video_refresh` on *any* Mesa/frontend, while the
+canonical `cores/build.py` build (with the GL-fallback patch, as VAULT ships) yields
+`1071 video_refresh / 133 captured` frames on the *same* host and driver.
+
+**Correction — Mesa 26.0.8 is NOT at fault.** It was briefly misattributed as a Mesa
+regression (Mesa 25.2.8 was also briefly pinned), but a controlled experiment showed
+the working core presents identically on both Mesa 26.0.8 and 25.2.8. The Mesa pinning
+was reverted; drone0 is back on native 26.0.8. The only lasting host change is the
+working core deployed (broken one preserved as `parallel_n64_libretro.so.broken-backup`).
+
+**Do not debug the GL readback / reload Mesa when N64 shows all-black.** First swap the
+core for a `build.py` build; that is the overwhelmingly most common cause.
+
+**Remaining wiring (for the player URL):** sc-server's platform→`parallel_n64` core
+mapping must point at the now-working core build so `start_game` spawns it (currently
+still the backlog item below).
