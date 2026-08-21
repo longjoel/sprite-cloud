@@ -39,6 +39,10 @@
 #define DEFAULT_W 640
 #define DEFAULT_H 480
 
+/* Actual surface size (from the core's av_info max dims once known). */
+static int surf_w = DEFAULT_W;
+static int surf_h = DEFAULT_H;
+
 static int dri_fd = -1;
 static struct gbm_device *gbm_dev = NULL;
 static struct gbm_surface *gbm_surf = NULL;
@@ -135,8 +139,9 @@ static void init_egl_gbm(int context_type, int version_major, int version_minor)
     if (!eglChooseConfig(egl_dpy, cfg_attrs, &egl_cfg, 1, &n) || n != 1)
         die("eglChooseConfig");
 
-    /* GBM surface: XRGB8888 + RENDERING + LINEAR (needed for readback). */
-    gbm_surf = gbm_surface_create(gbm_dev, DEFAULT_W, DEFAULT_H,
+    /* GBM surface: XRGB8888 + RENDERING + LINEAR (needed for readback). Sized
+     * to the core's max dims (surf_w/h) — see set-output-size. */
+    gbm_surf = gbm_surface_create(gbm_dev, surf_w, surf_h,
                                   GBM_FORMAT_XRGB8888,
                                   GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR);
     if (!gbm_surf) die("gbm_surface_create");
@@ -170,7 +175,7 @@ static void init_egl_gbm(int context_type, int version_major, int version_minor)
     gl_initialized = 1;
     fprintf(stderr, "[gl-bridge] initialised: API=%s, EGL %d.%d, surface %dx%d\n",
             gl_is_es ? "OpenGL ES" : "Desktop GL",
-            (int)major, (int)minor, DEFAULT_W, DEFAULT_H);
+            (int)major, (int)minor, surf_w, surf_h);
     if (gl_is_es) {
         fprintf(stderr, "[gl-bridge] GLES: %s\n", (const char *)glGetString(GL_VERSION));
     } else {
@@ -281,3 +286,57 @@ void sc_gl_bridge_destroy(void) {
 }
 
 int sc_gl_bridge_is_initialized(void) { return gl_initialized; }
+
+/* ------------------------------------------------------------------ */
+/* Output-size control (dynamic-resolution handling)                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Set the EGL window surface to the core's max dimensions. SET_HW_RENDER runs
+ * during retro_load_game, before av_info (max dims) is known, so this lets the
+ * runner resize the surface once the real max is fetched. N64 changes its VI
+ * resolution at runtime; as long as the surface is >= the largest frame and we
+ * read per-frame w/h out of it, no stretch occurs. Safe to call once, after
+ * the first present; infrequent (once per load).
+ */
+void sc_gl_bridge_set_output_size(int width, int height) {
+    if (width < 1) width = DEFAULT_W;
+    if (height < 1) height = DEFAULT_H;
+    /* Clamp to a sane upper bound to avoid absurdly large allocations. */
+    if (width > 4096) width = 4096;
+    if (height > 4096) height = 4096;
+
+    if (!gl_initialized) {
+        /* Not set up yet — record the target; init_egl_gbm will use it. */
+        surf_w = width;
+        surf_h = height;
+        return;
+    }
+
+    if (surf_w == width && surf_h == height) return;
+
+    fprintf(stderr, "[gl-bridge] resizing output surface %dx%d -> %dx%d\n",
+            surf_w, surf_h, width, height);
+
+    /* Recreate just the EGL window surface + GBM surface at the new size;
+     * the EGL display + context can stay. Make it current so the core keeps
+     * a valid default framebuffer 0 across the swap. */
+    if (egl_surf != EGL_NO_SURFACE) eglDestroySurface(egl_dpy, egl_surf);
+    if (gbm_surf) gbm_surface_destroy(gbm_surf);
+
+    surf_w = width;
+    surf_h = height;
+
+    gbm_surf = gbm_surface_create(gbm_dev, surf_w, surf_h,
+                                  GBM_FORMAT_XRGB8888,
+                                  GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR);
+    if (!gbm_surf) { fprintf(stderr, "[gl-bridge] resize: gbm_surface_create failed\n"); return; }
+
+    egl_surf = eglCreateWindowSurface(egl_dpy, egl_cfg, gbm_surf, NULL);
+    if (egl_surf == EGL_NO_SURFACE) {
+        fprintf(stderr, "[gl-bridge] resize: eglCreateWindowSurface failed\n");
+        return;
+    }
+    eglMakeCurrent(egl_dpy, egl_surf, egl_surf, egl_ctx);
+    fprintf(stderr, "[gl-bridge] surface now %dx%d\n", surf_w, surf_h);
+}

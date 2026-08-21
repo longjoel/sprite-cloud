@@ -118,6 +118,29 @@ and pinning the correct Phase 2 context type before we build it.
 4. `journalctl -u sc-server`: core reaches "playing", no `core did not stop
    within shutdown deadline`.
 
+## 4b. N64 dynamic-resolution handling (per-frame dims, no stretch)
+
+N64 changes its VI resolution on the fly (menus 320×240, gameplay 640×480,
+sometimes mid-level). Naive fixed-640×480 capture + fixed-size encode produces
+stretched/blurry video. Design:
+- Size the GBM/EGL **surface once at the core's `max_width × max_height`** from
+  `retro_get_system_av_info` (not a hardcoded DEFAULT_W/H). Libretro guarantees
+  max_dimensions never shrink once set, so a single allocation is safe, and
+  `SET_GEOMETRY` (env 37) can't exceed it.
+- Each frame, pass the **actual `width × height` from `video_refresh`** into
+  `glReadPixels(0, 0, w, h)` — read exactly the rendered region. glReadPixels
+  reads what's in the back buffer at those pixel coords; no manual scaling.
+- Downstream, the frame already carries its true dims (`RAW_FRAME_DIMS`); the
+  encoder/player must **re-scale per frame to display**, not assume a fixed
+  size. That resize step is where stretch actually enters; keep dims flowing
+  through unchanged to the encoder and scale only at presentation.
+- Required wiring: pass av_info max dims into the GL bridge at surface create
+  (`sc_gl_bridge_open(width, height)`), and keep the per-frame read path
+  parameterised by the incoming w/h (already the case).
+
+Status: bridge hardcodes 640×480 today; needs updating to a max-dims surface as
+part of finishing the N64 frame-capture work.
+
 ## 5. Risks / tradeoffs
 
 - **Variadic log**: cannot be done in pure safe Rust → requires a C shim via

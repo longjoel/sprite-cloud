@@ -33,6 +33,7 @@ unsafe extern "C" {
         height: i32,
         pitch: i32,
     ) -> i32;
+    fn sc_gl_bridge_set_output_size(width: i32, height: i32);
     fn sc_gl_bridge_destroy();
     fn sc_gl_bridge_is_initialized() -> i32;
 }
@@ -413,6 +414,12 @@ impl Core {
 
         let pixel_format = PIXEL_FORMAT.with(|f| f.get());
         let pixel_format_negotiated = PIXEL_FORMAT_NEGOTIATED.with(|f| f.get());
+
+        // Size the GL output surface to the core's max dimensions so per-frame
+        // resolution changes (esp. N64) never exceed it → no stretch/blur.
+        unsafe {
+            sc_gl_bridge_set_output_size(av_info.max_width as i32, av_info.max_height as i32);
+        }
 
         Ok(Core {
             _library: library,
