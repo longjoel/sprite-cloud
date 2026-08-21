@@ -15,6 +15,10 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
+// `ExitStatus::signal()` (for classifying child deaths like SIGSEGV/SIGABRT)
+// is Unix-only. This crate targets Linux.
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
 
 use sc_core::{
     CMD_LOAD_SRAM, CMD_LOAD_STATE, CMD_SAVE_SRAM, CMD_SAVE_STATE, CMD_SET_INPUT, InputShm,
@@ -246,6 +250,111 @@ fn deliver_crash_sentinel(sender: &mpsc::SyncSender<CoreFrame>) -> bool {
             Err(mpsc::TrySendError::Full(_)) => return false,
             Err(mpsc::TrySendError::Disconnected(_)) => return false,
         }
+    }
+}
+
+/// How long an *alive* core may go without delivering a single video frame
+/// before we declare it stalled and surface a graceful error instead of
+/// leaving the player on a frozen/test-pattern stream forever. Broken core
+/// builds (e.g. a libretro core whose video_refresh never fires) boot, spin,
+/// and stay alive without ever presenting a frame; this watchdog catches that.
+/// 45s is generous enough not to false-positive on a slow first frame while
+/// catching genuinely-stuck cores well before a user gives up.
+const CORE_STALL_GRACE: Duration = Duration::from_secs(45);
+
+/// Map a child `ExitStatus` plus captured stderr to a concise, player-facing
+/// reason for `core_died`. `ExitStatus::signal()` is `Some` when the child was
+/// terminated by a signal (a C++ abort like flycast's `SH4ThrownException`
+/// surfaces as SIGABRT; a segfault as SIGSEGV), `code()` some when it exited
+/// normally with a code (137 = SIGKILL, typically the OOM-killer). Differentiating
+/// them is what lets the player show *why* the stream died instead of the
+/// generic "core process crashed". A short stderr tail is appended as a hint.
+fn classify_core_death(status: &std::process::ExitStatus, stderr_tail: &str) -> String {
+    // Standard Linux signal numbers (no libc dep in this crate).
+    const SIGABRT: i32 = 6;
+    const SIGBUS: i32 = 7;
+    const SIGKILL: i32 = 9;
+    const SIGSEGV: i32 = 11;
+    const SIGILL: i32 = 4;
+
+    let stderr_hint = {
+        let tail = stderr_tail.trim();
+        if tail.is_empty() {
+            String::new()
+        } else {
+            let shown: String = tail.chars().take(140).collect();
+            format!(" ({})", shown.replace('\n', " ").replace('\r', ""))
+        }
+    };
+
+    if let Some(code) = status.code() {
+        match code {
+            0 => format!("Emulator exited unexpectedly{stderr_hint}"),
+            101 => format!("Emulator panicked (unhandled Rust panic){stderr_hint}"),
+            137 => format!("Emulator was killed — likely out of memory{stderr_hint}"),
+            _ => format!("Emulator crashed (exit code {code}){stderr_hint}"),
+        }
+    } else if let Some(sig) = status.signal() {
+        match sig {
+            SIGSEGV => format!(
+                "Emulator crashed — segmentation fault{stderr_hint}"
+            ),
+            SIGABRT => format!(
+                "Emulator aborted — the game or emulator raised an unhandled exception{stderr_hint}"
+            ),
+            SIGBUS => format!("Emulator crashed — bus error{stderr_hint}"),
+            SIGILL => format!("Emulator crashed — illegal instruction{stderr_hint}"),
+            SIGKILL => format!("Emulator was killed (SIGKILL — likely out of memory){stderr_hint}"),
+            _ => format!("Emulator crashed (signal {sig}){stderr_hint}"),
+        }
+    } else {
+        format!("Emulator crashed{stderr_hint}")
+    }
+}
+
+#[cfg(test)]
+mod classify_core_death_tests {
+    use super::*;
+    use std::os::unix::process::ExitStatusExt;
+
+    // Build an `ExitStatus` as the kernel reports it via waitpid raw status:
+    // normal exits store the code in the high byte (code << 8); signal deaths
+    // store the signal number in the low byte.
+    fn exited(code: i32) -> std::process::ExitStatus {
+        std::process::ExitStatus::from_raw(code << 8)
+    }
+    fn signaled(sig: i32) -> std::process::ExitStatus {
+        std::process::ExitStatus::from_raw(sig)
+    }
+
+    #[test]
+    fn maps_normal_exit_codes() {
+        assert!(classify_core_death(&exited(0), "").contains("exited unexpectedly"));
+        // 137 = 128 + SIGKILL, the shell/OOM-killer convention.
+        assert!(classify_core_death(&exited(137), "").contains("out of memory"));
+        assert!(classify_core_death(&exited(1), "").contains("exit code 1"));
+    }
+
+    #[test]
+    fn maps_signal_deaths_to_plain_reasons() {
+        // The core crashing with a segfault → "segmentation fault".
+        assert!(classify_core_death(&signaled(11), "").contains("segmentation fault"));
+        // flycast's SH4ThrownException surfaces as std::terminate → SIGABRT(6).
+        assert!(classify_core_death(&signaled(6), "").contains("unhandled exception"));
+        assert!(classify_core_death(&signaled(9), "").contains("out of memory"));
+    }
+
+    #[test]
+    fn includes_a_short_stderr_tail_as_a_hint() {
+        let reason = classify_core_death(&signaled(6), "terminate called after throwing\nsome detail");
+        assert!(reason.contains("unhandled exception"));
+        assert!(reason.contains("some detail"));
+    }
+
+    #[test]
+    fn empty_stderr_adds_no_hint() {
+        let reason = classify_core_death(&signaled(11), "  \n  ");
+        assert!(!reason.contains('('));
     }
 }
 
@@ -844,6 +953,10 @@ pub async fn load_core_into_session(
 
     // Save state support — copy response data into CoreResponse
     let resp_tx = response_tx.clone();
+    // Where the bridge records *why* the child died/stalled; `relay_core_died`
+    // reads it back so the player gets a specific reason instead of the generic
+    // "core process crashed". Moves into the bridge thread below.
+    let reason_store = session.core_died_reason.clone();
 
     // ── Bridge thread: shm ↔ channels ───────────────────────────────
     let rom_hash_save = rom_hash.clone();
@@ -857,6 +970,10 @@ pub async fn load_core_into_session(
         let bridge_panicked = run_and_shutdown_after_panic(
             &mut child,
             |child| {
+                // Watchdog clock: bumped on every delivered frame. If the child
+                // stays alive but this ages past CORE_STALL_GRACE, we declare a
+                // stall (missing video) instead of leaving the player frozen.
+                let mut last_frame_at = std::time::Instant::now();
                 loop {
                     // Check cancel
                     if cancel.is_cancelled() {
@@ -916,6 +1033,11 @@ pub async fn load_core_into_session(
                                 })
                                 .unwrap_or_default();
                             tracing::warn!("[BRIDGE] child exited with {status}: {stderr_out}");
+                            // Classify the real death (signal/code) so the
+                            // player gets a specific reason instead of a generic
+                            // "core process crashed".
+                            *reason_store.lock().unwrap_or_else(|p| p.into_inner()) =
+                                Some(classify_core_death(&status, &stderr_out));
                             // Deliver the crash sentinel *before* cancelling: a
                             // zero-width sentinel is the streaming loop's signal
                             // to relay core_died to the player, and it must not
@@ -928,10 +1050,33 @@ pub async fn load_core_into_session(
                         Ok(None) => {} // still running
                         Err(e) => {
                             tracing::error!("[BRIDGE] try_wait error: {e}");
+                            *reason_store.lock().unwrap_or_else(|p| p.into_inner()) = Some(format!(
+                                "Emulator process monitoring error (couldn't wait on it): {e}"
+                            ));
                             let _ = deliver_crash_sentinel(&frame_tx);
                             cancel.cancel();
                             break;
                         }
+                    }
+
+                    // ── Stall watchdog ─────────────────────────────
+                    // Child is alive but hasn't delivered a frame in a while.
+                    // (If it actually died, the try_wait above already broke
+                    // out.) Some broken core builds boot, spin, and never
+                    // present video; surface that as a graceful core_died
+                    // rather than leaving the player on a frozen/test-pattern
+                    // stream with no explanation.
+                    if last_frame_at.elapsed() > CORE_STALL_GRACE {
+                        tracing::error!(
+                            "[BRIDGE] core stalled — no video frame for {:?}",
+                            last_frame_at.elapsed()
+                        );
+                        *reason_store.lock().unwrap_or_else(|p| p.into_inner()) = Some(
+                            "Emulator is not responding (no video frames)".to_string(),
+                        );
+                        let _ = deliver_crash_sentinel(&frame_tx);
+                        cancel.cancel();
+                        break;
                     }
 
                     // Read frame from output shm
@@ -974,6 +1119,9 @@ pub async fn load_core_into_session(
                             break;
                         }
                         frame_num = frame_num.wrapping_add(1);
+                        // A frame was produced — keep the stall watchdog from
+                        // firing on a healthy core.
+                        last_frame_at = std::time::Instant::now();
                     }
 
                     std::thread::sleep(Duration::from_millis(1));
@@ -1404,6 +1552,7 @@ mod tests {
             cloud_session_id: None,
             cancel: tokio_util::sync::CancellationToken::new(),
             core_stopped: tokio_util::sync::CancellationToken::new(),
+            core_died_reason: std::sync::Arc::new(std::sync::Mutex::new(None)),
             pc: std::sync::Mutex::new(stack.pc),
             video_track: std::sync::Mutex::new(stack.video_track),
             audio_track: std::sync::Mutex::new(stack.audio_track),
