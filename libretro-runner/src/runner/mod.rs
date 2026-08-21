@@ -59,6 +59,13 @@ thread_local! {
     /// Path to the loaded core .so (for GET_LIBRETRO_PATH env command).
     static LIBRETRO_PATH: RefCell<Option<CString>> = const { RefCell::new(None) };
 
+    /// Values served to GET_VARIABLE. We own the CStrings so their pointers
+    /// remain valid for the core's lifetime. Populated for the specific core
+    /// options that must be forced (e.g. ParaLLEl-N64 gfxplugin="gl"). Lazily
+    /// initialised (HashMap::new is not const).
+    static CORE_OPTION_VALUES: RefCell<Option<std::collections::HashMap<String, CString>>> =
+        const { RefCell::new(None) };
+
     /// Content path CString — must outlive the retro_load_game call.
     static CONTENT_PATH_CSTR: RefCell<Option<CString>> = const { RefCell::new(None) };
 
@@ -91,6 +98,36 @@ thread_local! {
 // ---------------------------------------------------------------------------
 // Symbol loading helpers
 // ---------------------------------------------------------------------------
+
+/// Populate the values we serve to GET_VARIABLE, per core. We only force the
+/// options required for headless (no-X11) rendering; everything else stays at
+/// the core's own default. The returned CStrings are owned by the caller.
+fn default_core_options(
+    core_path: &Path,
+    store: &mut std::collections::HashMap<String, CString>,
+) {
+    let name = core_path
+        .file_name()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
+    // ParaLLEl-N64: must select the desktop "gl" graphics plugin. Its only
+    // other options are "parallel" (Vulkan — no Vulkan headless here) and
+    // "angrylion" (software — black frames). Force gl + the parallel RSP.
+    if name.contains("parallel_n64") || name.contains("parallel-n64") {
+        store.insert(
+            "parallel-n64-gfxplugin".to_string(),
+            CString::new("gl").unwrap_or_default(),
+        );
+        store.insert(
+            "parallel-n64-rspplugin".to_string(),
+            CString::new("parallel").unwrap_or_default(),
+        );
+    }
+
+    // mupen64plus-next already falls through to GLideN64 when GET_VARIABLE is
+    // unanswered, so no override needed there.
+}
 
 /// Load a required symbol from the library.
 ///
@@ -261,6 +298,16 @@ impl Core {
         LIBRETRO_PATH.with(|cell| {
             *cell.borrow_mut() =
                 CString::new(config.core_path.to_string_lossy().as_bytes()).ok();
+        });
+
+        // Force headless-GL core options per core. Keys are the option names
+        // the cores probe via GET_VARIABLE. We own the CStrings so pointers
+        // stay valid.
+        CORE_OPTION_VALUES.with(|store| {
+            let mut store = store.borrow_mut();
+            let mut map = std::collections::HashMap::new();
+            default_core_options(&config.core_path, &mut map);
+            *store = Some(map);
         });
         AUDIO_CHANNELS.with(|channels| channels.set(config.audio_channels));
 
@@ -870,6 +917,28 @@ unsafe extern "C" fn environment_callback(cmd: u32, data: *mut std::ffi::c_void)
             let accepted = unsafe { sc_gl_bridge_set_hw_render(data) != 0 };
             tracing::info!("[CORE] SET_HW_RENDER accepted={}", accepted);
             accepted
+        }
+
+        // Provide a single core option value. We only force the handful of
+        // options that must be set for headless GL (e.g. ParaLLEl-N64 must get
+        // gfxplugin="gl" or it defaults to the Vulkan "parallel" RDP and fails).
+        // Unknown/other keys return false so the core uses its own defaults.
+        RETRO_ENVIRONMENT_GET_VARIABLE if !data.is_null() => {
+            CORE_OPTION_VALUES.with(|store| {
+                let store = store.borrow();
+                let var = unsafe { &mut *(data as *mut RetroVariable) };
+                if var.key.is_null() {
+                    return false;
+                }
+                let key = unsafe { CStr::from_ptr(var.key) }.to_string_lossy().into_owned();
+                match store.as_ref().and_then(|m| m.get(&key)) {
+                    Some(val) => {
+                        var.value = val.as_ptr();
+                        true
+                    }
+                    None => false,
+                }
+            })
         }
 
         // For all other commands, return false (core will try fallbacks)

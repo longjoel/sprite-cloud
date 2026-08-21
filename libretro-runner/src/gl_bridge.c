@@ -53,6 +53,10 @@ static int gl_initialized = 0;
 
 /* DID_GL bind for our context API decision. */
 static int gl_is_es = 0;
+/* Desktop GL cores may want legacy (fixed-function) GL that only a
+ * compatibility-profile context provides (e.g. ParaLLEl-N64's glide64).
+ * RETRO_HW_CONTEXT_OPENGL (0x1) => compat; OPENGL_CORE (0x3) => core. */
+static int gl_compat = 0;
 
 static void die(const char *msg) {
     fprintf(stderr, "[gl-bridge] FATAL: %s (errno=%s)\n", msg, strerror(errno));
@@ -151,7 +155,9 @@ static void init_egl_gbm(int context_type, int version_major, int version_minor)
         EGLint ctx_attrs[] = {
             EGL_CONTEXT_MAJOR_VERSION, maj,
             EGL_CONTEXT_MINOR_VERSION, min_,
-            EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
+            EGL_CONTEXT_OPENGL_PROFILE_MASK,
+            gl_compat ? EGL_CONTEXT_OPENGL_COMPATIBILITY_PROFILE_BIT
+                      : EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
             EGL_NONE
         };
         egl_ctx = eglCreateContext(egl_dpy, egl_cfg, EGL_NO_CONTEXT, ctx_attrs);
@@ -202,6 +208,10 @@ int sc_gl_bridge_set_hw_render(void *raw) {
         return 0;
     }
     gl_is_es = is_es;
+    /* Desktop GL: compatibility profile for plain OPENGL (legacy cores like
+     * ParaLLEl-N64's glide64 need fixed-function GL); core profile for
+     * OPENGL_CORE. Irrelevant for GLES. */
+    gl_compat = (hw->context_type == RETRO_HW_CONTEXT_OPENGL);
 
     /* Save the core's own constructor and replace with our chaining wrapper. */
     core_context_reset = hw->context_reset;
