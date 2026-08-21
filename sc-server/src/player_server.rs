@@ -912,6 +912,7 @@ async fn launch_game(
         cloud_session_id: None,
         cancel: tokio_util::sync::CancellationToken::new(),
         core_stopped: tokio_util::sync::CancellationToken::new(),
+        core_died_reason: std::sync::Arc::new(std::sync::Mutex::new(None)),
         pc: std::sync::Mutex::new(stack.pc),
         video_track: std::sync::Mutex::new(stack.video_track),
         audio_track: std::sync::Mutex::new(stack.audio_track),

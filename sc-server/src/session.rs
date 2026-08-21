@@ -37,6 +37,12 @@ pub struct GameSession {
     /// Completion token — cancelled only after the core bridge has captured
     /// shutdown SRAM, terminated the child, and released shared memory.
     pub core_stopped: tokio_util::sync::CancellationToken,
+    /// Human-readable reason the core died/stalled, set by the bridge thread
+    /// (which has the real `ExitStatus`/signal and stderr) just before it
+    /// delivers the width-0 crash sentinel. `relay_core_died` drains this on
+    /// the way out so the player gets a specific, actionable message instead of
+    /// the generic "core process crashed". Empty until a crash is classified.
+    pub core_died_reason: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 
     // ── WebRTC ──────────────────────────────────────────────────────
     pub pc: StdMutex<Arc<RTCPeerConnection>>,
