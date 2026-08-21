@@ -183,6 +183,22 @@ pub const RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2: u32 = 55;
 pub const RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL: u32 = 56;
 /// Set a callback for when the core wants options display updated.
 pub const RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK: u32 = 69;
+/// Core requests a hardware-rendering context (data = retro_hw_render_callback*).
+pub const RETRO_ENVIRONMENT_SET_HW_RENDER: u32 = 14;
+
+/// Sentinel passed to video_refresh by HW-rendered cores: pixels live in the
+/// GL default framebuffer, not in `data`.
+pub const RETRO_HW_FRAME_BUFFER_VALID: *const std::ffi::c_void =
+    usize::MAX as *const std::ffi::c_void;
+
+/// HW context types (enum retro_hw_context_type).
+pub const RETRO_HW_CONTEXT_NONE: u32 = 0;
+pub const RETRO_HW_CONTEXT_OPENGL: u32 = 1;
+pub const RETRO_HW_CONTEXT_OPENGLES2: u32 = 2;
+pub const RETRO_HW_CONTEXT_OPENGL_CORE: u32 = 3;
+pub const RETRO_HW_CONTEXT_OPENGLES3: u32 = 4;
+pub const RETRO_HW_CONTEXT_OPENGLES_VERSION: u32 = 5;
+pub const RETRO_HW_CONTEXT_VULKAN: u32 = 6;
 
 /// A single core variable, passed to `retro_get_variable_callback`.
 #[repr(C)]

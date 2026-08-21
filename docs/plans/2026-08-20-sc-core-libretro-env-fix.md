@@ -3,9 +3,9 @@
 > **Goal:** make the N64/Dreamcast/PS2 player flow on drone0 actually boot a game.
 > PS1 already works (CPU core). Root cause is **no GL context in the runner** —
 > an OpenGL 3D context issue, not a core-options bug.
-> **Status:** ✅ **Phase 1 (robust core logging) DONE.** mupen/flycast confirmed
-> the diagnosis via core log. Phase 2 (EGL/GBM HW render + source-built GL cores)
-> is the remaining work.
+> **Status:** ✅ **Phase 1 (logging) DONE — committed `ad837b89`.**
+> ✅ **Phase 2a (EGL/GBM HW render) PROVEN — Flycast now boots a Dreamcast game
+> headless.** N64 (mupen) source build + live-frame verification remain.
 
 ## 0. Corrected root cause (supersedes earlier "env-contract gap" theory)
 

@@ -22,6 +22,21 @@ unsafe extern "C" {
     fn sc_log_printf(level: u32, fmt: *const std::ffi::c_char, ...);
 }
 
+// Binder to the compiled C GL bridge (see build.rs / src/gl_bridge.c). It owns
+// all EGL/GBM/GL state and all libretro HW-render struct handling (using the
+// real libretro.h) so Rust never has to hand-roll those layout-sensitive types.
+unsafe extern "C" {
+    fn sc_gl_bridge_set_hw_render(data: *mut std::ffi::c_void) -> i32;
+    fn sc_gl_bridge_present_and_read(
+        dst: *mut u8,
+        width: i32,
+        height: i32,
+        pitch: i32,
+    ) -> i32;
+    fn sc_gl_bridge_destroy();
+    fn sc_gl_bridge_is_initialized() -> i32;
+}
+
 /// Native callback allocation limits. Keep in sync with sc-core's shared-memory bound.
 const MAX_FRAME_WIDTH: u32 = 640;
 const MAX_FRAME_HEIGHT: u32 = 480;
@@ -748,6 +763,9 @@ impl Drop for Core {
         // SAFETY: retro_deinit is the last call. The function pointers and
         // library are still valid.
         unsafe { (self.retro_deinit)() };
+        // Release the EGL/GBM context (if a GL core took it). Order: after the
+        // core has been deinitialised so it can't touch our context.
+        unsafe { sc_gl_bridge_destroy() };
     }
 }
 
@@ -841,6 +859,19 @@ unsafe extern "C" fn environment_callback(cmd: u32, data: *mut std::ffi::c_void)
             })
         }
 
+        // Hardware rendering: hand the whole struct to the C GL bridge, which
+        // sets up the EGL/GBM context, wires get_proc_address /
+        // get_current_framebuffer, and chains the core's context_reset. All
+        // struct layout is handled in C against the real libretro.h.
+        RETRO_ENVIRONMENT_SET_HW_RENDER => {
+            // SAFETY: `data` points to a retro_hw_render_callback owned by the
+            // core. The C bridge reads the core's fields and writes the
+            // callbacks we provide. It must not outlive the core's env cb.
+            let accepted = unsafe { sc_gl_bridge_set_hw_render(data) != 0 };
+            tracing::info!("[CORE] SET_HW_RENDER accepted={}", accepted);
+            accepted
+        }
+
         // For all other commands, return false (core will try fallbacks)
         _ => {
             tracing::debug!("[CORE] unhandled env cmd: {} (0x{:x})", cmd, cmd);
@@ -875,6 +906,56 @@ unsafe extern "C" fn video_refresh_callback(
     height: u32,
     pitch: usize,
 ) {
+    // Hardware-rendered cores signal a finished frame with the
+    // RETRO_HW_FRAME_BUFFER_VALID sentinel; the pixels live in the GL default
+    // framebuffer. Read them back through the GL bridge.
+    if data == RETRO_HW_FRAME_BUFFER_VALID {
+        let ok = unsafe { sc_gl_bridge_is_initialized() != 0 }
+            && {
+                // Allocate a scratch bucket for the RGBA readback (w*h*4 —
+                // within the raw-frame budget). Read via GL bridge, then store
+                // as raw so the existing convert path can process it.
+                let w = width as usize;
+                let h = height as usize;
+                let row_bytes = (pitch.max(w * 4)).min(w * 4).max(w * 4);
+                let sz = w.checked_mul(h).map(|n| n.checked_mul(4)).flatten();
+                match sz {
+                    Some(sz) if sz <= MAX_RAW_FRAME_BYTES => {
+                        let mut buf = vec![0u8; sz];
+                        let ok = unsafe {
+                            sc_gl_bridge_present_and_read(
+                                buf.as_mut_ptr(),
+                                width as i32,
+                                height as i32,
+                                row_bytes as i32,
+                            ) != 0
+                        };
+                        if ok {
+                            RAW_FRAME_DIMS.with(|dims| {
+                                *dims.borrow_mut() = (width, height, row_bytes);
+                            });
+                            RAW_FRAME.with(|frame| {
+                                let mut frame = frame.borrow_mut();
+                                frame.clear();
+                                frame.extend_from_slice(&buf);
+                            });
+                        }
+                        ok
+                    }
+                    _ => false,
+                }
+            };
+        if !ok {
+            tracing::warn!(
+                "[CORE] HW frame present+read failed (w={} h={} pitch={})",
+                width,
+                height,
+                pitch
+            );
+        }
+        return;
+    }
+
     if data.is_null() {
         // Duplicate frame — keep previous raw frame buffer
         return;
