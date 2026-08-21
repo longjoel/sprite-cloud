@@ -6,6 +6,14 @@
 //! # Safety
 //!
 //! All function pointer types in this module are `unsafe extern "C"`.
+//!
+//! The module is crate-private (`mod ffi`), so the large table of libretro
+//! ABI constants below is intentionally not part of the public API. Most of
+//! them are defined here for documentation completeness and are only referenced
+//! from the C bridge / env handler for the subset the runner actually needs.
+//! Suppress dead-code so unused-but-deliberate ABI constant entries don't fail
+//! the workspace's `-D warnings` clippy gate.
+#![allow(dead_code)]
 //! Callers must ensure the function pointer is valid, the library is
 //! still loaded, and the ABI contract is followed.
 

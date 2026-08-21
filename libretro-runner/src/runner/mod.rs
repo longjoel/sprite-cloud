@@ -994,7 +994,7 @@ unsafe extern "C" fn video_refresh_callback(
                 let w = width as usize;
                 let h = height as usize;
                 let row_bytes = (pitch.max(w * 4)).min(w * 4).max(w * 4);
-                let sz = w.checked_mul(h).map(|n| n.checked_mul(4)).flatten();
+                let sz = w.checked_mul(h).and_then(|n| n.checked_mul(4));
                 match sz {
                     Some(sz) if sz <= MAX_RAW_FRAME_BYTES => {
                         let mut buf = vec![0u8; sz];
@@ -1224,7 +1224,7 @@ unsafe extern "C" fn audio_batch_callback(data: *const i16, frames: usize) -> us
 /// louder channel per sample pair and duplicates it — a no-op when the core
 /// already duplicates (L == R), and a guaranteed fix when one channel is dead.
 pub fn normalize_mono(samples: &mut [i16]) {
-    for pair in samples.chunks_exact_mut(2) {
+    for pair in samples.as_chunks_mut::<2>().0 {
         let live = if (pair[0] as i32).unsigned_abs() >= (pair[1] as i32).unsigned_abs() {
             pair[0]
         } else {
