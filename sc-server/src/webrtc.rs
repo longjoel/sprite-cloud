@@ -21,6 +21,7 @@ use webrtc::ice::mdns::MulticastDnsMode;
 use webrtc::ice::network_type::NetworkType;
 use webrtc::ice_transport::ice_gatherer_state::RTCIceGathererState;
 use webrtc::ice_transport::ice_server::RTCIceServer;
+use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::policy::ice_transport_policy::RTCIceTransportPolicy;
@@ -220,6 +221,36 @@ async fn exchange_sdp(
     offer_sdp: &str,
     done_rx: &mut tokio::sync::mpsc::Receiver<()>,
 ) -> Result<String, String> {
+    // Diagnostic (temporary): does the incoming one-shot offer actually carry
+    // ICE candidates? If it has ufrag/pwd but no a=candidate lines, the remote
+    // peer can never form candidate pairs regardless of what we answer.
+    {
+        let mut oc = 0u32;
+        for line in offer_sdp.lines() {
+            if line.starts_with("a=candidate:") {
+                oc += 1;
+            }
+        }
+        tracing::debug!(
+            "[SDP] incoming offer: {}B candidate_lines={} has_ice_creds={}",
+            offer_sdp.len(),
+            oc,
+            offer_sdp.contains("a=ice-ufrag:")
+        );
+    }
+    // Collect the offer's embedded candidate lines so we can (re-)inject them
+    // AFTER the local ICE agent exists. set_remote_description tries to feed
+    // these into the agent before set_local_description/gather() has created
+    // it, so on this fork they never reach the agent's checklist — leading to
+    // "no candidate pairs" even though both SDPs are fully populated. Feeding
+    // them via add_ice_candidate once the agent is alive is the "trickle on
+    // receive" fix that fits this poll-based one-shot signaling.
+    let mut offer_candidates: Vec<String> = Vec::new();
+    for line in offer_sdp.lines() {
+        if let Some(c) = line.strip_prefix("a=candidate:") {
+            offer_candidates.push(c.to_string());
+        }
+    }
     let offer_desc = RTCSessionDescription::offer(offer_sdp.to_string())
         .map_err(|e| format!("parse offer: {e}"))?;
     pc.set_remote_description(offer_desc)
@@ -245,8 +276,66 @@ async fn exchange_sdp(
     // Without this, the local description SDP may be missing relay candidates.
     tokio::time::sleep(Duration::from_millis(200)).await;
 
+    // Re-inject the offer's embedded candidates now that the local ICE agent
+    // exists (set_local_description/gather ran above). Feed each via
+    // add_ice_candidate — the same route a browser trickle would use — so the
+    // agent can form candidate pairs against its now-gathered local set.
+    if !offer_candidates.is_empty() {
+        let mut ok = 0u32;
+        for c_value in &offer_candidates {
+            let init = RTCIceCandidateInit {
+                candidate: format!("candidate:{c_value}"),
+                sdp_mid: None,
+                sdp_mline_index: None,
+                username_fragment: None,
+            };
+            match pc.add_ice_candidate(init).await {
+                Ok(()) => ok += 1,
+                Err(e) => tracing::debug!(
+                    "[SDP] add_ice_candidate (trickle-receive) rejected: {e}"
+                ),
+            }
+        }
+        tracing::debug!(
+            "[SDP] trickle-receive: re-injected {ok}/{} offer candidates",
+            offer_candidates.len()
+        );
+    }
+
     let local_desc = pc.local_description().await.ok_or("no local desc")?;
-    Ok(local_desc.sdp)
+    let sdp = local_desc.sdp.clone();
+    // Diagnostic (temporary): report what candidate types the one-shot answer
+    // actually carries. If relay is missing, the answer was exported before the
+    // TURN allocation landed (no trickle ICE → relay lost for the session).
+    {
+        let mut host = 0u32;
+        let mut srflx = 0u32;
+        let mut relay = 0u32;
+        let mut relays = Vec::new();
+        for line in sdp.lines() {
+            if let Some(rest) = line.strip_prefix("a=candidate:") {
+                if rest.contains("typ host") {
+                    host += 1;
+                } else if rest.contains("typ srflx") {
+                    srflx += 1;
+                } else if rest.contains("typ relay") {
+                    relay += 1;
+                    relays.push(
+                        rest.split_whitespace()
+                            .take(2)
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                    );
+                }
+            }
+        }
+        tracing::debug!(
+            "[SDP] answer candidates: host={host} srflx={srflx} relay={relay} body={}B relays={:?}",
+            sdp.len(),
+            relays
+        );
+    }
+    Ok(sdp)
 }
 
 // ── Internal stack types ─────────────────────────────────────────────────────
