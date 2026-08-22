@@ -112,13 +112,16 @@ fn default_core_options(
         .map(|f| f.to_string_lossy().into_owned())
         .unwrap_or_default();
 
-    // ParaLLEl-N64: must select the desktop "gl" graphics plugin. Its only
-    // other options are "parallel" (Vulkan — no Vulkan headless here) and
-    // "angrylion" (software — black frames). Force gl + the parallel RSP.
+    // ParaLLEl-N64: must select a GL graphics plugin that is a valid enum value
+    // for the deployed core build (ef354eb). That build only recognises
+    // "glide64"/"gliden64"/"gln64"/"rice"/"angrylion"/"parallel" — the older
+    // "gl" value matches nothing and skips autoselect, leaving gfx_plugin on
+    // its broken default (→ no present). Force the proven desktop-GL glide64 +
+    // the parallel RSP.
     if name.contains("parallel_n64") || name.contains("parallel-n64") {
         store.insert(
             "parallel-n64-gfxplugin".to_string(),
-            CString::new("gl").unwrap_or_default(),
+            CString::new("glide64").unwrap_or_default(),
         );
         store.insert(
             "parallel-n64-rspplugin".to_string(),
@@ -946,6 +949,45 @@ unsafe extern "C" fn environment_callback(cmd: u32, data: *mut std::ffi::c_void)
                     None => false,
                 }
             })
+        }
+
+        // "Do any core options differ from the last frame?" The core polls this
+        // every frame. Per libretro contract: support it (return true) and write
+        // false (no change). Returning the whole cmd `false` (as unhandled) makes
+        // cores like ParaLLEl-N64 re-probe all options every frame and can gate
+        // their first presented frame.
+        RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE if !data.is_null() => {
+            unsafe { *(data as *mut bool) = false; }
+            true
+        }
+
+        // Accept the core's option declarations. We don't render a settings UI;
+        // we only serve the handful of explicitly-forced values via GET_VARIABLE
+        // and let everything else take the core's default. Accepting these tells
+        // the core its option registration succeeded so it proceeds with plugin
+        // setup (mupen64plus-next leaves GL plugin function pointers NULL when
+        // it can't register core options).
+        RETRO_ENVIRONMENT_SET_VARIABLES
+        | RETRO_ENVIRONMENT_SET_CORE_OPTIONS
+        | RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL
+        | RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2
+        | RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL
+        | RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK => true,
+
+        // Report the core-options version we support so cores use the modern
+        // SET_CORE_OPTIONS_V2 path instead of falling back (or failing).
+        RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION if !data.is_null() => {
+            unsafe { *(data as *mut i32) = 1; }
+            true
+        }
+
+        // Accept geometry updates (cores change base/max dims at runtime).
+        RETRO_ENVIRONMENT_SET_GEOMETRY => true,
+
+        // Localisation is not configurable; default to English.
+        RETRO_ENVIRONMENT_GET_LANGUAGE if !data.is_null() => {
+            unsafe { *(data as *mut u32) = 0; } // RETRO_LANGUAGE_ENGLISH
+            true
         }
 
         // For all other commands, return false (core will try fallbacks)

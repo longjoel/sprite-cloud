@@ -193,6 +193,10 @@ pub const RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL: u32 = 56;
 pub const RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK: u32 = 69;
 /// Core requests a hardware-rendering context (data = retro_hw_render_callback*).
 pub const RETRO_ENVIRONMENT_SET_HW_RENDER: u32 = 14;
+/// Core updates the video geometry (data = retro_game_geometry*).
+pub const RETRO_ENVIRONMENT_SET_GEOMETRY: u32 = 37;
+/// Frontend reports the system language (data = unsigned*).
+pub const RETRO_ENVIRONMENT_GET_LANGUAGE: u32 = 39;
 
 /// Sentinel passed to video_refresh by HW-rendered cores: pixels live in the
 /// GL default framebuffer, not in `data`.
