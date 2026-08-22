@@ -6,6 +6,14 @@
 //! # Safety
 //!
 //! All function pointer types in this module are `unsafe extern "C"`.
+//!
+//! The module is crate-private (`mod ffi`), so the large table of libretro
+//! ABI constants below is intentionally not part of the public API. Most of
+//! them are defined here for documentation completeness and are only referenced
+//! from the C bridge / env handler for the subset the runner actually needs.
+//! Suppress dead-code so unused-but-deliberate ABI constant entries don't fail
+//! the workspace's `-D warnings` clippy gate.
+#![allow(dead_code)]
 //! Callers must ensure the function pointer is valid, the library is
 //! still loaded, and the ABI contract is followed.
 
@@ -159,6 +167,75 @@ pub const RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY: u32 = 9;
 pub const RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY: u32 = 31;
 /// Core declares it can run without a game loaded.
 pub const RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME: u32 = 18;
+/// Query a core variable (set by GET_VARIABLE callback).
+pub const RETRO_ENVIRONMENT_GET_VARIABLE: u32 = 15;
+/// Frontend declares the set of core variables it supports.
+pub const RETRO_ENVIRONMENT_SET_VARIABLES: u32 = 16;
+/// Ask whether variables changed since last frame.
+pub const RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE: u32 = 17;
+/// Return the path to the loaded libretro core.
+pub const RETRO_ENVIRONMENT_GET_LIBRETRO_PATH: u32 = 19;
+/// Return a log callback so the core can log via the frontend.
+pub const RETRO_ENVIRONMENT_GET_LOG_INTERFACE: u32 = 27;
+/// Return a performance measurement callback.
+pub const RETRO_ENVIRONMENT_GET_PERF_INTERFACE: u32 = 28;
+/// Return the core-options version the frontend supports.
+pub const RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION: u32 = 52;
+/// Register core options (legacy single structure).
+pub const RETRO_ENVIRONMENT_SET_CORE_OPTIONS: u32 = 53;
+/// Register core options (internationalized structure).
+pub const RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL: u32 = 54;
+/// Register core options (v2 modern structure).
+pub const RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2: u32 = 55;
+/// Register core options (v2 internationalized structure).
+pub const RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL: u32 = 56;
+/// Set a callback for when the core wants options display updated.
+pub const RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK: u32 = 69;
+/// Core requests a hardware-rendering context (data = retro_hw_render_callback*).
+pub const RETRO_ENVIRONMENT_SET_HW_RENDER: u32 = 14;
+
+/// Sentinel passed to video_refresh by HW-rendered cores: pixels live in the
+/// GL default framebuffer, not in `data`.
+pub const RETRO_HW_FRAME_BUFFER_VALID: *const std::ffi::c_void =
+    usize::MAX as *const std::ffi::c_void;
+
+/// HW context types (enum retro_hw_context_type).
+pub const RETRO_HW_CONTEXT_NONE: u32 = 0;
+pub const RETRO_HW_CONTEXT_OPENGL: u32 = 1;
+pub const RETRO_HW_CONTEXT_OPENGLES2: u32 = 2;
+pub const RETRO_HW_CONTEXT_OPENGL_CORE: u32 = 3;
+pub const RETRO_HW_CONTEXT_OPENGLES3: u32 = 4;
+pub const RETRO_HW_CONTEXT_OPENGLES_VERSION: u32 = 5;
+pub const RETRO_HW_CONTEXT_VULKAN: u32 = 6;
+
+/// A single core variable, passed to `retro_get_variable_callback`.
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct RetroVariable {
+    /// Variable key (e.g. "corename_option").
+    pub key: *const c_char,
+    /// Variable value (null-terminated, may be null if unset).
+    pub value: *const c_char,
+}
+
+/// Log callback signature — matches libretro `retro_log_printf_t`
+/// `void (*)(enum retro_log_level, const char *fmt, ...)`. Variadic because the
+/// shim must be able to consume a `va_list`.
+pub type RetroLogPrintf = unsafe extern "C" fn(level: u32, fmt: *const c_char, ...);
+
+/// `struct retro_log_callback` — the core fills `log`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct RetroLogCallback {
+    /// Frontend-provided logging function.
+    pub log: Option<RetroLogPrintf>,
+}
+
+/// `enum retro_log_level` values.
+pub const RETRO_LOG_DEBUG: u32 = 0;
+pub const RETRO_LOG_INFO: u32 = 1;
+pub const RETRO_LOG_WARN: u32 = 2;
+pub const RETRO_LOG_ERROR: u32 = 3;
 
 // ---------------------------------------------------------------------------
 // Device types

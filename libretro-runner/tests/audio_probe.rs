@@ -46,7 +46,7 @@ fn analyze(samples: &[i16]) -> ChannelStats {
         nonzero_l: 0,
         nonzero_r: 0,
     };
-    for pair in samples.chunks_exact(2) {
+    for pair in samples.as_chunks::<2>().0 {
         let l = pair[0] as i64;
         let r = pair[1] as i64;
         stats.pairs += 1;
