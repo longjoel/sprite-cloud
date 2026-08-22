@@ -58,6 +58,26 @@ fn resample_audio(input: &[i16], in_rate: f64, out_rate: f64, channels: usize) -
     out
 }
 
+/// Vertically line-double an RGB24 frame (each input row duplicated straight
+/// down). Used to display interlaced half-height fields — e.g. parallel_n64's
+/// 640×240 N64 fields — at the full 480-line height so the browser shows a
+/// proper 4:3 image instead of an 8:3 half-height one.
+fn line_double_vertical_rgb24(input: &[u8], width: usize, height: usize) -> Vec<u8> {
+    let row_bytes = width * 3;
+    let mut out = Vec::with_capacity(row_bytes * height * 2);
+    for row in 0..height {
+        let start = row * row_bytes;
+        let end = start + row_bytes;
+        if end > input.len() {
+            break;
+        }
+        let row_data = &input[start..end];
+        out.extend_from_slice(row_data);
+        out.extend_from_slice(row_data);
+    }
+    out
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 5 {
@@ -199,7 +219,7 @@ fn main() {
         
         // Write frame to output shm
         if let Some(pixels) = core.frame() {
-            let (fw, fh) = core.frame_size();
+            let (fw0, fh0) = core.frame_size();
             let raw_audio = core.drain_audio();
 
             // ── Resample ALL audio to a fixed 48 kHz here ───────────
@@ -210,11 +230,24 @@ fn main() {
             // audioresample) as well as 2 MHz+ cores (SameBoy).
             let audio = resample_audio(&raw_audio, sample_rate, AUDIO_TARGET_RATE, 2);
             out.sample_rate.store(AUDIO_TARGET_RATE as u32, Ordering::Relaxed);
-            
+
+            // ── Line-double interlaced half-height fields ──────────
+            // parallel_n64 (N64) delivers 640×240 interlaced fields while the
+            // base geometry is 640×480. Presented raw, that field is 8:3 and
+            // the browser shows a half-height image. When a frame is exactly
+            // half the base height at full base width, line-double vertically
+            // to the full base height so the image displays at the proper 4:3.
+            let (fw, fh, frame) = if fh0 > 0 && fh0 * 2 == height && fw0 == width {
+                let doubled = line_double_vertical_rgb24(pixels, fw0 as usize, fh0 as usize);
+                (fw0, height, doubled)
+            } else {
+                (fw0, fh0, pixels.to_vec())
+            };
+
             let px_count = (fw as usize * fh as usize * 3).min(sc_core::MAX_PIXELS);
             unsafe {
                 std::ptr::copy_nonoverlapping(
-                    pixels.as_ptr(),
+                    frame.as_ptr(),
                     out.pixels.as_ptr() as *mut u8,
                     px_count,
                 );
@@ -227,7 +260,7 @@ fn main() {
                     audio_count,
                 );
             }
-            
+
             out.width.store(fw, Ordering::Relaxed);
             out.height.store(fh, Ordering::Relaxed);
             out.audio_len.store(audio.len() as u32, Ordering::Relaxed);
@@ -296,5 +329,29 @@ mod tests {
         let input = interleaved(10, 2);
         assert_eq!(resample_audio(&input, 0.0, 48000.0, 2), input);
         assert_eq!(resample_audio(&input, 32040.0, 0.0, 2), input);
+    }
+
+    #[test]
+    fn line_double_doubles_height_and_repeats_each_row() {
+        // 2x1 RGB frame: row0 = [1,2,3]
+        let input = vec![1u8, 2, 3, 4, 5, 6]; // w=2,h=1
+        let out = line_double_vertical_rgb24(&input, 2, 1);
+        assert_eq!(out.len(), 2 * 2 * 3);
+        // Each input row appears twice, in order.
+        assert_eq!(&out[0..6], &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(&out[6..12], &[1, 2, 3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn line_double_640x240_gives_640x480() {
+        let w = 640usize;
+        let h = 240usize;
+        let input = vec![17u8; w * h * 3];
+        let out = line_double_vertical_rgb24(&input, w, h);
+        assert_eq!(out.len(), w * 480 * 3);
+        assert_eq!(out.len(), sc_core::MAX_PIXELS);
+        // Row 0 and row 240 are identical (repeated), as is the whole frame.
+        assert_eq!(&out[0..w * 3], &out[w * 3..w * 6]);
+        assert!(out.iter().all(|&b| b == 17));
     }
 }
