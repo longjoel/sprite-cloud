@@ -2,10 +2,15 @@ import { describe, expect, it } from "vitest";
 import { buildLanPlayerLaunchUrl, canUseLanPlayer, chooseLaunchHost, createLaunchRequestGate, formatLaunchError } from "@/lib/lan/launch";
 
 describe("buildLanPlayerLaunchUrl", () => {
-  it("permits LAN navigation when HTTPS blocks the health probe but direct nav still works", () => {
-    expect(canUseLanPlayer({ reachable: false, reason: "mixed_content_blocked" })).toBe(true);
-    expect(canUseLanPlayer({ reachable: false, reason: "timeout" })).toBe(false);
+  it("only treats a real reachable probe as LAN-playable; mixed-content and timeouts retain relay", () => {
+    // A genuine LAN probe (browser reached the HTTP health URL) is LAN-playable.
     expect(canUseLanPlayer({ reachable: true })).toBe(true);
+    // HTTPS-page probe of an HTTP private URL: the browser enforced policy,
+    // NOT proof the host is on this client's LAN — must retain relay, not
+    // redirect the (possibly cellular) client to an unreachable private IP.
+    expect(canUseLanPlayer({ reachable: false, reason: "mixed_content_blocked" })).toBe(false);
+    expect(canUseLanPlayer({ reachable: false, reason: "timeout" })).toBe(false);
+    expect(canUseLanPlayer({ reachable: false, reason: "no_urls" })).toBe(false);
   });
   it("builds a LAN player URL using the short code path", () => {
     const url = buildLanPlayerLaunchUrl({
