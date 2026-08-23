@@ -88,6 +88,9 @@ const RECONNECT_DELAY_MS = 3_000;
 const MAX_RECONNECT_ATTEMPTS = 5;
 const GAME_START_POLL_MS = 500;
 const GAME_START_TIMEOUT_MS = 60_000;
+// Core-crash relaunch cap. Deterministic core faults (e.g. flycast SIGABRT)
+// re-fail on the same ROM, so DO NOT relaunch without an upper bound.
+const MAX_CORE_CRASH_RELAUNCHES = 3;
 
 // ── startGame helper ────────────────────────────────────────────────
 
@@ -250,6 +253,13 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
   let startGameToken = null;
   let gameStarted = false;
   let sdpAnswer = null;
+  // Page-session core-crash relaunch counter. Runs independently of
+  // reconnectAttempts so a deterministic core fault (e.g. flycast SIGABRT)
+  // CANNOT spin forever across successful reconnects.
+  let coreCrashAttempts = 0;
+  // Suppresses the generic ERROR→doReconnect path while a relaunch (which
+  // issues its own doConnect) is in flight, so a crash doesn't double-fire.
+  let isRelaunching = false;
 
   // Generate a host token once — reused across reconnects so the
   // worker recognizes the same host after a disconnect.
@@ -453,12 +463,45 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
     }
   };
 
+  // Core crash → relaunch the WHOLE session (fresh start_game) instead of a
+  // network-style reconnect. The key is resetting `gameStarted` so doConnect()
+  // re-issues start_game (its `if (!gameStarted)` branch) and creates a fresh
+  // session on the same game_id/server_id/host_token. Bounded and independent
+  // of the reconnect counter so a deterministic core fault can't loop forever.
+  const MAX_RELAUNCH = MAX_CORE_CRASH_RELAUNCHES;
+  const relaunchAfterCoreDeath = (reason) => {
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    isRelaunching = true;
+    // Reset session state so the next doConnect() re-issues start_game and
+    // builds a brand-new session. Without this the reconnect path dead-ends
+    // (gameStarted stays true → start_game skipped → SDP against a dead core).
+    gameStarted = false;
+    sdpAnswer = null;
+    startGameToken = null;
+    coreCrashAttempts++;
+    if (coreCrashAttempts <= MAX_RELAUNCH) {
+      player._showStatus("Core crashed — relaunching game…");
+      callbacks.onStateChange?.("relaunching", reason);
+      player.disconnect();
+      // doConnect() may need a short delay for the old session's shm/pipe to be
+      // fully torn down by the server before a fresh spawn. RECONNECT_DELAY_MS
+      // is reused; it's short and proven in the reconnect path.
+      reconnectTimer = setTimeout(() => { doConnect(); }, RECONNECT_DELAY_MS);
+    } else {
+      player._showStatus("Game keeps crashing", { color: "#b8964a" });
+      callbacks.onReconnectFailed?.();
+    }
+  };
+
   player.onStateChange = (state, detail) => {
     callbacks.onStateChange?.(state, detail);
-    if (state === State.ERROR && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+    // A core crash sets ERROR, but its relaunch path issues its own doConnect
+    // and manages its own counter — don't double-fire the network reconnect.
+    if (state === State.ERROR && !isRelaunching && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
       doReconnect();
     } else if (state === State.CONNECTED) {
       reconnectAttempts = 0;
+      isRelaunching = false;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       callbacks.onReconnected?.();
     }
@@ -484,6 +527,9 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
   player.onListSaves = ({ entries, nextIndex }) => {
     callbacks.onListSaves?.(entries, nextIndex);
   };
+
+  // Core crash → relaunch the whole session (fresh start_game).
+  player.onCoreDied = (reason) => { relaunchAfterCoreDeath(reason); };
 
   // Start the connection flow
   doConnect();
