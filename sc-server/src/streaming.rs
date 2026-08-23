@@ -199,9 +199,18 @@ async fn latest_frame_is_crash_sentinel(session: &GameSession) -> bool {
 /// exited (tick branch or cancellation branch) so the player always leaves the
 /// frozen stream for its fatal-error/disconnect path.
 async fn relay_core_died(session: &GameSession) {
-    tracing::error!("[STREAM] Core sentinel — died");
+    // The bridge thread set a specific, classified reason before delivering the
+    // sentinel (signal/code + stderr). Drain it so a reused session doesn't
+    // replay a stale reason. Fall back to a generic message.
+    let reason = session
+        .core_died_reason
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .take()
+        .unwrap_or_else(|| "Emulator crashed (core process exited)".to_string());
+    tracing::error!("[STREAM] Core sentinel — died: {reason}");
     if let Some(ref dc) = *session.dc.lock().await {
-        let msg = serde_json::json!({"cmd":"core_died","reason":"core process crashed"});
+        let msg = serde_json::json!({"cmd": "core_died", "reason": reason});
         let _ = dc.send_text(msg.to_string()).await;
     }
 }
