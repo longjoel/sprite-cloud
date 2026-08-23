@@ -1021,7 +1021,8 @@ unsafe extern "C" fn audio_batch_callback(data: *const i16, frames: usize) -> us
 /// louder channel per sample pair and duplicates it — a no-op when the core
 /// already duplicates (L == R), and a guaranteed fix when one channel is dead.
 pub fn normalize_mono(samples: &mut [i16]) {
-    for pair in samples.chunks_exact_mut(2) {
+    let (pairs, _) = samples.as_chunks_mut::<2>();
+    for pair in pairs {
         let live = if (pair[0] as i32).unsigned_abs() >= (pair[1] as i32).unsigned_abs() {
             pair[0]
         } else {
