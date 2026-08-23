@@ -16,6 +16,28 @@ use crate::{AvInfo, CoreConfig, Error};
 
 mod pixels;
 
+// Forwarder that ships the compiled C log shim (see build.rs / src/log_shim.c).
+// Exposed so `GET_LOG_INTERFACE` can hand a variadic `retro_log_printf_t` to cores.
+unsafe extern "C" {
+    fn sc_log_printf(level: u32, fmt: *const std::ffi::c_char, ...);
+}
+
+// Binder to the compiled C GL bridge (see build.rs / src/gl_bridge.c). It owns
+// all EGL/GBM/GL state and all libretro HW-render struct handling (using the
+// real libretro.h) so Rust never has to hand-roll those layout-sensitive types.
+unsafe extern "C" {
+    fn sc_gl_bridge_set_hw_render(data: *mut std::ffi::c_void) -> i32;
+    fn sc_gl_bridge_present_and_read(
+        dst: *mut u8,
+        width: i32,
+        height: i32,
+        pitch: i32,
+    ) -> i32;
+    fn sc_gl_bridge_set_output_size(width: i32, height: i32);
+    fn sc_gl_bridge_destroy();
+    fn sc_gl_bridge_is_initialized() -> i32;
+}
+
 /// Native callback allocation limits. Keep in sync with sc-core's shared-memory bound.
 const MAX_FRAME_WIDTH: u32 = 640;
 const MAX_FRAME_HEIGHT: u32 = 480;
@@ -34,6 +56,16 @@ thread_local! {
 
     /// Save directory path (for GET_SAVE_DIRECTORY env command).
     static SAVE_DIR: RefCell<Option<CString>> = const { RefCell::new(None) };
+
+    /// Path to the loaded core .so (for GET_LIBRETRO_PATH env command).
+    static LIBRETRO_PATH: RefCell<Option<CString>> = const { RefCell::new(None) };
+
+    /// Values served to GET_VARIABLE. We own the CStrings so their pointers
+    /// remain valid for the core's lifetime. Populated for the specific core
+    /// options that must be forced (e.g. ParaLLEl-N64 gfxplugin="gl"). Lazily
+    /// initialised (HashMap::new is not const).
+    static CORE_OPTION_VALUES: RefCell<Option<std::collections::HashMap<String, CString>>> =
+        const { RefCell::new(None) };
 
     /// Content path CString — must outlive the retro_load_game call.
     static CONTENT_PATH_CSTR: RefCell<Option<CString>> = const { RefCell::new(None) };
@@ -67,6 +99,39 @@ thread_local! {
 // ---------------------------------------------------------------------------
 // Symbol loading helpers
 // ---------------------------------------------------------------------------
+
+/// Populate the values we serve to GET_VARIABLE, per core. We only force the
+/// options required for headless (no-X11) rendering; everything else stays at
+/// the core's own default. The returned CStrings are owned by the caller.
+fn default_core_options(
+    core_path: &Path,
+    store: &mut std::collections::HashMap<String, CString>,
+) {
+    let name = core_path
+        .file_name()
+        .map(|f| f.to_string_lossy().into_owned())
+        .unwrap_or_default();
+
+    // ParaLLEl-N64: must select a GL graphics plugin that is a valid enum value
+    // for the deployed core build (ef354eb). That build only recognises
+    // "glide64"/"gliden64"/"gln64"/"rice"/"angrylion"/"parallel" — the older
+    // "gl" value matches nothing and skips autoselect, leaving gfx_plugin on
+    // its broken default (→ no present). Force the proven desktop-GL glide64 +
+    // the parallel RSP.
+    if name.contains("parallel_n64") || name.contains("parallel-n64") {
+        store.insert(
+            "parallel-n64-gfxplugin".to_string(),
+            CString::new("glide64").unwrap_or_default(),
+        );
+        store.insert(
+            "parallel-n64-rspplugin".to_string(),
+            CString::new("parallel").unwrap_or_default(),
+        );
+    }
+
+    // mupen64plus-next already falls through to GLideN64 when GET_VARIABLE is
+    // unanswered, so no override needed there.
+}
 
 /// Load a required symbol from the library.
 ///
@@ -234,6 +299,20 @@ impl Core {
         SAVE_DIR.with(|cell| {
             *cell.borrow_mut() = CString::new(config.save_dir.to_string_lossy().as_bytes()).ok();
         });
+        LIBRETRO_PATH.with(|cell| {
+            *cell.borrow_mut() =
+                CString::new(config.core_path.to_string_lossy().as_bytes()).ok();
+        });
+
+        // Force headless-GL core options per core. Keys are the option names
+        // the cores probe via GET_VARIABLE. We own the CStrings so pointers
+        // stay valid.
+        CORE_OPTION_VALUES.with(|store| {
+            let mut store = store.borrow_mut();
+            let mut map = std::collections::HashMap::new();
+            default_core_options(&config.core_path, &mut map);
+            *store = Some(map);
+        });
         AUDIO_CHANNELS.with(|channels| channels.set(config.audio_channels));
 
         // ---- Step 4: register callbacks ----
@@ -338,6 +417,12 @@ impl Core {
 
         let pixel_format = PIXEL_FORMAT.with(|f| f.get());
         let pixel_format_negotiated = PIXEL_FORMAT_NEGOTIATED.with(|f| f.get());
+
+        // Size the GL output surface to the core's max dimensions so per-frame
+        // resolution changes (esp. N64) never exceed it → no stretch/blur.
+        unsafe {
+            sc_gl_bridge_set_output_size(av_info.max_width as i32, av_info.max_height as i32);
+        }
 
         Ok(Core {
             _library: library,
@@ -735,6 +820,9 @@ impl Drop for Core {
         // SAFETY: retro_deinit is the last call. The function pointers and
         // library are still valid.
         unsafe { (self.retro_deinit)() };
+        // Release the EGL/GBM context (if a GL core took it). Order: after the
+        // core has been deinitialised so it can't touch our context.
+        unsafe { sc_gl_bridge_destroy() };
     }
 }
 
@@ -798,9 +886,116 @@ unsafe extern "C" fn environment_callback(cmd: u32, data: *mut std::ffi::c_void)
             true
         }
 
+        // Provide a log interface so cores can report errors to stderr.
+        // Crucial for diagnosing cores that crash during GL init.
+        RETRO_ENVIRONMENT_GET_LOG_INTERFACE if !data.is_null() => {
+            // SAFETY: `data` points to a retro_log_callback the core owns and
+            // filled in read-only; we only write the `log` field with the shim.
+            unsafe {
+                let cb = &mut *(data as *mut RetroLogCallback);
+                cb.log = Some(sc_log_printf);
+            }
+            true
+        }
+
+        // Provide the path of the loaded core (some cores resolve shaders/roms
+        // relative to their own location).
+        RETRO_ENVIRONMENT_GET_LIBRETRO_PATH if !data.is_null() => {
+            LIBRETRO_PATH.with(|cell| {
+                if let Some(ref path) = *cell.borrow() {
+                    // SAFETY: `data` points to a `*const c_char` slot the core
+                    // owns; we write a pointer to our (stable for the load)
+                    // C string. The core reads it before we can free it.
+                    unsafe {
+                        *(data as *mut *const std::ffi::c_char) = path.as_ptr();
+                    }
+                    true
+                } else {
+                    false
+                }
+            })
+        }
+
+        // Hardware rendering: hand the whole struct to the C GL bridge, which
+        // sets up the EGL/GBM context, wires get_proc_address /
+        // get_current_framebuffer, and chains the core's context_reset. All
+        // struct layout is handled in C against the real libretro.h.
+        RETRO_ENVIRONMENT_SET_HW_RENDER => {
+            // SAFETY: `data` points to a retro_hw_render_callback owned by the
+            // core. The C bridge reads the core's fields and writes the
+            // callbacks we provide. It must not outlive the core's env cb.
+            let accepted = unsafe { sc_gl_bridge_set_hw_render(data) != 0 };
+            tracing::info!("[CORE] SET_HW_RENDER accepted={}", accepted);
+            accepted
+        }
+
+        // Provide a single core option value. We only force the handful of
+        // options that must be set for headless GL (e.g. ParaLLEl-N64 must get
+        // gfxplugin="gl" or it defaults to the Vulkan "parallel" RDP and fails).
+        // Unknown/other keys return false so the core uses its own defaults.
+        RETRO_ENVIRONMENT_GET_VARIABLE if !data.is_null() => {
+            CORE_OPTION_VALUES.with(|store| {
+                let store = store.borrow();
+                let var = unsafe { &mut *(data as *mut RetroVariable) };
+                if var.key.is_null() {
+                    return false;
+                }
+                let key = unsafe { CStr::from_ptr(var.key) }.to_string_lossy().into_owned();
+                match store.as_ref().and_then(|m| m.get(&key)) {
+                    Some(val) => {
+                        var.value = val.as_ptr();
+                        true
+                    }
+                    None => false,
+                }
+            })
+        }
+
+        // "Do any core options differ from the last frame?" The core polls this
+        // every frame. Per libretro contract: support it (return true) and write
+        // false (no change). Returning the whole cmd `false` (as unhandled) makes
+        // cores like ParaLLEl-N64 re-probe all options every frame and can gate
+        // their first presented frame.
+        RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE if !data.is_null() => {
+            unsafe { *(data as *mut bool) = false; }
+            true
+        }
+
+        // Accept the core's option declarations. We don't render a settings UI;
+        // we only serve the handful of explicitly-forced values via GET_VARIABLE
+        // and let everything else take the core's default. Accepting these tells
+        // the core its option registration succeeded so it proceeds with plugin
+        // setup (mupen64plus-next leaves GL plugin function pointers NULL when
+        // it can't register core options).
+        RETRO_ENVIRONMENT_SET_VARIABLES
+        | RETRO_ENVIRONMENT_SET_CORE_OPTIONS
+        | RETRO_ENVIRONMENT_SET_CORE_OPTIONS_INTL
+        | RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2
+        | RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL
+        | RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK => true,
+
+        // Report the core-options version we support so cores use the modern
+        // SET_CORE_OPTIONS_V2 path instead of falling back (or failing).
+        RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION if !data.is_null() => {
+            unsafe { *(data as *mut i32) = 1; }
+            true
+        }
+
+        // Accept geometry updates (cores change base/max dims at runtime).
+        RETRO_ENVIRONMENT_SET_GEOMETRY => true,
+
+        // Localisation is not configurable; default to English.
+        RETRO_ENVIRONMENT_GET_LANGUAGE if !data.is_null() => {
+            unsafe { *(data as *mut u32) = 0; } // RETRO_LANGUAGE_ENGLISH
+            true
+        }
+
         // For all other commands, return false (core will try fallbacks)
         _ => {
             tracing::debug!("[CORE] unhandled env cmd: {} (0x{:x})", cmd, cmd);
+            // sc-core has no tracing subscriber, so surface unhandled env
+            // requests to stderr for diagnosing cores that fail to load.
+            eprintln!("[CORE ENV] unhandled env cmd: {cmd} (0x{cmd:x})");
             false
         }
     }
@@ -829,6 +1024,56 @@ unsafe extern "C" fn video_refresh_callback(
     height: u32,
     pitch: usize,
 ) {
+    // Hardware-rendered cores signal a finished frame with the
+    // RETRO_HW_FRAME_BUFFER_VALID sentinel; the pixels live in the GL default
+    // framebuffer. Read them back through the GL bridge.
+    if data == RETRO_HW_FRAME_BUFFER_VALID {
+        let ok = unsafe { sc_gl_bridge_is_initialized() != 0 }
+            && {
+                // Allocate a scratch bucket for the RGBA readback (w*h*4 —
+                // within the raw-frame budget). Read via GL bridge, then store
+                // as raw so the existing convert path can process it.
+                let w = width as usize;
+                let h = height as usize;
+                let row_bytes = (pitch.max(w * 4)).min(w * 4).max(w * 4);
+                let sz = w.checked_mul(h).and_then(|n| n.checked_mul(4));
+                match sz {
+                    Some(sz) if sz <= MAX_RAW_FRAME_BYTES => {
+                        let mut buf = vec![0u8; sz];
+                        let ok = unsafe {
+                            sc_gl_bridge_present_and_read(
+                                buf.as_mut_ptr(),
+                                width as i32,
+                                height as i32,
+                                row_bytes as i32,
+                            ) != 0
+                        };
+                        if ok {
+                            RAW_FRAME_DIMS.with(|dims| {
+                                *dims.borrow_mut() = (width, height, row_bytes);
+                            });
+                            RAW_FRAME.with(|frame| {
+                                let mut frame = frame.borrow_mut();
+                                frame.clear();
+                                frame.extend_from_slice(&buf);
+                            });
+                        }
+                        ok
+                    }
+                    _ => false,
+                }
+            };
+        if !ok {
+            tracing::warn!(
+                "[CORE] HW frame present+read failed (w={} h={} pitch={})",
+                width,
+                height,
+                pitch
+            );
+        }
+        return;
+    }
+
     if data.is_null() {
         // Duplicate frame — keep previous raw frame buffer
         return;
@@ -1021,8 +1266,7 @@ unsafe extern "C" fn audio_batch_callback(data: *const i16, frames: usize) -> us
 /// louder channel per sample pair and duplicates it — a no-op when the core
 /// already duplicates (L == R), and a guaranteed fix when one channel is dead.
 pub fn normalize_mono(samples: &mut [i16]) {
-    let (pairs, _) = samples.as_chunks_mut::<2>();
-    for pair in pairs {
+    for pair in samples.as_chunks_mut::<2>().0 {
         let live = if (pair[0] as i32).unsigned_abs() >= (pair[1] as i32).unsigned_abs() {
             pair[0]
         } else {

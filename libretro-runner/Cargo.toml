@@ -12,3 +12,6 @@ thiserror = "2"
 tracing = "0.1"
 png = "0.17"
 tempfile = "3"
+
+[build-dependencies]
+cc = "1"

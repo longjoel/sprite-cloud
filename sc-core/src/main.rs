@@ -15,39 +15,65 @@ use std::time::{Duration, Instant};
 
 use sc_core::{OutputShm, InputShm, map_shm};
 
-/// Decimate interleaved stereo audio by averaging buckets.
-/// `ratio` is native_rate / 48000 (e.g., ~43.7 for SameBoy's 2 MHz).
-fn downsample_audio(input: &[i16], ratio: f64, channels: usize) -> Vec<i16> {
-    if ratio <= 1.0 || input.len() < channels {
+/// Target sample rate sc-core emits. sc-core owns ALL rate conversion so the
+/// server's GStreamer chain always receives exactly this rate and can never
+/// drift from the reported rate, regardless of what a core advertises.
+const AUDIO_TARGET_RATE: f64 = 48000.0;
+
+/// Resample interleaved audio (any channel count) from `in_rate` to `out_rate`
+/// by linear interpolation. Handles both upsampling and downsampling.
+/// Returns the input unchanged when rates are ~equal or input is degenerate.
+fn resample_audio(input: &[i16], in_rate: f64, out_rate: f64, channels: usize) -> Vec<i16> {
+    let input_frames = input.len() / channels;
+    if input_frames == 0
+        || in_rate <= 0.0
+        || out_rate <= 0.0
+        || (in_rate - out_rate).abs() < 0.5
+    {
         return input.to_vec();
     }
-    let input_frames = input.len() / channels;
+    let ratio = in_rate / out_rate; // input frames consumed per output frame
     let output_frames = (input_frames as f64 / ratio).round() as usize;
     if output_frames == 0 {
         return input.to_vec();
     }
     let mut out = Vec::with_capacity(output_frames * channels);
-    for out_idx in 0..output_frames {
-        let in_start = (out_idx as f64 * ratio).round() as usize;
-        let in_end = ((out_idx + 1) as f64 * ratio).round() as usize;
-        let in_end = in_end.min(input_frames);
-        if in_start >= in_end {
-            // should not happen, but be safe
-            let idx = in_start.min(input_frames - 1) * channels;
-            out.extend_from_slice(&input[idx..idx + channels]);
-            continue;
+    for j in 0..output_frames {
+        let pos = j as f64 * ratio; // position in input frames
+        let i0 = pos.floor() as usize;
+        let frac = (pos - i0 as f64) as f32;
+        if i0 >= input_frames {
+            break;
         }
-        let count = (in_end - in_start) as i64;
-        let mut sum: [i64; 2] = [0, 0];
-        for f in in_start..in_end {
-            let base = f * channels;
-            for (_c, acc) in sum.iter_mut().enumerate().take(channels.min(2)) {
-                *acc += input[base + _c] as i64;
-            }
+        let i1 = (i0 + 1).min(input_frames - 1);
+        let base0 = i0 * channels;
+        let base1 = i1 * channels;
+        for c in 0..channels {
+            let a = input[base0 + c] as f32;
+            let b = input[base1 + c] as f32;
+            let v = a + (b - a) * frac;
+            out.push(v.round() as i16);
         }
-        for (_c, acc) in sum.iter().enumerate().take(channels.min(2)) {
-            out.push((*acc / count) as i16);
+    }
+    out
+}
+
+/// Vertically line-double an RGB24 frame (each input row duplicated straight
+/// down). Used to display interlaced half-height fields — e.g. parallel_n64's
+/// 640×240 N64 fields — at the full 480-line height so the browser shows a
+/// proper 4:3 image instead of an 8:3 half-height one.
+fn line_double_vertical_rgb24(input: &[u8], width: usize, height: usize) -> Vec<u8> {
+    let row_bytes = width * 3;
+    let mut out = Vec::with_capacity(row_bytes * height * 2);
+    for row in 0..height {
+        let start = row * row_bytes;
+        let end = start + row_bytes;
+        if end > input.len() {
+            break;
         }
+        let row_data = &input[start..end];
+        out.extend_from_slice(row_data);
+        out.extend_from_slice(row_data);
     }
     out
 }
@@ -118,7 +144,9 @@ fn main() {
     out.base_width.store(width, Ordering::Relaxed);
     out.base_height.store(height, Ordering::Relaxed);
     out.fps_x1000.store((fps * 1000.0) as u32, Ordering::Relaxed);
-    out.sample_rate.store((sample_rate.min(48000.0)) as u32, Ordering::Relaxed);
+    // sc-core always emits a fixed 48 kHz; the server reads this to configure
+    // its audio encoder (identity GStreamer resample).
+    out.sample_rate.store(AUDIO_TARGET_RATE as u32, Ordering::Relaxed);
     
     // ── Frame loop ───────────────────────────────────────────────────
     let mut frame_num: u64 = 0;
@@ -191,30 +219,35 @@ fn main() {
         
         // Write frame to output shm
         if let Some(pixels) = core.frame() {
-            let (fw, fh) = core.frame_size();
+            let (fw0, fh0) = core.frame_size();
             let raw_audio = core.drain_audio();
 
-            // ── Downsample audio to at most 48 kHz ──────────────────
-            // SameBoy outputs at ~2 MHz; GStreamer's audioresample
-            // chokes on 43:1 ratios. Decimate here so the pipeline
-            // never sees more than 48 kHz.
-            let (audio, _effective_rate) = if sample_rate > 48000.0 {
-                let ratio = sample_rate / 48000.0;
-                let down = downsample_audio(&raw_audio, ratio, 2);
-                if down.is_empty() {
-                    (raw_audio, sample_rate as u32)
-                } else {
-                    out.sample_rate.store(48000, Ordering::Relaxed);
-                    (down, 48000)
-                }
+            // ── Resample ALL audio to a fixed 48 kHz here ───────────
+            // sc-core owns every rate conversion (up or down), so the server's
+            // GStreamer chain always sees exactly 48 kHz and can never drift
+            // from the reported rate, regardless of what a core advertises.
+            // Handles N64/parallel_n64 (32040 Hz, previously left to GStreamer's
+            // audioresample) as well as 2 MHz+ cores (SameBoy).
+            let audio = resample_audio(&raw_audio, sample_rate, AUDIO_TARGET_RATE, 2);
+            out.sample_rate.store(AUDIO_TARGET_RATE as u32, Ordering::Relaxed);
+
+            // ── Line-double interlaced half-height fields ──────────
+            // parallel_n64 (N64) delivers 640×240 interlaced fields while the
+            // base geometry is 640×480. Presented raw, that field is 8:3 and
+            // the browser shows a half-height image. When a frame is exactly
+            // half the base height at full base width, line-double vertically
+            // to the full base height so the image displays at the proper 4:3.
+            let (fw, fh, frame) = if fh0 > 0 && fh0 * 2 == height && fw0 == width {
+                let doubled = line_double_vertical_rgb24(pixels, fw0 as usize, fh0 as usize);
+                (fw0, height, doubled)
             } else {
-                (raw_audio, sample_rate as u32)
+                (fw0, fh0, pixels.to_vec())
             };
-            
+
             let px_count = (fw as usize * fh as usize * 3).min(sc_core::MAX_PIXELS);
             unsafe {
                 std::ptr::copy_nonoverlapping(
-                    pixels.as_ptr(),
+                    frame.as_ptr(),
                     out.pixels.as_ptr() as *mut u8,
                     px_count,
                 );
@@ -227,7 +260,7 @@ fn main() {
                     audio_count,
                 );
             }
-            
+
             out.width.store(fw, Ordering::Relaxed);
             out.height.store(fh, Ordering::Relaxed);
             out.audio_len.store(audio.len() as u32, Ordering::Relaxed);
@@ -243,5 +276,82 @@ fn main() {
                 std::thread::sleep(remaining);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn interleaved(frames: usize, channels: usize) -> Vec<i16> {
+        (0..frames * channels).map(|i| i as i16).collect()
+    }
+
+    #[test]
+    fn equal_rates_are_identity() {
+        let input = interleaved(100, 2);
+        let out = resample_audio(&input, 48000.0, 48000.0, 2);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn upsample_scales_frames_in_half() {
+        // 32040 Hz (parallel_n64) -> 48000 Hz: 3204 frames -> 4800 frames.
+        let input = interleaved(3204, 2);
+        let out = resample_audio(&input, 32040.0, 48000.0, 2);
+        assert_eq!(out.len() / 2, 4800, "32040->48000 frame count");
+        // Interleaving preserved: per-frame L/R both non-zero and distinct.
+        assert_ne!(out[0], out[1]);
+    }
+
+    #[test]
+    fn upsample_preserves_trailing_channels() {
+        let input = interleaved(200, 2);
+        let out = resample_audio(&input, 32040.0, 48000.0, 2);
+        // First output frame interpolates the first input frame (offset ~0).
+        assert_eq!(out[0], input[0]);
+        // Output stays stereo-interleaved and the final frame has both channels.
+        assert_eq!(out.len() % 2, 0);
+        assert!(out.len() >= 2);
+    }
+
+    #[test]
+    fn downsample_2mhz_slugs_to_1_48th() {
+        let input = interleaved(2_000_000 / 60, 2); // one 60fps frame at 2 MHz
+        let out = resample_audio(&input, 2_000_000.0, 48000.0, 2);
+        let expect = ((2_000_000 / 60) as f64 * 48000.0 / 2_000_000.0).round() as usize;
+        assert_eq!(out.len() / 2, expect);
+    }
+
+    #[test]
+    fn degenerate_cases_return_input() {
+        assert_eq!(resample_audio(&[], 32040.0, 48000.0, 2), vec![]);
+        let input = interleaved(10, 2);
+        assert_eq!(resample_audio(&input, 0.0, 48000.0, 2), input);
+        assert_eq!(resample_audio(&input, 32040.0, 0.0, 2), input);
+    }
+
+    #[test]
+    fn line_double_doubles_height_and_repeats_each_row() {
+        // 2x1 RGB frame: row0 = [1,2,3]
+        let input = vec![1u8, 2, 3, 4, 5, 6]; // w=2,h=1
+        let out = line_double_vertical_rgb24(&input, 2, 1);
+        assert_eq!(out.len(), 2 * 2 * 3);
+        // Each input row appears twice, in order.
+        assert_eq!(&out[0..6], &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(&out[6..12], &[1, 2, 3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn line_double_640x240_gives_640x480() {
+        let w = 640usize;
+        let h = 240usize;
+        let input = vec![17u8; w * h * 3];
+        let out = line_double_vertical_rgb24(&input, w, h);
+        assert_eq!(out.len(), w * 480 * 3);
+        assert_eq!(out.len(), sc_core::MAX_PIXELS);
+        // Row 0 and row 240 are identical (repeated), as is the whole frame.
+        assert_eq!(&out[0..w * 3], &out[w * 3..w * 6]);
+        assert!(out.iter().all(|&b| b == 17));
     }
 }

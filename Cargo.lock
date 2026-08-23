@@ -1593,6 +1593,7 @@ name = "libretro-runner"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "cc",
  "libloading",
  "png",
  "tempfile",
@@ -2581,7 +2582,7 @@ dependencies = [
 
 [[package]]
 name = "sc-server"
-version = "0.12.13"
+version = "0.12.15"
 dependencies = [
  "anyhow",
  "async-trait",

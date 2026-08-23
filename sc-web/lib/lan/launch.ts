@@ -25,7 +25,13 @@ export interface LaunchHost {
 export function canUseLanPlayer(
   probe: { reachable: boolean; reason?: string },
 ): boolean {
-  return probe.reachable || probe.reason === "mixed_content_blocked";
+  // Only a real, browser-permitted reachability probe qualifies a host
+  // as LAN-playable. A cellphone/off-network client browsing the HTTPS
+  // cloud page receives `mixed_content_blocked` for an HTTP private
+  // health URL even though it is NOT on the LAN — treating that as a
+  // positive LAN signal redirects external clients to an unreachable
+  // private address. Retain relay instead.
+  return probe.reachable;
 }
 
 /** Returns a host only when normal Play has an unambiguous healthy target. */

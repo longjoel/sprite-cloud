@@ -71,6 +71,7 @@ interface PlayerCallbacks {
   onLoadResult: (ok: boolean, error?: string) => void;
   onListSaves: (entries: any[], nextIndex: number) => void;
   onError: (msg: string) => void;
+  onCoreDied: (reason: string) => void;
   onProgress: (msg: string) => void;
   onReconnecting: (attempt: number) => void;
   onReconnected: () => void;
@@ -338,6 +339,12 @@ export default function GamePlayer({
                 setError(detail ?? "connection error");
                 setConnected(false);
               }
+              if (state === "relaunching") {
+                // Core crashed — the player is relaunching the whole session.
+                // Keep the mount, stop the connected state, show a progress hint.
+                setConnected(false);
+                setError(detail ?? "Core crashed — relaunching game…");
+              }
               if (state === "idle") {
                 setConnected(false);
               }
@@ -372,6 +379,13 @@ export default function GamePlayer({
                 );
                 if (activeStep) failStep(activeStep.id);
               }
+            },
+            onCoreDied(reason: string) {
+              // Core crash is recoverable (auto-relaunch) — show progress, do
+              // NOT call onFatalError. The "relaunching" onStateChange above
+              // surfaces the message; this callback keeps the pipeline mounted.
+              setConnected(false);
+              setError(`Core crashed — relaunching: ${reason}`);
             },
             onProgress(_msg: string) {},
             onReconnecting(_attempt: number) {},

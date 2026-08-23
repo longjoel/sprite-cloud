@@ -1012,6 +1012,23 @@ export class ScPlayer {
         }
         break;
       case "core_died":
+        {
+          const reason = msg.reason || msg.message || "Core crashed";
+          console.error("[sc-player] Core died:", reason);
+          this._setState(State.ERROR, reason);
+          this.disconnect();
+          // Core death is *recoverable* in the sense that the player can
+          // relaunch the whole session. Route it to a dedicated callback so
+          // the UI can show a "relaunching" state instead of the terminal
+          // fatal overlay. Fall back to onError(recoverable=true) so a host
+          // unaware of onCoreDied still won't treat it as terminal.
+          if (this.onCoreDied) {
+            try { this.onCoreDied(reason); } catch { /* safety */ }
+          } else if (this.onError) {
+            try { this.onError(reason, true /* recoverable */); } catch { /* safety */ }
+          }
+        }
+        break;
       case "error":
         {
           const reason = msg.reason || msg.message || "Unknown error";
