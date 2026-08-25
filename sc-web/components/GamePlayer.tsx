@@ -23,6 +23,8 @@ import {
   type PlayerPanel,
 } from "@/lib/ui/player-overlay-state";
 import { touchPresetForPlatform } from "@/lib/ui/touch-preset";
+import { DoubleTapDetector, isInteractiveTarget } from "@/lib/ui/double-tap";
+import { resolveControlsEnabled } from "@/lib/ui/player-mode";
 import styles from "./GamePlayer.module.css";
 import {
   type StepState,
@@ -147,6 +149,7 @@ export default function GamePlayer({
   onPipelineChange,
 }: GamePlayerProps) {
   const stageRef = useRef<HTMLDivElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const playerRef = useRef<any>(null);
   const searchParams = useSearchParams();
@@ -160,7 +163,14 @@ export default function GamePlayer({
   const [audioMuted, setAudioMuted] = useState(true);
   const [toast, setToast] = useState<ToastData | null>(null);
   const [controlsVisible, setControlsVisible] = useState(true);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  // Source-of-truth immersive mode (covers native fullscreen AND the iOS CSS
+  // fallback where requestFullscreen is unavailable). Controls are visible
+  // only while immersive (resolveControlsEnabled).
+  const [immersive, setImmersive] = useState(false);
+  const immersiveRef = useRef(false);
+  useEffect(() => {
+    immersiveRef.current = immersive;
+  }, [immersive]);
   const [scriptReady, setScriptReady] = useState(false);
   const [rttActive, setRttActive] = useState(false);
   const [roomToken, setRoomToken] = useState<string | null>(null);
@@ -520,21 +530,93 @@ export default function GamePlayer({
     return () => window.removeEventListener("keydown", handleEscape);
   }, [closePanel, higherPriorityBlocking, overlayState.activePanel]);
 
-  // ── Fullscreen ────────────────────────────────────────────────────
+  // ── Immersive (fullscreen) mode ───────────────────────────────────
+  //
+  // The mobile model: Room view is the always-on normal page; immersive is a
+  // game-only stage entered/exited by double-tap OR the explicit fullscreen
+  // button. Both entry and exit support both paths. On entry we perform the
+  // audio handoff (unmute + play) in the user-gesture path. On iOS, native
+  // requestFullscreen may be unavailable — we fall back to a CSS fixed-viewport
+  // immersive state driven by `immersive`/`data-sc-immersive`.
 
   useEffect(() => {
-    const handler = () => setIsFullscreen(document.fullscreenElement === stageRef.current);
+    const handler = () => {
+      // Sync the immersive source-of-truth with native fullscreen. On native
+      // browsers, entering/leaving requestFullscreen via Escape updates us; on
+      // iOS the native event never fires, so immersive is owned by
+      // enter/exitImmersive (the CSS fallback) instead.
+      setImmersive(document.fullscreenElement === stageRef.current);
+    };
     document.addEventListener("fullscreenchange", handler);
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
 
-  const toggleFullscreen = async () => {
-    if (document.fullscreenElement === stageRef.current) {
-      await document.exitFullscreen();
-      return;
+  const enterImmersive = useCallback(() => {
+    setImmersive(true);
+    // Audio handoff in the user-gesture path (autoplay-policy compliant).
+    videoRef.current?.play().catch(() => {});
+    setAudioMuted(false);
+    try {
+      // Fullscreen is scoped to the game stage, not the whole document.
+      stageRef.current?.requestFullscreen()?.catch(() => {});
+    } catch {
+      // iOS / browser without native fullscreen — CSS fallback, immersive stays true.
     }
-    await stageRef.current?.requestFullscreen();
-  };
+    detectorRef.current?.reset();
+  }, []);
+
+  const exitImmersive = useCallback(() => {
+    setImmersive(false);
+    try {
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
+    } catch {}
+    detectorRef.current?.reset();
+  }, []);
+
+  const toggleImmersive = useCallback(() => {
+    if (immersiveRef.current) exitImmersive();
+    else enterImmersive();
+  }, [enterImmersive, exitImmersive]);
+
+  // Double-tap: entry in Room, exit while immersive. Interactive controls
+  // (buttons/links/touch-gamepad islands) never trigger it.
+  const doubleTapDetectorRef = useRef<DoubleTapDetector | null>(null);
+  if (doubleTapDetectorRef.current === null) {
+    doubleTapDetectorRef.current = new DoubleTapDetector({
+      onDoubleTap: () => {
+        if (immersiveRef.current) exitImmersive();
+        else enterImmersive();
+      },
+    });
+  }
+  const detectorRef = doubleTapDetectorRef;
+
+  const handleStagePointerUp = useCallback((event: React.PointerEvent) => {
+    const target = event.target as EventTarget | null;
+    detectorRef.current?.handlePointerUp({
+      x: event.clientX,
+      y: event.clientY,
+      interactive: isInteractiveTarget(target),
+    });
+  }, []);
+
+  // Mark the stage with the immersive flag so geometry/touch layers can switch
+  // between pre-immersive (Room) and full-viewport safe-area coordinate roots.
+  useEffect(() => {
+    if (!stageRef.current) return;
+    stageRef.current.setAttribute("data-sc-immersive", immersive ? "true" : "false");
+  }, [immersive]);
+
+  // Visibility gate: on-screen controls only while immersive (and enabled).
+  useEffect(() => {
+    const tg = window.__scTouchGamepad;
+    if (!tg) return;
+    const shown = resolveControlsEnabled(immersive, touchGamepadVisible);
+    if (shown) tg.show();
+    else tg.hide();
+  }, [immersive, touchGamepadVisible, scriptReady]);
 
   // ── Save stack ────────────────────────────────────────────────────
 
@@ -700,12 +782,19 @@ export default function GamePlayer({
     <PlayerWorkspace
       gameName={gameName || gameId}
       platform={platform}
-      isFullscreen={isFullscreen}
+      isFullscreen={immersive}
       isLanProxy={isLanProxy}
       roomRelevant={roomControlsRelevant}
       stageRef={stageRef}
     >
-      <div className={styles.shell} onMouseMove={wakeControls} onPointerDown={wakeControls} onKeyDown={wakeControls}>
+      <div
+        ref={shellRef}
+        className={styles.shell}
+        onMouseMove={wakeControls}
+        onPointerDown={wakeControls}
+        onPointerUp={handleStagePointerUp}
+        onKeyDown={wakeControls}
+      >
 
       <Script src="/player/touch-gamepad-v2.js" />
       {/* Canonical browser player bootstrap path — use Next.js <Script>
@@ -763,8 +852,8 @@ export default function GamePlayer({
           triggerDisabled={overlayState.activePanel !== "none" || higherPriorityBlocking}
           onSave={handleSave}
           onLoad={handleLoad}
-          onFullscreen={toggleFullscreen}
-          isFullscreen={isFullscreen}
+          onFullscreen={toggleImmersive}
+          isFullscreen={immersive}
           controlsVisible={touchGamepadVisible}
           onToggleControls={toggleTouchGamepad}
           onOpenController={() => openPanel("controller")}

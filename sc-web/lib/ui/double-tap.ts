@@ -34,8 +34,24 @@ export interface DoubleTapDetectorOptions {
   onDoubleTap: () => void;
 }
 
-const DEFAULT_INTERVAL_MS = 300;
-const DEFAULT_SLOP_PX = 60;
+export const DEFAULT_INTERVAL_MS = 300;
+export const DEFAULT_SLOP_PX = 60;
+
+/** Selectors for controls that should never form/trigger a double-tap. */
+const INTERACTIVE_TARGET_SELECTOR =
+  "button, a, [role='button'], [role='link'], input, select, textarea, label, [data-touch-target]";
+
+/**
+ * Whether a pointer event target is an interactive control. A tap landing on
+ * one of these must not register as part of a double-tap (e.g. a press on the
+ * virtual gamepad or the fullscreen button must never trigger immersive
+ * entry). Safe to call in a node environment (returns false).
+ */
+export function isInteractiveTarget(target: EventTarget | null | undefined): boolean {
+  if (typeof Element === "undefined") return false;
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest(INTERACTIVE_TARGET_SELECTOR));
+}
 
 interface PendingTap {
   x: number;
