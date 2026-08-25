@@ -12,6 +12,7 @@ import { QRCodeSVG } from "qrcode.react";
 import RemapPanel from "./GamePlayerRemapPanel";
 import OptionsOverlay from "./OptionsOverlay";
 import ControllerLayoutPanel from "./ControllerLayoutPanel";
+import PreImmersiveHint from "./PreImmersiveHint";
 import PlayerWorkspace from "./player/PlayerWorkspace";
 import type { PlayerCapabilities } from "@/lib/capabilities";
 import {
@@ -176,6 +177,9 @@ export default function GamePlayer({
   const [roomToken, setRoomToken] = useState<string | null>(null);
   const [remapWaiting, setRemapWaiting] = useState<string | null>(null);
   const [statsData, setStatsData] = useState<Record<string, any>>({ video: {}, audio: {}, pipeline: {} });
+  // Pre-immersive hint: shown once per session (while connected and not yet
+  // immersive); dismissed permanently on immersive entry or manual close.
+  const [hintDismissed, setHintDismissed] = useState(false);
   const [touchGamepadVisible, setTouchGamepadVisible] = useState(() => {
     // Hide by default on desktop (non-touch), show on mobile
     try {
@@ -553,6 +557,7 @@ export default function GamePlayer({
 
   const enterImmersive = useCallback(() => {
     setImmersive(true);
+    setHintDismissed(true); // enter once; don't re-nag on later Room return
     // Audio handoff in the user-gesture path (autoplay-policy compliant).
     videoRef.current?.play().catch(() => {});
     setAudioMuted(false);
@@ -812,6 +817,11 @@ export default function GamePlayer({
         muted={audioMuted}
         className={styles.video}
       />
+      {/* Pre-immersive invitation: double-tap to play (+ plug-in gamepad).
+          Only in Room, once per session; auto-dismisses on gamepad connect. */}
+      {connected && !immersive && !hintDismissed && (
+        <PreImmersiveHint open onDismiss={() => setHintDismissed(true)} />
+      )}
       {/* Top bar — CSS-driven fade; :focus-within pins visibility */}
       <div
         className={`${styles.topBar}${connected && controlsVisible ? ` ${styles.visible}` : ""}`}
