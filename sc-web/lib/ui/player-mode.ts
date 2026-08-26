@@ -8,13 +8,6 @@
  *   - A player may still turn controls off even while immersive.
  */
 
-export interface PlayerMode {
-  /** Whether the player is currently in immersive/fullscreen mode. */
-  immersive: boolean;
-  /** Whether the user has enabled on-screen controls (their toggle). */
-  userEnabledControls: boolean;
-}
-
 /** Effective on-screen-control visibility under the immersive model. */
 export function resolveControlsEnabled(
   immersive: boolean,
