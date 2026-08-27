@@ -288,13 +288,16 @@ pub(crate) fn wire_dc_handler(session: &Arc<GameSession>) {
                     if data.len() >= 3 {
                         let seat = data[0] as u32;
                         let state = data[1] as u16 | ((data[2] as u16) << 8);
+                        // Optional signed axes bytes for touch-stick analog.
+                        let ax = if data.len() >= 5 { data[3] as i8 } else { 0 };
+                        let ay = if data.len() >= 5 { data[4] as i8 } else { 0 };
                         if seat > 0 {
-                            tracing::trace!("[DC] host input seat={seat} state=0x{state:04x}");
+                            tracing::trace!("[DC] host input seat={seat} state=0x{state:04x} ax={ax} ay={ay}");
                         }
                         let guard = session.core_cmd_tx.lock().await;
                         if let Some(ref tx) = *guard {
                             let _ = tx
-                                .try_send(core_bridge::CoreCommand::SetInput { port: seat, state });
+                                .try_send(core_bridge::CoreCommand::SetInput { port: seat, state, ax, ay });
                         }
                     }
                 })
@@ -471,6 +474,8 @@ mod tests {
                     let _ = tx.try_send(crate::core_bridge::CoreCommand::SetInput {
                         port: 0,
                         state: 1,
+                        ax: 0,
+                        ay: 0,
                     });
                 }
             }

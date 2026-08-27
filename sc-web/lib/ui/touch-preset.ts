@@ -29,6 +29,9 @@ const PRESETS: Record<string, PresetName> = {
   ps1: "psx",
   "sony - playstation": "psx",
   "sony playstation": "psx",
+  n64: "n64",
+  "nintendo 64": "n64",
+  "nintendo - nintendo 64": "n64",
 };
 
 export function touchPresetForPlatform(platform?: string | null): PresetName {

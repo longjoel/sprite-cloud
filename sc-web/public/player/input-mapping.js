@@ -125,6 +125,8 @@ export function standardGamepadToLibretro(buttons = [], axes = [], mapping = DEF
   if (pressed("x"))      state |= 1 << 9;
   if (pressed("l") || pressed("l1")) state |= 1 << 10;
   if (pressed("r") || pressed("r1")) state |= 1 << 11;
+  if (pressed("l2"))     state |= 1 << 12;
+  if (pressed("r2"))     state |= 1 << 13;
 
   return state;
 }
@@ -163,6 +165,15 @@ export function touchStateToStandardButtons(preset, state) {
     buttons[11] = Boolean(system[1]);
     buttons[8] = Boolean(system[2]);
     buttons[9] = Boolean(system[3]);
+  } else if (preset === "n64") {
+    // N64 (parallel_n64 / mupen64plus libretro mapping):
+    //   A → JOYPAD_B (bit 0), B → JOYPAD_Y (bit 1), C↑ → JOYPAD_A (bit 8)
+    //   Z → JOYPAD_L2 (bit 12), START → JOYPAD_START (bit 3)
+    buttons[0] = Boolean(face[0]); // A
+    buttons[2] = Boolean(face[1]); // B
+    buttons[1] = Boolean(face[2]); // C↑
+    buttons[6] = Boolean(system[0]); // Z
+    buttons[9] = Boolean(system[1]); // START
   } else if (preset === "genesis" || preset === "gamegear") {
     // These presets expose START as their only system control.
     buttons[9] = Boolean(system[0]);

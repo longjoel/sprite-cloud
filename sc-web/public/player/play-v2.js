@@ -233,7 +233,9 @@ function startPlayer(video, serverId, gameId, corePath, callbacks, joinToken, ho
       _touchGamepad.onInput = function (state) {
         if (!player || !player._sendInput) return;
         var b = touchStateToStandardButtons(preset, state);
-        player._sendInput({ index: 0, buttons: b, axes: [] });
+        // Analog stick: -1..1 on each axis (already deadzoned by the overlay).
+        var axes = state && state.stick ? [state.stick.x, state.stick.y] : [];
+        player._sendInput({ index: 0, buttons: b, axes: axes });
       };
       // Only auto-show on touch-first devices; desktop users toggle via 🎮 button
       var hasTouch = typeof window !== 'undefined' && 'ontouchstart' in window;

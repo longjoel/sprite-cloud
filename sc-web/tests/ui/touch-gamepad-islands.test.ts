@@ -11,7 +11,7 @@ const sizePresetKey = "gv:touch-size-preset";
 
 function createGamepad(
   layout: "horizontal" | "vertical" = "horizontal",
-  preset: "nes" | "snes" = "nes",
+  preset: "nes" | "snes" | "n64" = "nes",
 ) {
   const shell = document.createElement("div");
   const video = document.createElement("video");
@@ -735,6 +735,59 @@ describe("mobile touch-control islands", () => {
     // End drag — handles should restore
     dispatchPointer(face1Target, "pointerup", cornerX - 18, cornerY - 18, 37);
     expect(gamepad._dragTarget).toBeNull();
+  });
+
+
+  it("adds a stick island only for presets with an analog stick (n64)", () => {
+    // Non-stick presets keep exactly the three classic groups.
+    const nes = createGamepad("horizontal", "nes");
+    expect(Array.from(nes.shell.querySelectorAll<HTMLElement>("[data-touch-island]"))
+      .map((el) => el.dataset.touchIsland)).toEqual(["dpad", "face", "system"]);
+    expect(nes.shell.querySelector('[data-touch-target="stick"]')).toBeNull();
+
+    // The n64 preset ships a dedicated stick island + touch target.
+    const { shell } = createGamepad("horizontal", "n64");
+    const kinds = Array.from(shell.querySelectorAll<HTMLElement>("[data-touch-island]"))
+      .map((el) => el.dataset.touchIsland);
+    expect(kinds).toEqual(["dpad", "stick", "face", "system"]);
+    const stickTarget = shell.querySelector<HTMLElement>('[data-touch-target="stick"]')!;
+    expect(stickTarget).not.toBeNull();
+    expect(stickTarget.style.pointerEvents).toBe("auto");
+    expect(stickTarget.style.minWidth).toBe("44px");
+  });
+
+  it("n64 default layout places the stick bottom-left with a generous zone", () => {
+    const defaults = computeDefaults("n64", "horizontal");
+    expect(defaults.stick).not.toBeNull();
+    expect(defaults.stick!.x).toBeGreaterThanOrEqual(0.02);
+    expect(defaults.stick!.y).toBeGreaterThan(0.2);
+    expect(defaults.stick!.w).toBeGreaterThan(0.2);
+  });
+
+  it("emits stick deflection as normalized -1..1 axes without drifting when idle", () => {
+    const { gamepad } = createGamepad("horizontal", "n64");
+    const onInput = vi.fn();
+    gamepad.onInput = onInput;
+    const stick = gamepad._stick;
+    const sx = (stick.x + stick.w / 2) * 844;
+    const sy = (stick.y + stick.h / 2) * 390;
+
+    // Deflect up-left (deadzone already consumed by _stickValue).
+    const target = gamepad._islandLayer.querySelector('[data-touch-target="stick"]')!;
+    dispatchPointer(target, "pointerdown", sx - 30, sy - 40, 41);
+    expect(onInput).toHaveBeenLastCalledWith(expect.objectContaining({
+      stick: expect.objectContaining({ x: expect.any(Number) }),
+    }));
+    const last = onInput.mock.calls.at(-1)![0];
+    expect(last.stick.y).toBeLessThan(0);
+    expect(Math.abs(last.stick.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(last.stick.y)).toBeLessThanOrEqual(1);
+
+    // Lift finger: stick returns to center.
+    dispatchPointer(target, "pointerup", sx - 30, sy - 40, 41);
+    expect(onInput).toHaveBeenLastCalledWith(expect.objectContaining({
+      stick: { x: 0, y: 0 },
+    }));
   });
 
   it("draws the control label during drag for feedback", () => {

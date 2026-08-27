@@ -32,6 +32,10 @@ var __touchGamepadBundle = (() => {
     psx: {
       face: [{ label: "\u2715" }, { label: "\u25CB" }, { label: "\u25A1" }, { label: "\u25B3" }],
       system: [{ label: "L1" }, { label: "R1" }, { label: "SELECT" }, { label: "START" }]
+    },
+    n64: {
+      face: [{ label: "A" }, { label: "B" }, { label: "C\u2191" }],
+      system: [{ label: "Z" }, { label: "START" }]
     }
   };
   function computeDefaults(preset, orientation) {
@@ -40,10 +44,17 @@ var __touchGamepadBundle = (() => {
     const nSys = cfg.system.length;
     const isHoriz = orientation === "horizontal" || orientation === "landscape";
     let dpad = { x: 0, y: 0, w: 0, h: 0 };
+    let stick = null;
     const face = [];
     const system = [];
+    const n64 = preset === "n64";
     if (isHoriz) {
-      dpad = { x: 0.03, y: 0.48, w: 0.22, h: 0.46 };
+      if (n64) {
+        dpad = { x: 0.03, y: 0.06, w: 0.16, h: 0.2 };
+        stick = { x: 0.03, y: 0.38, w: 0.3, h: 0.52 };
+      } else {
+        dpad = { x: 0.03, y: 0.48, w: 0.22, h: 0.46 };
+      }
       let cols, rows, bw, bh, gap;
       if (nFace === 3) {
         cols = 3;
@@ -130,10 +141,11 @@ var __touchGamepadBundle = (() => {
       return {
         dpad,
         face: face.map(toFullShell),
-        system: system.map(toFullShell)
+        system: system.map(toFullShell),
+        ...stick ? { stick: toFullShell(stick) } : {}
       };
     }
-    return { dpad, face, system };
+    return { dpad, face, system, ...stick ? { stick } : {} };
   }
 
   // lib/touch-gamepad/utils.ts
@@ -208,9 +220,9 @@ var __touchGamepadBundle = (() => {
   function loadOpacity() {
     try {
       const value = localStorage.getItem(OPACITY_KEY);
-      return value === "low" || value === "high" || value === "max" ? value : "medium";
+      return value === "low" || value === "medium" || value === "high" || value === "max" ? value : "max";
     } catch {
-      return "medium";
+      return "max";
     }
   }
   function saveOpacity(opacity) {
@@ -241,9 +253,12 @@ var __touchGamepadBundle = (() => {
     this._preset = opts.preset || "nes";
     this._layoutName = opts.layout || "auto";
     this._dpad = { x: 0, y: 0, w: 0, h: 0 };
+    this._stick = null;
     this._face = [];
     this._system = [];
     this._dpadActive = [false, false, false, false];
+    this._stickActive = null;
+    this._stickFinger = null;
     this._faceStates = [];
     this._systemStates = [];
     this._canvas = null;
@@ -290,9 +305,11 @@ var __touchGamepadBundle = (() => {
     const dpad = stored?.dpad || defaults.dpad;
     const face = stored && labelsMatch(stored.face, expected.face) ? stored.face : defaults.face;
     const system = stored && labelsMatch(stored.system, expected.system) ? stored.system : defaults.system;
+    const stick = stored?.stick || defaults.stick || null;
     const migrated = stored && (face !== stored.face || system !== stored.system);
     const src = { dpad, face, system };
     this._dpad = { x: src.dpad.x, y: src.dpad.y, w: src.dpad.w, h: src.dpad.h };
+    this._stick = stick ? { x: stick.x, y: stick.y, w: stick.w, h: stick.h } : null;
     this._face = src.face.map((b) => ({
       x: b.x,
       y: b.y,
@@ -313,7 +330,8 @@ var __touchGamepadBundle = (() => {
       this._layouts[key] = {
         dpad: { ...this._dpad },
         face: this._face.map((button) => ({ ...button })),
-        system: this._system.map((button) => ({ ...button }))
+        system: this._system.map((button) => ({ ...button })),
+        ...this._stick ? { stick: { ...this._stick } } : {}
       };
       saveLayouts(this._layouts);
     }
@@ -323,7 +341,8 @@ var __touchGamepadBundle = (() => {
     this._layouts[key] = {
       dpad: { x: this._dpad.x, y: this._dpad.y, w: this._dpad.w, h: this._dpad.h },
       face: this._face.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, label: b.label })),
-      system: this._system.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, label: b.label }))
+      system: this._system.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h, label: b.label })),
+      ...this._stick ? { stick: { x: this._stick.x, y: this._stick.y, w: this._stick.w, h: this._stick.h } } : {}
     };
     saveLayouts(this._layouts);
   };
@@ -382,6 +401,7 @@ var __touchGamepadBundle = (() => {
       zone.y = Math.max(0, Math.min(1 - zone.h, centerY - zone.h / 2));
     };
     resizeAroundCenter(this._dpad, defaults.dpad);
+    if (defaults.stick && this._stick) resizeAroundCenter(this._stick, defaults.stick);
     this._face.forEach((zone, index) => resizeAroundCenter(zone, defaults.face[index]));
     this._system.forEach((zone, index) => resizeAroundCenter(zone, defaults.system[index]));
     if (this._visible) this._resizeCanvas();
@@ -470,6 +490,7 @@ var __touchGamepadBundle = (() => {
     this._clearInputs();
     this._dragTarget = null;
     this._dragStart = null;
+    this._stickFinger = null;
     this._activePointers.clear();
     this._emitState();
   };
@@ -530,7 +551,8 @@ var __touchGamepadBundle = (() => {
       zIndex: "11",
       boxSizing: "border-box"
     });
-    for (const kind of ["dpad", "face", "system"]) {
+    const islandKinds = this._stick ? ["dpad", "stick", "face", "system"] : ["dpad", "face", "system"];
+    for (const kind of islandKinds) {
       const island = document.createElement("div");
       island.dataset.touchIsland = kind;
       island.setAttribute("role", "group");
@@ -565,6 +587,9 @@ var __touchGamepadBundle = (() => {
       face: setIslandBounds(groups.face, this._face),
       system: setIslandBounds(groups.system, this._system)
     };
+    if (groups.stick && this._stick) {
+      bounds.stick = setIslandBounds(groups.stick, [this._stick]);
+    }
     const desiredTargets = /* @__PURE__ */ new Set();
     const target = (group, rect, label, _bound) => {
       desiredTargets.add(label);
@@ -596,6 +621,9 @@ var __touchGamepadBundle = (() => {
       if (el.parentElement !== group) group.appendChild(el);
     };
     attachIfNeeded(groups.dpad, target(groups.dpad, this._dpad, "dpad", bounds.dpad));
+    if (groups.stick && this._stick) {
+      attachIfNeeded(groups.stick, target(groups.stick, this._stick, "stick", bounds.stick));
+    }
     this._face.forEach((zone, i) => attachIfNeeded(groups.face, target(groups.face, zone, `face-${i}`, bounds.face)));
     this._system.forEach((zone, i) => attachIfNeeded(groups.system, target(groups.system, zone, `system-${i}`, bounds.system)));
     this._islandLayer.querySelectorAll("[data-touch-target]").forEach((el) => {
@@ -755,6 +783,9 @@ var __touchGamepadBundle = (() => {
     if (nx >= this._dpad.x && nx <= this._dpad.x + this._dpad.w && ny >= this._dpad.y && ny <= this._dpad.y + this._dpad.h) {
       return { kind: "dpad" };
     }
+    if (this._stick && nx >= this._stick.x && nx <= this._stick.x + this._stick.w && ny >= this._stick.y && ny <= this._stick.y + this._stick.h) {
+      return { kind: "stick" };
+    }
     for (let i = 0; i < this._face.length; i++) {
       const f = this._face[i];
       if (nx >= f.x && nx <= f.x + f.w && ny >= f.y && ny <= f.y + f.h) {
@@ -771,15 +802,34 @@ var __touchGamepadBundle = (() => {
   };
   TouchGamepad.prototype._clearInputs = function() {
     this._dpadActive = [false, false, false, false];
+    if (this._stick) this._stickActive = null;
     this._faceStates = this._faceStates.map(() => false);
     this._systemStates = this._systemStates.map(() => false);
   };
+  TouchGamepad.prototype._stickValue = function(n) {
+    const s = this._stick;
+    if (!s) return { x: 0, y: 0 };
+    const cx = s.x + s.w / 2;
+    const cy = s.y + s.h / 2;
+    let x = (n.x - cx) / (s.w / 2);
+    let y = (n.y - cy) / (s.h / 2);
+    const mag = Math.hypot(x, y);
+    const DEADZONE = 0.12;
+    if (mag > 1) {
+      x /= mag;
+      y /= mag;
+    }
+    if (mag < DEADZONE) return { x: 0, y: 0 };
+    return { x, y };
+  };
   TouchGamepad.prototype._emitState = function() {
     if (this.onInput) {
+      const stick = this._stick ? this._stickActive || { x: 0, y: 0 } : void 0;
       this.onInput({
         dpad: this._dpadActive,
         face: this._faceStates,
-        system: this._systemStates
+        system: this._systemStates,
+        ...stick ? { stick } : {}
       });
     }
   };
@@ -791,6 +841,7 @@ var __touchGamepadBundle = (() => {
     const ch = canvas.height;
     ctx.clearRect(0, 0, cw, ch);
     drawDpad(this, ctx, cw, ch);
+    drawStick(this, ctx, cw, ch);
     for (let i = 0; i < this._face.length; i++) {
       drawButton(ctx, this._face[i], cw, ch, this._faceStates[i], this._editMode || this._showHandles);
     }
@@ -849,49 +900,124 @@ var __touchGamepadBundle = (() => {
     const x = d.x * cw, y = d.y * ch, w = d.w * cw, h = d.h * ch;
     const cx = x + w / 2, cy = y + h / 2;
     const armW = w * 0.3, armH = h * 0.3;
-    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.fillStyle = "rgba(10,12,16,0.72)";
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 4;
     ctx.beginPath();
-    ctx.roundRect(x, y + armH, w, h - armH * 2, 4);
+    ctx.roundRect(x, y + armH, w, h - armH * 2, 6);
     ctx.fill();
     ctx.beginPath();
-    ctx.roundRect(x + armW, y, w - armW * 2, h, 4);
+    ctx.roundRect(x + armW, y, w - armW * 2, h, 6);
     ctx.fill();
+    ctx.shadowBlur = 0;
     const arms = [
       { x: cx - armW / 2, y, w: armW, h: armH, active: gp._dpadActive[0] },
       { x: cx - armW / 2, y: y + h - armH, w: armW, h: armH, active: gp._dpadActive[1] },
       { x, y: cy - armH / 2, w: armW, h: armH, active: gp._dpadActive[2] },
       { x: x + w - armW, y: cy - armH / 2, w: armW, h: armH, active: gp._dpadActive[3] }
     ];
-    for (const arm of arms) {
-      ctx.fillStyle = arm.active ? "rgba(56,189,248,0.45)" : "rgba(255,255,255,0.05)";
+    const arrow = (ax, ay, dir, active) => {
+      ctx.fillStyle = active ? "rgba(255,255,255,0.98)" : "rgba(255,255,255,0.72)";
+      const s = Math.min(armW, armH) * 0.22;
       ctx.beginPath();
-      ctx.roundRect(arm.x, arm.y, arm.w, arm.h, 4);
+      if (dir === "up") {
+        ctx.moveTo(ax, ay - s);
+        ctx.lineTo(ax - s, ay + s);
+        ctx.lineTo(ax + s, ay + s);
+      }
+      if (dir === "down") {
+        ctx.moveTo(ax, ay + s);
+        ctx.lineTo(ax - s, ay - s);
+        ctx.lineTo(ax + s, ay - s);
+      }
+      if (dir === "left") {
+        ctx.moveTo(ax - s, ay);
+        ctx.lineTo(ax + s, ay - s);
+        ctx.lineTo(ax + s, ay + s);
+      }
+      if (dir === "right") {
+        ctx.moveTo(ax + s, ay);
+        ctx.lineTo(ax - s, ay - s);
+        ctx.lineTo(ax - s, ay + s);
+      }
+      ctx.closePath();
       ctx.fill();
-      ctx.strokeStyle = arm.active ? "rgba(56,189,248,0.5)" : "rgba(255,255,255,0.08)";
-      ctx.lineWidth = 1;
+    };
+    for (const arm of arms) {
+      ctx.fillStyle = arm.active ? "rgba(56,189,248,0.82)" : "rgba(38,42,52,0.9)";
+      ctx.beginPath();
+      ctx.roundRect(arm.x, arm.y, arm.w, arm.h, 5);
+      ctx.fill();
+      ctx.strokeStyle = arm.active ? "rgba(147,224,255,0.9)" : "rgba(255,255,255,0.75)";
+      ctx.lineWidth = 1.5;
       ctx.stroke();
+      const aCx = arm.x + arm.w / 2, aCy = arm.y + arm.h / 2;
+      const dir = arms.indexOf(arm) === 0 ? "up" : arms.indexOf(arm) === 1 ? "down" : arms.indexOf(arm) === 2 ? "left" : "right";
+      arrow(aCx, aCy, dir, arm.active);
     }
   }
   function drawButton(ctx, zone, cw, ch, pressed, showHandles) {
     const x = zone.x * cw, y = zone.y * ch, w = zone.w * cw, h = zone.h * ch;
-    ctx.fillStyle = pressed ? "rgba(56,189,248,0.4)" : "rgba(255,255,255,0.1)";
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 4;
+    ctx.fillStyle = pressed ? "rgba(56,189,248,0.92)" : "rgba(38,42,52,0.9)";
     ctx.beginPath();
     ctx.roundRect(x, y, w, h, 2);
     ctx.fill();
-    ctx.strokeStyle = pressed ? "rgba(56,189,248,0.5)" : "rgba(255,255,255,0.15)";
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = pressed ? "rgba(147,224,255,0.95)" : "rgba(255,255,255,0.8)";
     ctx.lineWidth = 2;
     ctx.stroke();
     if (showHandles) {
-      ctx.strokeStyle = "rgba(255,200,50,0.5)";
+      ctx.strokeStyle = "rgba(255,200,50,0.9)";
       ctx.setLineDash([4, 4]);
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    ctx.fillStyle = pressed ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.55)";
-    ctx.font = Math.floor(Math.min(w, h) * 0.42) + "px sans-serif";
+    ctx.fillStyle = pressed ? "rgba(255,255,255,1)" : "rgba(255,255,255,0.96)";
+    ctx.font = `bold ${Math.floor(Math.min(w, h) * 0.42)}px sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(zone.label, x + w / 2, y + h / 2);
+    ctx.shadowColor = "rgba(0,0,0,0.8)";
+    ctx.shadowBlur = 2;
+    ctx.fillText(zone.label, x + w / 2, y + h / 2 + 1);
+    ctx.shadowBlur = 0;
+  }
+  function drawStick(gp, ctx, cw, ch) {
+    const s = gp._stick;
+    if (!s) return;
+    const x = s.x * cw, y = s.y * ch, w = s.w * cw, h = s.h * ch;
+    const cx = x + w / 2, cy = y + h / 2;
+    const radius = Math.min(w, h) * 0.42;
+    const stick = gp._stickActive || { x: 0, y: 0 };
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 4;
+    ctx.fillStyle = "rgba(10,12,16,0.72)";
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(255,255,255,0.8)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.35)";
+    ctx.font = `bold ${Math.floor(radius * 0.22)}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("\u25B2", cx, cy - radius * 0.62);
+    ctx.fillText("\u25BC", cx, cy + radius * 0.62);
+    ctx.fillText("\u25C0", cx - radius * 0.66, cy);
+    ctx.fillText("\u25B6", cx + radius * 0.66, cy);
+    const tx = cx + stick.x * radius * 0.45;
+    const ty = cy + stick.y * radius * 0.45;
+    const tr = radius * 0.42;
+    ctx.fillStyle = stick.x !== 0 || stick.y !== 0 ? "rgba(56,189,248,0.95)" : "rgba(210,218,230,0.95)";
+    ctx.beginPath();
+    ctx.arc(tx, ty, tr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.95)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
   }
   function drawResizeHandles(ctx, d, cw, ch, visible = true) {
     if (!visible) return;
@@ -960,6 +1086,7 @@ var __touchGamepadBundle = (() => {
     }
     if (!gp._editMode && zone) {
       applyInput(gp, zone, n);
+      if (zone.kind === "stick") gp._stickFinger = t.identifier;
     }
     return false;
   }
@@ -1034,17 +1161,24 @@ var __touchGamepadBundle = (() => {
     }
     if (!gp._editMode) {
       gp._clearInputs();
+      let stickTracked = false;
       for (let j = 0; j < allTouches.length; j++) {
         const t2 = allTouches[j];
         const n2 = {
           x: (t2.clientX - rect.left) / (cw || 1),
           y: (t2.clientY - rect.top) / (rect.height || 1)
         };
+        if (gp._stickFinger !== null && t2.identifier === gp._stickFinger && gp._stick) {
+          gp._stickActive = gp._stickValue(n2);
+          stickTracked = true;
+          continue;
+        }
         const z2 = gp._findTouchZone(n2);
         if (z2 && z2.kind !== "resize") {
           applyInput(gp, z2, n2);
         }
       }
+      if (!stickTracked && gp._stick) gp._stickActive = null;
       gp._emitState();
     }
   }
@@ -1066,8 +1200,18 @@ var __touchGamepadBundle = (() => {
     }
     if (!gp._editMode) {
       gp._clearInputs();
+      let stickTracked = false;
       for (let m = 0; m < allTouches.length; m++) {
         const tm = allTouches[m];
+        if (gp._stickFinger !== null && tm.identifier === gp._stickFinger && gp._stick) {
+          const ns = {
+            x: (tm.clientX - rect.left) / (cw || 1),
+            y: (tm.clientY - rect.top) / (ch || 1)
+          };
+          gp._stickActive = gp._stickValue(ns);
+          stickTracked = true;
+          continue;
+        }
         const nm = {
           x: (tm.clientX - rect.left) / (cw || 1),
           y: (tm.clientY - rect.top) / (ch || 1)
@@ -1075,6 +1219,12 @@ var __touchGamepadBundle = (() => {
         const zm = gp._findTouchZone(nm);
         if (zm && zm.kind !== "resize") {
           applyInput(gp, zm, nm);
+        }
+      }
+      if (!stickTracked && gp._stick) gp._stickActive = null;
+      for (let r = 0; r < changedTouches.length; r++) {
+        if (gp._stickFinger !== null && changedTouches[r].identifier === gp._stickFinger) {
+          gp._stickFinger = null;
         }
       }
       gp._emitState();
@@ -1093,6 +1243,8 @@ var __touchGamepadBundle = (() => {
       gp._faceStates[parseInt(zone.zone, 10)] = true;
     } else if (zone.kind === "system" && zone.zone !== void 0) {
       gp._systemStates[parseInt(zone.zone, 10)] = true;
+    } else if (zone.kind === "stick") {
+      gp._stickActive = gp._stickValue(n);
     }
   }
   function pointerSample(e, target) {

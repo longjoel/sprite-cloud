@@ -87,9 +87,11 @@ export function saveToggleState(visible: boolean): void {
 export function loadOpacity(): TouchOpacity {
   try {
     const value = localStorage.getItem(OPACITY_KEY);
-    return value === "low" || value === "high" || value === "max" ? value : "medium";
+    // The layout panel that used to expose these choices is gone; default to
+    // near-full opacity so the fixed controller is always readable.
+    return value === "low" || value === "medium" || value === "high" || value === "max" ? value : "max";
   } catch {
-    return "medium";
+    return "max";
   }
 }
 

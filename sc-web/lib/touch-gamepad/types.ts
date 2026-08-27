@@ -28,11 +28,12 @@ export interface LayoutData {
   dpad: NormalisedRect;
   face: ButtonZone[];
   system: ButtonZone[];
+  stick?: NormalisedRect | null;
 }
 
 export type Orientation = "horizontal" | "vertical" | "auto";
 
-export type PresetName = "nes" | "snes" | "genesis" | "gamegear" | "arcade" | "atari" | "psx";
+export type PresetName = "nes" | "snes" | "genesis" | "gamegear" | "arcade" | "atari" | "psx" | "n64";
 
 export interface TouchGamepadOptions {
   preset?: PresetName;
@@ -50,4 +51,5 @@ export type InputCallback = (state: {
   dpad: [boolean, boolean, boolean, boolean];
   face: boolean[];
   system: boolean[];
+  stick?: { x: number; y: number };
 }) => void;
