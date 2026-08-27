@@ -12,7 +12,6 @@ import {
   FullscreenExit,
   Gamepad,
   Groups,
-  Keyboard,
   QueryStats,
   QrCode,
   RestartAlt,
@@ -52,10 +51,8 @@ interface OptionsOverlayProps {
   isFullscreen: boolean;
   controlsVisible: boolean;
   onToggleControls: () => void;
-  onOpenController: () => void;
   onRestart: () => void;
   onOpenSaves: () => void;
-  onOpenKeys: () => void;
   onEject?: () => void;
   onOpenRoom?: () => void;
   onQrCode?: () => void;
@@ -81,10 +78,8 @@ export default function OptionsOverlay({
   isFullscreen,
   controlsVisible,
   onToggleControls,
-  onOpenController,
   onRestart,
   onOpenSaves,
-  onOpenKeys,
   onEject,
   onOpenRoom,
   onQrCode,
@@ -148,8 +143,6 @@ export default function OptionsOverlay({
           action: onToggleControls,
           disabled: isSpectator,
         },
-        { id: "controller", icon: Gamepad, label: "Controller Layout", action: onOpenController, disabled: isSpectator },
-        { id: "keys", icon: Keyboard, label: "Keys", action: onOpenKeys, disabled: isSpectator },
       ],
     },
     ...(roomRelevant

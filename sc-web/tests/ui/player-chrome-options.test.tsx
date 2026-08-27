@@ -11,8 +11,6 @@ const playerSource = readFileSync("components/GamePlayer.tsx", "utf8");
 const playerCss = readFileSync("components/GamePlayer.module.css", "utf8");
 const optionsSource = readFileSync("components/OptionsOverlay.tsx", "utf8");
 const optionsCss = readFileSync("components/OptionsOverlay.module.css", "utf8");
-const remapSource = readFileSync("components/GamePlayerRemapPanel.tsx", "utf8");
-const controllerPanelSource = readFileSync("components/ControllerLayoutPanel.tsx", "utf8");
 const gamePlayerSource = readFileSync("components/GamePlayer.tsx", "utf8");
 
 describe("simplified player chrome", () => {
@@ -26,8 +24,6 @@ describe("simplified player chrome", () => {
     expect(playerSource).not.toMatch(/>\s*✕\s*<\/button>/);
     expect(playerSource.match(/✕ Close/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
     expect(playerSource).toContain("↻ Retry");
-    expect(remapSource).toContain("✕ Close");
-    expect(controllerPanelSource).toContain("✕ Close");
   });
 
   it("wakes edge chrome for touch input and again when the player connects", () => {
@@ -58,11 +54,7 @@ describe("simplified player chrome", () => {
     expect(playerSource).toContain("← Options");
   });
 
-  it("uses MUI icons across controller, remap, and stats panels", () => {
-    expect(controllerPanelSource).toContain("ArrowBack");
-    expect(controllerPanelSource).toContain("Close");
-    expect(remapSource).toContain("ArrowBack");
-    expect(remapSource).toContain("Close");
+  it("uses MUI icons across player panels", () => {
     expect(gamePlayerSource).toContain("ArrowBack");
     expect(gamePlayerSource).toContain("Close");
   });
@@ -88,7 +80,7 @@ describe("player option hierarchy", () => {
   const renderOptions = async (withRoom = false) => {
     const actions = {
       save: vi.fn(), load: vi.fn(), fullscreen: vi.fn(), toggleControls: vi.fn(),
-      controller: vi.fn(), keys: vi.fn(), saves: vi.fn(), share: vi.fn(),
+      saves: vi.fn(), share: vi.fn(),
       room: vi.fn(), stats: vi.fn(), restart: vi.fn(), close: vi.fn(),
       mute: vi.fn(), eject: vi.fn(),
     };
@@ -103,10 +95,8 @@ describe("player option hierarchy", () => {
           isFullscreen={false}
           controlsVisible
           onToggleControls={actions.toggleControls}
-          onOpenController={actions.controller}
           onRestart={actions.restart}
           onOpenSaves={actions.saves}
-          onOpenKeys={actions.keys}
           onOpenRoom={withRoom ? actions.room : undefined}
           onQrCode={actions.share}
           onStats={actions.stats}
@@ -129,7 +119,7 @@ describe("player option hierarchy", () => {
 
     for (const label of [
       "Save", "Load", "Saves", "Restart", "Eject disk", "Hide controls",
-      "Controller Layout", "Keys", "Room", "Share / QR", "Mute", "Fullscreen",
+      "Room", "Share / QR", "Mute", "Fullscreen",
       "Stats for Nerds",
     ]) {
       const action = button(label);
@@ -148,7 +138,7 @@ describe("player option hierarchy", () => {
       .toEqual(["Game", "Controls", "Multiplayer", "Display & Audio", "Troubleshooting"]);
     for (const label of [
       "Save", "Load", "Saves", "Restart", "Eject disk",
-      "Hide controls", "Controller Layout", "Keys",
+      "Hide controls",
       "Room", "Share / QR",
       "Mute", "Fullscreen",
       "Stats for Nerds", "Close",
@@ -163,8 +153,8 @@ describe("player option hierarchy", () => {
     const actions = await renderOptions(true);
     for (const [label, action] of [
       ["Save", actions.save], ["Load", actions.load], ["Fullscreen", actions.fullscreen],
-      ["Hide controls", actions.toggleControls], ["Controller Layout", actions.controller],
-      ["Keys", actions.keys], ["Saves", actions.saves], ["Share / QR", actions.share],
+      ["Hide controls", actions.toggleControls],
+      ["Saves", actions.saves], ["Share / QR", actions.share],
       ["Room", actions.room], ["Stats for Nerds", actions.stats],
       ["Restart", actions.restart], ["Close", actions.close],
       ["Mute", actions.mute], ["Eject disk", actions.eject],

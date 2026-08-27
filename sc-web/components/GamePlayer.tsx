@@ -9,9 +9,7 @@ import { ArrowBack, Close, QueryStats } from "@mui/icons-material";
 import { csrfHeaders } from "@/components/library-utils";
 
 import { QRCodeSVG } from "qrcode.react";
-import RemapPanel from "./GamePlayerRemapPanel";
 import OptionsOverlay from "./OptionsOverlay";
-import ControllerLayoutPanel from "./ControllerLayoutPanel";
 import PreImmersiveHint from "./PreImmersiveHint";
 import PlayerWorkspace from "./player/PlayerWorkspace";
 import type { PlayerCapabilities } from "@/lib/capabilities";
@@ -93,14 +91,6 @@ declare global {
       hide: () => void;
       suspendInput: () => void;
       resumeInput: () => void;
-      enterEditMode: () => void;
-      exitEditMode: () => void;
-      swapAB: () => void;
-      resetLayout: () => void;
-      setOpacity: (opacity: "low" | "medium" | "high" | "max") => void;
-      getOpacity: () => "low" | "medium" | "high" | "max";
-      getSizePreset: () => "compact" | "standard" | "large" | "custom";
-      setSizePreset: (size: "compact" | "standard" | "large") => void;
     };
     __scPlayer?: any; // ScPlayer instance for XMB quick menu
   }
@@ -175,7 +165,6 @@ export default function GamePlayer({
   const [scriptReady, setScriptReady] = useState(false);
   const [rttActive, setRttActive] = useState(false);
   const [roomToken, setRoomToken] = useState<string | null>(null);
-  const [remapWaiting, setRemapWaiting] = useState<string | null>(null);
   const [statsData, setStatsData] = useState<Record<string, any>>({ video: {}, audio: {}, pipeline: {} });
   // Pre-immersive hint: shown once per session (while connected and not yet
   // immersive); dismissed permanently on immersive entry or manual close.
@@ -481,7 +470,6 @@ export default function GamePlayer({
 
   const closePanel = useCallback(() => {
     setOverlayState((state) => closePlayerPanel(state));
-    setRemapWaiting(null);
     requestAnimationFrame(() => optionsTriggerRef.current?.focus());
   }, []);
 
@@ -500,7 +488,6 @@ export default function GamePlayer({
   useEffect(() => {
     if (!higherPriorityBlocking) return;
     setOverlayState((state) => blockPlayerPanels(state));
-    setRemapWaiting(null);
   }, [higherPriorityBlocking]);
 
   useEffect(() => {
@@ -561,6 +548,16 @@ export default function GamePlayer({
     // Audio handoff in the user-gesture path (autoplay-policy compliant).
     videoRef.current?.play().catch(() => {});
     setAudioMuted(false);
+    // Player surfaces are landscape-only: lock the device into landscape so
+    // the fixed landscape touch layout always matches the physical geometry.
+    // iOS does not support the Screen Orientation API — the lock promise
+    // rejects and immersive behavior falls back to the fixed-viewport mode.
+    try {
+      const orientation = (screen as any).orientation as { lock?: (o: string) => Promise<void> } | null;
+      if (orientation?.lock) {
+        orientation.lock("landscape").catch(() => {});
+      }
+    } catch {}
     try {
       // Fullscreen is scoped to the game stage, not the whole document.
       stageRef.current?.requestFullscreen()?.catch(() => {});
@@ -572,6 +569,11 @@ export default function GamePlayer({
 
   const exitImmersive = useCallback(() => {
     setImmersive(false);
+    try {
+      // Release the landscape lock so the shell can return to portrait.
+      const orientation = (screen as any).orientation as { unlock?: () => void } | null;
+      orientation?.unlock?.();
+    } catch {}
     try {
       if (document.fullscreenElement) {
         document.exitFullscreen().catch(() => {});
@@ -689,28 +691,8 @@ export default function GamePlayer({
     scPlay.listSaves(playerRef.current);
   };
 
-  // ── Controller layout ─────────────────────────────────────────────
+  // ── Restart / eject / share ──────────────────────────────────────
 
-  const handleReposition = useCallback(() => {
-    const tg = window.__scTouchGamepad;
-    if (!tg) {
-      showToast("Show gamepad first — tap 🎮 in Keys", false);
-      return;
-    }
-    if (!tg.isVisible()) tg.show();
-    setTouchGamepadVisible(true);
-    closePanel();
-    setTimeout(() => tg.enterEditMode?.(), 150);
-  }, [closePanel, showToast]);
-
-  const handleHideControls = useCallback(() => {
-    window.__scTouchGamepad?.hide();
-    setTouchGamepadVisible(false);
-    closePanel();
-  }, [closePanel]);
-
-  // Never reuse the host launch/reconnect code as a player invitation. Share
-  // mints a separate code bound to the rotating room capability.
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [shareRequested, setShareRequested] = useState(false);
 
@@ -718,8 +700,6 @@ export default function GamePlayer({
     setShareRequested(true);
     openPanel("share");
   }, [openPanel]);
-
-  // ── Restart game ──────────────────────────────────────────────────
 
   const handleRestart = useCallback(() => {
     sendDC({ cmd: "reset" });
@@ -811,7 +791,7 @@ export default function GamePlayer({
       <video
         ref={videoRef}
         data-sc-preset={touchPresetForPlatform(platform)}
-        data-sc-layout="auto"
+        data-sc-layout="horizontal"
         autoPlay
         playsInline
         muted={audioMuted}
@@ -866,11 +846,9 @@ export default function GamePlayer({
           isFullscreen={immersive}
           controlsVisible={touchGamepadVisible}
           onToggleControls={toggleTouchGamepad}
-          onOpenController={() => openPanel("controller")}
           onRestart={handleRestart}
           onOpenSaves={() => { openPanel("saves"); handleListSaves(); }}
           onEject={handleEject}
-          onOpenKeys={() => openPanel("keys")}
           onOpenRoom={roomControlsRelevant ? () => openPanel("room") : undefined}
           onQrCode={hostToken ? handleQrCode : undefined}
           onStats={() => openPanel("stats")}
@@ -882,17 +860,6 @@ export default function GamePlayer({
         />
       )}
 
-      {!higherPriorityBlocking && overlayState.activePanel === "controller" && (
-        <ControllerLayoutPanel
-          controller={typeof window === "undefined" ? undefined : window.__scTouchGamepad}
-          onBack={() => openPanel("options")}
-          onClose={closePanel}
-          onCustomize={handleReposition}
-          onHide={handleHideControls}
-        />
-      )}
-
-      {/* Stats for Nerds overlay */}
       {!higherPriorityBlocking && overlayState.activePanel === "stats" && (
         <div
           className={styles.overlay}
@@ -1040,22 +1007,6 @@ export default function GamePlayer({
                 No saves yet — press 💾 Save Now
               </p>
             )}
-          </div>
-        </>
-      )}
-
-      {/* Key remap overlay */}
-      {!higherPriorityBlocking && overlayState.activePanel === "keys" && (
-        <>
-          <div className={styles.backdrop} onClick={closePanel} />
-          <div data-player-panel role="dialog" aria-modal="true" aria-label="Key remapping" tabIndex={-1}>
-          <RemapPanel
-            playerRef={playerRef}
-            waiting={remapWaiting}
-            setWaiting={setRemapWaiting}
-            onClose={closePanel}
-            onBack={() => openPanel("options")}
-          />
           </div>
         </>
       )}

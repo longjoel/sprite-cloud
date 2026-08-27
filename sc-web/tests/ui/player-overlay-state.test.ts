@@ -29,7 +29,7 @@ describe("player overlay state", () => {
     expect(closePlayerPanel({ activePanel: "stats" })).toEqual({ activePanel: "none" });
   });
 
-  it.each(["saves", "stats", "keys", "room", "share", "controller"] as const)(
+  it.each(["saves", "stats", "room", "share"] as const)(
     "returns from the %s child panel to options",
     (activePanel) => {
       expect(backPlayerPanel({ activePanel })).toEqual({ activePanel: "options" });
@@ -45,6 +45,6 @@ describe("player overlay state", () => {
   });
 
   it("clears a child panel when a higher-priority blocker activates", () => {
-    expect(blockPlayerPanels({ activePanel: "keys" })).toEqual({ activePanel: "none" });
+    expect(blockPlayerPanels({ activePanel: "room" })).toEqual({ activePanel: "none" });
   });
 });
