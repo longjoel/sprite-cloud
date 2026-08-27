@@ -255,6 +255,7 @@ var __touchGamepadBundle = (() => {
     this._animId = null;
     this._dragTarget = null;
     this._dragStart = null;
+    this._pendingGesture = null;
     this._editMode = false;
     this._showHandles = false;
     this._opacity = loadOpacity();
@@ -446,6 +447,7 @@ var __touchGamepadBundle = (() => {
     this._clearInputs();
     this._dragTarget = null;
     this._dragStart = null;
+    clearPendingGesture(this);
     this._activePointers.forEach((pointer, id) => pointer.target.releasePointerCapture?.(id));
     this._activePointers.clear();
     this._blockedPointerIds.clear();
@@ -470,6 +472,7 @@ var __touchGamepadBundle = (() => {
     this._clearInputs();
     this._dragTarget = null;
     this._dragStart = null;
+    clearPendingGesture(this);
     this._activePointers.clear();
     this._emitState();
   };
@@ -705,6 +708,7 @@ var __touchGamepadBundle = (() => {
     if (!this._visible) return;
     this._dragTarget = null;
     this._dragStart = null;
+    clearPendingGesture(this);
     this._activePointers.forEach((pointer, id) => pointer.target.releasePointerCapture?.(id));
     this._activePointers.clear();
     this._clearInputs();
@@ -840,7 +844,7 @@ var __touchGamepadBundle = (() => {
       ctx.font = "12px sans-serif";
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText("Unlocked \u2014 drag zones or corner handles. Return to Controller Layout to lock.", 8, 12);
+      ctx.fillText("Long-press to move a control; short-press + drag to resize. Return to Controller Layout to lock.", 8, 12);
     }
     this._animId = this._reducedMotion ? null : requestAnimationFrame(this._render);
   };
@@ -906,6 +910,81 @@ var __touchGamepadBundle = (() => {
     for (const c of corners) {
       ctx.fillRect(c.x - size / 2, c.y - size / 2, size, size);
     }
+  }
+  var LONG_PRESS_MS = 450;
+  function clearPendingGesture(gp) {
+    if (gp._pendingGesture && gp._pendingGesture.timer != null) {
+      window.clearTimeout(gp._pendingGesture.timer);
+    }
+    gp._pendingGesture = null;
+  }
+  function hitTestEditBody(gp, n) {
+    const d = gp._dpad;
+    if (n.x >= d.x && n.x <= d.x + d.w && n.y >= d.y && n.y <= d.y + d.h) {
+      return { kind: "dpad", index: -1 };
+    }
+    for (let i = 0; i < gp._face.length; i++) {
+      const f = gp._face[i];
+      if (n.x >= f.x && n.x <= f.x + f.w && n.y >= f.y && n.y <= f.y + f.h) {
+        return { kind: "face", index: i };
+      }
+    }
+    for (let i = 0; i < gp._system.length; i++) {
+      const s = gp._system[i];
+      if (n.x >= s.x && n.x <= s.x + s.w && n.y >= s.y && n.y <= s.y + s.h) {
+        return { kind: "system", index: i };
+      }
+    }
+    return null;
+  }
+  function nearestResizeGrip(tgt, n, dx, dy) {
+    const corners = [
+      { tag: "nw", x: tgt.x, y: tgt.y },
+      { tag: "ne", x: tgt.x + tgt.w, y: tgt.y },
+      { tag: "sw", x: tgt.x, y: tgt.y + tgt.h },
+      { tag: "se", x: tgt.x + tgt.w, y: tgt.y + tgt.h }
+    ];
+    let best = corners[0];
+    let bestDist = Infinity;
+    for (const c of corners) {
+      const dc = (n.x - c.x) ** 2 + (n.y - c.y) ** 2;
+      if (dc < bestDist) {
+        bestDist = dc;
+        best = c;
+      }
+    }
+    const cx = tgt.x + tgt.w / 2;
+    const cy = tgt.y + tgt.h / 2;
+    if (Math.abs(n.x - cx) < tgt.w * 0.25 && Math.abs(n.y - cy) < tgt.h * 0.25) {
+      if (Math.abs(dx) >= Math.abs(dy)) return { tag: dx >= 0 ? "se" : "nw" };
+      return { tag: dy >= 0 ? "sw" : "ne" };
+    }
+    return { tag: best.tag };
+  }
+  function beginEditDrag(gp, fingerId, n, zoneKind, index, tag, mode) {
+    let tgt = null;
+    if (zoneKind === "face") tgt = gp._face[index] || null;
+    else if (zoneKind === "system") tgt = gp._system[index] || null;
+    if (!tgt) return;
+    gp._dragTarget = {
+      kind: mode,
+      zone: zoneKind,
+      index,
+      // handleMove matches corner grips via `tag.includes(":nw")` etc., so the
+      // full `resize:<zone>:<corner>` token is required.
+      ...mode === "resize" ? { tag: `resize:${zoneKind}:${tag}` } : {}
+    };
+    gp._dragStart = {
+      fingerId,
+      nx: n.x,
+      ny: n.y,
+      tx: tgt.x,
+      ty: tgt.y,
+      tw: tgt.w,
+      th: tgt.h,
+      mode
+    };
+    gp._scheduleRender();
   }
   function handleStart(gp, t) {
     const rect = gp._canvas.getBoundingClientRect();
@@ -1108,6 +1187,42 @@ var __touchGamepadBundle = (() => {
     target.setPointerCapture?.(e.pointerId);
     const sample = pointerSample(e, target);
     this._activePointers.set(e.pointerId, sample);
+    if (this._editMode && e.pointerType === "touch") {
+      if (this._pendingGesture || this._dragTarget) {
+        this._emitState();
+        return;
+      }
+      const rect = this._canvas.getBoundingClientRect();
+      const n = {
+        x: (sample.clientX - rect.left) / (rect.width || 1),
+        y: (sample.clientY - rect.top) / (rect.height || 1)
+      };
+      const hit = hitTestEditBody(this, n);
+      if (hit && hit.kind !== "dpad") {
+        const zoneKind = hit.kind;
+        const timer = window.setTimeout(() => {
+          const pending = this._pendingGesture;
+          if (pending && pending.pointerId === e.pointerId) {
+            this._pendingGesture = null;
+            beginEditDrag(this, e.pointerId, pending.n, pending.zoneKind, pending.index, "", "move");
+          }
+        }, LONG_PRESS_MS);
+        this._pendingGesture = {
+          pointerId: e.pointerId,
+          index: hit.index,
+          zoneKind,
+          n,
+          startX: sample.clientX,
+          startY: sample.clientY,
+          timer
+        };
+        this._emitState();
+        return;
+      }
+      handleStart(this, sample);
+      this._emitState();
+      return;
+    }
     handleStart(this, sample);
     this._emitState();
     if (!this._editMode) this._scheduleRender();
@@ -1117,6 +1232,25 @@ var __touchGamepadBundle = (() => {
     e.preventDefault();
     const previous = this._activePointers.get(e.pointerId);
     this._activePointers.set(e.pointerId, pointerSample(e, previous.target));
+    const pending = this._pendingGesture;
+    if (this._editMode && pending && pending.pointerId === e.pointerId) {
+      const rect = this._canvas.getBoundingClientRect();
+      const n = {
+        x: (e.clientX - rect.left) / (rect.width || 1),
+        y: (e.clientY - rect.top) / (rect.height || 1)
+      };
+      const movePx = Math.hypot(e.clientX - pending.startX, e.clientY - pending.startY);
+      const slop = Math.max(10, rect.width * 0.02, rect.height * 0.02);
+      if (movePx > slop) {
+        if (pending.timer != null) window.clearTimeout(pending.timer);
+        this._pendingGesture = null;
+        const tgt = pending.zoneKind === "face" ? this._face[pending.index] : this._system[pending.index];
+        const grip = tgt ? nearestResizeGrip(tgt, pending.n, (e.clientX - pending.startX) / (rect.width || 1), (e.clientY - pending.startY) / (rect.height || 1)) : null;
+        if (grip) {
+          beginEditDrag(this, e.pointerId, n, pending.zoneKind, pending.index, grip.tag, "resize");
+        }
+      }
+    }
     handleMove(this, activePointerList(this));
     if (!this._editMode) this._scheduleRender();
   };
@@ -1125,6 +1259,9 @@ var __touchGamepadBundle = (() => {
     const sample = this._activePointers.get(e.pointerId);
     if (this._inputSuspended || !sample) return;
     e.preventDefault();
+    if (this._pendingGesture && this._pendingGesture.pointerId === e.pointerId) {
+      clearPendingGesture(this);
+    }
     sample.target.releasePointerCapture?.(e.pointerId);
     this._activePointers.delete(e.pointerId);
     handleEnd(this, [sample], activePointerList(this));

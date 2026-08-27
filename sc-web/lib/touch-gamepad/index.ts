@@ -34,6 +34,18 @@ interface TouchGamepad {
     tx: number; ty: number; tw: number; th: number;
     mode: "resize" | "move";
   } | null;
+  // Touch edit-mode gesture that is still awaiting mode resolution (long-press
+  // vs short-press). Only set for face/system buttons during a touch drag; once
+  // the mode is decided it is cleared and `_dragTarget`/`_dragStart` take over.
+  _pendingGesture: {
+    pointerId: number;
+    index: number;
+    zoneKind: "face" | "system";
+    n: { x: number; y: number };
+    startX: number;
+    startY: number;
+    timer: number | null;
+  } | null;
   _editMode: boolean;
   _showHandles: boolean;
   _opacity: TouchOpacity;
@@ -74,6 +86,7 @@ function TouchGamepad(this: TouchGamepad, video: HTMLVideoElement, opts?: TouchG
   this._animId = null;
   this._dragTarget = null;
   this._dragStart = null;
+  this._pendingGesture = null;
   this._editMode = false;
   this._showHandles = false;
   this._opacity = loadOpacity();
@@ -280,6 +293,7 @@ TouchGamepad.prototype.hide = function (this: TouchGamepad) {
   (this as any)._clearInputs();
   this._dragTarget = null;
   this._dragStart = null;
+  clearPendingGesture(this);
   this._activePointers.forEach((pointer, id) => pointer.target.releasePointerCapture?.(id));
   this._activePointers.clear();
   this._blockedPointerIds.clear();
@@ -304,6 +318,7 @@ TouchGamepad.prototype.suspendInput = function (this: TouchGamepad) {
   (this as any)._clearInputs();
   this._dragTarget = null;
   this._dragStart = null;
+  clearPendingGesture(this);
   this._activePointers.clear();
   (this as any)._emitState();
 };
@@ -543,6 +558,7 @@ TouchGamepad.prototype.destroy = function (this: TouchGamepad) {
   if (!this._visible) return;
   this._dragTarget = null;
   this._dragStart = null;
+  clearPendingGesture(this);
   this._activePointers.forEach((pointer, id) => pointer.target.releasePointerCapture?.(id));
   this._activePointers.clear();
   (this as any)._clearInputs();
@@ -712,7 +728,7 @@ function touchToNorm(this: TouchGamepad, touch: Touch) {
     ctx.font = "12px sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
-    ctx.fillText("Unlocked — drag zones or corner handles. Return to Controller Layout to lock.", 8, 12);
+    ctx.fillText("Long-press to move a control; short-press + drag to resize. Return to Controller Layout to lock.", 8, 12);
   }
 
   this._animId = this._reducedMotion ? null : requestAnimationFrame(this._render);
@@ -789,6 +805,124 @@ function drawResizeHandles(ctx: CanvasRenderingContext2D, d: NormalisedRect, cw:
   for (const c of corners) {
     ctx.fillRect(c.x - size / 2, c.y - size / 2, size, size);
   }
+}
+
+// ── Touch edit-gesture helpers ────────────────────────────────────────────
+//
+// In edit mode on touch devices a press on a face/system button is resolved by
+// duration:
+//   - short press + drag   → resize, gripped at the NEAREST corner handle
+//   - long press (hold)    → move the button
+// Mouse keeps the legacy affordances (grab a corner to resize, grab the body to
+// move), and the cross-shaped D-pad is unchanged. See `_onPointerDown/_Move`.
+
+const LONG_PRESS_MS = 450;
+
+/** Clear an unresolved touch press without starting a drag. */
+function clearPendingGesture(gp: TouchGamepad) {
+  if (gp._pendingGesture && gp._pendingGesture.timer != null) {
+    window.clearTimeout(gp._pendingGesture.timer);
+  }
+  gp._pendingGesture = null;
+}
+
+/** Hit-test the edit-mode BODY of face/system/dpad zones (ignores corner radius). */
+export function hitTestEditBody(
+  gp: TouchGamepad,
+  n: { x: number; y: number },
+): { kind: "face" | "system" | "dpad"; index: number } | null {
+  const d = gp._dpad;
+  if (n.x >= d.x && n.x <= d.x + d.w && n.y >= d.y && n.y <= d.y + d.h) {
+    return { kind: "dpad", index: -1 };
+  }
+  for (let i = 0; i < gp._face.length; i++) {
+    const f = gp._face[i];
+    if (n.x >= f.x && n.x <= f.x + f.w && n.y >= f.y && n.y <= f.y + f.h) {
+      return { kind: "face", index: i };
+    }
+  }
+  for (let i = 0; i < gp._system.length; i++) {
+    const s = gp._system[i];
+    if (n.x >= s.x && n.x <= s.x + s.w && n.y >= s.y && n.y <= s.y + s.h) {
+      return { kind: "system", index: i };
+    }
+  }
+  return null;
+}
+
+/**
+ * Choose which corner handle a short press grips for resize. Prefers the corner
+ * nearest to the press point; a press inside the central dead-zone (ambiguous
+ * ties) resolves by the dominant drag direction so centre-presses stay predictable.
+ */
+export function nearestResizeGrip(
+  tgt: { x: number; y: number; w: number; h: number },
+  n: { x: number; y: number },
+  dx: number,
+  dy: number,
+): { tag: string } {
+  const corners = [
+    { tag: "nw", x: tgt.x, y: tgt.y },
+    { tag: "ne", x: tgt.x + tgt.w, y: tgt.y },
+    { tag: "sw", x: tgt.x, y: tgt.y + tgt.h },
+    { tag: "se", x: tgt.x + tgt.w, y: tgt.y + tgt.h },
+  ];
+  let best = corners[0];
+  let bestDist = Infinity;
+  for (const c of corners) {
+    const dc = (n.x - c.x) ** 2 + (n.y - c.y) ** 2;
+    if (dc < bestDist) {
+      bestDist = dc;
+      best = c;
+    }
+  }
+  // Dead-zone: prefer the corner along the drag direction.
+  const cx = tgt.x + tgt.w / 2;
+  const cy = tgt.y + tgt.h / 2;
+  if (Math.abs(n.x - cx) < tgt.w * 0.25 && Math.abs(n.y - cy) < tgt.h * 0.25) {
+    if (Math.abs(dx) >= Math.abs(dy)) return { tag: dx >= 0 ? "se" : "nw" };
+    return { tag: dy >= 0 ? "sw" : "ne" };
+  }
+  return { tag: best.tag };
+}
+
+/**
+ * Begin a `move` or `resize` drag for a face/system button at the given normalised
+ * start point. Callers pass the CURRENT point for resize (movement is measured
+ * from the slop threshold) or the ORIGINAL press point for a long-press move.
+ */
+function beginEditDrag(
+  gp: TouchGamepad,
+  fingerId: number,
+  n: { x: number; y: number },
+  zoneKind: "face" | "system",
+  index: number,
+  tag: string,
+  mode: "resize" | "move",
+) {
+  let tgt: NormalisedRect | null = null;
+  if (zoneKind === "face") tgt = gp._face[index] || null;
+  else if (zoneKind === "system") tgt = gp._system[index] || null;
+  if (!tgt) return;
+  gp._dragTarget = {
+    kind: mode,
+    zone: zoneKind,
+    index,
+    // handleMove matches corner grips via `tag.includes(":nw")` etc., so the
+    // full `resize:<zone>:<corner>` token is required.
+    ...(mode === "resize" ? { tag: `resize:${zoneKind}:${tag}` } : {}),
+  };
+  gp._dragStart = {
+    fingerId,
+    nx: n.x,
+    ny: n.y,
+    tx: tgt.x,
+    ty: tgt.y,
+    tw: tgt.w,
+    th: tgt.h,
+    mode,
+  };
+  (gp as any)._scheduleRender();
 }
 
 // ── Tower of touch handlers ────────────────────────────────────────────────
@@ -1021,6 +1155,48 @@ TouchGamepad.prototype._onPointerDown = function (this: TouchGamepad, e: Pointer
   target.setPointerCapture?.(e.pointerId);
   const sample = pointerSample(e, target);
   this._activePointers.set(e.pointerId, sample);
+
+  // Touch edit mode: face/system buttons use the duration-gated gesture
+  // (short → resize nearest corner, long → move). D-pad and mouse keep the
+  // legacy handle/body affordance in handleStart.
+  if (this._editMode && e.pointerType === "touch") {
+    if (this._pendingGesture || this._dragTarget) {
+      (this as any)._emitState();
+      return; // ignore additional pointers while one gesture is active
+    }
+    const rect = this._canvas!.getBoundingClientRect();
+    const n = {
+      x: (sample.clientX - rect.left) / (rect.width || 1),
+      y: (sample.clientY - rect.top) / (rect.height || 1),
+    };
+    const hit = hitTestEditBody(this, n);
+    if (hit && hit.kind !== "dpad") {
+      const zoneKind = hit.kind as "face" | "system";
+      const timer = window.setTimeout(() => {
+        const pending = this._pendingGesture;
+        if (pending && pending.pointerId === e.pointerId) {
+          this._pendingGesture = null;
+          beginEditDrag(this, e.pointerId, pending.n, pending.zoneKind, pending.index, "", "move");
+        }
+      }, LONG_PRESS_MS);
+      this._pendingGesture = {
+        pointerId: e.pointerId,
+        index: hit.index,
+        zoneKind,
+        n,
+        startX: sample.clientX,
+        startY: sample.clientY,
+        timer,
+      };
+      (this as any)._emitState();
+      return;
+    }
+    // D-pad: legacy handle/body path.
+    handleStart(this, sample as unknown as Touch);
+    (this as any)._emitState();
+    return;
+  }
+
   handleStart(this, sample as unknown as Touch);
   (this as any)._emitState();
   if (!this._editMode) (this as any)._scheduleRender();
@@ -1031,6 +1207,33 @@ TouchGamepad.prototype._onPointerMove = function (this: TouchGamepad, e: Pointer
   e.preventDefault();
   const previous = this._activePointers.get(e.pointerId)!;
   this._activePointers.set(e.pointerId, pointerSample(e, previous.target));
+
+  // Touch edit mode: a short drag (before the long-press deadline) converts the
+  // pending press into a resize, gripped at the nearest corner.
+  const pending = this._pendingGesture;
+  if (this._editMode && pending && pending.pointerId === e.pointerId) {
+    const rect = this._canvas!.getBoundingClientRect();
+    const n = {
+      x: (e.clientX - rect.left) / (rect.width || 1),
+      y: (e.clientY - rect.top) / (rect.height || 1),
+    };
+    const movePx = Math.hypot(e.clientX - pending.startX, e.clientY - pending.startY);
+    const slop = Math.max(10, rect.width * 0.02, rect.height * 0.02);
+    if (movePx > slop) {
+      if (pending.timer != null) window.clearTimeout(pending.timer);
+      this._pendingGesture = null;
+      const tgt = pending.zoneKind === "face" ? (this._face[pending.index] as NormalisedRect | undefined) : (this._system[pending.index] as NormalisedRect | undefined);
+      const grip = tgt
+        ? nearestResizeGrip(tgt, pending.n, (e.clientX - pending.startX) / (rect.width || 1), (e.clientY - pending.startY) / (rect.height || 1))
+        : null;
+      if (grip) {
+        // Start the resize from the CURRENT point so there is no jump: movement
+        // is measured from the moment the slop threshold was crossed.
+        beginEditDrag(this, e.pointerId, n, pending.zoneKind, pending.index, grip.tag, "resize");
+      }
+    }
+  }
+
   handleMove(this, activePointerList(this));
   if (!this._editMode) (this as any)._scheduleRender();
 };
@@ -1040,6 +1243,10 @@ TouchGamepad.prototype._onPointerUp = function (this: TouchGamepad, e: PointerEv
   const sample = this._activePointers.get(e.pointerId);
   if (this._inputSuspended || !sample) return;
   e.preventDefault();
+  // A touch press that never resolved into a drag is a tap — drop it.
+  if (this._pendingGesture && this._pendingGesture.pointerId === e.pointerId) {
+    clearPendingGesture(this);
+  }
   sample.target.releasePointerCapture?.(e.pointerId);
   this._activePointers.delete(e.pointerId);
   handleEnd(this, [sample] as unknown as TouchList, activePointerList(this));

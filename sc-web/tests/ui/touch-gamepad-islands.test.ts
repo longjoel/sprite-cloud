@@ -516,7 +516,8 @@ describe("mobile touch-control islands", () => {
   it.each([
     ["face", "face-0", "_face", 0],
     ["system", "system-0", "_system", 0],
-  ] as const)("moves the %s button independently in edit mode", (_name, targetName, collection, index) => {
+  ] as const)("moves the %s button independently in edit mode on a long press then drag", (_name, targetName, collection, index) => {
+    vi.useFakeTimers();
     const { gamepad, shell } = createGamepad();
     gamepad.enterEditMode();
     const target = shell.querySelector<HTMLElement>(`[data-touch-target="${targetName}"]`)!;
@@ -525,17 +526,22 @@ describe("mobile touch-control islands", () => {
     const startY = (zone.y + zone.h / 2) * 390;
     const before = zone.x;
 
+    // Hold past the long-press threshold so the press resolves to MOVE, then drag.
     dispatchPointer(target, "pointerdown", startX, startY, 31);
+    vi.advanceTimersByTime(500); // > LONG_PRESS_MS (450)
+    expect(gamepad._dragTarget).toEqual(expect.objectContaining({ kind: "move", zone: _name, index }));
     dispatchPointer(target, "pointermove", startX - 48, startY, 31);
     dispatchPointer(target, "pointerup", startX - 48, startY, 31);
 
     expect(zone.x).toBeLessThan(before);
+    vi.useRealTimers();
   });
 
   it.each([
     ["face", "face-0", "_face", 0],
     ["system", "system-0", "_system", 0],
-  ] as const)("resizes the %s button with a finger-sized corner handle", (_name, targetName, collection, index) => {
+  ] as const)("resizes the %s button by its nearest corner on a short press-drag", (_name, targetName, collection, index) => {
+    vi.useFakeTimers(); // keep the long-press timer from firing during the quick drag
     const { gamepad, shell } = createGamepad();
     gamepad.enterEditMode();
     const target = shell.querySelector<HTMLElement>(`[data-touch-target="${targetName}"]`)!;
@@ -544,12 +550,17 @@ describe("mobile touch-control islands", () => {
     const cornerY = (zone.y + zone.h) * 390;
     const beforeWidth = zone.w;
 
+    // Press near the SE corner; the first move crosses slop (starts the resize at
+    // that point), the second grows the button — a short press before the
+    // long-press threshold.
     dispatchPointer(target, "pointerdown", cornerX - 18, cornerY - 18, 32);
+    dispatchPointer(target, "pointermove", cornerX + 2, cornerY + 2, 32);
     expect(gamepad._dragTarget).toEqual(expect.objectContaining({ kind: "resize", zone: _name, index }));
     dispatchPointer(target, "pointermove", cornerX + 38, cornerY + 38, 32);
     dispatchPointer(target, "pointerup", cornerX + 38, cornerY + 38, 32);
 
     expect(zone.w).toBeGreaterThan(beforeWidth);
+    vi.useRealTimers();
   });
 
   it.each([
@@ -582,7 +593,8 @@ describe("mobile touch-control islands", () => {
     expect(Math.round(gamepad._face[0].h * 390)).toBeGreaterThanOrEqual(56);
   });
 
-  it("chooses the touched button when broad resize handles overlap", () => {
+  it("resizes the touched button via its nearest corner when buttons are adjacent", () => {
+    vi.useFakeTimers();
     const { gamepad, shell } = createGamepad();
     gamepad.enterEditMode();
     const face = shell.querySelector<HTMLElement>('[data-touch-target="face-1"]')!;
@@ -591,8 +603,11 @@ describe("mobile touch-control islands", () => {
     const cornerY = zone.y * 390;
 
     dispatchPointer(face, "pointerdown", cornerX + 8, cornerY + 8, 33);
+    dispatchPointer(face, "pointermove", cornerX - 24, cornerY - 24, 33);
 
     expect(gamepad._dragTarget).toEqual(expect.objectContaining({ kind: "resize", zone: "face", index: 1 }));
+    dispatchPointer(face, "pointerup", cornerX - 24, cornerY - 24, 33);
+    vi.useRealTimers();
   });
 
   it("stays in edit mode after completing a resize", () => {
@@ -685,21 +700,23 @@ describe("mobile touch-control islands", () => {
 
   // ── Edit-mode usability: larger handles, clearer feedback ──────────────
 
-  it("detects resize within a 56px-radius finger-sized corner handle in edit mode", () => {
+  it("starts a nearest-corner resize from a press well inside a button", () => {
+    vi.useFakeTimers();
     const { gamepad, shell } = createGamepad();
     gamepad.enterEditMode();
     const target = shell.querySelector<HTMLElement>('[data-touch-target="face-0"]')!;
     const zone = gamepad._face[0];
-    // SE corner of the button in pixel coordinates
     const cornerX = (zone.x + zone.w) * 844;
     const cornerY = (zone.y + zone.h) * 390;
 
-    // Tap 45px from the corner: within new 56px radius but outside old 28px radius
+    // A short press-drag 45px in from the SE corner — anywhere on the button is a
+    // valid resize grip now — grips the nearest corner and starts resizing.
     dispatchPointer(target, "pointerdown", cornerX - 45, cornerY - 45, 36);
+    dispatchPointer(target, "pointermove", cornerX - 25, cornerY - 25, 36);
 
     expect(gamepad._dragTarget).toEqual(expect.objectContaining({ kind: "resize", zone: "face", index: 0 }));
-    // Clean up
-    dispatchPointer(target, "pointerup", cornerX - 45, cornerY - 45, 36);
+    dispatchPointer(target, "pointerup", cornerX - 25, cornerY - 25, 36);
+    vi.useRealTimers();
   });
 
   it("draws enlarged visible resize handle squares with sky-blue accent in edit mode", () => {
@@ -714,16 +731,17 @@ describe("mobile touch-control islands", () => {
   });
 
   it("shows handles only for the active drag target and restores all on drag end", () => {
+    vi.useFakeTimers();
     const { gamepad, shell } = createGamepad();
     gamepad.enterEditMode();
     const face0Target = shell.querySelector<HTMLElement>('[data-touch-target="face-0"]')!;
-    const face1Target = shell.querySelector<HTMLElement>('[data-touch-target="face-1"]')!;
     const zone0 = gamepad._face[0];
 
-    // Start dragging face-0 via its SE corner
+    // Start resizing face-0 via a short drag on its SE corner
     const cornerX = (zone0.x + zone0.w) * 844;
     const cornerY = (zone0.y + zone0.h) * 390;
     dispatchPointer(face0Target, "pointerdown", cornerX - 18, cornerY - 18, 37);
+    dispatchPointer(face0Target, "pointermove", cornerX + 24, cornerY + 24, 37);
 
     // Verify drag target is set to face-0
     expect(gamepad._dragTarget).toEqual(expect.objectContaining({ kind: "resize", zone: "face", index: 0 }));
@@ -733,8 +751,9 @@ describe("mobile touch-control islands", () => {
     expect(source).toContain("_dragTarget?");
 
     // End drag — handles should restore
-    dispatchPointer(face1Target, "pointerup", cornerX - 18, cornerY - 18, 37);
+    dispatchPointer(face0Target, "pointerup", cornerX + 24, cornerY + 24, 37);
     expect(gamepad._dragTarget).toBeNull();
+    vi.useRealTimers();
   });
 
   it("draws the control label during drag for feedback", () => {
