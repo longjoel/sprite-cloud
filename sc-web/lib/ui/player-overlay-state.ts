@@ -1,4 +1,4 @@
-export type PlayerPanel = "options" | "saves" | "keys" | "stats" | "share" | "room" | "controller";
+export type PlayerPanel = "options" | "saves" | "stats" | "share" | "room";
 
 export type PlayerOverlayState =
   | { activePanel: "none" }
@@ -18,7 +18,7 @@ export function closePlayerPanel(_state: PlayerOverlayState): PlayerOverlayState
 }
 
 const CHILD_PANELS: ReadonlySet<PlayerPanel> = new Set([
-  "saves", "stats", "keys", "room", "share", "controller",
+  "saves", "stats", "room", "share",
 ]);
 
 export function backPlayerPanel(state: PlayerOverlayState): PlayerOverlayState {
