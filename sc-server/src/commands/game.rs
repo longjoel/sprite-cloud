@@ -1631,8 +1631,12 @@ fn guest_input_command(
 
     let guest_index = authoritative_seat?.checked_sub(1)?;
     let seat = local_players.checked_add(guest_index)?;
+    // [seat, state_lo, state_hi, ax, ay] — the optional signed axes bytes
+    // carry touch-stick analog; older 3-byte frames default to centered.
     let state = data[1] as u16 | ((data[2] as u16) << 8);
-    Some(crate::core_bridge::CoreCommand::SetInput { port: seat, state })
+    let ax = if data.len() >= 5 { data[3] as i8 } else { 0 };
+    let ay = if data.len() >= 5 { data[4] as i8 } else { 0 };
+    Some(crate::core_bridge::CoreCommand::SetInput { port: seat, state, ax, ay })
 }
 
 /// Classify a DataChannel frame: JSON control messages (ping, auth,
@@ -1775,8 +1779,10 @@ mod tests {
             command,
             Some(crate::core_bridge::CoreCommand::SetInput {
                 port: 2,
-                state: 0x1234
-            })
+                state: 0x1234,
+                ax: 0,
+                ay: 0
+                })
         ));
     }
 
@@ -1788,8 +1794,10 @@ mod tests {
             command,
             Some(crate::core_bridge::CoreCommand::SetInput {
                 port: 2,
-                state: 0x1234
-            })
+                state: 0x1234,
+                ax: 0,
+                ay: 0
+                })
         ));
     }
 
@@ -1803,8 +1811,10 @@ mod tests {
             command,
             Some(crate::core_bridge::CoreCommand::SetInput {
                 port: 0,
-                state: 0x1234
-            })
+                state: 0x1234,
+                ax: 0,
+                ay: 0
+                })
         ));
     }
 
@@ -1819,8 +1829,10 @@ mod tests {
             command,
             Some(crate::core_bridge::CoreCommand::SetInput {
                 port: 1,
-                state: 0x1234
-            })
+                state: 0x1234,
+                ax: 0,
+                ay: 0
+                })
         ));
     }
 
@@ -1841,7 +1853,36 @@ mod tests {
             command,
             Some(crate::core_bridge::CoreCommand::SetInput {
                 port: 0,
-                state: 0x1234
+                state: 0x1234,
+                ax: 0,
+                ay: 0
+                })
+        ));
+    }
+
+    #[test]
+    fn touch_stick_axes_ride_in_five_byte_input_frames() {
+        // S8 axes bytes after [seat, state_lo, state_hi] carry the touch
+        // gamepad's analog stick; old 3-byte frames default both to 0.
+        let command = guest_input_command("player", Some(1), 0, &[1, 0x34, 0x12, 127, 0x81]);
+        assert!(matches!(
+            command,
+            Some(crate::core_bridge::CoreCommand::SetInput {
+                port: 0,
+                state: 0x1234,
+                ax: 127,
+                ay: -127
+            })
+        ));
+
+        let legacy = guest_input_command("player", Some(1), 0, &[1, 0x34, 0x12]);
+        assert!(matches!(
+            legacy,
+            Some(crate::core_bridge::CoreCommand::SetInput {
+                port: 0,
+                state: 0x1234,
+                ax: 0,
+                ay: 0
             })
         ));
     }

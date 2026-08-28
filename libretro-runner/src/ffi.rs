@@ -248,6 +248,15 @@ pub const RETRO_LOG_ERROR: u32 = 3;
 /// Standard joypad (RETRO_DEVICE_JOYPAD).
 pub const RETRO_DEVICE_JOYPAD: u32 = 1;
 
+/// Analog stick device (RETRO_DEVICE_ANALOG).
+pub const RETRO_DEVICE_ANALOG: u32 = 5;
+/// Analog device index: left stick = 0, right stick = 1.
+pub const RETRO_DEVICE_INDEX_ANALOG_LEFT: u32 = 0;
+pub const RETRO_DEVICE_INDEX_ANALOG_RIGHT: u32 = 1;
+/// Analog axis ids: 0 = X, 1 = Y.
+pub const RETRO_DEVICE_ID_ANALOG_X: u32 = 0;
+pub const RETRO_DEVICE_ID_ANALOG_Y: u32 = 1;
+
 // ---------------------------------------------------------------------------
 // Memory types
 // ---------------------------------------------------------------------------

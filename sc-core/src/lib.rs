@@ -8,7 +8,7 @@
 //! Core writes a frame and sets `frame_ready`. Server reads and clears.
 //! Server writes a command and sets `cmd_ready`. Core reads and clears.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU16, AtomicU8};
+use std::sync::atomic::{AtomicBool, AtomicI16, AtomicU16, AtomicU32, AtomicU8};
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -69,6 +69,9 @@ pub struct InputShm {
     pub port: AtomicU32,
     /// For set_input: 16-bit RetroArch joypad state
     pub state: AtomicU16,
+    /// For set_input: analog stick axes, signed -127..127 (0 = centered)
+    pub ax: AtomicI16,
+    pub ay: AtomicI16,
     /// For save_state/load_state: slot number (1-9)
     pub slot: AtomicU8,
     _pad: [u8; 64],

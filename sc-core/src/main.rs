@@ -160,7 +160,10 @@ fn main() {
                 sc_core::CMD_SET_INPUT => {
                     let port = inp.port.load(Ordering::Relaxed);
                     let state = inp.state.load(Ordering::Relaxed);
+                    let ax = inp.ax.load(Ordering::Relaxed) as i16;
+                    let ay = inp.ay.load(Ordering::Relaxed) as i16;
                     core.set_input(port, state);
+                    core.set_analog(port, ax, ay);
                 }
                 sc_core::CMD_SAVE_STATE => {
                     let _slot = inp.slot.load(Ordering::Relaxed);

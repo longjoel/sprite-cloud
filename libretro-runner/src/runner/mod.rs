@@ -84,6 +84,10 @@ thread_local! {
     /// Input state bitmask per port.
     static INPUT_STATE: RefCell<[u16; 4]> = const { RefCell::new([0; 4]) };
 
+    /// Analog stick state per port, signed -32767..32767 (0 = centered).
+    /// [port][0] = stick X, [port][1] = stick Y (left analog, libretro ABI).
+    static INPUT_ANALOG: RefCell<[[i16; 2]; 4]> = const { RefCell::new([[0; 2]; 4]) };
+
     /// Pixel format currently used for frame conversion.
     ///
     /// Libretro's ABI default is 0RGB1555. Cores only change this by
@@ -292,6 +296,7 @@ impl Core {
         RAW_FRAME_DIMS.with(|dims| *dims.borrow_mut() = (0, 0, 0));
         AUDIO_BUFFER.with(|buf| buf.borrow_mut().clear());
         INPUT_STATE.with(|state| *state.borrow_mut() = [0; 4]);
+        INPUT_ANALOG.with(|state| *state.borrow_mut() = [[0; 2]; 4]);
 
         SYSTEM_DIR.with(|cell| {
             *cell.borrow_mut() = CString::new(config.system_dir.to_string_lossy().as_bytes()).ok();
@@ -562,6 +567,32 @@ impl Core {
             let s = s.borrow();
             let idx = port as usize;
             if idx < s.len() { s[idx] } else { 0 }
+        })
+    }
+
+    /// Set analog stick axes for a port, signed -127..127 (0 = centered).
+    ///
+    /// Values are scaled to the libretro ABI's -32767..32767 range. Only the
+    /// left stick (index 0) is served to cores; N64 uses it for the control
+    /// stick, which is why Smash 64 was unplayable without this.
+    pub fn set_analog(&mut self, port: u32, x: i16, y: i16) {
+        let scale = |v: i16| ((v as i32 * 32767) / 127).clamp(-32767, 32767) as i16;
+        INPUT_ANALOG.with(|s| {
+            let mut s = s.borrow_mut();
+            let idx = port as usize;
+            if idx < s.len() {
+                s[idx][0] = scale(x);
+                s[idx][1] = scale(y);
+            }
+        });
+    }
+
+    /// Read the current analog state for a port (for testing).
+    pub fn analog_state(&self, port: u32) -> (i16, i16) {
+        INPUT_ANALOG.with(|s| {
+            let s = s.borrow();
+            let idx = port as usize;
+            if idx < s.len() { (s[idx][0], s[idx][1]) } else { (0, 0) }
         })
     }
 
@@ -1285,7 +1316,7 @@ pub fn normalize_mono(samples: &mut [i16]) {
 ///
 /// Returns 0x7FFF for pressed (joypad), -32767..32767 for analog,
 /// or 0 for unpressed.
-unsafe extern "C" fn input_state_callback(port: u32, device: u32, _index: u32, id: u32) -> i16 {
+unsafe extern "C" fn input_state_callback(port: u32, device: u32, index: u32, id: u32) -> i16 {
     if device == RETRO_DEVICE_JOYPAD {
         INPUT_STATE.with(|state| {
             let state = state.borrow();
@@ -1301,8 +1332,23 @@ unsafe extern "C" fn input_state_callback(port: u32, device: u32, _index: u32, i
                 if state[idx] & mask != 0 { 0x7FFF } else { 0 }
             }
         })
+    } else if device == RETRO_DEVICE_ANALOG && index == RETRO_DEVICE_INDEX_ANALOG_LEFT {
+        // Left analog stick (N64 control stick, PSX dual-shock, ...).
+        // id 0 = X axis, id 1 = Y axis, values -32767..32767.
+        INPUT_ANALOG.with(|state| {
+            let state = state.borrow();
+            let idx = port as usize;
+            if idx >= state.len() {
+                return 0;
+            }
+            match id {
+                RETRO_DEVICE_ID_ANALOG_X => state[idx][0],
+                RETRO_DEVICE_ID_ANALOG_Y => state[idx][1],
+                _ => 0,
+            }
+        })
     } else {
-        // Analog and other devices not yet implemented
+        // Other devices (mouse, pointer, right stick, ...) not yet implemented
         0
     }
 }
@@ -1316,6 +1362,30 @@ unsafe extern "C" fn stub_input_poll() {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn set_analog_scales_to_libretro_abi_and_serves_left_stick() {
+        // INPUT_ANALOG starts centered.
+        INPUT_ANALOG.with(|state| *state.borrow_mut() = [[0; 2]; 4]);
+        INPUT_STATE.with(|state| *state.borrow_mut() = [0; 4]);
+
+        // Full push → libretro max. The core's 16-bit mask path is untouched,
+        // so a stick deflection must never set D-pad bits.
+        INPUT_ANALOG.with(|state| {
+            let mut state = state.borrow_mut();
+            state[0][0] = 32767;
+            state[0][1] = -32767;
+        });
+        assert_eq!(unsafe { input_state_callback(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X) }, 32767);
+        assert_eq!(unsafe { input_state_callback(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y) }, -32767);
+        // Right stick index is not served yet.
+        assert_eq!(unsafe { input_state_callback(0, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X) }, 0);
+        // Joypad mask path still reads the button bitmask only.
+        assert_eq!(unsafe { input_state_callback(0, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_MASK) }, 0);
+
+        // Cleanup to keep other tests deterministic.
+        INPUT_ANALOG.with(|state| *state.borrow_mut() = [[0; 2]; 4]);
+    }
 
     #[test]
     fn raw_frame_limit_matches_the_640_pixel_ipc_buffer() {

@@ -692,7 +692,13 @@ pub struct CoreFrame {
 }
 
 pub enum CoreCommand {
-    SetInput { port: u32, state: u16 },
+    SetInput {
+        port: u32,
+        state: u16,
+        /// Analog stick axes, signed -127..127 (0 = centered).
+        ax: i8,
+        ay: i8,
+    },
     SaveState,
     LoadState { data: Vec<u8> },
 }
@@ -984,9 +990,11 @@ pub async fn load_core_into_session(
                     // Write commands from channel → input shm
                     while let Ok(cmd) = cmd_rx.try_recv() {
                         match cmd {
-                            CoreCommand::SetInput { port, state } => {
+                            CoreCommand::SetInput { port, state, ax, ay } => {
                                 inp.port.store(port, Ordering::Relaxed);
                                 inp.state.store(state, Ordering::Relaxed);
+                                inp.ax.store(ax as i16, Ordering::Relaxed);
+                                inp.ay.store(ay as i16, Ordering::Relaxed);
                                 inp.cmd_type.store(CMD_SET_INPUT, Ordering::Relaxed);
                                 inp.cmd_ready.store(true, Ordering::Release);
                             }

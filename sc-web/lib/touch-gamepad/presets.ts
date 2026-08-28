@@ -35,6 +35,10 @@ export const PRESETS: Record<string, ConsolePreset> = {
     face: [{ label: "✕" }, { label: "○" }, { label: "□" }, { label: "△" }],
     system: [{ label: "L1" }, { label: "R1" }, { label: "SELECT" }, { label: "START" }],
   },
+  n64: {
+    face: [{ label: "A" }, { label: "B" }, { label: "C↑" }],
+    system: [{ label: "Z" }, { label: "START" }],
+  },
 };
 
 /**
@@ -51,12 +55,22 @@ export function computeDefaults(
   const isHoriz = orientation === "horizontal" || orientation === "landscape";
 
   let dpad: NormalisedRect = { x: 0, y: 0, w: 0, h: 0 };
+  let stick: NormalisedRect | null = null;
   const face: import("./types").ButtonZone[] = [];
   const system: import("./types").ButtonZone[] = [];
 
+  const n64 = preset === "n64";
+
   if (isHoriz) {
     // Horizontal: dpad left, face right, system bottom-center
-    dpad = { x: 0.03, y: 0.48, w: 0.22, h: 0.46 };
+    if (n64) {
+      // N64: analog stick bottom-left (primary), dpad above it, face right,
+      // system bottom-center. The stick gets a large generous zone.
+      dpad = { x: 0.03, y: 0.06, w: 0.16, h: 0.20 };
+      stick = { x: 0.03, y: 0.38, w: 0.30, h: 0.52 };
+    } else {
+      dpad = { x: 0.03, y: 0.48, w: 0.22, h: 0.46 };
+    }
 
     // Face buttons: grid anchored bottom-right
     let cols: number, rows: number, bw: number, bh: number, gap: number;
@@ -154,8 +168,9 @@ export function computeDefaults(
       dpad,
       face: face.map(toFullShell),
       system: system.map(toFullShell),
+      ...(stick ? { stick: toFullShell(stick) } : {}),
     };
   }
 
-  return { dpad, face, system };
+  return { dpad, face, system, ...(stick ? { stick } : {}) };
 }

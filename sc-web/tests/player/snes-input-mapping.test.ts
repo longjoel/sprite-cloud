@@ -98,6 +98,29 @@ describe("touch adapter", () => {
     expect(buttons.filter(Boolean)).toHaveLength(1);
   });
 
+
+  it("maps N64 A/B/C-up to the core's B/Y/A positions and Z/Start to L2/Start bits", () => {
+    const buttons = touchStateToStandardButtons("n64", {
+      dpad: [false, false, false, false],
+      face: [true, true, true],   // A, B, C↑
+      system: [true, true],       // Z, START
+    });
+    // A → JOYPAD_B (bit 0), B → JOYPAD_Y (bit 1), C↑ → JOYPAD_A (bit 8),
+    // Z → JOYPAD_L2 (bit 12), START → JOYPAD_START (bit 3).
+    expect(standardGamepadToLibretro(buttons)).toBe(
+      (1 << 0) | (1 << 1) | (1 << 8) | (1 << 12) | (1 << 3),
+    );
+  });
+
+  it("keeps N64 dpad on the standard dpad bits without stick influence", () => {
+    const buttons = touchStateToStandardButtons("n64", {
+      dpad: [true, false, false, true], // up + right
+      face: [],
+      system: [],
+    });
+    expect(standardGamepadToLibretro(buttons)).toBe((1 << 4) | (1 << 7));
+  });
+
   it("maps PSX touch face and system buttons correctly", () => {
     const buttons = touchStateToStandardButtons("psx", {
       dpad: [false, false, false, false],

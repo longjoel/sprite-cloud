@@ -1128,6 +1128,10 @@ export class ScPlayer {
     /** @returns {Record<string, number>} current key→bit mapping */
 
     this._inputState = 0;
+    // Touch-stick axes for the seat-0 frame (signed bytes -127..127). The
+    // physical gamepad poll path folds its own analog into D-pad bits; only
+    // the touch gamepad emits true axes.
+    this._inputAxes = [0, 0];
 
     const sendMask = () => {
       if (!this._dc || this._dc.readyState !== "open") {
@@ -1136,7 +1140,8 @@ export class ScPlayer {
       }
       try {
         const s = this._inputState;
-        this._dc.send(new Uint8Array([this._seat, s & 0xFF, s >> 8]).buffer);
+        const [ax, ay] = this._inputAxes || [0, 0];
+        this._dc.send(new Uint8Array([this._seat, s & 0xFF, s >> 8, ax, ay]).buffer);
       } catch (e) {
         console.warn("[INPUT] sendMask failed — DC may be closed:", e?.message || e);
         // Close the DC so the reconnect flow picks up the failure
@@ -1285,18 +1290,30 @@ export class ScPlayer {
    */
   _sendInput(ev) {
     if (!this._sendMask) return;
-    const state = standardGamepadToLibretro(ev.buttons, ev.axes);
+    // Buttons only feed the bitmask. Axes are carried separately (right stick +
+    // analog) so a touch stick can produce true analog instead of being folded
+    // into digital D-pad bits by the physical-gamepad path.
+    const state = standardGamepadToLibretro(ev.buttons, []);
 
     if ((ev.index || 0) === 0) {
       // Merge into shared _inputState (preserve keyboard bits)
       this._inputState = (this._inputState & ~GAMEPAD_MASK) | state;
+      this._inputAxes = this._clampAxes(ev.axes);
       this._sendMask();
     } else if (this._dc && this._dc.readyState === 'open') {
       try {
         const seat = (this._seat || 0) + (ev.index || 1);
-        this._dc.send(new Uint8Array([seat, state & 0xFF, state >> 8]).buffer);
+        const [ax, ay] = this._clampAxes(ev.axes);
+        this._dc.send(new Uint8Array([seat, state & 0xFF, state >> 8, ax, ay]).buffer);
       } catch (_) { /* DC closed */ }
     }
+  }
+
+  /** Clamp touch-stick axes (-1..1) to signed bytes -127..127. */
+  _clampAxes(axes) {
+    const raw = Array.isArray(axes) ? axes : [];
+    const clamp = (v) => Math.max(-1, Math.min(1, Number.isFinite(v) ? v : 0));
+    return [Math.round(clamp(raw[0]) * 127), Math.round(clamp(raw[1]) * 127)];
   }
 
   // ── Key remapping ────────────────────────────────────────────
