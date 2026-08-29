@@ -237,6 +237,7 @@ fn deliver_crash_sentinel(sender: &mpsc::SyncSender<CoreFrame>) -> bool {
         width: 0,
         height: 0,
         audio: Vec::new(),
+        sample_rate: 0,
     };
     let deadline = std::time::Instant::now() + Duration::from_millis(200);
     loop {
@@ -689,6 +690,9 @@ pub struct CoreFrame {
     #[allow(dead_code)]
     pub height: u32,
     pub audio: Vec<i16>,
+    /// Live emitted sample rate reported by sc-core (measured passthrough
+    /// rate — can shift between phases, e.g. PSP movie vs gameplay).
+    pub sample_rate: u32,
 }
 
 pub enum CoreCommand {
@@ -1136,6 +1140,7 @@ pub async fn load_core_into_session(
                                 width: fw,
                                 height: fh,
                                 audio,
+                                sample_rate: out.sample_rate.load(Ordering::Relaxed),
                             },
                         ) {
                             break;
@@ -1236,6 +1241,7 @@ mod tests {
             width: 1,
             height: 1,
             audio: vec![],
+            sample_rate: 0,
         })
         .unwrap();
 
@@ -1248,6 +1254,7 @@ mod tests {
                     width: 1,
                     height: 1,
                     audio: vec![],
+            sample_rate: 0,
                 },
             );
             finished_tx.send(connected).unwrap();
@@ -1274,6 +1281,7 @@ mod tests {
             width: 640,
             height: 480,
             audio: vec![],
+            sample_rate: 0,
         })
         .unwrap();
 
@@ -1300,6 +1308,7 @@ mod tests {
             width: 640,
             height: 480,
             audio: vec![],
+            sample_rate: 0,
         })
         .unwrap();
 
