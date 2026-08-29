@@ -34,7 +34,7 @@ mod info;
 mod runner;
 
 pub use crate::capture::{CaptureConfig, CaptureError, CapturedStill, capture_still};
-pub use crate::runner::Core;
+pub use crate::runner::{Core, latest_geometry};
 pub use info::{CoreInfo, FirmwareFile, check_firmware, detect_core, discover_cores, parse_info};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

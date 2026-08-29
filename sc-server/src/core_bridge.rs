@@ -844,13 +844,14 @@ pub async fn load_core_into_session(
         }
     };
 
-    // Wait for metadata (core reports dimensions before frame loop)
+    // Wait for metadata (core reports dimensions before frame loop).
+    // 180 × 100ms = 18s: heavyweight cores (PPSSPP etc.) can take several
+    // seconds to boot past their intro media and report real geometry.
     let mut width: u32 = 0;
     let mut height: u32 = 0;
     let mut fps: f64 = 0.0;
     let mut core_sample_rate: f64 = 48000.0;
-    for _ in 0..30 {
-        // 3 second timeout
+    for _ in 0..180 {
         let bw = out.base_width.load(Ordering::Relaxed);
         let bh = out.base_height.load(Ordering::Relaxed);
         let fx = out.fps_x1000.load(Ordering::Relaxed);
@@ -880,6 +881,19 @@ pub async fn load_core_into_session(
             return Err(format!("sc-core exited early with {status}: {stderr_out}"));
         }
         std::thread::sleep(Duration::from_millis(100));
+    }
+
+    // Late-geometry cores (PPSSPP etc.) may deliver their first rendered
+    // frame before they report base metadata via SET_GEOMETRY — accept frame
+    // dimensions as readiness evidence so a healthy boot is never killed.
+    if width == 0 {
+        width = out.width.load(Ordering::Relaxed);
+    }
+    if height == 0 {
+        height = out.height.load(Ordering::Relaxed);
+    }
+    if fps == 0.0 {
+        fps = out.fps_x1000.load(Ordering::Relaxed) as f64 / 1000.0;
     }
 
     if width == 0 || fps == 0.0 {
