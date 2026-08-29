@@ -4,7 +4,7 @@
  * Run: npx vitest run tests/rom-transfer-client.test.ts
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ── Browser API mocks ─────────────────────────────────────────────────
 
@@ -124,6 +124,10 @@ import {
   RomTransferClient,
   TransferCredentials,
   dataChannelChunkSize,
+  ICE_GATHER_POLL_MS,
+  ICE_GATHER_RELAY_GRACE_MS,
+  ICE_GATHER_HOST_GRACE_MS,
+  ICE_GATHER_TIMEOUT_MS,
 } from "@/lib/rom-transfer-client";
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -278,5 +282,129 @@ describe("RomTransferClient", () => {
     const client = new RomTransferClient(makeFile(1024), creds, "srv-1");
     // We can't inspect private fields directly, but construction succeeds
     expect(client).toBeDefined();
+  });
+
+  // ── ICE gathering early exit ──────────────────────────────────────
+
+  const CANDIDATE = {
+    host: "a=candidate:1444769820 1 udp 2122260223 192.168.86.20 51234 typ host generation 0",
+    srflx: "a=candidate:842163049 1 udp 1677729535 203.0.113.9 52134 typ srflx raddr 192.168.86.20 rport 51234 generation 0",
+    relay: "a=candidate:622164295 1 udp 41819902 198.51.100.7 3478 typ relay raddr 203.0.113.9 rport 52134 generation 0",
+  };
+
+  function seedGatheringClient(
+    sdp: string,
+    state: RTCIceGatheringState = "gathering",
+  ): RomTransferClient {
+    const client = new RomTransferClient(makeFile(8), makeCreds(), "srv-1");
+    const pc = new MockRTCPeerConnection();
+    pc.iceGatheringState = state;
+    pc.localDescription = { type: "offer", sdp };
+    (client as unknown as { pc: MockRTCPeerConnection }).pc = pc;
+    return client;
+  }
+
+  function gatherSignal(): AbortSignal {
+    return new AbortController().signal;
+  }
+
+  function callWaitForIceGathering(
+    client: RomTransferClient,
+    signal: AbortSignal,
+  ): Promise<void> {
+    return (client as unknown as {
+      waitForIceGathering(s: AbortSignal): Promise<void>;
+    }).waitForIceGathering(signal);
+  }
+
+  describe("waitForIceGathering early exit", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("resolves on the first poll tick when a relay candidate is in the SDP", async () => {
+      vi.useFakeTimers();
+      const client = seedGatheringClient(CANDIDATE.relay);
+      const promise = callWaitForIceGathering(client, gatherSignal());
+      await vi.advanceTimersByTimeAsync(ICE_GATHER_POLL_MS);
+      await expect(promise).resolves.toBeUndefined();
+    });
+
+    it("resolves as soon as a relay candidate appears mid-gather (even before any grace)", async () => {
+      vi.useFakeTimers();
+      const client = seedGatheringClient("");
+      const promise = callWaitForIceGathering(client, gatherSignal());
+      await vi.advanceTimersByTimeAsync(ICE_GATHER_POLL_MS * 2); // still gathering, no candidates
+      // Relay lands later; the very next poll tick must resolve.
+      (
+        client as unknown as { pc: { localDescription: RTCSessionDescriptionInit | null } }
+      ).pc!.localDescription = { type: "offer", sdp: CANDIDATE.relay };
+      await vi.advanceTimersByTimeAsync(ICE_GATHER_POLL_MS);
+      await expect(promise).resolves.toBeUndefined();
+    });
+
+    it("waits out the relay grace after srflx, then resolves with srflx only", async () => {
+      vi.useFakeTimers();
+      const client = seedGatheringClient(CANDIDATE.srflx);
+      const promise = callWaitForIceGathering(client, gatherSignal());
+      // Hold through the relay grace so a slow but healthy TURN is kept in
+      // the one-shot offer.
+      await vi.advanceTimersByTimeAsync(ICE_GATHER_RELAY_GRACE_MS - 250);
+      await vi.advanceTimersByTimeAsync(250);
+      await expect(promise).resolves.toBeUndefined();
+    });
+
+    it("resolves at the host grace when only host candidates exist (same-LAN target)", async () => {
+      vi.useFakeTimers();
+      const client = seedGatheringClient(CANDIDATE.host);
+      const promise = callWaitForIceGathering(client, gatherSignal());
+      await vi.advanceTimersByTimeAsync(ICE_GATHER_HOST_GRACE_MS - 250);
+      // Host-only candidate must NOT resolve before the host grace.
+      const early = await Promise.race([
+        promise.then(() => true, () => true),
+        vi.advanceTimersByTimeAsync(100).then(() => false),
+      ]);
+      expect(early).toBe(false);
+      await vi.advanceTimersByTimeAsync(150);
+      await expect(promise).resolves.toBeUndefined();
+    });
+
+    it("resolves immediately when gathering is already complete", async () => {
+      vi.useFakeTimers();
+      const client = seedGatheringClient("", "complete");
+      const promise = callWaitForIceGathering(client, gatherSignal());
+      await expect(promise).resolves.toBeUndefined();
+    });
+
+    it("resolves when gathering transitions to complete with an empty SDP", async () => {
+      vi.useFakeTimers();
+      const client = seedGatheringClient("");
+      const promise = callWaitForIceGathering(client, gatherSignal());
+      (
+        client as unknown as { pc: { iceGatheringState: RTCIceGatheringState } }
+      ).pc!.iceGatheringState = "complete";
+      await vi.advanceTimersByTimeAsync(ICE_GATHER_POLL_MS);
+      await expect(promise).resolves.toBeUndefined();
+    });
+
+    it("rejects 'ICE gathering timed out' when no candidate ever appears", async () => {
+      vi.useFakeTimers();
+      const client = seedGatheringClient("");
+      const promise = callWaitForIceGathering(client, gatherSignal());
+      const assertion = expect(promise).rejects.toThrow("ICE gathering timed out");
+      await vi.advanceTimersByTimeAsync(ICE_GATHER_TIMEOUT_MS);
+      await assertion;
+    });
+
+    it("rejects 'Cancelled' when the upload is aborted mid-gather", async () => {
+      vi.useFakeTimers();
+      const client = seedGatheringClient("");
+      const controller = new AbortController();
+      const promise = callWaitForIceGathering(client, controller.signal);
+      // Attach the expectation BEFORE aborting — abort rejects synchronously.
+      const assertion = expect(promise).rejects.toThrow("Cancelled");
+      controller.abort();
+      await assertion;
+    });
   });
 });

@@ -13,6 +13,25 @@ export const MAX_CONTROL_MESSAGE_BYTES = 8 * 1024;
 const MAX_ERROR_REASON_BYTES = 1024;
 const FALLBACK_CHUNK_SIZE = 16 * 1024; // Safe across WebRTC stacks without SCTP message interleaving
 const POLL_INTERVAL_MS = 500;
+// ICE gathering: exit as soon as a usable candidate is in the SDP instead of
+// blocking on full gathering completion. Full completion stalls when the TURN
+// relay allocation is slow or unreachable from the browser's network (e.g.
+// filtered UDP 3478), which previously failed every upload on such networks
+// with "ICE gathering timed out" after 15s even though host/srflx candidates
+// were ready and would connect fine. Mirrors the player page fix
+// (sc-web/public/player/sc-player.js `_waitForIceGatheringComplete`).
+const ICE_GATHER_POLL_MS = 250;
+const ICE_GATHER_RELAY_GRACE_MS = 2_000; // keep relay in the one-shot offer when TURN is merely slow
+const ICE_GATHER_HOST_GRACE_MS = 1_500; // same-LAN: host candidates suffice; don't block on the relay allocation
+const ICE_GATHER_TIMEOUT_MS = 15_000;
+
+// Exported for unit tests.
+export {
+  ICE_GATHER_POLL_MS,
+  ICE_GATHER_RELAY_GRACE_MS,
+  ICE_GATHER_HOST_GRACE_MS,
+  ICE_GATHER_TIMEOUT_MS,
+};
 const POLL_TIMEOUT_MS = 30_000;
 
 export function dataChannelChunkSize(maxMessageSize: number | undefined): number {
@@ -220,8 +239,9 @@ export class RomTransferClient {
       const offer = await this.pc.createOffer();
       await this.pc.setLocalDescription(offer);
 
-      // Wait for ICE gathering to complete (candidates embedded in SDP)
-      await this.waitForIceGathering();
+      // Wait for a usable ICE candidate (early exit) so a slow/unreachable
+      // TURN allocation can't block the upload past 15s.
+      await this.waitForIceGathering(signal);
 
       // 3. Send SDP offer to signaling endpoint
       const sdp = this.pc.localDescription?.sdp;
@@ -304,21 +324,68 @@ export class RomTransferClient {
     this.dc.send(JSON.stringify(obj));
   }
 
-  private waitForIceGathering(): Promise<void> {
+  private waitForIceGathering(signal: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.pc) return reject(new Error("No PC"));
       if (this.pc.iceGatheringState === "complete") return resolve();
 
-      const timeout = setTimeout(() => {
-        reject(new Error("ICE gathering timed out"));
-      }, 15_000);
+      let settled = false;
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(hardTimeout);
+        signal.removeEventListener("abort", onAbort);
+        fn();
+      };
 
-      this.pc.addEventListener("icegatheringstatechange", () => {
-        if (this.pc?.iceGatheringState === "complete") {
-          clearTimeout(timeout);
-          resolve();
+      const hardTimeout = setTimeout(() => {
+        settle(() => reject(new Error("ICE gathering timed out")));
+      }, ICE_GATHER_TIMEOUT_MS);
+
+      const onAbort = () => {
+        settle(() => reject(new Error("Cancelled")));
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+
+      const start = Date.now();
+      let srflxSeenAt: number | null = null;
+
+      const poll = () => {
+        if (settled || !this.pc) return;
+        const elapsed = Date.now() - start;
+        const state = this.pc.iceGatheringState;
+        const sdp = this.pc.localDescription?.sdp ?? "";
+
+        if (state === "complete") return settle(resolve);
+
+        // Exit as soon as a relay candidate is in the SDP — the browser keeps
+        // gathering in the background, and the offer is POSTed once with
+        // whatever is available (no trickle ICE). Relay is the strongest path.
+        if (/a=candidate:.* typ relay(?:\s|$)/m.test(sdp)) return settle(resolve);
+
+        // Srflx usually lands before the TURN allocation resolves. Hold a
+        // short relay grace so a healthy-but-slower relay is not dropped from
+        // the one-shot offer (symmetric-NAT uploads need it). When TURN is
+        // unreachable this costs only the grace window, not the full timeout.
+        if (srflxSeenAt === null && /a=candidate:.* typ srflx(?:\s|$)/m.test(sdp)) {
+          srflxSeenAt = elapsed;
         }
-      }, { once: false });
+        if (srflxSeenAt !== null && elapsed - srflxSeenAt >= ICE_GATHER_RELAY_GRACE_MS) {
+          return settle(resolve);
+        }
+
+        // Same-LAN fallback: host candidates suffice when the target server is
+        // on the local network; don't block the upload on the relay allocation.
+        if (
+          elapsed >= ICE_GATHER_HOST_GRACE_MS &&
+          /a=candidate:.* typ host(?:\s|$)/m.test(sdp)
+        ) {
+          return settle(resolve);
+        }
+
+        setTimeout(poll, ICE_GATHER_POLL_MS);
+      };
+      poll();
     });
   }
 
