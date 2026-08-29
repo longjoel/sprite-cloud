@@ -277,12 +277,14 @@ fn main() {
             // match the actual flow — av_info can lie (PPSSPP) and the output
             // rate can vary between phases (movie vs gameplay).
             if audio_passthrough {
-                rate_window_samples = rate_window_samples.saturating_add(audio.len() as u64);
+                // audio.len() counts interleaved SCALAR samples (2ch in the shm), while
+// GStreamer's sample rate is frames-per-channel per second — divide by the
+// channel count or we report 2x the true rate.
+rate_window_samples = rate_window_samples.saturating_add(audio.len() as u64 / 2);
                 let elapsed = rate_window_start.elapsed().as_secs_f64();
                 if elapsed >= 1.0 {
                     let measured = rate_window_samples as f64 / elapsed;
-                    if measured >= AUDIO_PASSTHROUGH_MIN
-                        && measured <= AUDIO_PASSTHROUGH_MAX
+                    if (AUDIO_PASSTHROUGH_MIN..=AUDIO_PASSTHROUGH_MAX).contains(&measured)
                         && (measured - reported_rate).abs() > reported_rate * 0.02
                     {
                         reported_rate = measured;

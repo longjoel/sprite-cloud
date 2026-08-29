@@ -302,12 +302,19 @@ pub async fn run_stream(session: Arc<GameSession>) {
                                     };
                                     if mismatch {
                                         let target = f.sample_rate as f64;
-                                        *aenc_guard = Some(Arc::new(tokio::sync::Mutex::new(
-                                            GstAudioEncoder::new(target, 2).ok(),
-                                        )));
-                                        tracing::info!(
-                                            "[STREAM] Audio encoder rebuilt at {target:.0}Hz"
-                                        );
+                                        match GstAudioEncoder::new(target, 2) {
+                                            Ok(aenc) => {
+                                                *aenc_guard = Some(Arc::new(tokio::sync::Mutex::new(
+                                                    Some(aenc),
+                                                )));
+                                                tracing::info!(
+                                                    "[STREAM] Audio encoder rebuilt at {target:.0}Hz"
+                                                );
+                                            }
+                                            Err(e) => tracing::warn!(
+                                                "[STREAM] Audio encoder rebuild to {target:.0}Hz failed — keeping current encoder: {e}"
+                                            ),
+                                        }
                                     }
                                 }
                             }
