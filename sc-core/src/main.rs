@@ -219,6 +219,22 @@ fn main() {
             eprintln!("[core] run_frame failed: {e} — exiting");
             std::process::exit(4);
         }
+
+        // Publish late geometry to the server. Cores like PPSSPP report 0×0
+        // in retro_get_system_av_info() at load and only send the real
+        // resolution via SET_GEOMETRY once rendering starts; the server's
+        // metadata readiness check must be able to see it after the fact.
+        if let Some((bw, bh)) = libretro_runner::latest_geometry() {
+            if bw > 0
+                && bh > 0
+                && (bw != out.base_width.load(Ordering::Relaxed)
+                    || bh != out.base_height.load(Ordering::Relaxed))
+            {
+                eprintln!("[core] late geometry via SET_GEOMETRY: {bw}x{bh}");
+                out.base_width.store(bw, Ordering::Relaxed);
+                out.base_height.store(bh, Ordering::Relaxed);
+            }
+        }
         
         // Write frame to output shm
         if let Some(pixels) = core.frame() {
@@ -268,6 +284,16 @@ fn main() {
             out.height.store(fh, Ordering::Relaxed);
             out.audio_len.store(audio.len() as u32, Ordering::Relaxed);
             out.frame_ready.store(true, Ordering::Release);
+
+            // Cores like PPSSPP never report usable base geometry (0×0 in
+            // retro_get_system_av_info, and no sane SET_GEOMETRY) — publish
+            // the first real frame's dimensions as the base metadata so the
+            // server sees a valid resolution instead of a permanent 0.
+            if out.base_width.load(Ordering::Relaxed) == 0 {
+                eprintln!("[core] adopted frame dims as base geometry: {fw}x{fh}");
+                out.base_width.store(fw, Ordering::Relaxed);
+                out.base_height.store(fh, Ordering::Relaxed);
+            }
         }
         
         frame_num = frame_num.wrapping_add(1);
