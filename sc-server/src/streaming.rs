@@ -282,6 +282,34 @@ pub async fn run_stream(session: Arc<GameSession>) {
                                 }
                                 video_data = Some((f.pixels, f.width, f.height));
                                 audio_data = f.audio;
+
+                                // sc-core reports its *measured* emitted sample
+                                // rate, which can shift between phases (PSP
+                                // movie vs gameplay). Rebuild the audio encoder
+                                // when the rate moves >2% so the appsrc caps
+                                // stay truthful; GStreamer's audioresample does
+                                // the actual conversion to 48 kHz for Opus.
+                                if f.sample_rate > 0 {
+                                    let mut aenc_guard = session.audio_enc.lock().await;
+                                    let mismatch = if let Some(ref aenc_arc) = *aenc_guard
+                                        && let Some(ref enc) = *aenc_arc.lock().await
+                                    {
+                                        let cur = enc.sample_rate() as f64;
+                                        let target = f.sample_rate as f64;
+                                        cur > 0.0 && (target - cur).abs() > cur * 0.02
+                                    } else {
+                                        false
+                                    };
+                                    if mismatch {
+                                        let target = f.sample_rate as f64;
+                                        *aenc_guard = Some(Arc::new(tokio::sync::Mutex::new(
+                                            GstAudioEncoder::new(target, 2).ok(),
+                                        )));
+                                        tracing::info!(
+                                            "[STREAM] Audio encoder rebuilt at {target:.0}Hz"
+                                        );
+                                    }
+                                }
                             }
                             None => {
                                 let core_loading = session.core_loading.load(std::sync::atomic::Ordering::Relaxed);
