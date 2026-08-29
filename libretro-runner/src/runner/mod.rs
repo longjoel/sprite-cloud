@@ -98,6 +98,17 @@ thread_local! {
     /// Legacy caller hint retained for API compatibility. Libretro's callback
     /// ABI is always stereo, so audio callbacks must never use this as a width.
     static AUDIO_CHANNELS: Cell<u16> = const { Cell::new(2) };
+
+    /// Most recent video geometry delivered via SET_GEOMETRY. Cores like
+    /// PPSSPP report 0×0 in `retro_get_system_av_info()` at load and only
+    /// send the real resolution once they start rendering — this lets the
+    /// runner and sc-core publish/apply late geometry.
+    static LATEST_GEOMETRY: RefCell<Option<(u32, u32, u32, u32)>> =
+        const { RefCell::new(None) };
+
+    /// Last output size applied to the GL bridge (avoids redundant resizes).
+    static APPLIED_OUTPUT_SIZE: RefCell<Option<(u32, u32)>> =
+        const { RefCell::new(None) };
 }
 
 // ---------------------------------------------------------------------------
@@ -467,6 +478,48 @@ impl Core {
         // and callbacks are registered. The core will call our video/audio/input
         // callbacks synchronously.
         unsafe { (self.retro_run)() };
+
+        // Apply late geometry and keep the GL surface sized for the real output.
+        // PPSSPP reports 0×0 av_info at load and sends the real resolution (if
+        // at all) after rendering starts. The target size prefers max(geometry,
+        // first frame) so the surface is ≥ every frame the core outputs; when a
+        // core never sends usable geometry, the first real frame's dimensions
+        // drive the resize. The bridge no-ops on unchanged size.
+        let frame_dims = RAW_FRAME_DIMS.with(|dims| *dims.borrow());
+        let (geom_max_w, geom_max_h) = LATEST_GEOMETRY
+            .with(|cell| cell.borrow().map(|(_bw, _bh, mw, mh)| (mw, mh)))
+            .unwrap_or((0, 0));
+        let (frame_w, frame_h) = (frame_dims.0, frame_dims.1);
+        let target_w = if (16..=4096).contains(&geom_max_w) {
+            geom_max_w.max(frame_w)
+        } else {
+            frame_w
+        };
+        let target_h = if (16..=4096).contains(&geom_max_h) {
+            geom_max_h.max(frame_h)
+        } else {
+            frame_h
+        };
+        if target_w >= 16 && target_h >= 16 {
+            let need_resize = APPLIED_OUTPUT_SIZE.with(|applied| {
+                let cur = *applied.borrow();
+                if cur != Some((target_w, target_h)) {
+                    *applied.borrow_mut() = Some((target_w, target_h));
+                    true
+                } else {
+                    false
+                }
+            });
+            if need_resize {
+                self.av_info.max_width = target_w;
+                self.av_info.max_height = target_h;
+                // SAFETY: the bridge is bound at compile time; resizing is
+                // idempotent and validated against 4096 in C.
+                unsafe {
+                    sc_gl_bridge_set_output_size(target_w as i32, target_h as i32);
+                }
+            }
+        }
 
         // If a core negotiates or changes pixel format during retro_run(), that
         // callback runs on this same core thread. Initial negotiation often
@@ -861,6 +914,17 @@ impl Drop for Core {
 // Environment callback
 // ---------------------------------------------------------------------------
 
+/// Latest base video geometry reported by the core via SET_GEOMETRY, or None
+/// if the core never sent one. Cores like PPSSPP report 0×0 in
+/// `retro_get_system_av_info()` at load and deliver the real resolution here
+/// once rendering starts; sc-core polls this each frame and publishes the
+/// late metadata so the server's readiness check can succeed after load.
+pub fn latest_geometry() -> Option<(u32, u32)> {
+    LATEST_GEOMETRY.with(|cell| {
+        cell.borrow().map(|(bw, bh, _mw, _mh)| (bw, bh))
+    })
+}
+
 /// Environment callback — handles core queries for directories, pixel format,
 /// and tracks whether the core supports no-game mode.
 unsafe extern "C" fn environment_callback(cmd: u32, data: *mut std::ffi::c_void) -> bool {
@@ -915,6 +979,52 @@ unsafe extern "C" fn environment_callback(cmd: u32, data: *mut std::ffi::c_void)
         RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME => {
             SUPPORTS_NO_GAME.set(true);
             true
+        }
+
+        // Late video geometry. PPSSPP and similar cores may report 0×0 in
+        // retro_get_system_av_info() at load and send the real resolution via
+        // SET_GEOMETRY once rendering starts. Some cores ship an older
+        // vendored libretro.h and use the legacy 35 numbering — accept both.
+        // Values are range-checked: a cmd arriving under these numbers with
+        // implausible dimensions (PPSSPP in practice) is rejected so garbage
+        // can never poison the surface sizing or published metadata.
+        RETRO_ENVIRONMENT_SET_GEOMETRY | RETRO_ENVIRONMENT_SET_GEOMETRY_LEGACY
+            if !data.is_null() =>
+        {
+            // SAFETY: SET_GEOMETRY passes a retro_game_geometry*.
+            let geom = unsafe { *(data as *const RetroGameGeometry) };
+            let plausible = (16..=4096).contains(&geom.base_width)
+                && (16..=4096).contains(&geom.base_height)
+                && (16..=4096).contains(&geom.max_width)
+                && (16..=4096).contains(&geom.max_height);
+            if plausible {
+                tracing::info!(
+                    "[CORE] SET_GEOMETRY: base {}x{} max {}x{} aspect {:.3}",
+                    geom.base_width,
+                    geom.base_height,
+                    geom.max_width,
+                    geom.max_height,
+                    geom.aspect_ratio,
+                );
+                LATEST_GEOMETRY.with(|cell| {
+                    *cell.borrow_mut() = Some((
+                        geom.base_width,
+                        geom.base_height,
+                        geom.max_width,
+                        geom.max_height,
+                    ));
+                });
+                true
+            } else {
+                tracing::debug!(
+                    "[CORE] SET_GEOMETRY cmd {cmd} rejected (implausible {}x{} max {}x{})",
+                    geom.base_width,
+                    geom.base_height,
+                    geom.max_width,
+                    geom.max_height,
+                );
+                false
+            }
         }
 
         // Provide a log interface so cores can report errors to stderr.
@@ -1447,5 +1557,48 @@ mod tests {
         let mut samples = [100_i16, -100, 50, -50];
         normalize_mono(&mut samples);
         assert_eq!(samples, [100, 100, 50, 50]);
+    }
+
+    #[test]
+    fn set_geometry_modern_cmd_is_captured_and_published() {
+        LATEST_GEOMETRY.with(|cell| *cell.borrow_mut() = None);
+        let geom = crate::ffi::RetroGameGeometry {
+            base_width: 480,
+            base_height: 272,
+            max_width: 480,
+            max_height: 272,
+            aspect_ratio: 16.0 / 9.0,
+        };
+        // SAFETY: test-only call; data points at a valid geometry struct.
+        let accepted = unsafe {
+            environment_callback(
+                RETRO_ENVIRONMENT_SET_GEOMETRY,
+                &geom as *const _ as *mut std::ffi::c_void,
+            )
+        };
+        assert!(accepted, "SET_GEOMETRY (37) must be accepted");
+        assert_eq!(latest_geometry(), Some((480, 272)));
+    }
+
+    #[test]
+    fn set_geometry_legacy_cmd_number_is_captured() {
+        LATEST_GEOMETRY.with(|cell| *cell.borrow_mut() = None);
+        let geom = crate::ffi::RetroGameGeometry {
+            base_width: 272,
+            base_height: 480,
+            max_width: 272,
+            max_height: 480,
+            aspect_ratio: 1.0,
+        };
+        // PPSSPP vendors an older libretro.h and sends cmd 35 (legacy numbering).
+        // SAFETY: test-only call; data points at a valid geometry struct.
+        let accepted = unsafe {
+            environment_callback(
+                RETRO_ENVIRONMENT_SET_GEOMETRY_LEGACY,
+                &geom as *const _ as *mut std::ffi::c_void,
+            )
+        };
+        assert!(accepted, "legacy SET_GEOMETRY (35) must be accepted");
+        assert_eq!(latest_geometry(), Some((272, 480)));
     }
 }

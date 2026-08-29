@@ -195,6 +195,10 @@ pub const RETRO_ENVIRONMENT_SET_CORE_OPTIONS_UPDATE_DISPLAY_CALLBACK: u32 = 69;
 pub const RETRO_ENVIRONMENT_SET_HW_RENDER: u32 = 14;
 /// Core updates the video geometry (data = retro_game_geometry*).
 pub const RETRO_ENVIRONMENT_SET_GEOMETRY: u32 = 37;
+/// Legacy SET_GEOMETRY numbering from older libretro.h revisions. Some cores
+/// (e.g. PPSSPP) vendor an older header and send 35 even when the frontend
+/// was built against 37 — accept both.
+pub const RETRO_ENVIRONMENT_SET_GEOMETRY_LEGACY: u32 = 35;
 /// Frontend reports the system language (data = unsigned*).
 pub const RETRO_ENVIRONMENT_GET_LANGUAGE: u32 = 39;
 
