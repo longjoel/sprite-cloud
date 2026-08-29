@@ -880,7 +880,10 @@ pub async fn load_core_into_session(
             unlink_shm(&in_name);
             return Err(format!("sc-core exited early with {status}: {stderr_out}"));
         }
-        std::thread::sleep(Duration::from_millis(100));
+        // Yield to the Tokio runtime rather than blocking a worker thread:
+        // this wait can run up to ~18 s for late-geometry cores, and blocked
+        // workers stall every other task on the runtime.
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
     // Late-geometry cores (PPSSPP etc.) may deliver their first rendered

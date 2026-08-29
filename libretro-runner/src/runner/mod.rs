@@ -308,6 +308,11 @@ impl Core {
         AUDIO_BUFFER.with(|buf| buf.borrow_mut().clear());
         INPUT_STATE.with(|state| *state.borrow_mut() = [0; 4]);
         INPUT_ANALOG.with(|state| *state.borrow_mut() = [[0; 2]; 4]);
+        // Late-geometry state is per-core: a worker that loads a second core
+        // on the same thread must not publish the previous core's geometry
+        // into the new session.
+        LATEST_GEOMETRY.with(|cell| *cell.borrow_mut() = None);
+        APPLIED_OUTPUT_SIZE.with(|cell| *cell.borrow_mut() = None);
 
         SYSTEM_DIR.with(|cell| {
             *cell.borrow_mut() = CString::new(config.system_dir.to_string_lossy().as_bytes()).ok();
@@ -983,20 +988,21 @@ unsafe extern "C" fn environment_callback(cmd: u32, data: *mut std::ffi::c_void)
 
         // Late video geometry. PPSSPP and similar cores may report 0×0 in
         // retro_get_system_av_info() at load and send the real resolution via
-        // SET_GEOMETRY once rendering starts. Some cores ship an older
-        // vendored libretro.h and use the legacy 35 numbering — accept both.
-        // Values are range-checked: a cmd arriving under these numbers with
-        // implausible dimensions (PPSSPP in practice) is rejected so garbage
-        // can never poison the surface sizing or published metadata.
-        RETRO_ENVIRONMENT_SET_GEOMETRY | RETRO_ENVIRONMENT_SET_GEOMETRY_LEGACY
-            if !data.is_null() =>
+        // SET_GEOMETRY (37) once rendering starts. Command 35 is
+        // RETRO_ENVIRONMENT_SET_CONTROLLER_INFO — not a legacy geometry
+        // numbering — so it is NOT accepted here (PPSSPP in practice sends
+        // junk under 35; the first-frame fallback covers cores that never
+        // emit 37). Values are range-checked: implausible dimensions are
+        // rejected so garbage can never poison surface sizing or metadata.
+        RETRO_ENVIRONMENT_SET_GEOMETRY if !data.is_null() =>
         {
             // SAFETY: SET_GEOMETRY passes a retro_game_geometry*.
             let geom = unsafe { *(data as *const RetroGameGeometry) };
+            // SET_GEOMETRY defines base_width/base_height; max_width/max_height
+            // are ignored by the contract (only meaningful in AV_INFO), so
+            // validating them would reject otherwise-valid updates.
             let plausible = (16..=4096).contains(&geom.base_width)
-                && (16..=4096).contains(&geom.base_height)
-                && (16..=4096).contains(&geom.max_width)
-                && (16..=4096).contains(&geom.max_height);
+                && (16..=4096).contains(&geom.base_height);
             if plausible {
                 tracing::info!(
                     "[CORE] SET_GEOMETRY: base {}x{} max {}x{} aspect {:.3}",
@@ -1581,7 +1587,7 @@ mod tests {
     }
 
     #[test]
-    fn set_geometry_legacy_cmd_number_is_captured() {
+    fn set_controller_info_cmd_is_not_treated_as_geometry() {
         LATEST_GEOMETRY.with(|cell| *cell.borrow_mut() = None);
         let geom = crate::ffi::RetroGameGeometry {
             base_width: 272,
@@ -1590,15 +1596,21 @@ mod tests {
             max_height: 480,
             aspect_ratio: 1.0,
         };
-        // PPSSPP vendors an older libretro.h and sends cmd 35 (legacy numbering).
+        // Command 35 is RETRO_ENVIRONMENT_SET_CONTROLLER_INFO, not a legacy
+        // geometry numbering — a core sending controller metadata under 35
+        // (PPSSPP does this with junk) must NOT be able to poison the
+        // late-geometry slot; the first-frame fallback covers real sizing.
         // SAFETY: test-only call; data points at a valid geometry struct.
-        let accepted = unsafe {
+        let _accepted = unsafe {
             environment_callback(
                 RETRO_ENVIRONMENT_SET_GEOMETRY_LEGACY,
                 &geom as *const _ as *mut std::ffi::c_void,
             )
         };
-        assert!(accepted, "legacy SET_GEOMETRY (35) must be accepted");
-        assert_eq!(latest_geometry(), Some((272, 480)));
+        assert_eq!(
+            latest_geometry(),
+            None,
+            "cmd 35 must not be captured as late geometry"
+        );
     }
 }
