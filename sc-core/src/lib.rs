@@ -22,11 +22,11 @@ pub const MAX_PIXELS: usize = MAX_WIDTH * MAX_HEIGHT * 3;
 pub const MAX_AUDIO: usize = 16384;
 /// Max response data size (save states, SRAM).
 ///
-/// Heavyweight cores produce multi-MB save states (PPSSPP ~10-20MB,
+/// Heavyweight cores produce multi-MB save states (PPSSPP ~40MB,
 /// Dreamcast ~20MB); the previous 256KB silently truncated them into
-/// garbage that crashed cores on load. 32MB covers PSP/DC-class;
-/// PS2 (pcsx2-style) may need 64-128MB when it lands.
-pub const MAX_RESPONSE: usize = 32 * 1024 * 1024; // 32MB
+/// garbage that crashed cores on load. 64MB covers PSP/DC-class with
+/// headroom; PS2 (pcsx2-style) may need 128MB+ when it lands.
+pub const MAX_RESPONSE: usize = 64 * 1024 * 1024; // 64MB
 
 // ── Output: core → server (frame data) ───────────────────────────────
 
