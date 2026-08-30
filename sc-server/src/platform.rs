@@ -283,6 +283,19 @@ pub const PLATFORMS: &[PlatformManifest] = &[
         core: "mednafen_wswan_libretro.so",
         mono: false,
     },
+    // ── Microsoft — Windows 98 (DOSBox Pure) ──────────────────────
+    // Boot-on-load disk images (.img raw hard disks, .vhd) plus .iso
+    // installers. .iso/.chd are shared with PS1/PS2 — the parent dir
+    // name ("Microsoft - Windows 98") disambiguates (dir-name
+    // detection wins); bare root-level .iso files keep resolving to
+    // the first extension match (PlayStation).
+    PlatformManifest {
+        short_name: "Windows 98",
+        aliases: &["Microsoft - Windows 98", "Windows 98 SE", "DOSBox Pure"],
+        extensions: &["img", "vhd", "iso"],
+        core: "dosbox_pure_libretro.so",
+        mono: false,
+    },
     // ── Arcade ────────────────────────────────────────────────────
     PlatformManifest {
         short_name: "Arcade",
@@ -454,6 +467,14 @@ mod tests {
             detect_platform_name(std::path::Path::new("/roms/game.cue")),
             Some("PlayStation".into())
         );
+        assert_eq!(
+            detect_platform_name(std::path::Path::new("/roms/disk.img")),
+            Some("Windows 98".into())
+        );
+        assert_eq!(
+            detect_platform_name(std::path::Path::new("/roms/vm.vhd")),
+            Some("Windows 98".into())
+        );
     }
 
     #[test]
@@ -479,6 +500,20 @@ mod tests {
         assert_eq!(
             detect_platform_name(std::path::Path::new("/roms/Sega - Dreamcast/game.gdi")),
             Some("Dreamcast".into())
+        );
+        // .iso/.img inside a "Microsoft - Windows 98" dir must stay
+        // Windows 98 (DOSBox Pure), not fall back to PlayStation.
+        assert_eq!(
+            detect_platform_name(std::path::Path::new(
+                "/roms/Microsoft - Windows 98/W98 SE - Game Ready 2G - Patched.img"
+            )),
+            Some("Windows 98".into())
+        );
+        assert_eq!(
+            detect_platform_name(std::path::Path::new(
+                "/roms/Microsoft - Windows 98/setup.iso"
+            )),
+            Some("Windows 98".into())
         );
     }
 
@@ -509,6 +544,10 @@ mod tests {
         assert_eq!(
             core_for_platform("Game Boy Advance").as_deref(),
             Some("mgba_libretro.so")
+        );
+        assert_eq!(
+            core_for_platform("Windows 98").as_deref(),
+            Some("dosbox_pure_libretro.so")
         );
     }
 
