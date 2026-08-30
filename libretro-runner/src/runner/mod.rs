@@ -146,6 +146,20 @@ fn default_core_options(
 
     // mupen64plus-next already falls through to GLideN64 when GET_VARIABLE is
     // unanswered, so no override needed there.
+
+    // dosbox_pure (Windows 98 / DOS): force the COW "Save Difference Per
+    // Content" mode (value "diff") so a shared base OS disk image stays
+    // immutable and every game's C: writes land as a per-content diff in the
+    // libretro save directory (the server passes it via CoreConfig::save_dir).
+    // The option key is the legacy "bootos_ramdisk" (Advanced > OS Disk
+    // Modifications); its default value "false" would write straight to the
+    // shared disk image, which breaks the layered base+game model.
+    if name.contains("dosbox_pure") {
+        store.insert(
+            "dosbox_pure_bootos_ramdisk".to_string(),
+            CString::new("diff").unwrap_or_default(),
+        );
+    }
 }
 
 /// Load a required symbol from the library.
