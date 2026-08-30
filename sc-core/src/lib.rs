@@ -20,8 +20,13 @@ pub const MAX_PIXELS: usize = MAX_WIDTH * MAX_HEIGHT * 3;
 /// Max audio samples in output buffer (stereo i16).
 /// 16384 samples = ~170ms at 48kHz stereo, covers high-rate cores without truncation.
 pub const MAX_AUDIO: usize = 16384;
-/// Max response data size (for save states).
-pub const MAX_RESPONSE: usize = 256 * 1024; // 256KB
+/// Max response data size (save states, SRAM).
+///
+/// Heavyweight cores produce multi-MB save states (PPSSPP ~10-20MB,
+/// Dreamcast ~20MB); the previous 256KB silently truncated them into
+/// garbage that crashed cores on load. 32MB covers PSP/DC-class;
+/// PS2 (pcsx2-style) may need 64-128MB when it lands.
+pub const MAX_RESPONSE: usize = 32 * 1024 * 1024; // 32MB
 
 // ── Output: core → server (frame data) ───────────────────────────────
 

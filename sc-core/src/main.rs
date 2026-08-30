@@ -189,18 +189,35 @@ fn main() {
                 sc_core::CMD_SAVE_STATE => {
                     let _slot = inp.slot.load(Ordering::Relaxed);
                     let data = core.save_state().unwrap_or_default();
-                    let len = data.len().min(sc_core::MAX_RESPONSE);
-                    // Write response data
-                    let resp_ptr = out.response_data.as_ptr() as *mut u8;
-                    unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), resp_ptr, len) };
-                    out.response_data_len.store(len as u32, Ordering::Relaxed);
-                    out.response_ok.store(!data.is_empty(), Ordering::Relaxed);
+                    let len = data.len();
+                    if len > sc_core::MAX_RESPONSE {
+                        // Never store a truncated state: it would load as
+                        // garbage and crash the core.
+                        eprintln!(
+                            "[core] save_state too large ({len} bytes > MAX_RESPONSE {}) — failing cleanly",
+                            sc_core::MAX_RESPONSE
+                        );
+                        out.response_ok.store(false, Ordering::Relaxed);
+                        out.response_data_len.store(0, Ordering::Relaxed);
+                    } else {
+                        let resp_ptr = out.response_data.as_ptr() as *mut u8;
+                        unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), resp_ptr, len) };
+                        out.response_data_len.store(len as u32, Ordering::Relaxed);
+                        out.response_ok.store(!data.is_empty(), Ordering::Relaxed);
+                    }
                 }
                 sc_core::CMD_LOAD_STATE => {
                     let len = out.response_data_len.load(Ordering::Relaxed) as usize;
-                    let data = &out.response_data[..len.min(sc_core::MAX_RESPONSE)];
-                    let ok = core.load_state(data);
-                    out.response_ok.store(ok, Ordering::Relaxed);
+                    if len > sc_core::MAX_RESPONSE {
+                        eprintln!(
+                            "[core] load_state payload too large ({len} bytes) — rejecting"
+                        );
+                        out.response_ok.store(false, Ordering::Relaxed);
+                    } else {
+                        let data = &out.response_data[..len];
+                        let ok = core.load_state(data);
+                        out.response_ok.store(ok, Ordering::Relaxed);
+                    }
                 }
                 sc_core::CMD_SAVE_SRAM => {
                     match core.sram() {
