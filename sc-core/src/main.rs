@@ -15,10 +15,18 @@ use std::time::{Duration, Instant};
 
 use sc_core::{OutputShm, InputShm, map_shm};
 
-/// Target sample rate sc-core emits. sc-core owns ALL rate conversion so the
-/// server's GStreamer chain always receives exactly this rate and can never
-/// drift from the reported rate, regardless of what a core advertises.
+/// Target sample rate sc-core emits when a core's native rate is outside the
+/// passthrough band below (audioresample-hostile extremes).
 const AUDIO_TARGET_RATE: f64 = 48000.0;
+
+/// Native rates inside this band pass through at the core's TRUE rate —
+/// GStreamer's audioresample converts to 48 kHz for Opus and handles these
+/// correctly (32040/44100/48000/…). Outside the band sc-core normalizes to
+/// AUDIO_TARGET_RATE because extreme ratios (~43:1, SameBoy's ~2 MHz) break
+/// audioresample. In-band the core reports its *measured* wall-clock rate
+/// (not the av_info claim) so the server's appsrc caps always match reality.
+const AUDIO_PASSTHROUGH_MIN: f64 = 8000.0;
+const AUDIO_PASSTHROUGH_MAX: f64 = 96000.0;
 
 /// Resample interleaved audio (any channel count) from `in_rate` to `out_rate`
 /// by linear interpolation. Handles both upsampling and downsampling.
@@ -139,14 +147,27 @@ fn main() {
     let frame_interval = Duration::from_secs_f64(1.0 / fps.max(1.0));
     
     eprintln!("[core] loaded {width}x{height} @ {fps:.1}fps {sample_rate:.0}Hz");
-    
+
+    // Audio rate policy: pass through in-band native rates untouched
+    // (GStreamer's audioresample converts to 48 kHz for Opus and handles
+    // these correctly); hostile extremes (SameBoy ~2 MHz) are normalized to
+    // 48 kHz here. In-band we also report the MEASURED wall-clock rate so the
+    // server's appsrc caps always match the actual sample flow.
+    let audio_passthrough = (AUDIO_PASSTHROUGH_MIN..=AUDIO_PASSTHROUGH_MAX).contains(&sample_rate);
+    let mut reported_rate = if audio_passthrough {
+        sample_rate
+    } else {
+        AUDIO_TARGET_RATE
+    };
+    let mut rate_window_start = Instant::now();
+    let mut rate_window_samples: u64 = 0;
+
     // Write metadata to output shm so server knows dimensions before first frame
     out.base_width.store(width, Ordering::Relaxed);
     out.base_height.store(height, Ordering::Relaxed);
     out.fps_x1000.store((fps * 1000.0) as u32, Ordering::Relaxed);
-    // sc-core always emits a fixed 48 kHz; the server reads this to configure
-    // its audio encoder (identity GStreamer resample).
-    out.sample_rate.store(AUDIO_TARGET_RATE as u32, Ordering::Relaxed);
+    // Emitted sample rate — the server configures its appsrc caps from this.
+    out.sample_rate.store(reported_rate.round() as u32, Ordering::Relaxed);
     
     // ── Frame loop ───────────────────────────────────────────────────
     let mut frame_num: u64 = 0;
@@ -241,14 +262,42 @@ fn main() {
             let (fw0, fh0) = core.frame_size();
             let raw_audio = core.drain_audio();
 
-            // ── Resample ALL audio to a fixed 48 kHz here ───────────
-            // sc-core owns every rate conversion (up or down), so the server's
-            // GStreamer chain always sees exactly 48 kHz and can never drift
-            // from the reported rate, regardless of what a core advertises.
-            // Handles N64/parallel_n64 (32040 Hz, previously left to GStreamer's
-            // audioresample) as well as 2 MHz+ cores (SameBoy).
-            let audio = resample_audio(&raw_audio, sample_rate, AUDIO_TARGET_RATE, 2);
-            out.sample_rate.store(AUDIO_TARGET_RATE as u32, Ordering::Relaxed);
+            // ── Audio rate policy ───────────────────────────────────
+            // In-band native rates pass through untouched (GStreamer's
+            // audioresample converts to 48 kHz for Opus and handles these
+            // correctly). Out-of-band extremes (SameBoy ~2 MHz) are normalized
+            // to 48 kHz here — audioresample chokes on ~43:1 ratios.
+            let audio = if audio_passthrough {
+                raw_audio
+            } else {
+                resample_audio(&raw_audio, sample_rate, AUDIO_TARGET_RATE, 2)
+            };
+
+            // Report the measured wall-clock rate so the server's appsrc caps
+            // match the actual flow — av_info can lie (PPSSPP) and the output
+            // rate can vary between phases (movie vs gameplay).
+            if audio_passthrough {
+                // audio.len() counts interleaved SCALAR samples (2ch in the shm), while
+// GStreamer's sample rate is frames-per-channel per second — divide by the
+// channel count or we report 2x the true rate.
+rate_window_samples = rate_window_samples.saturating_add(audio.len() as u64 / 2);
+                let elapsed = rate_window_start.elapsed().as_secs_f64();
+                if elapsed >= 1.0 {
+                    let measured = rate_window_samples as f64 / elapsed;
+                    if (AUDIO_PASSTHROUGH_MIN..=AUDIO_PASSTHROUGH_MAX).contains(&measured)
+                        && (measured - reported_rate).abs() > reported_rate * 0.02
+                    {
+                        reported_rate = measured;
+                        out.sample_rate
+                            .store(reported_rate.round() as u32, Ordering::Relaxed);
+                        eprintln!("[core] audio rate measured: {measured:.0} Hz");
+                    }
+                    rate_window_start = Instant::now();
+                    rate_window_samples = 0;
+                }
+            } else {
+                out.sample_rate.store(AUDIO_TARGET_RATE as u32, Ordering::Relaxed);
+            }
 
             // ── Line-double interlaced half-height fields ──────────
             // parallel_n64 (N64) delivers 640×240 interlaced fields while the
