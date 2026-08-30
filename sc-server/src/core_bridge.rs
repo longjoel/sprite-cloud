@@ -894,7 +894,7 @@ pub async fn load_core_into_session(
         }
         // Check if child died early — via the guard so the &mut Child
         // borrow is not duplicated.
-        if let Ok(Some(status)) = kill_guard.try_wait() {
+        if let Some(status) = kill_guard.try_wait() {
             let stderr_out = kill_guard
                 .0
                 .as_mut()
@@ -921,6 +921,10 @@ pub async fn load_core_into_session(
     // scope; the 'did not report metadata' error path below kills it
     // explicitly (and reaps via wait()).
     kill_guard.disarm();
+    // End the &mut child borrow NOW: the metadata-timeout error path and
+    // the bridge-thread move at the bottom of this fn both use `child`
+    // directly, and the borrow checker cannot see through disarm().
+    drop(kill_guard);
 
     // Late-geometry cores (PPSSPP etc.) may deliver their first rendered
     // frame before they report base metadata via SET_GEOMETRY — accept frame
