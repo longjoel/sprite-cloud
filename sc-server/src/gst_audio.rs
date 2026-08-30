@@ -39,7 +39,7 @@ impl GstAudioEncoder {
                frame-size=20 \
                bitrate={br} \
                inband-fec=true \
-             ! appsink name=audio_sink sync=false async=false drop=true max-buffers=4",
+             ! appsink name=audio_sink sync=false async=false drop=true max-buffers=32",
             br = bitrate,
         );
 
