@@ -286,9 +286,11 @@ pub async fn run_stream(session: Arc<GameSession>) {
                                 // sc-core reports its *measured* emitted sample
                                 // rate, which can shift between phases (PSP
                                 // movie vs gameplay). Rebuild the audio encoder
-                                // when the rate moves >2% so the appsrc caps
-                                // stay truthful; GStreamer's audioresample does
-                                // the actual conversion to 48 kHz for Opus.
+                                // only on REAL rate changes (>5%) — the raw
+                                // measurement jitters ±2% around the true rate
+                                // (frame-pacing noise), so the 2% used for
+                                // reporting would oscillate the encoder and
+                                // blip audio on every window.
                                 if f.sample_rate > 0 {
                                     let mut aenc_guard = session.audio_enc.lock().await;
                                     let mismatch = if let Some(ref aenc_arc) = *aenc_guard
@@ -296,7 +298,7 @@ pub async fn run_stream(session: Arc<GameSession>) {
                                     {
                                         let cur = enc.sample_rate() as f64;
                                         let target = f.sample_rate as f64;
-                                        cur > 0.0 && (target - cur).abs() > cur * 0.02
+                                        cur > 0.0 && (target - cur).abs() > cur * 0.05
                                     } else {
                                         false
                                     };
