@@ -848,6 +848,31 @@ pub async fn load_core_into_session(
         }
     };
 
+    // ── Metadata readiness wait with kill-on-drop guard ────────────
+    // This async fn can be cancelled mid-wait (shutdown racing a slow
+    // boot): dropping the future drops `Child` without killing or
+    // reaping it, leaking an orphaned sc-core. KillOnDrop kills the
+    // child on ANY exit from this scope (early error, cancellation,
+    // panic) and is disarmed on the success path so the core survives.
+    struct KillOnDrop<'a>(Option<&'a mut std::process::Child>);
+    impl KillOnDrop<'_> {
+        fn try_wait(&mut self) -> Option<std::process::ExitStatus> {
+            self.0.as_mut().and_then(|c| c.try_wait().ok().flatten())
+        }
+        fn disarm(&mut self) {
+            self.0 = None;
+        }
+    }
+    impl Drop for KillOnDrop<'_> {
+        fn drop(&mut self) {
+            if let Some(child) = self.0.take() {
+                let _ = child.kill();
+                let _ = child.wait(); // reap — avoid a zombie
+            }
+        }
+    }
+    let mut kill_guard = KillOnDrop(Some(&mut child));
+
     // Wait for metadata (core reports dimensions before frame loop).
     // 180 × 100ms = 18s: heavyweight cores (PPSSPP etc.) can take several
     // seconds to boot past their intro media and report real geometry.
@@ -867,11 +892,13 @@ pub async fn load_core_into_session(
             core_sample_rate = sr as f64;
             break;
         }
-        // Check if child died early
-        if let Ok(Some(status)) = child.try_wait() {
-            let stderr_out = child
-                .stderr
-                .take()
+        // Check if child died early — via the guard so the &mut Child
+        // borrow is not duplicated.
+        if let Some(status) = kill_guard.try_wait() {
+            let stderr_out = kill_guard
+                .0
+                .as_mut()
+                .and_then(|c| c.stderr.take())
                 .and_then(|mut r| {
                     let mut s = String::new();
                     std::io::Read::read_to_string(&mut r, &mut s)
@@ -884,8 +911,20 @@ pub async fn load_core_into_session(
             unlink_shm(&in_name);
             return Err(format!("sc-core exited early with {status}: {stderr_out}"));
         }
-        std::thread::sleep(Duration::from_millis(100));
+        // Yield to the Tokio runtime rather than blocking a worker thread:
+        // this wait can run up to ~18 s for late-geometry cores, and blocked
+        // workers stall every other task on the runtime.
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
+
+    // Success — disarm the kill guard so the running core survives this
+    // scope; the 'did not report metadata' error path below kills it
+    // explicitly (and reaps via wait()).
+    kill_guard.disarm();
+    // End the &mut child borrow NOW: the metadata-timeout error path and
+    // the bridge-thread move at the bottom of this fn both use `child`
+    // directly, and the borrow checker cannot see through disarm().
+    drop(kill_guard);
 
     // Late-geometry cores (PPSSPP etc.) may deliver their first rendered
     // frame before they report base metadata via SET_GEOMETRY — accept frame
