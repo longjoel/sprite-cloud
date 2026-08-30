@@ -89,7 +89,7 @@ fn line_double_vertical_rgb24(input: &[u8], width: usize, height: usize) -> Vec<
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 5 {
-        eprintln!("Usage: {} <core.so> <rom> <out_shm> <in_shm> [system_dir]", args[0]);
+        eprintln!("Usage: {} <core.so> <rom> <out_shm> <in_shm> [system_dir] [mono|save_dir=<path>]", args[0]);
         std::process::exit(1);
     }
     
@@ -98,9 +98,19 @@ fn main() {
     let out_name = &args[3];
     let in_name = &args[4];
     let system_dir = args.get(5).cloned().unwrap_or_else(|| "/tmp".into());
-    // Optional 6th arg: "mono" — mirror the live audio channel into both.
-    // Set by sc-server for platforms whose hardware is unconditionally mono.
-    let mono = args.get(6).is_some_and(|flag| flag == "mono");
+    // Optional trailing args: "mono" (mirror the live audio channel into
+    // both — set by sc-server for unconditionally-mono hardware) and
+    // "save_dir=<path>" (libretro save directory — where dosbox_pure stores
+    // per-content COW diffs for the immutable-base W98 model).
+    let mut mono = false;
+    let mut save_dir = "/tmp".to_string();
+    for flag in args.iter().skip(6) {
+        if flag == "mono" {
+            mono = true;
+        } else if let Some(dir) = flag.strip_prefix("save_dir=") {
+            save_dir = dir.to_string();
+        }
+    }
     
     // Map shared memory
     let out_mmap = map_shm::<OutputShm>(out_name, OutputShm::size())
@@ -122,7 +132,7 @@ fn main() {
         core_path: core_path.into(),
         content_path: Some(rom_path.into()),
         system_dir: system_dir.into(),
-        save_dir: "/tmp".into(),
+        save_dir: save_dir.into(),
         audio_channels: 2,
         mono,
     };

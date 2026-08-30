@@ -537,6 +537,30 @@ fn resolve_system_dir() -> String {
         .unwrap_or_else(|| "/tmp".into())
 }
 
+/// Per-game libretro save directory (where dosbox_pure stores per-content
+/// COW diffs for the immutable-base W98 model). Priority: GV_SAVES_DIR base
+/// → GV_DATA_DIR/saves base → None (no save-dir arg passed to sc-core).
+/// The directory is created eagerly so the core can write into it at once.
+fn resolve_saves_dir(
+    saves_override: Option<&str>,
+    data_dir: Option<&str>,
+    game_id: &str,
+) -> Option<PathBuf> {
+    let base = match saves_override {
+        Some(s) if !s.trim().is_empty() => s.trim().to_string(),
+        _ => match data_dir {
+            Some(d) if !d.trim().is_empty() => format!("{}/saves", d.trim()),
+            _ => return None,
+        },
+    };
+    let dir = PathBuf::from(base).join(game_id);
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!("[CORE] create saves dir {}: {e}", dir.display());
+        return None;
+    }
+    Some(dir)
+}
+
 static CONFIGURED_CORES_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 static CONFIGURED_SYSTEM_DIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
@@ -821,16 +845,27 @@ pub async fn load_core_into_session(
     );
     tracing::info!("[CORE] system_dir={}", system_dir);
 
-    let mut spawn_args: Vec<&str> = vec![
-        &core_path_str,
-        &actual_rom_path,
-        &out_name,
-        &in_name,
-        &system_dir,
+    let mut spawn_args: Vec<String> = vec![
+        core_path_str.clone(),
+        actual_rom_path.clone(),
+        out_name.clone(),
+        in_name.clone(),
+        system_dir.clone(),
     ];
     if mono_flag {
-        spawn_args.push("mono");
+        spawn_args.push("mono".into());
         tracing::info!("[CORE] mono platform — audio channel mirroring enabled");
+    }
+    // Per-game libretro save dir — dosbox_pure stores per-content COW diffs
+    // here ("Save Difference Per Content"), keeping the shared base W98 disk
+    // image immutable. Other cores ignore it (SRAM is handled server-side).
+    if let Some(saves_dir) = resolve_saves_dir(
+        std::env::var("GV_SAVES_DIR").ok().as_deref(),
+        std::env::var("GV_DATA_DIR").ok().as_deref(),
+        game_id,
+    ) {
+        spawn_args.push(format!("save_dir={}", saves_dir.display()));
+        tracing::info!("[CORE] save_dir={}", saves_dir.display());
     }
 
     let mut child = match std::process::Command::new(&core_bin)
@@ -1250,6 +1285,31 @@ pub async fn load_core_into_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saves_dir_resolution_priority_and_creation() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Explicit override wins over a data dir.
+        let override_root = tmp.path().join("saves");
+        let d = resolve_saves_dir(
+            Some(override_root.to_str().unwrap()),
+            Some("/nonexistent/data"),
+            "game-1",
+        )
+        .unwrap();
+        assert_eq!(d, override_root.join("game-1"));
+        assert!(d.exists(), "saves dir must be created eagerly");
+
+        // Data-dir fallback builds {data}/saves/{game}.
+        let data_root = tmp.path().join("data");
+        let d2 = resolve_saves_dir(None, Some(data_root.to_str().unwrap()), "game-2")
+            .unwrap();
+        assert_eq!(d2, data_root.join("saves").join("game-2"));
+        assert!(d2.exists());
+
+        // Nothing configured → None (sc-core falls back to its default).
+        assert!(resolve_saves_dir(None, None, "game-3").is_none());
+    }
 
     #[test]
     fn production_bridge_keeps_registration_and_explicit_completion_wired() {
