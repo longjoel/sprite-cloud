@@ -105,6 +105,14 @@ async fn push_audio(session: &GameSession, audio_data: &[i16], audio_acc: &mut V
     {
         let mut buf = std::mem::take(audio_acc);
         buf.extend_from_slice(audio_data);
+        // Hard cap (~1.25s stereo): if the consumer/network stalls, keep
+        // latency bounded and drop the OLDEST audio rather than growing
+        // the accumulator forever.
+        const MAX_AUDIO_ACC: usize = 48000 * 2 * 5 / 4;
+        if buf.len() > MAX_AUDIO_ACC {
+            let excess = buf.len() - MAX_AUDIO_ACC;
+            buf.drain(..excess);
+        }
         let chunk = (enc.sample_rate() as f64 * 0.02).round() as usize * enc.channels() as usize;
         while buf.len() >= chunk {
             let rest = buf.split_off(chunk);
@@ -258,7 +266,16 @@ pub async fn run_stream(session: Arc<GameSession>) {
                     let frame_rx_guard = session.core_frame_rx.lock().await;
                     if let Some(ref rx) = *frame_rx_guard {
                         let mut latest = None;
-                        while let Ok(f) = rx.try_recv() {
+                        // Keep audio from the most recent drained frames: the
+                        // tick can lag the core, and a latest-only drain turns
+                        // that jitter into audible gaps. Last 2 frames absorb
+                        // single-tick skew without stale-audio bursts.
+                        let mut audio_frames: Vec<Vec<i16>> = Vec::with_capacity(2);
+                        while let Ok(mut f) = rx.try_recv() {
+                            audio_frames.push(std::mem::take(&mut f.audio));
+                            if audio_frames.len() > 2 {
+                                audio_frames.remove(0);
+                            }
                             latest = Some(f);
                         }
                         match latest {
@@ -281,14 +298,15 @@ pub async fn run_stream(session: Arc<GameSession>) {
                                     }
                                 }
                                 video_data = Some((f.pixels, f.width, f.height));
-                                audio_data = f.audio;
+                                audio_data = audio_frames.concat();
 
                                 // sc-core reports its *measured* emitted sample
                                 // rate, which can shift between phases (PSP
                                 // movie vs gameplay). Rebuild the audio encoder
-                                // when the rate moves >2% so the appsrc caps
-                                // stay truthful; GStreamer's audioresample does
-                                // the actual conversion to 48 kHz for Opus.
+                                // only on REAL rate changes (>5%) — the raw
+                                // measurement jitters ±2% around the true rate
+                                // (frame-pacing noise), so a 2% threshold
+                                // oscillates the encoder and blips audio.
                                 if f.sample_rate > 0 {
                                     let mut aenc_guard = session.audio_enc.lock().await;
                                     let mismatch = if let Some(ref aenc_arc) = *aenc_guard
@@ -296,7 +314,7 @@ pub async fn run_stream(session: Arc<GameSession>) {
                                     {
                                         let cur = enc.sample_rate() as f64;
                                         let target = f.sample_rate as f64;
-                                        cur > 0.0 && (target - cur).abs() > cur * 0.02
+                                        cur > 0.0 && (target - cur).abs() > cur * 0.05
                                     } else {
                                         false
                                     };
