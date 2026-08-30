@@ -1066,20 +1066,31 @@ pub async fn load_core_into_session(
                                 let _ = resp_tx.send(CoreResponse::SaveStateResult { data, ok });
                             }
                             CoreCommand::LoadState { data } => {
-                                let len = data.len().min(sc_core::MAX_RESPONSE);
-                                unsafe {
-                                    std::ptr::copy_nonoverlapping(
-                                        data.as_ptr(),
-                                        out.response_data.as_ptr() as *mut u8,
-                                        len,
+                                if data.len() > sc_core::MAX_RESPONSE {
+                                    // Reject instead of truncating: a cut-off
+                                    // state handed to retro_unserialize crashes
+                                    // the core (PPSSPP death on load_state).
+                                    tracing::error!(
+                                        "[BRIDGE] load_state payload too large ({} bytes > MAX_RESPONSE {}) — rejecting",
+                                        data.len(),
+                                        sc_core::MAX_RESPONSE
                                     );
+                                    let _ = resp_tx.send(CoreResponse::LoadStateResult { ok: false });
+                                } else {
+                                    unsafe {
+                                        std::ptr::copy_nonoverlapping(
+                                            data.as_ptr(),
+                                            out.response_data.as_ptr() as *mut u8,
+                                            data.len(),
+                                        );
+                                    }
+                                    out.response_data_len.store(data.len() as u32, Ordering::Relaxed);
+                                    inp.cmd_type.store(CMD_LOAD_STATE, Ordering::Relaxed);
+                                    inp.cmd_ready.store(true, Ordering::Release);
+                                    std::thread::sleep(Duration::from_millis(100));
+                                    let ok = out.response_ok.load(Ordering::Relaxed);
+                                    let _ = resp_tx.send(CoreResponse::LoadStateResult { ok });
                                 }
-                                out.response_data_len.store(len as u32, Ordering::Relaxed);
-                                inp.cmd_type.store(CMD_LOAD_STATE, Ordering::Relaxed);
-                                inp.cmd_ready.store(true, Ordering::Release);
-                                std::thread::sleep(Duration::from_millis(100));
-                                let ok = out.response_ok.load(Ordering::Relaxed);
-                                let _ = resp_tx.send(CoreResponse::LoadStateResult { ok });
                             }
                         }
                     }
